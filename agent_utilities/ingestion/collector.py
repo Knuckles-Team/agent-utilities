@@ -181,10 +181,16 @@ def upload_local_sessions(
     files: set[str] = set()
     received = 0
     ingested = 0
+    enqueued = 0
+    jobs: list[str] = []
     agents: set[str] = set()
 
     def _flush() -> None:
-        nonlocal received, ingested
+        # CONCEPT:KG-2.272 — the server now ENQUEUES a large batch as a background
+        # ``session_upload`` job (returns ``status=enqueued`` + ``job_id``) and only
+        # ingests a tiny batch inline (``status=ingested``); count both honestly so
+        # the summary reflects async-drain (not a silent ``ingested=0``).
+        nonlocal received, ingested, enqueued
         if not pending:
             return
         params: dict = {"bundles_json": _json.dumps(pending, default=str)}
@@ -203,6 +209,11 @@ def upload_local_sessions(
         if isinstance(result, dict):
             received += int(result.get("received", 0) or 0)
             ingested += int(result.get("ingested", 0) or 0)
+            if result.get("status") == "enqueued":
+                enqueued += int(result.get("received", 0) or 0)
+                jid = result.get("job_id")
+                if jid:
+                    jobs.append(str(jid))
         pending.clear()
 
     for path, _mtime, _size, bundle in iter_local_bundles(only_changed=only_changed):
@@ -219,6 +230,8 @@ def upload_local_sessions(
         "files": len(files),
         "received": received,
         "ingested": ingested,
+        "enqueued": enqueued,
+        "jobs": jobs,
         "agents": sorted(agents),
     }
 

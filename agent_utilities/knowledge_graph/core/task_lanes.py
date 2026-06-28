@@ -29,7 +29,17 @@ TASK_LANES: dict[str, dict] = {
     # the heavy bulk lane that was being starved
     "ingestion": {
         "task_types": frozenset(
-            {"codebase", "document", "content_url", "diff", "skill_workflows"}
+            {
+                "codebase",
+                "document",
+                "content_url",
+                "diff",
+                "skill_workflows",
+                # CONCEPT:KG-2.272 — remote chat/session bundle uploads land in
+                # the usage store off the request path; a bulk write, so it rides
+                # the ingestion lane (not the best-effort maint lane).
+                "session_upload",
+            }
         ),
         "model_role": "lite",
     },

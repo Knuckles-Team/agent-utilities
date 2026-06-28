@@ -1411,6 +1411,7 @@ def register_write_ingest_tools(mcp):
     ) -> str:
         """Client-parses, server-sinks ingestion of agent session logs."""
         import json as _json
+        import uuid as _uuid
 
         try:
             if action == "collect":
@@ -1418,19 +1419,65 @@ def register_write_ingest_tools(mcp):
 
                 return _json.dumps(collect_local_sessions(), default=str)
             if action == "upload":
+                # CONCEPT:KG-2.272 — NON-BLOCKING upload. Each uploaded session
+                # expands to many usage-store rows (sessions + events + tool
+                # calls + FTS index), so the old synchronous ``record_bundle``
+                # loop blew past the 60s MCP client window under load even at
+                # batch=10. Mirror ``source_sync``/``graph_ingest``: ENQUEUE the
+                # bundles as a durable ``session_upload`` background task and
+                # return a ``job_id`` immediately — the host daemon's task worker
+                # drains it (parse → usage store) off the call path. A tiny batch
+                # is cheap, so it still runs inline (auto-sized, no user knob).
                 from agent_utilities.usage.models import ParsedSessionBundle
                 from agent_utilities.usage.recorder import get_usage_recorder
 
                 raw = _json.loads(bundles_json) if bundles_json else []
-                recorder = get_usage_recorder()
-                ok = 0
-                for item in raw:
-                    bundle = ParsedSessionBundle.model_validate(item)
-                    if tenant_id:
-                        bundle.session.tenant_id = tenant_id
-                    if recorder.record_bundle(bundle):
-                        ok += 1
-                return _json.dumps({"received": len(raw), "ingested": ok})
+                # Inline fast path only for a handful of bundles — well under the
+                # call ceiling; anything larger enqueues.
+                _UPLOAD_INLINE_MAX = 3
+                if len(raw) <= _UPLOAD_INLINE_MAX:
+                    recorder = get_usage_recorder()
+                    ok = 0
+                    for item in raw:
+                        bundle = ParsedSessionBundle.model_validate(item)
+                        if tenant_id:
+                            bundle.session.tenant_id = tenant_id
+                        if recorder.record_bundle(bundle):
+                            ok += 1
+                    return _json.dumps(
+                        {"received": len(raw), "ingested": ok, "status": "ingested"}
+                    )
+
+                # Large upload → enqueue and return. Carry the bundles on the
+                # Task node's metadata payload (same shape as ``kg_memory``,
+                # CONCEPT:KG-2.130); the host worker reads it back, parses and
+                # records. ``skip_dedupe`` because each batch is a distinct,
+                # idempotent (record_bundle replaces rows) payload — never collapse
+                # two real uploads into one. A unique target keeps job ids distinct.
+                engine = kg_server._get_engine()
+                target = f"session-upload:{_uuid.uuid4().hex[:12]}"
+                jid = engine.submit_task(
+                    target_path=target,
+                    is_codebase=False,
+                    provenance={"agent_id": "ingest_sessions"},
+                    task_type="session_upload",
+                    skip_dedupe=True,
+                    extra_meta={
+                        "payload": {"bundles": raw, "tenant_id": tenant_id or ""}
+                    },
+                )
+                return _json.dumps(
+                    {
+                        "status": "enqueued",
+                        "job_id": jid,
+                        "received": len(raw),
+                        "message": (
+                            f"{len(raw)} session bundles enqueued as background job "
+                            f"{jid}; poll with graph_ingest action=job_status "
+                            f"job_id={jid}."
+                        ),
+                    }
+                )
             if action == "paths":
                 from agent_utilities.ingestion.collector import collect_paths
 
