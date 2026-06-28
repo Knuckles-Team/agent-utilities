@@ -1236,9 +1236,14 @@ class IngestionEngine:
         # ``write_graph`` keys this repo's delta-skip manifest + community tenant
         # too, keeping them co-resident with the content they guard. Routing off →
         # ``(self.graph_name, self.backend)`` unchanged.
-        write_graph, backend = self._routed_write(
-            kind="code", repo=Path(source_path).name
-        )
+        # CONCEPT:KG-2.283 — a split sub-task supplies its own routing key
+        # (``<repo>__s<i>``) so its bucket's writes land on a DISTINCT per-shard
+        # graph and the K buckets commit in parallel across the K redb shard
+        # writers; a normal whole-repo ingest keys on the repo name as before.
+        route_repo = (manifest.metadata or {}).get("route_repo") or Path(
+            source_path
+        ).name
+        write_graph, backend = self._routed_write(kind="code", repo=route_repo)
 
         # Enrichment writers need add_node/add_edge; wrap graph_compute if the
         # injected backend doesn't expose them (non-epistemic backends).
