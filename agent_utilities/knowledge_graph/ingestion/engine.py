@@ -1212,11 +1212,30 @@ class IngestionEngine:
         import asyncio
 
         try:
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 self._run_codebase_structural, manifest, graph_compute, source_path
             )
         except Exception as e:  # noqa: BLE001
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
+
+        # CONCEPT:KG-2.285 — a repo is not just code. Run the deterministic
+        # per-file classifier (CONCEPT:KG-2.284) over the same tree and fan the
+        # NON-code artifacts out to their existing native adaptors so ONE
+        # ``graph_ingest`` over a repo yields Code + Document(markdown) + Skill +
+        # Prompt + Spec nodes, each natively chunked/embedded for its type — not
+        # flattened into code. Native by default; opt out with
+        # ``metadata["classify"]=False``. Best-effort: a routing failure never
+        # fails the structural code ingest that already succeeded.
+        if result.status == "success" and manifest.metadata.get("classify", True):
+            try:
+                await self._route_classified_artifacts(manifest, source_path, result)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "[KG-2.285] artifact classification/routing failed for %s",
+                    source_path,
+                    exc_info=True,
+                )
+        return result
 
     def _run_codebase_structural(
         self, manifest: IngestionManifest, graph_compute: Any, source_path: str
@@ -1411,44 +1430,6 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             logger.debug("codebase per-file manifest persist failed", exc_info=True)
 
-        # Auto-detect specs: the repo's own ``.specify/**/*.md`` → Spec nodes
-        # (bounded to source_path/.specify so we don't walk the whole tree).
-        specs = 0
-        spec_enrichable: list[dict[str, Any]] = []
-        spec_root = Path(source_path) / ".specify"
-        if spec_root.is_dir() and backend is not None:
-            import hashlib as _hashlib
-
-            for sp in sorted(spec_root.rglob("*.md")):
-                try:
-                    text = sp.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                sid = "spec:" + _hashlib.sha256(str(sp).encode()).hexdigest()[:12]
-                try:
-                    backend.add_node(
-                        sid,
-                        type="Spec",
-                        name=sp.name,
-                        file_path=str(sp),
-                        ast_hash=_hashlib.sha256(text.encode()).hexdigest(),
-                        summary=text[:500],
-                    )
-                    specs += 1
-                    # Specs are bounded NL requirement docs — the right grain to
-                    # enrich (concepts + facts), unlike per-symbol code cards whose
-                    # per-item LLM cost would violate native-by-default discipline.
-                    if text.strip():
-                        spec_enrichable.append(
-                            {
-                                "source_id": sid,
-                                "text": text,
-                                "source_type": "spec",
-                                "title": sp.name,
-                            }
-                        )
-                except Exception:  # noqa: BLE001
-                    logger.debug("spec write failed for %s", sp, exc_info=True)
 
         # Commit-history graph (CONCEPT:KG-2.282) — a normal codebase ingest ALSO
         # ingests the repo's evolution as first-class :Commit/:Author/:File +
@@ -1497,11 +1478,15 @@ class IngestionEngine:
             except Exception:  # noqa: BLE001 — history never breaks ingest
                 logger.debug("commit-history ingest failed", exc_info=True)
 
-        nodes = summary.code + summary.tests + summary.features + specs
+        # Specs, markdown, skills and prompts are no longer detected here: the
+        # async ``_ingest_codebase`` wrapper runs the deterministic per-file
+        # classifier (CONCEPT:KG-2.284/2.283) over this tree AFTER the structural
+        # pass and fans each artifact out to its native adaptor (specs included,
+        # now covering ``*.spec.md`` as well as ``.specify/**``).
+        nodes = summary.code + summary.tests + summary.features
         cards_pending = max(0, summary.code - summary.cards_generated)
         details = summary.model_dump()
         details["cards_pending"] = cards_pending
-        details["specs"] = specs
         details["source_path"] = source_path
         if history:
             details["commit_history"] = history
@@ -1524,8 +1509,134 @@ class IngestionEngine:
             nodes_created=nodes,
             edges_created=summary.covers_edges + summary.calls_edges + history_edges,
             details=details,
-            enrichable=spec_enrichable,
         )
+
+    async def _route_classified_artifacts(
+        self,
+        manifest: IngestionManifest,
+        source_path: str,
+        result: IngestionResult,
+    ) -> None:
+        """Classify a repo's non-code files and route them to native adaptors.
+
+        CONCEPT:KG-2.285 — The deterministic classifier (CONCEPT:KG-2.284) splits
+        the tree into Skill / Spec / Prompt / Document / Config buckets. Each
+        non-code bucket fans out to the *existing* per-type adaptor (this is a
+        router, never a new ingest engine):
+
+          * Skill   → ``ContentType.SKILL``   (Skill node + embedded instruction chunks)
+          * Prompt  → ``ContentType.PROMPT``  (prompt_template node)
+          * Document→ ``ContentType.DOCUMENT`` (Document + IdeaBlock chunks + Concepts)
+          * Spec    → inline ``Spec`` node (no SPEC adaptor exists) + central enrich
+
+        Every artifact is linked to a ``Repo`` node via ``CONTAINS`` so a repo's
+        skills/docs/prompts/specs are reachable from the repo they belong to. The
+        fanned-out adaptors run their own inline enrichment; the inline specs ride
+        the parent result's ``enrichable`` so the central seam enriches them once.
+        Counts are recorded under ``result.details["classified"]``.
+        """
+        import asyncio as _asyncio
+        import hashlib as _hashlib
+
+        from ..core.engine_tasks import compute_ingest_worker_count
+        from .repo_classifier import classify_repo
+
+        plan = classify_repo(source_path)
+        repo_name = Path(source_path).name
+        repo_id = f"repo:{repo_name}"
+        write_graph, backend = self._routed_write(kind="code", repo=repo_name)
+
+        add_edge = getattr(backend, "add_edge", None)
+        add_node = getattr(backend, "add_node", None)
+        if callable(add_node):
+            try:
+                add_node(repo_id, type="Repo", name=repo_name, file_path=source_path)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _link(child_id: str) -> None:
+            if child_id and callable(add_edge):
+                try:
+                    add_edge(repo_id, child_id, rel_type="CONTAINS")
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # ── Specs (inline; no SPEC adaptor) ──────────────────────────────
+        specs = 0
+        for fc in plan.specs:
+            try:
+                text = fc.path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            sid = "spec:" + _hashlib.sha256(str(fc.path).encode()).hexdigest()[:12]
+            if not callable(add_node):
+                continue
+            try:
+                add_node(
+                    sid,
+                    type="Spec",
+                    name=fc.path.name,
+                    file_path=str(fc.path),
+                    ast_hash=_hashlib.sha256(text.encode()).hexdigest(),
+                    summary=text[:500],
+                )
+                specs += 1
+                _link(sid)
+                if text.strip():
+                    result.enrichable.append(
+                        {
+                            "source_id": sid,
+                            "text": text,
+                            "source_type": "spec",
+                            "title": fc.path.name,
+                        }
+                    )
+            except Exception:  # noqa: BLE001
+                logger.debug("spec write failed for %s", fc.path, exc_info=True)
+
+        # ── Skill / Prompt / Document → existing adaptors (bounded fan-out) ──
+        sem = _asyncio.Semaphore(max(1, compute_ingest_worker_count()))
+
+        async def _route(ct: ContentType, path: Path) -> IngestionResult | None:
+            sub = IngestionManifest(
+                content_type=ct,
+                source_uri=str(path),
+                metadata={**manifest.metadata, "repo": repo_name, "classify": False},
+                force=manifest.force,
+            )
+            async with sem:
+                try:
+                    return await self.ingest(sub)
+                except Exception:  # noqa: BLE001
+                    logger.debug("routed %s ingest failed for %s", ct.value, path, exc_info=True)
+                    return None
+
+        jobs: list[tuple[ContentType, Path]] = []
+        jobs += [(ContentType.SKILL, fc.path) for fc in plan.skills]
+        jobs += [(ContentType.PROMPT, fc.path) for fc in plan.prompts]
+        jobs += [(ContentType.DOCUMENT, fc.path) for fc in plan.documents]
+
+        routed = await _asyncio.gather(*(_route(ct, p) for ct, p in jobs))
+
+        counts = {"skill": 0, "prompt": 0, "document": 0}
+        for (ct, _p), res in zip(jobs, routed, strict=False):
+            if isinstance(res, IngestionResult) and res.status == "success":
+                counts[ct.value] = counts.get(ct.value, 0) + 1
+                result.nodes_created += res.nodes_created
+                result.edges_created += res.edges_created
+                src = next(
+                    (e.get("source_id") for e in res.enrichable if e.get("source_id")),
+                    "",
+                )
+                _link(str(src))
+
+        classified = {**counts, "spec": specs}
+        result.nodes_created += specs
+        result.details["classified"] = classified
+        if any(classified.values()):
+            logger.info(
+                "[KG-2.285] repo %s classified: %s", repo_name, classified
+            )
 
     @adaptor(ContentType.DOCUMENT)
     async def _ingest_document(self, manifest: IngestionManifest) -> IngestionResult:
