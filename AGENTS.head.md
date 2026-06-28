@@ -132,6 +132,57 @@ target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
 — run `source_sync source=all mode=delta` (and see `agent-utilities-doctor`'s
 `ingestion_coverage` check) — then fall back to grep.
 
+## Delegate to the KG + graph-os — you are the orchestrator + exception-resolver (READ BEFORE doing a task yourself)
+
+This builds on *Query the code KG before you grep*: that rule offloads
+*understanding* to the KG; this one offloads the *work* to graph-os and the local
+LLM. The platform is built so the **local model + graph-os do the work and you
+(the harness) orchestrate + resolve exceptions**. The standing default is
+**delegate; reserve direct action for what the autonomous system genuinely cannot
+do yet.** The trajectory is to move more onto graph-os over time and orchestrate
+**off the harness** wherever possible.
+
+Before doing a task yourself, delegate it:
+
+- **Understanding code** → the KG, never grep first (the section above):
+  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:KG-2.134) +
+  `graph_query` / `graph_search` / `graph_code_nav`. If an area is uningested,
+  `source_sync source=all mode=delta` first; close the loop with
+  `graph_feedback correction_type=reads_avoided` (AHE-3.61).
+- **Doing a task** an ingested skill / workflow / agent can already do →
+  `graph_orchestrate action=execute_agent` / `action=execute_workflow` on the
+  local LLM — the `agent-utilities-expert` agent for ecosystem work, or the right
+  ingested skill / workflow. The local qwen executes; you orchestrate. Reach the
+  rest of the fleet through the full `engine_<domain>` MCP surface + the
+  multiplexer meta-tools (`find_tools` / `load_tools`).
+- **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
+  `LoopController`), the evolution flywheel, and the AHE-3.x hardening loop;
+  **REVIEW** their proposals through the spec / prompt review-veto gates
+  (propose-and-hold is the default) rather than hand-doing what the flywheel
+  produces.
+
+Your role becomes two things:
+
+1. **Orchestrate.** Decompose a goal, dispatch it to graph-os / the local LLM, and
+   **steer** it: query live `EvolutionState`, the `:ToolCall` / `RunTrace`
+   provenance (CONCEPT:KG-2.296), reprioritize, approve/veto.
+2. **Resolve exceptions.** When a delegated run fails, returns a wrong or
+   ungrounded answer, or the system couldn't self-troubleshoot — **that** is your
+   job. Query the `RunTrace` / `:ToolCall` to see exactly what the local LLM did
+   (which tools, what args, what result), find **why** it failed, fix the gap (a
+   missing/weak skill, an unbound tool, a prompt, missing data/ingestion), and
+   **re-delegate**. You are the backstop the autonomous system escalates to.
+
+Full visibility + steerability is guaranteed by design: every delegated run writes
+`:ToolCall` / `RunTrace` to the epistemic-graph (CONCEPT:KG-2.296) — query it via
+graph-os. The **resource-priority edict** (interactive / orchestration work
+outranks background ingestion, CONCEPT:ORCH-1.98/1.99) guarantees your
+orchestration is never starved by ingestion.
+
+Every exception you resolve should **harden** the system (a new skill, a fixed tool
+binding, a hardened prompt — via the AHE-3.x hardening loop) so it handles that
+case itself next time. The goal is orchestrating completely off the harness.
+
 ## Architecture Reference (current)
 
 - **Engine transport.** Python talks to the Rust `epistemic-graph` engine **only**
