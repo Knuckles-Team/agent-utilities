@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 520
+total_concepts: 527
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1054,6 +1054,7 @@ concepts:
   - agent_utilities/ingestion/agent_sources/__init__.py
   - agent_utilities/ingestion/agent_sources/_jsonl.py
   - agent_utilities/ingestion/agent_sources/parsers/__init__.py
+  - agent_utilities/ingestion/agent_sources/parsers/antigravity.py
   - agent_utilities/ingestion/agent_sources/parsers/claude.py
   - agent_utilities/ingestion/agent_sources/parsers/codex.py
   - agent_utilities/ingestion/agent_sources/parsers/generic_jsonl.py
@@ -1103,13 +1104,15 @@ concepts:
   - agent_utilities/server/app.py
   doc: usage/cost/observability surface for all 3 UIs
 - id: ECO-4.42
-  name: clients parse local logs and POST normalized
+  name: client-side chat/session ingestion for Claude + Antigravity
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/cli/__init__.py
   - agent_utilities/gateway/usage_api.py
+  - agent_utilities/ingestion/collector.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: clients parse local logs and POST normalized
+  doc: client-side chat/session ingestion for Claude + Antigravity
 - id: ECO-4.43
   name: git issue/PR -> SWE task resolver + webhook ingress
   pillar: ECO-4
@@ -2556,10 +2559,14 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/assimilation/dedup.py
   - agent_utilities/knowledge_graph/assimilation/gap_analysis.py
+  - agent_utilities/knowledge_graph/assimilation/ingest.py
+  - agent_utilities/knowledge_graph/assimilation/synergy.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/core/bounded_read.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
   doc: a label-scoped MATCH
 - id: KG-2.52
   name: the authoritative TBox the platform ships
@@ -2641,6 +2648,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
+  - agent_utilities/knowledge_graph/core/ingest_routing.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
@@ -2649,14 +2657,14 @@ concepts:
   doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
     over GRAPH_SERVICE_ENDPOINTS
 - id: KG-2.59
-  name: MCP Tool Source Connector
+  name: ────────────────────────────
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
-  doc: MCP Tool Source Connector
+  doc: ────────────────────────────
 - id: KG-2.60
   name: Data is private-to-its-owner by default; this is the explicit promotion path. action=
   pillar: KG-2
@@ -3188,6 +3196,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/maintenance/owl_closure.py
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
   doc: Single canonical ontology library
 - id: KG-2.113
   name: Hardened priority and scheduled task queue with retry and dead-letter
@@ -3324,6 +3333,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_memory.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: a memory write offloaded from a SERVING process. The
 - id: KG-2.131
   name: refresh the per-session memento cache in this SAME background
@@ -3480,6 +3490,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/ingest_routing.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/orchestration/fleet_autoscaler.py
   - agent_utilities/security/secrets_client.py
@@ -3918,18 +3929,69 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   doc: A single dropped connection
-- id: KG-2.272
-  name: non-blocking ingest_sessions upload
+- id: KG-2.264
+  name: and resets the socket, so the assimilation
   pillar: KG-2
   status: live
   code_paths:
-  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/knowledge_graph/assimilation/dedup.py
+  doc: and resets the socket, so the assimilation
+- id: KG-2.265
+  name: manage arbitrary
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: manage arbitrary
+- id: KG-2.266
+  name: ask the Knowledge Graph in plain English. An LLM
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/nl_query.py
+  - agent_utilities/knowledge_graph/core/table_ingest.py
+  - agent_utilities/knowledge_graph/etl/pipeline.py
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: ask the Knowledge Graph in plain English. An LLM
+- id: KG-2.267
+  name: staged
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/staged_pipeline.py
+  doc: staged
+- id: KG-2.269
+  name: preserve unified query under ingestion graph routing. When
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/ingest_routing.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: preserve unified query under ingestion graph routing. When
+- id: KG-2.272
+  name: the server now ENQUEUES a large batch as a background
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/ingestion/collector.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
-  - agent_utilities/ingestion/collector.py
-  doc: ingest_sessions action=upload enqueues a durable session_upload background
-    task (drained by the host worker) and returns a job_id immediately instead of
-    synchronously ingesting bundles inside the MCP call window
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: the server now ENQUEUES a large batch as a background
+- id: KG-2.273
+  name: The authority has already acked; this must not wait on the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/fanout_backend.py
+  doc: The authority has already acked; this must not wait on the
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5431,6 +5493,7 @@ concepts:
   - agent_utilities/cli/__init__.py
   - agent_utilities/core/providers.py
   - agent_utilities/deployment/doctor.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: the agent factory auto-loads every
 - id: OS-5.53
   name: Cheap no-op once every schedule has ≤1 active

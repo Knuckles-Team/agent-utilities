@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Async mirror fan-out — the durable-write ack no longer waits on the mirror
+  enqueue (CONCEPT:KG-2.273).** `FanOutBackend` mirror writes were synchronously
+  appended to the sqlite outbox before the authority ack returned, so a slow/locked
+  mirror outbox throttled ingestion (the `busy_timeout` fix removed the lock errors
+  but not the coupling). The mirror enqueue is now a **non-blocking hand-off**: the
+  write puts the mutation onto a bounded, auto-sized in-memory ring and returns
+  immediately; a single persister thread drains the ring into the durable outbox
+  (batched) and wakes the per-mirror drainers. Bounded + backpressure: on ring
+  overflow the producer falls back to a synchronous durable-outbox append (loud,
+  reconcilable — a mirror write is never silently dropped, memory never grows
+  unbounded). Crash-safety is preserved (the durable outbox replays from its cursor
+  on restart; `reconcile` covers the brief ack→persist window). Implements roadmap
+  item D of `reports/north-star-agent-compute-architecture-2026-06-27.md`.
+
 ### Added
 - **Agentic Resource Discovery (ARD) interop — publish + consume + federate
   (CONCEPT:ECO-4.95/4.96/4.97, KG-2.188, OS-5.60).** agent-utilities becomes a

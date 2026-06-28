@@ -159,7 +159,12 @@ you can push, query, or re-ingest on its own.
 **Continuous (live mirror).** `setup-databases --profile prod` registers Stardog as
 a `role="mirror"` connection by default, so under `GRAPH_BACKEND=fanout` every KG
 write — including each `source_sync` of LeanIX/ServiceNow — fans out into Stardog
-via the durable outbox. Backfill what's already there with `reconcile` (or `setup`'s
+via the durable outbox. The fan-out is **off the write-ack path** (CONCEPT:KG-2.273):
+the authority commit returns immediately and the mirror enqueue is a non-blocking
+hand-off to a bounded in-memory ring that a persister thread drains into the durable
+outbox — so a slow/locked mirror outbox never throttles ingestion. On a sustained
+burst the ring overflows to a synchronous durable-outbox append (loud, reconcilable,
+never dropped). Backfill what's already there with `reconcile` (or `setup`'s
 Step 4). Opt out with `--no-mirror-data` if you only want the ontology.
 
 ```bash

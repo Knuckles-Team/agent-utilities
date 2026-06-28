@@ -14,9 +14,11 @@ Postgres/Neo4j/FalkorDB server required):
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
+import agent_utilities.knowledge_graph.backends.fanout_backend as fanout_module
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.backends.fanout_backend import FanOutBackend
 from agent_utilities.knowledge_graph.backends.outbox import GraphOutbox
@@ -79,9 +81,13 @@ def _make(tmp_path: Path, mirrors: dict[str, RecordingBackend]) -> FanOutBackend
 
 
 def _stop_drainers(fan: FanOutBackend) -> None:
-    """Stop + join the background per-mirror drainer threads, so the outbox apply is
-    driven purely synchronously by the test (no thread race / CPU-starvation flake)."""
+    """Stop + join ALL background threads (the persister + per-mirror drainers), so
+    the ring→outbox→mirror path is driven purely synchronously by the test (no thread
+    race / CPU-starvation flake). After this, the async hand-off ring may still hold
+    un-persisted writes — :func:`_drain_outbox_sync` flushes them first."""
     fan._stop.set()
+    if fan._persister is not None:
+        fan._persister.join(timeout=10.0)
     for st in fan._state.values():
         t = getattr(st, "thread", None)
         if t is not None:
@@ -89,11 +95,14 @@ def _stop_drainers(fan: FanOutBackend) -> None:
 
 
 def _drain_outbox_sync(fan: FanOutBackend) -> None:
-    """Apply every mirror's outbox tail synchronously (same apply→ack path the drainer
-    runs). The drainer threads must already be stopped (see :func:`_stop_drainers`) so
-    nothing races this drain. Deterministic regardless of box load."""
+    """Drive the full mirror hand-off synchronously: first flush the in-memory ring
+    into the durable outbox (the persister's job, CONCEPT:KG-2.273), then apply every
+    mirror's outbox tail (the drainer's apply→ack path). The background threads must
+    already be stopped (see :func:`_stop_drainers`) so nothing races this drain.
+    Deterministic regardless of box load."""
     outbox = fan._outbox
     assert outbox is not None
+    fan._drain_handoff_remaining()  # ring -> durable outbox (persister stopped)
     for mirror, backend in fan._mirrors.items():
         while outbox.lag(mirror) > 0:
             pending = outbox.pending(mirror)
@@ -119,6 +128,96 @@ def test_write_fans_out_to_every_mirror(tmp_path):
         _drain_outbox_sync(fan)
         assert a.n_execute() == 20
         assert b.n_execute() == 20
+    finally:
+        fan.close()
+
+
+def test_ack_does_not_wait_on_mirror_enqueue(tmp_path):
+    """THE KEY PRINCIPLE (CONCEPT:KG-2.273): the authority ack must NOT wait on the
+    mirror enqueue. A slow/blocked durable outbox ``append`` is absorbed by the async
+    hand-off — the write returns immediately — and the mirror still receives the write
+    asynchronously once the persister catches up. Operator's law: blocked time on the
+    ack path is wasted compute."""
+    m = RecordingBackend("m")
+    fan = _make(tmp_path, {"m": m})
+    try:
+        slow_s = 0.6
+        real_append = fan._outbox.append
+
+        def slow_append(op, payload):
+            # The persister thread blocks here; the producer (execute) must not.
+            time.sleep(slow_s)
+            return real_append(op, payload)
+
+        fan._outbox.append = slow_append  # type: ignore[method-assign]
+
+        start = time.monotonic()
+        fan.execute("CREATE (n:Doc {id:'1'})", is_write=True)
+        ack_latency = time.monotonic() - start
+        # The ack returned essentially instantly — it did NOT block on the 0.6s outbox
+        # append happening on the persister thread.
+        assert ack_latency < slow_s / 2, (
+            f"ack waited {ack_latency:.3f}s on the mirror enqueue (should be ~0)"
+        )
+
+        # ...and the mirror still receives the write asynchronously (eventual).
+        assert fan.flush_mirrors(timeout=10.0)
+        assert m.n_execute() == 1
+    finally:
+        fan.close()
+
+
+def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
+    """Bounded + backpressure (CONCEPT:KG-2.273): when the in-memory ring is full
+    (the persister can't keep up), a further write does NOT block the ack and is NOT
+    dropped — it appends straight to the durable outbox (loud, reconcilable). Memory
+    stays bounded."""
+    monkeypatch.setattr(fanout_module, "_auto_handoff_capacity", lambda: 4)
+    m = RecordingBackend("m")
+    fan = fanout_module.FanOutBackend(
+        RecordingBackend("auth"), {"m": m}, outbox_path=str(tmp_path / "ob.db")
+    )
+    try:
+        # Stop the persister + drainers so the ring cannot drain — forces overflow.
+        _stop_drainers(fan)
+        cap = fan._handoff.maxsize  # 4
+        for i in range(cap):
+            fan.execute(f"CREATE (n{i})", is_write=True)  # fills the ring exactly
+        assert fan._handoff.full()
+        depth_before = fan._outbox.depth()
+        # This write overflows the ring -> synchronous durable-outbox append.
+        fan.execute("CREATE (overflow)", is_write=True)
+        assert fan._outbox.depth() == depth_before + 1  # landed durably, not dropped
+    finally:
+        fan.close()
+
+
+def test_handoff_write_lands_durably_before_mirror_ships(tmp_path):
+    """Crash-safety preserved (CONCEPT:KG-2.273): an async-handed-off write reaches the
+    DURABLE outbox (so it survives a crash and replays from the cursor on restart)
+    before any mirror applies it — proven here while the mirror is DOWN."""
+    down = RecordingBackend("down")
+    down.down = True  # offline before any write
+    fan = _make(tmp_path, {"down": down})
+    try:
+        fan.execute("CREATE (n:Doc {id:'1'})", is_write=True)
+        # Wait for the persister to land the hand-off durably.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not fan._durable_caught_up():
+            time.sleep(0.02)
+        assert fan._durable_caught_up()
+        # It is durably queued (lag==1) for the down mirror — a crash here REPLAYS it.
+        assert fan._outbox.lag("down") == 1
+        # Reopen the same outbox file fresh: the entry persisted (survives restart).
+        reopened = GraphOutbox(str(tmp_path / "outbox.db"), ["down"])
+        try:
+            assert [e.op for e in reopened.pending("down")] == ["execute"]
+        finally:
+            reopened.close()
+        # Recover the mirror — it ships from the durable cursor, no loss.
+        down.down = False
+        assert fan.flush_mirrors(timeout=10.0)
+        assert down.n_execute() == 1
     finally:
         fan.close()
 
