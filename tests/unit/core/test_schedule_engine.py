@@ -148,6 +148,49 @@ def test_disabled_schedule_does_not_fire() -> None:
     assert se.run_scheduler_tick(eng, now=_at(1, 1))["fired"] == []
 
 
+def test_schedule_task_type_round_trips_and_lanes_the_enqueue() -> None:
+    """CONCEPT:KG-2.153 — a schedule may pick its own task type (=lane). It must
+    persist on the :Schedule node and be the type the scheduler enqueues, so OWL
+    card backfill lands in the dedicated enrichment lane, not capped maint."""
+    eng = _FakeEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="enrichment",
+            payload={"kind": "maint", "ref": "enrichment"},
+            trigger="interval",
+            interval_s=20.0,
+            task_type="enrichment_backfill",
+        ),
+    )
+    # Round-trips through the durable :Schedule node (to_props/from_row).
+    loaded = se._load_one(eng, "enrichment")
+    assert loaded is not None and loaded.task_type == "enrichment_backfill"
+    # The enqueued task carries that type → claimed in the enrichment lane.
+    res = se.run_scheduler_tick(eng)
+    assert res["fired"] == ["enrichment"]
+    assert eng.submitted[-1]["task_type"] == "enrichment_backfill"
+
+
+def test_schedule_defaults_to_scheduled_job_task_type() -> None:
+    """Unspecified task_type stays ``scheduled_job`` (the maint lane) — unchanged
+    behaviour for every other schedule."""
+    eng = _FakeEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="plain",
+            payload={"kind": "maint", "ref": "demo"},
+            trigger="cron",
+            cron="* * * * *",
+        ),
+    )
+    loaded = se._load_one(eng, "plain")
+    assert loaded is not None and loaded.task_type == "scheduled_job"
+    se.run_scheduler_tick(eng, now=_at(1, 1))
+    assert eng.submitted[-1]["task_type"] == "scheduled_job"
+
+
 def test_run_scheduled_job_maint_dispatch() -> None:
     eng = _FakeEngine()
     res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "demo"})
@@ -190,10 +233,13 @@ class _CollapseEngine:
 
     def query_cypher(self, _q, params=None):
         st = (params or {}).get("status")
+        # CONCEPT:KG-2.153 — collapse now scans per tick TYPE; honor the tkind
+        # filter (a task defaults to scheduled_job) so each tick is counted once.
+        tk = (params or {}).get("tkind", "scheduled_job")
         return [
             {"id": t["id"], "schedule": t["schedule"]}
             for t in self.tasks
-            if t["status"] == st
+            if t["status"] == st and t.get("tkind", "scheduled_job") == tk
         ]
 
     def compare_and_set_node_fields(self, node_id, _conditions, updates):
@@ -210,8 +256,8 @@ def _statuses(tasks, name):
 
 def test_collapse_cancels_duplicate_active_ticks_per_schedule() -> None:
     # file_watch: 3 pending (over-subscribed); analysis: 1 pending + 1 scheduled
-    # (over-subscribed across statuses); enrichment: 1 pending (healthy); a running
-    # file_watch tick must NEVER be cancelled.
+    # (over-subscribed across statuses); enrichment_demo: 1 pending (healthy); a
+    # running file_watch tick must NEVER be cancelled.
     tasks = (
         [{"id": f"fw{i}", "schedule": "file_watch", "status": "pending"} for i in range(3)]
         + [{"id": "run0", "schedule": "file_watch", "status": "running"}]
@@ -219,11 +265,23 @@ def test_collapse_cancels_duplicate_active_ticks_per_schedule() -> None:
             {"id": "an0", "schedule": "analysis", "status": "pending"},
             {"id": "an1", "schedule": "analysis", "status": "scheduled"},
         ]
-        + [{"id": "en0", "schedule": "enrichment", "status": "pending"}]
+        + [{"id": "en0", "schedule": "enrichment_demo", "status": "pending"}]
+        # KG-2.153 — a dedicated-lane tick type (enrichment_backfill) is collapsed too.
+        + [
+            {
+                "id": f"eb{i}",
+                "schedule": "enrichment",
+                "status": "pending",
+                "tkind": "enrichment_backfill",
+            }
+            for i in range(2)
+        ]
     )
     eng = _CollapseEngine(tasks)
     res = se.collapse_stale_ticks(eng)
-    assert res["schedules_collapsed"] == 2  # file_watch + analysis
+    assert res["schedules_collapsed"] == 3  # file_watch + analysis + enrichment
+    # the dedicated-lane backfill backlog is collapsed by its own tkind.
+    assert _statuses(tasks, "enrichment") == ["cancelled", "cancelled"]
     # every ACTIVE duplicate cancelled; the running tick survives untouched.
     assert _statuses(tasks, "file_watch") == [
         "cancelled",
@@ -233,7 +291,7 @@ def test_collapse_cancels_duplicate_active_ticks_per_schedule() -> None:
     ]
     assert _statuses(tasks, "analysis") == ["cancelled", "cancelled"]
     # the healthy single-tick schedule is left intact.
-    assert _statuses(tasks, "enrichment") == ["pending"]
+    assert _statuses(tasks, "enrichment_demo") == ["pending"]
 
 
 def test_collapse_is_noop_when_every_schedule_healthy() -> None:
