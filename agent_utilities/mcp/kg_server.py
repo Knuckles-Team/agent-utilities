@@ -556,6 +556,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "spec_ticket": "/spec/ticket",
     "concept_registry": "/concept/registry",
     "source_sync": "/source/sync",
+    "source_drain": "/source/drain",
     "graph_etl": "/graph/etl",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
