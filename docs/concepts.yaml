@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 573
+total_concepts: 575
 total_pillars: 22
 pillars:
 - AHE-3
@@ -3553,6 +3553,24 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: gitlab-api→gitlab, atlassian-agent→jira/confluence
+- id: KG-2.152
+  name: vector search competes for the same pool under load;
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/age_backend.py
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  doc: vector search competes for the same pool under load;
+- id: KG-2.153
+  name: OWL capability-card backfill is its OWN throughput lane
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  doc: OWL capability-card backfill is its OWN throughput lane
 - id: KG-2.154
   name: the MCP-backed dedicated trackers
   pillar: KG-2
