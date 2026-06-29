@@ -309,14 +309,29 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
-  # backend-parity-nightly.yml — the live cross-backend conformance matrix
-  # (testcontainers: pggraph/AGE, Neo4j, FalkorDB, Fuseki) + the embedded/
-  # in-process backends. VERY heavy: needs Docker + a sibling epistemic-graph
-  # checkout (../epistemic-graph) and runs the live suite. Nightly in CI, so
-  # staged manual only here (never on a normal commit/push).
-  # Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
+  # backend-parity (replaces the deleted backend-parity-nightly.yml). That nightly
+  # ran the LIVE cross-backend conformance matrix, which needs a running engine +
+  # Docker testcontainers (pggraph/AGE, Neo4j, FalkorDB, Fuseki) and so could never
+  # be a per-commit gate — it was never reliably green. Here it is split:
+  #
+  # 1. STATIC contract surrogate — DEFAULT stage, engine-free + fast (~5s, pure class
+  #    introspection): asserts every concrete `GraphBackend` implements the SAME
+  #    abstract interface, so a backend that drops/renames a contract method is caught
+  #    on every commit. This is the engine-free portion the nightly couldn't run here.
+  # Plain `python3 -m pytest` (not `uv run --all-extras`): this static surrogate only
+  # needs `agent_utilities` importable — NO extras, NO engine — so it stays green
+  # without resolving the full optional-dependency set (and runs in ~5s on every commit).
+  - id: backend-interface-parity
+    name: CI parity — backend interface parity (static, engine-free)
+    entry: python3 -m pytest tests/unit/test_backend_interface_parity.py -q -p no:cacheprovider -o addopts=""
+    language: system
+    pass_filenames: false
+    always_run: true
+  # 2. The LIVE behavioral matrix stays available on demand — staged manual only
+  #    (needs Docker + a running engine; never on a normal commit/push).
+  #    Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
   - id: backend-parity
-    name: CI parity — live backend conformance matrix (nightly)
+    name: CI parity — live backend conformance matrix (manual; Docker + engine)
     entry: bash -c 'AGENT_UTILITIES_TESTING=true python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
     language: system
     pass_filenames: false
