@@ -93,6 +93,87 @@ rank) via `extra_body`, so a server started with `--scheduling-policy priority`
 honours it server-side too. The client-side gate is the always-on enforcement
 regardless of server config.
 
+### The admission arithmetic (the testable core)
+
+The whole gate reduces to one pure predicate — `PriorityModelGate._can_admit(is_high)`
+in `core/resource_priority.py` — evaluated under a single lock against three
+counters (`_active` in-flight, `_high_waiters` waiting high-priority callers,
+and the fixed `capacity`/`reserve`):
+
+```python
+def _can_admit(self, is_high: bool) -> bool:
+    if self._active >= self.capacity:      # 1. hard cap — nobody exceeds capacity
+        return False
+    if is_high:                            # 2. high-priority lands as long as a permit exists
+        return True
+    if self._high_waiters > 0:             # 3a. background yields while ANY high call waits
+        return False
+    return self._active < (self.capacity - self.reserve)  # 3b. else background uses spare headroom
+```
+
+`is_high` is `priority.is_interactive_floor` — `True` for INTERACTIVE,
+ORCHESTRATION **and** HYDRATION (everything that is *not* BACKGROUND_INGESTION),
+mirroring the host scheduler's interactive-lane reservation. A high call only ever
+waits behind *other high calls competing for the same `capacity`*; it is never
+blocked by background, because background can occupy at most `capacity - reserve`.
+The async face (`acquire`/`release`, an `asyncio.Condition`) and the sync face
+(`acquire_sync`/`release_sync`, a `threading.Condition`) share the one counter set
+and one mutex, so an async orchestration call and a sync enrichment call contend on
+the **same** gate. A high waiter increments `_high_waiters` *before* it blocks, so
+rule 3a sheds background the instant interactive starts contending — not after it
+has already acquired.
+
+## Configuration knobs
+
+The edict is **Native-by-default**: it is always on, auto-sized, and needs no
+configuration to work. Every knob below is an override, not a requirement.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `KG_LLM_PRIORITY_RESERVE` (env) | unset → auto | Absolute number of permits reserved for high-priority calls. When set, wins over the fraction; clamped to `[0, capacity-1]`. |
+| `KG_LLM_PRIORITY_RESERVE_FRACTION` (env) | `0.34` | Auto-size fraction: `reserve = max(1, min(round(capacity × fraction), capacity-1))`. A single-permit gate (`capacity ≤ 1`) reserves `0`. |
+| `HYDRATION_TASK_TYPES` (module constant) | `{"skill_workflows"}` | Task types forced to `HYDRATION` (HIGH) regardless of their ingestion lane — the foundational-bootstrap exception. |
+| `MODEL_MAX_CONCURRENCY` (env) | `512` | Adaptive ramp ceiling. The gate's `capacity` is the model's resolved capacity (`resolve_capacity`), itself clamped at `server_ceiling` (ORCH-1.102). |
+
+`reserve` is **not** a separate config surface from capacity: the gate is cached per
+`(model_key, capacity)`, so a capacity change (an adaptive ramp, a config reload)
+yields a fresh gate whose `reserve` is re-derived. The gate's `capacity` is sized to
+the model's **`server_ceiling`** when reached from the fan-out helpers (`map_concurrent` /
+`map_concurrent_sync` pass `capacity=server_ceiling(model)`), so the priority edict
+and the server-capacity guard ([`llm-server-capacity-guard.md`](llm-server-capacity-guard.md))
+are the **same** gate: *priority decides the order within the ceiling; the ceiling
+decides the max.*
+
+## Operating notes — when orchestration feels starved
+
+The edict's job is that an interactive/orchestration call never waits behind
+background ingestion. If orchestration *does* feel slow while ingestion is running,
+check these in order:
+
+1. **Is the call actually tagged high?** An untagged context resolves to
+   `ORCHESTRATION` (high) via `_effective`, so the default is safe — but if a worker
+   task body runs under `priority_for_task_type(task_type)` and that task type maps
+   to a background lane, its LLM calls are `BACKGROUND_INGESTION` and *should* yield.
+   Confirm the entry point wraps the work in `priority_scope(PriorityClass.INTERACTIVE
+   / ORCHESTRATION)`. The carrier rides the `x-resource-priority` header
+   (`observability/correlation.py`) across process and engine hops, so a spawned child
+   agent inherits the class — verify it is present on the outbound call.
+2. **Is the slowness the LLM gate or somewhere else?** The gate only governs the
+   **shared qwen generator**. If the wait is on an engine read it is the EG-044 reserved
+   read lane; if it is on a worker slot it is the host `AdmissionPolicy` (KG-2.289).
+   All three key off the same `PriorityClass`, so a misclassified call starves all
+   three — fix the class, not the individual lane.
+3. **Is `reserve` too small for the interactive burst?** `reserve` guarantees that
+   many high calls can land *immediately*; a burst larger than `reserve` still drains
+   ahead of background (rule 3a refuses background while any high call waits), but the
+   excess high calls queue behind each other for a permit. If a steady interactive
+   burst exceeds the reserve, raise `KG_LLM_PRIORITY_RESERVE` or the model's
+   `server_ceiling` (more total permits) — never lower it.
+4. **Is background actually yielding?** Background is *refused admission* while a high
+   call waits and capped at `capacity - reserve` otherwise; it is never blocked to
+   zero. If ingestion has stalled to nothing, that is a different problem (a tripped
+   circuit breaker, ORCH-1.103, or an empty queue) — not the edict starving it.
+
 ## Propagation (the carrier)
 
 A request's priority flows from its entry point to the LLM call, the worker claim,

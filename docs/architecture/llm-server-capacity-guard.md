@@ -70,17 +70,36 @@ demand source ─▶ circuit breaker (ORCH-1.103, back off if server is shedding
 
 ### 2. Capacity-aware backpressure + circuit breaking (ORCH-1.103)
 
-`core/model_circuit_breaker.py` — a three-state breaker per endpoint, fed the same
-`(ok, status)` samples the fan-out already collects:
+`core/model_circuit_breaker.py` — a three-state breaker per endpoint
+(`ModelCircuitBreaker`), fed the same `(ok, status)` samples the fan-out already
+collects:
 
 - **CLOSED** → calls pass through.
-- A `429`/`503`/`504`/timeout (or opaque-under-load failure) → **OPEN**: new calls
-  **back off** for an exponential-backoff cooldown (`0.5s → 1s → 2s … → 30s`)
-  instead of hammering a server already over its memory budget. *Anti-retry-storm.*
-- After the cooldown → **HALF_OPEN**: exactly **one** probe is admitted; success →
-  CLOSED (reset backoff), failure → OPEN with a longer cooldown.
+- An **overload status** (`OVERLOAD_STATUSES = {429, 502, 503, 504, 529}`), a
+  timeout, **or** an opaque-under-load failure (`ok=False` with no discernible
+  status) → trips toward **OPEN** after `MODEL_BREAKER_FAIL_THRESHOLD` consecutive
+  overloads (default **1** — react to the first sign). OPEN: new calls **back off**
+  for an exponential-backoff cooldown (`0.5s → 1s → 2s … → 30s`) instead of hammering
+  a server already over its memory budget. *Anti-retry-storm.*
+- After the cooldown → **HALF_OPEN**: exactly **one** probe is admitted (reserved for
+  the first caller that finds the cooldown elapsed; concurrent callers wait a short
+  `0.25s` slice and re-check). Any **non-overload** outcome — a success **or a benign
+  (non-capacity) error** — closes the breaker and **resets the backoff**; an overload
+  re-opens it with a **longer** cooldown (`backoff_factor ^ (trips-1)`, capped at
+  `max_cooldown_s`).
 
-A saturating server slows the **client**; it never gets crashed by it.
+The breaker sits **OUTSIDE** the ceiling gate (`before_call` / `before_call_sync`
+run before `priority_slot`): the ceiling decides the steady-state max; the breaker
+reacts to a server *already* saturating by throttling the client to near-zero until
+it recovers. One breaker per model key, so embeds + enrichment + orchestration on the
+**same** endpoint trip and recover together. A saturating server slows the
+**client**; it never gets crashed by it.
+
+The read-only `is_tripped()` probe (true only while OPEN *and still within cooldown*,
+and side-effect-free — it does **not** consume the HALF_OPEN probe) is what the
+embedder-failover router (`embedding_failover.py`, KG-2.299) consults to route away
+from a shedding primary onto its fallback, getting automatic recovery for free. See
+[`distributed_gpu_concurrency.md`](distributed_gpu_concurrency.md).
 
 ### 3. The priority edict still holds (ORCH-1.98/1.99)
 
@@ -98,7 +117,17 @@ the MAX.** Background never starves the box; interactive never waits behind it.
 | `MODEL_CIRCUIT_BREAKER` | `true` | Enable the per-endpoint breaker. |
 | `MODEL_BREAKER_FAIL_THRESHOLD` | `1` | Consecutive overloads before tripping. |
 | `MODEL_BREAKER_BASE_COOLDOWN_S` / `_MAX_COOLDOWN_S` / `_BACKOFF_FACTOR` | `0.5` / `30` / `2.0` | Exponential backoff envelope. |
+| `gpu_group` (per-model config field) | unset → `base_url` host | Joins models on one physical GPU into one budget bucket. Set the **same** tag on endpoints served from *different* hosts that share a GPU (KG-2.146). Resolved by `Config.gpu_group`. |
 | `GPU_CONCURRENCY_BUDGETS` (env, KG-2.146) | unset | Per-physical-GPU budget capping the **sum** across endpoints sharing one box. |
+
+Resolution precedence for the per-endpoint ceiling (`server_ceiling(model)` in
+`core/model_concurrency.py`): an explicit per-model `max_concurrent_requests`
+(`Config.model_max_concurrent_requests`, KG-2.298) wins absolutely — it may be set
+*below* the optimistic `parallel_instances × max_parallel_calls` product when the box
+genuinely can't sustain it. Otherwise the ceiling is
+`max(model's declared total_capacity, MODEL_MAX_CONCURRENT_REQUESTS)`, so an
+under-declared model can never let its adaptive controller ramp to
+`MODEL_MAX_CONCURRENCY` (512). Any config error fail-safes to the `32` default.
 
 The ceiling is a legitimate **explicit config** (Configuration-discipline): it
 reflects the *server's* capacity, which **cannot** be auto-derived from the local

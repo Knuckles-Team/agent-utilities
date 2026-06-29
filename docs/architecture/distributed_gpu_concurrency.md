@@ -248,12 +248,13 @@ fails safe toward the floor.
 
 | | Today | Target |
 |---|---|---|
-| GPUs | one GB10 (10.0.0.18, unified memory) | N GPU hosts |
-| Model→endpoint | one `base_url` per model | endpoint **list** per model |
-| Sharing | `bge-m3` (vllm-embed.arpa) + `qwen3.6-35b-a3b` (vllm.arpa) share the GB10 | each host its own `gpu_group` + budget |
+| GPUs | **two**: a dedicated GR1080 embedder (`gr1080-embed.arpa`) + a GB10 generator (10.0.0.18, unified memory) — the split-GPU shape below | N GPU hosts |
+| Model→endpoint | one `base_url` per model, **plus** a `fallback` endpoint on the embedder (KG-2.299) | endpoint **list** per model |
+| Sharing | PRIMARY `bge-m3` dedicated to the GR1080 (`gpu_group="gr1080"`); the GB10 runs the `qwen3.6-35b-a3b` generator **and** the FALLBACK `bge-m3` (`gpu_group="gb10"`), which only takes load while the primary's breaker is OPEN | each host its own `gpu_group` + budget |
 | Tier (a) | live (`KG-2.145`) | unchanged |
-| Tier (b) | **live (`KG-2.146`)** — tag both `gpu_group="gb10"`, set `GPU_CONCURRENCY_BUDGETS={"gb10": <knee>}`; embedding yields, chat reserved | per-host budgets, one per GPU |
-| Tier (c) | n/a (single host) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
+| Tier (b) | **live (`KG-2.146`)** — `GPU_CONCURRENCY_BUDGETS={"gr1080": <knee>, "gb10": <knee>}`; on the GB10 the generator's floor is reserved off the top so the fallback embedder yields | per-host budgets, one per GPU |
+| Tier (c) | n/a (single host per role) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
+| Failover | **live (`KG-2.299/2.300`)** — GR1080 primary → GB10 fallback, capacity-guard inheritance, auto-recovery | per-model endpoint health + balancing |
 | Planning | manual knee estimate (embed-4 ≈ 62 %) | profiling sweep per host → budget; AIMD tunes within |
 
 ### Configuration
@@ -340,4 +341,62 @@ the failover path too.
 
 A `fallback` is **optional**: with none configured, embedding behaves exactly as
 before (always primary, zero change). Single-level only — a nested `fallback` inside
-a `fallback` is ignored.
+a `fallback` is ignored (enforced in `Config._resolve_model_config` for the
+`embedding:fallback` key).
+
+### Why the fallback can't OOM the GB10 — the capacity-guard inheritance, precisely
+
+The guarantee hinges on the fallback being a **first-class capacity-guard model key**,
+not a special case bolted onto the embedder. Three wirings make it hold:
+
+1. **Key resolution.** `Config._resolve_model_config("embedding:fallback")` returns the
+   primary embedder's `.fallback` config object — so `server_ceiling("embedding:fallback")`,
+   `gpu_group("embedding:fallback")`, and `model_capacity("embedding:fallback")` all read
+   the **fallback endpoint's** own `max_concurrent_requests` / `gpu_group` / capacity.
+2. **Gate keying.** `make_embed_fn` (`knowledge_graph/enrichment/semantic.py`) resolves
+   `active_embedding_endpoint()` *per call* and gates the fan-out
+   (`map_concurrent_sync(..., model=endpoint.model_key)`) on that active key. On failover
+   the key flips to `embedding:fallback`, so the breaker, the `server_ceiling`, and the
+   joint GPU-group budget all switch to the fallback's GB10 config in the same step. The
+   client itself is rebuilt for the fallback's `base_url` (the process-scoped client cache,
+   KG-2.294, keys on `base_url`, so it swaps — never a stale primary client).
+3. **Role classification.** `model_capacity_autoscale._role_hint` maps
+   `embedding:fallback` (and the `embed:fallback` / `embedding-fallback` aliases) to the
+   `"embedding"` **role** — a *best-effort* role under tier (b). So while failed over, the
+   GB10 budget reserves the **generator's** floor off the top and squeezes the fallback
+   embedder toward *its* floor: the generator (latency-critical) keeps its slice and the
+   fallback uses only genuine leftover headroom. The exact rule that governs steady-state
+   GB10 co-tenancy now governs the failover path too.
+
+### Operating notes — wiring a split-GPU host and handling a downed GPU
+
+* **Wire each endpoint to its own `gpu_group`.** Tag the generator and the *dedicated*
+  embedder with **different** `gpu_group` values (`gb10`, `gr1080`) so each physical GPU
+  gets its own tier-(b) budget and the embedder can ramp to its own GPU's max with zero
+  risk to chat. Tag the **fallback** embedder with the **generator's** `gpu_group` (`gb10`)
+  so it shares that budget when it takes load. Give each group a `GPU_CONCURRENCY_BUDGETS`
+  entry equal to its saturation knee; leave the generator's role in `GPU_RESERVED_ROLES`
+  (default `chat,generator,default,…`) so its floor is always reserved.
+* **Keep the served model name identical across primary and fallback.** Both serve
+  `bge-m3` (only `base_url` / `gpu_group` / `max_concurrent_requests` differ), so the
+  pgvector dimension and schema are unchanged across hosts and vectors are interchangeable.
+* **Primary embedder GPU down → automatic, observable failover.** The next embed batch
+  whose call fails/times out feeds the primary's breaker (key `embedding`); on its first
+  overload it trips OPEN, `is_tripped()` returns `True`, and `active_embedding_endpoint()`
+  routes to the fallback for the duration of the cooldown. A WARN log
+  (`embedding failover: PRIMARY embedder unreachable …`) and the `failover_count` in
+  `embedding_endpoint_status()` record the transition. No polling thread, no manual switch.
+* **Primary recovers → automatic return.** Once the backoff cooldown elapses `is_tripped()`
+  flips back to `False`, the next batch returns to the primary, and the primary's own
+  HALF_OPEN probe confirms recovery (close → stay primary) or re-opens (→ fallback again
+  next round). An INFO log + `recovery_count` mark it.
+* **Generator (GB10) down with no fallback for *it*.** Generation has no failover endpoint
+  (it is the latency-critical singleton); its breaker simply backs off callers until the
+  server returns. The fallback embedder on the GB10 is governed by the *same* breaker key
+  only insofar as it shares the endpoint host — embeds keep running on the GR1080 primary
+  the whole time, unaffected by a generator outage.
+* **Check failover health** via `embedding_endpoint_status()` (REST/MCP observability):
+  it returns the active endpoint, `is_fallback`, `fallback_configured`, the primary breaker
+  snapshot, and cumulative `failover_count` / `recovery_count`. A high failover count with
+  no recovery means the primary embedder GPU is genuinely down — go fix the GR1080, not the
+  config.
