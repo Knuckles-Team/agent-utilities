@@ -100,7 +100,14 @@ nav:
       - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
+      - North-Star Architecture (the whole program): architecture/north-star-architecture.md
       - C4 Architecture: pillars/architecture_c4.md
+      - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
+      - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
+      - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
+      - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
+      - Chunked Async Drain (full re-ingest, non-blocking): architecture/chunked-async-drain.md
+      - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
