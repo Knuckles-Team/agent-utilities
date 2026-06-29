@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 575
+total_concepts: 576
 total_pillars: 22
 pillars:
 - AHE-3
@@ -707,28 +707,43 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
   doc: transliteration + singularization extend the AHE-3.69 ladder
 - id: AHE-3.71
-  name: the transparency surface. Every hardening decision
+  name: /3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/harness/dspy_optimization.py
   - agent_utilities/harness/evolve_agent.py
-  doc: the transparency surface. Every hardening decision
+  - agent_utilities/harness/memorydata/__init__.py
+  - agent_utilities/harness/memorydata/adapter.py
+  - agent_utilities/harness/memorydata/client.py
+  - agent_utilities/harness/memorydata/tests/test_adapter_offline.py
+  doc: /3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
 - id: AHE-3.72
   name: when the outcome names the agent that produced it
   pillar: AHE-3
   status: live
   code_paths:
+  - agent_utilities/harness/memorydata/bakeoff.py
+  - agent_utilities/harness/memorydata/samples.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: when the outcome names the agent that produced it
 - id: AHE-3.73
-  name: the closed agent-hardening cycle
+  name: callers feed back a per-query reward so the
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/harness/evolve_agent.py
-  doc: the closed agent-hardening cycle
+  - agent_utilities/harness/memorydata/bakeoff.py
+  - agent_utilities/harness/memorydata/router_method.py
+  doc: callers feed back a per-query reward so the
+- id: AHE-3.74
+  name: AHE-3.74
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/memorydata/scoreboard.py
+  doc: AHE-3.74
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
