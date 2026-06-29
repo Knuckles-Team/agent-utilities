@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 571
+total_concepts: 573
 total_pillars: 22
 pillars:
 - AHE-3
@@ -3261,6 +3261,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/chunked_drain.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: the homelab RSS reader as a gated world-model
@@ -4253,6 +4254,24 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
   doc: keys off the
+- id: KG-2.301
+  name: a single-source FULL drain of a LARGE corpus must NOT run inline
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/chunked_drain.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: a single-source FULL drain of a LARGE corpus must NOT run inline
+- id: KG-2.302
+  name: Connector-declared page drainer
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/chunked_drain.py
+  doc: Connector-declared page drainer
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5019,6 +5038,7 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/chunked_drain.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/retrieval/ops_context.py
