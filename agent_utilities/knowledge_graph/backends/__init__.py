@@ -59,9 +59,22 @@ from agent_utilities.core.config import setting
 logger = logging.getLogger(__name__)
 
 # Postgres connection-pool sizing (config discipline): sensible bounded defaults
-# that work everywhere — a named constant, not a per-deploy env knob.
-_PG_POOL_MIN = 2
-_PG_POOL_MAX = 10
+# that work everywhere. CONCEPT:KG-2.152 — the authority (L3) is the single shared
+# write ceiling: under sustained ingest EVERY lane worker + the fan-out drainer
+# threads + reads contend on this ONE pool, so a 10-conn cap starves and the
+# acquire wait becomes the multi-second authority-write tail (profiled p50 ~3ms,
+# MAX 11.7-16.4s). Raise the default ceiling so concurrent writers each get a
+# connection, and let it be tuned per deploy (the box's max_connections is the
+# real upper bound). Min is also env-tunable to keep warm connections ready.
+def _pg_pool_size(env: str, default: int) -> int:
+    try:
+        return max(1, int(setting(env, str(default)) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+_PG_POOL_MIN = _pg_pool_size("GRAPH_DB_POOL_MIN", 4)
+_PG_POOL_MAX = _pg_pool_size("GRAPH_DB_POOL_MAX", 32)
 
 # Single-writer, file-locked backends (Kuzu/LadybugDB hold an exclusive OS lock on
 # their DB file). They can be a fan-out MIRROR, but only ONE process may own the
