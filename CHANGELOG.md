@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-06-28
+
+### Summary — the saturate-and-delegate program
+This release lands the program that makes the local LLM + graph-os do the work
+while the harness orchestrates and resolves exceptions, and hardens the engine to
+run it at saturation:
+- **Engine scaling & the resource-priority edict (CONCEPT:ORCH-1.98/1.99).**
+  Interactive/orchestration work outranks background ingestion so orchestration is
+  never starved; the LLM-server capacity guard (CONCEPT:KG-2.298) and split-GPU
+  embedding keep the shared model responsive under load.
+- **Orchestration/execution seam + the `agent-utilities-expert` agent
+  (CONCEPT:KG-2.296).** Every delegated run writes `:ToolCall`/`RunTrace`
+  provenance to the epistemic-graph for full visibility and steerability.
+- **Chunked async drain (CONCEPT:KG-2.301/2.302).** A single full sync of a large
+  corpus normalizes into capacity-guarded paginated background batch-tasks watched
+  via the new `source_drain` tool / `/source/drain` REST twin — no per-task timeout
+  hangs (paired with the KG-2.286 soft-timeout watchdog).
+- **Self-evolution flywheel + genesis private repos** drive the AHE-3.x hardening
+  loop and stand the ecosystem up from bare hosts.
+- Plus the durable backend work merged in this cycle: bounded PostgreSQL
+  authority-write tail (KG-2.152), a dedicated OWL-enrichment lane (KG-2.153), the
+  MemoryData bake-off harness (AHE-3.71–3.74), fleet-wide verbose auto-wire
+  (ECO-4.89/4.90), and atlassian-mcp streamable-http wiring (KG-2.123/2.124).
+
 ### Changed
 - **Async mirror fan-out — the durable-write ack no longer waits on the mirror
   enqueue (CONCEPT:KG-2.273).** `FanOutBackend` mirror writes were synchronously
