@@ -1,0 +1,19 @@
+# MemoryData preset → graph-os memory stack (CONCEPT:AHE-3.71).
+# agent_name MUST contain "graphos" so a future AgentWrapper dispatch branch detects it.
+agent_name: graphos_semantic_hnsw
+model: graphos-memory
+retrieval: graphos_semantic_hnsw            # key into RETRIEVAL_CONFIGS
+transport: rest          # mock | rest (rest → live graph-os REST surface)
+top_k: 10
+output_dir: ./results/outputs/graphos_semantic_hnsw
+
+temperature: 0.0
+input_length_limit: 30000
+buffer_length: 4000
+
+# ── graph-os REST surface (mirrors MemoryData provider/base_url fields) ───────────────
+provider: openai_compatible
+api_key_env: OPENAI_API_KEY
+base_url: http://127.0.0.1:8000     # GRAPHOS_BASE_URL (overridden by env)
+base_url_env: GRAPHOS_BASE_URL
+tokenizer_encoding: cl100k_base
