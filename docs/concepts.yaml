@@ -5317,6 +5317,14 @@ concepts:
   - agent_utilities/core/model_circuit_breaker.py
   - agent_utilities/core/model_concurrency.py
   doc: back off while the server is shedding load
+- id: ORCH-1.104
+  name: unified agent entrypoint — shared KG memory + provenance for the streaming surface
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/session_continuity.py
+  - agent_utilities/server/routers/agent_ui.py
+  doc: docs/architecture/unified-agent-entrypoint.md
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

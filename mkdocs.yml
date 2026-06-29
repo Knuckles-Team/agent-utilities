@@ -111,6 +111,7 @@ nav:
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
+      - Unified Agent Entrypoint (verified routing map): architecture/unified-agent-entrypoint.md
       - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
       - Native Warm-Fork Sandboxes (warm once, fork CoW children): architecture/warm-fork-sandboxes.md
       - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md

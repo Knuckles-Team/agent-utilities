@@ -131,17 +131,47 @@ async def ag_ui_endpoint(request: Request) -> Response:
             )
             assert graph_bundle is not None
             graph, graph_cfg = graph_bundle
+
+            # CONCEPT:ORCH-1.104 — Unified Agent Entrypoint: the streaming surface streams
+            # the SAME graph as the run_agent seam but cannot return through it, so join the
+            # shared continuity model here. Recall the per-session mementos (keyed by the
+            # caller's stable session_id == run_id) and inject them as invoker_context so
+            # this turn inherits cross-surface memory; persist the turn afterwards.
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
+            from agent_utilities.orchestration.session_continuity import (
+                persist_session_turn,
+                prime_session_context,
+            )
+
+            _kg_engine = None
+            _exec_cfg = graph_cfg
+            with suppress(Exception):
+                _kg_engine = IntelligenceGraphEngine.get_active()
+                _primed = prime_session_context(_kg_engine, run_id)
+                if _primed:
+                    _exec_cfg = {**graph_cfg, "invoker_context": _primed}
+
             emitter = AGUIGraphEmitter()
+            _final_output: str = ""
             try:
                 async for event in execute_graph_iter(
                     graph=graph,
-                    config=graph_cfg,
+                    config=_exec_cfg,
                     query=query,
                     run_id=run_id,
                     mode="ask",
                     mcp_toolsets=_initialized_mcp_toolsets,
                     requested_model_id=requested_model_id,
                 ):
+                    if isinstance(event, dict) and event.get("type") in (
+                        "graph_complete",
+                        "final_output",
+                    ):
+                        _out = event.get("output") or event.get("content")
+                        if _out:
+                            _final_output = str(_out)
                     for chunk in emitter.translate(event):
                         yield chunk
                     while not graph_event_queue.empty():
@@ -153,6 +183,22 @@ async def ag_ui_endpoint(request: Request) -> Response:
                 logger.exception(f"AG-UI direct graph error: {e}")
                 error_data = json.dumps({"type": "error", "error": str(e)})
                 yield f"data: {error_data}\n\n".encode()
+            finally:
+                # CONCEPT:ORCH-1.104 — persist the turn (RunTrace + per-session memento)
+                # off the reply path so the NEXT turn — on this surface OR any other keyed
+                # to the same session — recalls it. Best-effort; never affects the stream.
+                if _kg_engine is not None and _final_output:
+                    with suppress(Exception):
+                        asyncio.create_task(
+                            persist_session_turn(
+                                _kg_engine,
+                                run_id,
+                                query,
+                                _final_output,
+                                agent_name="agent-ui",
+                                run_id=run_id,
+                            )
+                        )
             return
 
         run_input = query_parts if query_parts else query
