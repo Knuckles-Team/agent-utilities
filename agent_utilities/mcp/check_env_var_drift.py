@@ -116,7 +116,7 @@ def _is_host_var(var: str) -> bool:
 def _in_string_literal(line: str, pos: int) -> bool:
     """True if ``pos`` on ``line`` sits inside a quote — i.e. the env-read keyword is
     itself part of a string literal (a code-generator template like
-    ``lines.append('... os.environ.get("X") ...')``), not a real read."""
+    ``lines.append('... os.environ.get(<VAR>) ...')``), not a real read."""
     return line.count("'", 0, pos) % 2 == 1 or line.count('"', 0, pos) % 2 == 1
 
 
