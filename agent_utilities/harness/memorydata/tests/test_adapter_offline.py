@@ -28,21 +28,31 @@ _STANDARD_KEYS = {
 
 def _agent(retrieval: str = "graphos_semantic_hnsw") -> GraphOSMemoryMethod:
     return GraphOSMemoryMethod(
-        agent_config={"agent_name": f"graphos_{retrieval}", "retrieval": retrieval, "transport": "mock"},
+        agent_config={
+            "agent_name": f"graphos_{retrieval}",
+            "retrieval": retrieval,
+            "transport": "mock",
+        },
         dataset_config={"sub_dataset": "unit", "dataset": "memorydata"},
     )
 
 
 def test_memorize_then_recall_returns_standard_shape() -> None:
     agent = _agent()
-    mem = agent.send_message("The capital of France is Paris.", memorizing=True, context_id=0)
+    mem = agent.send_message(
+        "The capital of France is Paris.", memorizing=True, context_id=0
+    )
     assert set(mem.keys()) == _STANDARD_KEYS
     assert mem["output"] == ""
     assert mem["memory_construction_time"] >= 0.0
 
-    agent.send_message("Bananas are yellow and grow in bunches.", memorizing=True, context_id=1)
+    agent.send_message(
+        "Bananas are yellow and grow in bunches.", memorizing=True, context_id=1
+    )
 
-    resp = agent.send_message("What is the capital of France?", memorizing=False, query_id="q0")
+    resp = agent.send_message(
+        "What is the capital of France?", memorizing=False, query_id="q0"
+    )
     assert set(resp.keys()) == _STANDARD_KEYS
     assert isinstance(resp["output"], str) and resp["output"]
     assert "paris" in resp["output"].lower()
@@ -62,8 +72,12 @@ def test_all_six_configs_instantiate_and_answer() -> None:
     }
     for name in RETRIEVAL_CONFIGS:
         agent = _agent(name)
-        agent.send_message("Mercury is the closest planet to the Sun.", memorizing=True, context_id=0)
-        resp = agent.send_message("Which planet is closest to the Sun?", memorizing=False)
+        agent.send_message(
+            "Mercury is the closest planet to the Sun.", memorizing=True, context_id=0
+        )
+        resp = agent.send_message(
+            "Which planet is closest to the Sun?", memorizing=False
+        )
         assert set(resp.keys()) == _STANDARD_KEYS
         assert isinstance(resp["output"], str)
 
@@ -71,7 +85,13 @@ def test_all_six_configs_instantiate_and_answer() -> None:
 def test_unknown_config_rejected() -> None:
     raised = False
     try:
-        GraphOSMemoryMethod(agent_config={"agent_name": "graphos_x", "retrieval": "nope", "transport": "mock"})
+        GraphOSMemoryMethod(
+            agent_config={
+                "agent_name": "graphos_x",
+                "retrieval": "nope",
+                "transport": "mock",
+            }
+        )
     except ValueError:
         raised = True
     assert raised
@@ -142,7 +162,9 @@ def test_router_answers_and_records_outcome() -> None:
         dataset_config={"sub_dataset": "locomo-test"},
         family_tag="locomo-test",
     )
-    router.send_message("Alice likes hiking on weekends.", memorizing=True, context_id=0)
+    router.send_message(
+        "Alice likes hiking on weekends.", memorizing=True, context_id=0
+    )
     resp = router.send_message("What does Alice like?", memorizing=False)
     assert set(resp.keys()) == _STANDARD_KEYS
     assert router.retrieval == "graphos_context_plane"
@@ -187,7 +209,9 @@ def test_build_client_supports_engine_transport() -> None:
 
 
 def _run_all() -> None:
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fns = [
+        v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)
+    ]
     for fn in fns:
         fn()
         print(f"PASS {fn.__name__}")

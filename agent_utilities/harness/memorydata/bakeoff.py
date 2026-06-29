@@ -172,7 +172,10 @@ def run_bakeoff(
                         "transport": client_transport,
                         "top_k": family.get("top_k", 10),
                     }
-                    dataset_config = {"sub_dataset": str(family_tag), "dataset": "memorydata"}
+                    dataset_config = {
+                        "sub_dataset": str(family_tag),
+                        "dataset": "memorydata",
+                    }
                     if is_router:
                         from agent_utilities.harness.memorydata.router_method import (
                             GraphOSRouterMethod,
@@ -190,8 +193,12 @@ def run_bakeoff(
                             dataset_config=dataset_config,
                         )
                     for idx, chunk in enumerate(context_chunks):
-                        resp = agent.send_message(chunk, memorizing=True, context_id=idx)
-                        mem_times.append(float(resp.get("memory_construction_time", 0.0)))
+                        resp = agent.send_message(
+                            chunk, memorizing=True, context_id=idx
+                        )
+                        mem_times.append(
+                            float(resp.get("memory_construction_time", 0.0))
+                        )
 
                     for query in queries:
                         question = query.get("question", "")
@@ -237,9 +244,15 @@ def run_bakeoff(
                         n=n,
                         exact_match=round(em_hits / n, 4) if n else 0.0,
                         rouge_l=round(rouge_sum / n, 4) if n else 0.0,
-                        judge_score=round(judge_hits / n, 4) if (n and judge_fn) else 0.0,
-                        mean_query_s=round(sum(query_times) / len(query_times), 6) if query_times else 0.0,
-                        mean_mem_s=round(sum(mem_times) / len(mem_times), 6) if mem_times else 0.0,
+                        judge_score=round(judge_hits / n, 4)
+                        if (n and judge_fn)
+                        else 0.0,
+                        mean_query_s=round(sum(query_times) / len(query_times), 6)
+                        if query_times
+                        else 0.0,
+                        mean_mem_s=round(sum(mem_times) / len(mem_times), 6)
+                        if mem_times
+                        else 0.0,
                         notes=f"{errors} error(s)" if errors else "",
                         is_router=is_router,
                     )

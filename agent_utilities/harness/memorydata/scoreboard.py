@@ -79,7 +79,9 @@ def render_scoreboard(
     # 1. Measured results.
     lines.append("## Measured results")
     lines.append("")
-    lines.append("| Family | Task | Config | EM | ROUGE-L | Judge | Mean query (s) | n | Notes |")
+    lines.append(
+        "| Family | Task | Config | EM | ROUGE-L | Judge | Mean query (s) | n | Notes |"
+    )
     lines.append("|---|---|---|---:|---:|---:|---:|---:|---|")
     for r in sorted(measured, key=lambda x: (x.family, x.task, x.config)):
         lines.append(
@@ -99,7 +101,9 @@ def render_scoreboard(
         best = ranked[0]
         runner = ranked[1] if len(ranked) > 1 else None
         runner_name = runner.config if runner else "—"
-        delta = f"{(best.exact_match - runner.exact_match) * 100:+.1f}" if runner else "—"
+        delta = (
+            f"{(best.exact_match - runner.exact_match) * 100:+.1f}" if runner else "—"
+        )
         lines.append(
             f"| {family} | {best.config} | {best.exact_match * 100:.1f}% | "
             f"{best.rouge_l:.3f} | {runner_name} | {delta} |"
@@ -110,7 +114,9 @@ def render_scoreboard(
     if router_rows:
         lines.append("## Router vs best single config")
         lines.append("")
-        lines.append("| Family | Router EM | Best single EM | Best single config | Δ EM |")
+        lines.append(
+            "| Family | Router EM | Best single EM | Best single config | Δ EM |"
+        )
         lines.append("|---|---:|---:|---|---:|")
         router_by_family = _best_per_family(router_rows)
         for family in sorted(router_by_family):

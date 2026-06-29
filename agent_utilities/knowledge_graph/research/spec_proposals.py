@@ -303,7 +303,11 @@ def review_spec(
                 if k in (edits or {})
             },
         )
-        return {"status": STATUS_PENDING, "spec_id": spec_id, "edited": list((edits or {}).keys())}
+        return {
+            "status": STATUS_PENDING,
+            "spec_id": spec_id,
+            "edited": list((edits or {}).keys()),
+        }
 
     if decision in ("approve", "accept"):
         _audit_spec_decision(engine, spec_id, reviewer)
@@ -313,7 +317,11 @@ def review_spec(
             out["develop_loop"] = _bind_develop_loop(engine, spec)
         return out
 
-    return {"status": "error", "spec_id": spec_id, "detail": f"unknown decision {decision!r}"}
+    return {
+        "status": "error",
+        "spec_id": spec_id,
+        "detail": f"unknown decision {decision!r}",
+    }
 
 
 def _audit_spec_decision(engine: Any, spec_id: str, reviewer: str) -> None:
@@ -427,9 +435,7 @@ def develop_spec(
 # ────────────────────────────────────────────────────────────────────────
 # The 24/7 auto path (opt-in) — gated through spec_promotion
 # ────────────────────────────────────────────────────────────────────────
-def auto_advance_specs(
-    engine: Any, *, limit: int = 5
-) -> dict[str, Any]:
+def auto_advance_specs(engine: Any, *, limit: int = 5) -> dict[str, Any]:
     """Auto-advance ``pending_review`` specs through the ``spec_promotion`` gate.
 
     Only invoked when ``KG_LOOP_AUTO_DEVELOP`` is on (review-first by default). For
@@ -466,7 +472,11 @@ def auto_advance_specs(
         else:
             out["queued"] += 1
             out["results"].append(
-                {"id": spec_id, "decision": decision.decision, "approval_id": decision.approval_id}
+                {
+                    "id": spec_id,
+                    "decision": decision.decision,
+                    "approval_id": decision.approval_id,
+                }
             )
     return out
 

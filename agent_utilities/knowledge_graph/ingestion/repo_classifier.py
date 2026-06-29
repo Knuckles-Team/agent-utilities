@@ -239,9 +239,7 @@ def classify_repo(root: str | Path) -> RepoClassification:
 
     def _claimed(p: Path) -> bool:
         rp = p.resolve()
-        return any(
-            rp == sr or sr in rp.parents for sr in resolved_skill_roots
-        )
+        return any(rp == sr or sr in rp.parents for sr in resolved_skill_roots)
 
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and d != ".git"]

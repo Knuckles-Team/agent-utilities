@@ -55,7 +55,9 @@ class GraphOSRouterMethod(GraphOSMemoryMethod):
     ) -> None:
         # The base method needs a concrete retrieval config; seed it with the routed choice so
         # ``__init__`` validation passes, then keep routing per query in ``send_message``.
-        self.family_tag = (family_tag or (dataset_config or {}).get("sub_dataset") or "").lower()
+        self.family_tag = (
+            family_tag or (dataset_config or {}).get("sub_dataset") or ""
+        ).lower()
         seed_config = self._select_config({"family_tag": self.family_tag})
         seeded = dict(agent_config or {})
         seeded.setdefault("retrieval", seed_config)
@@ -76,7 +78,9 @@ class GraphOSRouterMethod(GraphOSMemoryMethod):
         """Pick a retrieval config from the family tag via the default prior table."""
         tag = ""
         if eval_metadata:
-            tag = str(eval_metadata.get("family_tag") or eval_metadata.get("family") or "").lower()
+            tag = str(
+                eval_metadata.get("family_tag") or eval_metadata.get("family") or ""
+            ).lower()
         if not tag:
             tag = getattr(self, "family_tag", "") or ""
         for needle, config in DEFAULT_FAMILY_PRIORS.items():
@@ -94,7 +98,9 @@ class GraphOSRouterMethod(GraphOSMemoryMethod):
     ) -> dict[str, Any]:
         """Route the query to its family's retrieval spec, then defer to the base method."""
         if not memorizing:
-            selected = self._select_config(eval_metadata or {"family_tag": self.family_tag})
+            selected = self._select_config(
+                eval_metadata or {"family_tag": self.family_tag}
+            )
             self.retrieval = selected
             self.spec = RETRIEVAL_CONFIGS[selected]
         return super().send_message(

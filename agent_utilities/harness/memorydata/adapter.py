@@ -36,7 +36,11 @@ __all__ = ["GraphOSMemoryMethod", "RETRIEVAL_CONFIGS"]
 RETRIEVAL_CONFIGS: dict[str, dict[str, Any]] = {
     "graphos_semantic_hnsw": {"mode": "hybrid"},
     "graphos_bitemporal_asof": {"mode": "hybrid", "uses_as_of": True},
-    "graphos_context_plane": {"uses_synthesize": True, "domain": "code", "intent": "how"},
+    "graphos_context_plane": {
+        "uses_synthesize": True,
+        "domain": "code",
+        "intent": "how",
+    },
     "graphos_latent": {"mode": "latent"},
     "graphos_rlm_facts": {"mode": "memory"},
     "graphos_graph_rerank": {"mode": "rerank"},
@@ -115,7 +119,11 @@ class GraphOSMemoryMethod:
         self.spec = RETRIEVAL_CONFIGS[self.retrieval]
         self.top_k = int(self.agent_config.get("top_k", 10))
 
-        sub = self.dataset_config.get("sub_dataset") or self.dataset_config.get("dataset") or "run"
+        sub = (
+            self.dataset_config.get("sub_dataset")
+            or self.dataset_config.get("dataset")
+            or "run"
+        )
         self.namespace = f"{self.agent_name}:{sub}"
 
         client_config = {
@@ -146,7 +154,9 @@ class GraphOSMemoryMethod:
 
         if memorizing:
             t0 = time.perf_counter()
-            self.client.ingest_memory(text, context_id=context_id if context_id is not None else 0)
+            self.client.ingest_memory(
+                text, context_id=context_id if context_id is not None else 0
+            )
             dt = time.perf_counter() - t0
             return self._standard_response("", 0, 0, dt, 0.0)
 
@@ -159,7 +169,11 @@ class GraphOSMemoryMethod:
             )
             output = str(result.get("answer", "") or "")
         else:
-            as_of = self._resolve_as_of(eval_metadata) if self.spec.get("uses_as_of") else None
+            as_of = (
+                self._resolve_as_of(eval_metadata)
+                if self.spec.get("uses_as_of")
+                else None
+            )
             memories = self.client.recall(
                 text,
                 mode=self.spec.get("mode", "hybrid"),
@@ -196,7 +210,9 @@ class GraphOSMemoryMethod:
                 return float(val)
         return None
 
-    def _compose_answer(self, memories: list[dict[str, Any]], max_chars: int = 2000) -> str:
+    def _compose_answer(
+        self, memories: list[dict[str, Any]], max_chars: int = 2000
+    ) -> str:
         """Join the recalled memory texts into one answer string, trimmed to ``max_chars``."""
         parts: list[str] = []
         used = 0

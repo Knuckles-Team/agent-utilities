@@ -121,7 +121,11 @@ def _resolve_sync_client(engine: Any) -> Any:
     """Dig the underlying sync epistemic-graph client out of various handles."""
     if engine is None:
         return None
-    for obj in (engine, getattr(engine, "_graph", None), getattr(engine, "graph", None)):
+    for obj in (
+        engine,
+        getattr(engine, "_graph", None),
+        getattr(engine, "graph", None),
+    ):
         if obj is None:
             continue
         client = getattr(obj, "_client", None)
