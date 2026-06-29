@@ -314,7 +314,9 @@ def register_state_tools(mcp):
                 sid = spec_id or loop_id
                 if not sid or not decision:
                     return _json.dumps(
-                        {"error": "review needs spec_id and decision (approve|edit|reject)"}
+                        {
+                            "error": "review needs spec_id and decision (approve|edit|reject)"
+                        }
                     )
                 return _json.dumps(
                     {

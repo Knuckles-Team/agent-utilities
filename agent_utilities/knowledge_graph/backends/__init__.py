@@ -58,6 +58,7 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
+
 # Postgres connection-pool sizing (config discipline): sensible bounded defaults
 # that work everywhere. CONCEPT:KG-2.152 — the authority (L3) is the single shared
 # write ceiling: under sustained ingest EVERY lane worker + the fan-out drainer

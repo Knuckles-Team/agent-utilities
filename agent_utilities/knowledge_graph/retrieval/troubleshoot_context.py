@@ -191,9 +191,11 @@ def diagnose_symptom(
     intent = (intent or "run").strip().lower()
     if intent not in VALID_INTENTS:
         # The plane passes intent='how' by default — infer from the text.
-        intent = "service" if any(
-            h in (query or "").lower() for h in _LAYER_HINTS["host"]
-        ) else "run"
+        intent = (
+            "service"
+            if any(h in (query or "").lower() for h in _LAYER_HINTS["host"])
+            else "run"
+        )
     limit = max(1, min(50, int(top_k)))
 
     citations: list[dict[str, Any]] = []
@@ -243,7 +245,9 @@ def diagnose_symptom(
             used.append("failed_runs")
 
     layers = _classify(query, intent)
-    answer = _synthesize(query, intent, trace_id, trace_row, tool_calls, failed_runs, layers)
+    answer = _synthesize(
+        query, intent, trace_id, trace_row, tool_calls, failed_runs, layers
+    )
 
     return {
         "status": "ok",
@@ -256,9 +260,7 @@ def diagnose_symptom(
             "trace": [trace_row] if trace_row else [],
             "tool_calls": tool_calls,
             "failed_runs": failed_runs,
-            "playbook": [
-                {"layer": layer, **_PLAYBOOK[layer]} for layer in layers
-            ],
+            "playbook": [{"layer": layer, **_PLAYBOOK[layer]} for layer in layers],
         },
         "capability_id": f"troubleshoot:{intent}:{layers[0]}",
         "used_primitives": used,

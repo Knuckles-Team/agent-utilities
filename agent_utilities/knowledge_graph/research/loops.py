@@ -130,7 +130,14 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
         # ``priority`` string a Concept might carry. (CONCEPT:KG-2.113)
         "prio_bucket": _prio_bucket(data.get("prio_bucket")),
     }
-    for k in ("objective", "end_state", "validation_cmd", "skill_ref", "status", "spec_id"):
+    for k in (
+        "objective",
+        "end_state",
+        "validation_cmd",
+        "skill_ref",
+        "status",
+        "spec_id",
+    ):
         v = data.get(k)
         if v:
             out[k] = v

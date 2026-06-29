@@ -164,6 +164,7 @@ def task_soft_timeout(task_type: str | None) -> float:
     """
     return lane_soft_timeout(lane_for_task_type(task_type))
 
+
 # CONCEPT:ORCH-1.82 — "best-effort" lanes: low-value, high-volume periodic work
 # (the maint interval ticks) that must be GUARANTEED its minimum coverage but must
 # NEVER expand into spare workers. Without this, a backlog of cheap scheduled-job

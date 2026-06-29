@@ -463,9 +463,8 @@ class EvolveAgent:
             auto_apply = self._auto_apply_enabled()
 
         for edit in manifest.edits:
-            if (
-                edit.component_type == ComponentType.SYSTEM_PROMPT
-                and edit.metadata.get("candidate_blueprint")
+            if edit.component_type == ComponentType.SYSTEM_PROMPT and edit.metadata.get(
+                "candidate_blueprint"
             ):
                 self._apply_prompt_edit(
                     edit, manifest, auto_apply=auto_apply, dry_run=dry_run
@@ -725,7 +724,10 @@ class EvolveAgent:
             artifact = baseline.model_dump(exclude_none=True)
             artifact["__file_path__"] = prompt_path
             result = run_dspy_optimization(
-                target, artifact, list(trainset), optimizer_name=self.dspy_optimizer_type
+                target,
+                artifact,
+                list(trainset),
+                optimizer_name=self.dspy_optimizer_type,
             )
         # Use the DSPy-bootstrapped demos when the compile produced any; otherwise (no LM
         # reachable to roll out a bootstrap) fall back to the agent's labeled successes as

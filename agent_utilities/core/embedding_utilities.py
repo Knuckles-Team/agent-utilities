@@ -130,7 +130,9 @@ def create_embedding_model(
         or (_chat_cfg.base_url if _chat_cfg else None)
         or "http://vllm-embed.arpa/v1"
     )
-    api_key_str = api_key or _active_api_key or (_chat_cfg.api_key if _chat_cfg else None)
+    api_key_str = (
+        api_key or _active_api_key or (_chat_cfg.api_key if _chat_cfg else None)
+    )
 
     if provider_str == "mock":
         raise ValueError(

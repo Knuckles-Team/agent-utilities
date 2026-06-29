@@ -77,7 +77,9 @@ class MemoryBackendClient(ABC):
         """Return up to ``top_k`` memories ``[{id, text, score, ...}]`` ranked for ``query``."""
 
     @abstractmethod
-    def synthesize(self, query: str, domain: str = "code", intent: str = "how") -> dict[str, Any]:
+    def synthesize(
+        self, query: str, domain: str = "code", intent: str = "how"
+    ) -> dict[str, Any]:
         """Return a cited answer ``{answer, citations, ...}`` for ``query`` (context-plane style)."""
 
     @abstractmethod
@@ -136,13 +138,20 @@ class MockBackendClient(MemoryBackendClient):
         if as_of is not None:
             rows = [r for r in rows if r.get("event_time", 0.0) <= as_of]
         scored = [
-            {"id": r["id"], "text": r["text"], "score": self._score(q_tokens, r["text"]), "mode": mode}
+            {
+                "id": r["id"],
+                "text": r["text"],
+                "score": self._score(q_tokens, r["text"]),
+                "mode": mode,
+            }
             for r in rows
         ]
         scored.sort(key=lambda r: r["score"], reverse=True)
         return scored[: max(0, top_k)]
 
-    def synthesize(self, query: str, domain: str = "code", intent: str = "how") -> dict[str, Any]:
+    def synthesize(
+        self, query: str, domain: str = "code", intent: str = "how"
+    ) -> dict[str, Any]:
         top = self.recall(query, mode="hybrid", top_k=3)
         cited = [t for t in top if t["score"] > 0]
         answer = " ".join(t["text"] for t in cited) if cited else ""
@@ -200,7 +209,9 @@ class GraphOSRestClient(MemoryBackendClient):
             headers = {"Content-Type": "application/json"}
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
-            self._client = httpx.Client(base_url=self.base_url, headers=headers, timeout=self.timeout)
+            self._client = httpx.Client(
+                base_url=self.base_url, headers=headers, timeout=self.timeout
+            )
         return self._client
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -213,7 +224,9 @@ class GraphOSRestClient(MemoryBackendClient):
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as exc:
-            raise BackendUnavailable(f"graph-os request to {path} failed: {exc}") from exc
+            raise BackendUnavailable(
+                f"graph-os request to {path} failed: {exc}"
+            ) from exc
 
     def ingest_memory(
         self, text: str, context_id: int | str, event_time: float | None = None
@@ -258,7 +271,9 @@ class GraphOSRestClient(MemoryBackendClient):
             )
         return rows[:top_k]
 
-    def synthesize(self, query: str, domain: str = "code", intent: str = "how") -> dict[str, Any]:
+    def synthesize(
+        self, query: str, domain: str = "code", intent: str = "how"
+    ) -> dict[str, Any]:
         data = self._post(
             "/graph/analyze",
             {"action": "explain", "query": query, "domain": domain, "intent": intent},
@@ -272,7 +287,9 @@ class GraphOSRestClient(MemoryBackendClient):
         }
 
     def reset(self, namespace: str) -> None:
-        self._post("/graph/ingest_sessions", {"action": "reset", "namespace": namespace})
+        self._post(
+            "/graph/ingest_sessions", {"action": "reset", "namespace": namespace}
+        )
 
 
 class EngineBackendClient(MemoryBackendClient):
@@ -415,7 +432,9 @@ class EngineBackendClient(MemoryBackendClient):
             )
         return rows[:k]
 
-    def synthesize(self, query: str, domain: str = "code", intent: str = "how") -> dict[str, Any]:
+    def synthesize(
+        self, query: str, domain: str = "code", intent: str = "how"
+    ) -> dict[str, Any]:
         engine = self._get_engine()
         # Prefer the context-plane synthesizer (the live "explain" surface) when present.
         try:
@@ -432,7 +451,12 @@ class EngineBackendClient(MemoryBackendClient):
             else:
                 answer = str(result or "")
             if answer:
-                return {"answer": answer, "citations": citations, "domain": domain, "intent": intent}
+                return {
+                    "answer": answer,
+                    "citations": citations,
+                    "domain": domain,
+                    "intent": intent,
+                }
         except Exception:  # noqa: BLE001 - fall through to recall+join
             pass
         memories = self.recall(query, mode="hybrid", top_k=3)

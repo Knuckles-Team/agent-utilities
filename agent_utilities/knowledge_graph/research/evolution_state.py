@@ -113,7 +113,9 @@ class StageBeacon:
             self.why = why
         self._write(status="running", extra={"detail": detail} if detail else None)
 
-    def finish(self, *, open_gaps: Any = 0, errors: int = 0, saturation: Any = None) -> None:
+    def finish(
+        self, *, open_gaps: Any = 0, errors: int = 0, saturation: Any = None
+    ) -> None:
         """Mark the cycle complete and stamp the closing summary on the beacon."""
         self.stage = "idle"
         extra: dict[str, Any] = {
@@ -231,7 +233,9 @@ def saturation_gauge(
     verdict = (velocity_verdict or "idle").lower()
     velocity_c = {"stalling": 1.0, "steady": 0.5}.get(verdict, 0.0)
 
-    coverage_c = 0.5 if coverage_pct is None else max(0.0, min(1.0, coverage_pct / 100.0))
+    coverage_c = (
+        0.5 if coverage_pct is None else max(0.0, min(1.0, coverage_pct / 100.0))
+    )
 
     if gaps_prior > 0:
         shrink = max(0.0, (gaps_prior - gaps_recent) / gaps_prior)

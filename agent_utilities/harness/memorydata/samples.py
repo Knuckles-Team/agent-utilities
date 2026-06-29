@@ -50,10 +50,22 @@ def sample_families() -> list[dict[str, Any]]:
                 {
                     "task": "qa",
                     "queries": [
-                        {"question": "What is the name of the user's puppy?", "answer": "Cooper"},
-                        {"question": "What breed is the puppy?", "answer": "golden retriever"},
-                        {"question": "Which city does the user live in?", "answer": "Seattle"},
-                        {"question": "Who flew in from Boston to meet the puppy?", "answer": "Maria"},
+                        {
+                            "question": "What is the name of the user's puppy?",
+                            "answer": "Cooper",
+                        },
+                        {
+                            "question": "What breed is the puppy?",
+                            "answer": "golden retriever",
+                        },
+                        {
+                            "question": "Which city does the user live in?",
+                            "answer": "Seattle",
+                        },
+                        {
+                            "question": "Who flew in from Boston to meet the puppy?",
+                            "answer": "Maria",
+                        },
                     ],
                 }
             ],
@@ -75,10 +87,22 @@ def sample_families() -> list[dict[str, Any]]:
                 {
                     "task": "mc_reasoning",
                     "queries": [
-                        {"question": "In what year was the Aurelian Compact signed?", "answer": "1847"},
-                        {"question": "What did Veldt supply under the Compact?", "answer": "iron ore"},
-                        {"question": "Which coastal town was added in the 1853 amendment?", "answer": "Pell"},
-                        {"question": "What event caused the Compact to collapse?", "answer": "drought"},
+                        {
+                            "question": "In what year was the Aurelian Compact signed?",
+                            "answer": "1847",
+                        },
+                        {
+                            "question": "What did Veldt supply under the Compact?",
+                            "answer": "iron ore",
+                        },
+                        {
+                            "question": "Which coastal town was added in the 1853 amendment?",
+                            "answer": "Pell",
+                        },
+                        {
+                            "question": "What event caused the Compact to collapse?",
+                            "answer": "drought",
+                        },
                     ],
                 }
             ],
@@ -97,10 +121,22 @@ def sample_families() -> list[dict[str, Any]]:
                 {
                     "task": "recall",
                     "queries": [
-                        {"question": "What is the project codename?", "answer": "Nightingale"},
-                        {"question": "Where is the primary datacenter located?", "answer": "Reykjavik"},
-                        {"question": "Who is the on-call engineer this week?", "answer": "Priya Nair"},
-                        {"question": "What is the build cluster named?", "answer": "Helios"},
+                        {
+                            "question": "What is the project codename?",
+                            "answer": "Nightingale",
+                        },
+                        {
+                            "question": "Where is the primary datacenter located?",
+                            "answer": "Reykjavik",
+                        },
+                        {
+                            "question": "Who is the on-call engineer this week?",
+                            "answer": "Priya Nair",
+                        },
+                        {
+                            "question": "What is the build cluster named?",
+                            "answer": "Helios",
+                        },
                     ],
                 }
             ],
@@ -119,10 +155,22 @@ def sample_families() -> list[dict[str, Any]]:
                 {
                     "task": "eventqa",
                     "queries": [
-                        {"question": "Which release was deployed to staging on January 4th?", "answer": "v2.1"},
-                        {"question": "What was performed on January 11th after a memory leak?", "answer": "rollback"},
-                        {"question": "What did the team migrate the cache layer to in February?", "answer": "KeyDB"},
-                        {"question": "Which release shipped to production with the leak fixed?", "answer": "v2.2"},
+                        {
+                            "question": "Which release was deployed to staging on January 4th?",
+                            "answer": "v2.1",
+                        },
+                        {
+                            "question": "What was performed on January 11th after a memory leak?",
+                            "answer": "rollback",
+                        },
+                        {
+                            "question": "What did the team migrate the cache layer to in February?",
+                            "answer": "KeyDB",
+                        },
+                        {
+                            "question": "Which release shipped to production with the leak fixed?",
+                            "answer": "v2.2",
+                        },
                     ],
                 }
             ],
