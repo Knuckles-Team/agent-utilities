@@ -159,7 +159,7 @@ def _client_for(graph: str) -> Any:
 
 
 def _json_default(obj: Any) -> Any:
-    if isinstance(obj, (bytes, bytearray)):
+    if isinstance(obj, bytes | bytearray):
         return {"__bytes_b64__": base64.b64encode(bytes(obj)).decode("ascii")}
     return str(obj)
 

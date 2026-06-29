@@ -206,7 +206,7 @@ class GraphOSMemoryMethod:
             return None
         for key in ("as_of", "as_of_time", "valid_at", "tx_to"):
             val = eval_metadata.get(key)
-            if isinstance(val, (int, float)):
+            if isinstance(val, int | float):
                 return float(val)
         return None
 

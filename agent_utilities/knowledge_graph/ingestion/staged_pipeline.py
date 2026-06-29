@@ -206,9 +206,9 @@ def _as_iter(produced: Any) -> Iterable[Any]:
     """
     if produced is None:
         return ()
-    if isinstance(produced, (str, bytes, dict)):
+    if isinstance(produced, str | bytes | dict):
         return (produced,)
-    if isinstance(produced, (list, tuple, set)):
+    if isinstance(produced, list | tuple | set):
         return produced
     if isinstance(produced, Iterable):
         return produced
