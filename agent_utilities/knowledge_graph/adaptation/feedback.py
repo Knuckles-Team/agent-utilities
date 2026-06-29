@@ -226,7 +226,7 @@ class FeedbackService:
                         payload = text.replace(",", " ").split()
                 else:
                     payload = text.replace(",", " ").split()
-            if isinstance(payload, (list, tuple, set)):
+            if isinstance(payload, list | tuple | set):
                 ids.extend(str(p) for p in payload)
         erased = index.selective_erase_rewards(ids)
         return CorrectionResult(
