@@ -147,6 +147,71 @@ def test_read_inside_string_literal_ignored(tmp_path: Path) -> None:
     assert "GENERATED_TOKEN" not in {f["var"] for f in drift.analyze(root)["findings"]}
 
 
+def test_malformed_substitution_flagged(tmp_path: Path) -> None:
+    """A whitespace-padded substitution "${ VAR:-True }" in a config value is MALFORMED_VALUE."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {
+                    "env": {
+                        "DEMO_BASE_URL": "${ DEMO_BASE_URL:-http://x }",  # spaces -> malformed
+                        "MCP_TOOL_MODE": "condensed",
+                    }
+                }
+            }
+        },
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    assert "DEMO_BASE_URL" in _types(drift.analyze(root), "MALFORMED_VALUE")
+
+
+def test_agent_var_in_mcp_flagged(tmp_path: Path) -> None:
+    """An agent-only var in an MCP-server config env block is AGENT_VAR_IN_MCP."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {
+                    "env": {
+                        "DEMO_BASE_URL": "x",
+                        "AGENT_DESCRIPTION": "y",  # agent-only
+                        "SYSTEM_TOOLS_ENABLE": "True",  # companion suite
+                        "MCP_TOOL_MODE": "condensed",
+                    }
+                }
+            }
+        },
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    flagged = _types(drift.analyze(root), "AGENT_VAR_IN_MCP")
+    assert {"AGENT_DESCRIPTION", "SYSTEM_TOOLS_ENABLE"} <= flagged
+
+
+def test_stale_readme_example_flagged(tmp_path: Path) -> None:
+    """A README mcp_config example env key not in the code-read surface is STALE_EXAMPLE,
+    and an example block without MCP_TOOL_MODE is flagged MISSING_TOOL_MODE."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "README.md").write_text(
+        "## MCP Configuration Examples\n\n"
+        "```json\n"
+        '{"mcpServers": {"demo": {"env": {"SYSTEM_TOOLS_ENABLE": "x"}}}}\n'
+        "```\n"
+        "<!-- BEGIN GENERATED: additional-deployment-options -->\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "SYSTEM_TOOLS_ENABLE" in _types(report, "STALE_EXAMPLE")
+    assert "MCP_TOOL_MODE" in _types(report, "MISSING_TOOL_MODE")
+
+
 def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     """A register_<tag>_tools registrar implies <TAG>TOOL; undocumented if absent from .env.example."""
     root = tmp_path / "demo-agent"
