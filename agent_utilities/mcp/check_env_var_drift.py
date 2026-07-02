@@ -11,8 +11,15 @@ emitting drift findings:
 - ``DEAD`` — a var declared in config/docs that **no code reads** (e.g. a scaffolder's
   ``*_TOKEN``, or per-endpoint ``*_TOOL`` toggles the framework never honours). Remove it.
 - ``UNDOCUMENTED`` — a var the code reads that is **missing from** ``.env.example``. Add it.
-- ``MISSING_TOOL_MODE`` — a launch-style ``mcp_config.json`` ``env`` block with **no**
-  ``MCP_TOOL_MODE`` (users can't discover the condensed/verbose/both surface). Add it.
+- ``MISSING_TOOL_MODE`` — a launch-style ``mcp_config.json`` ``env`` block (or README
+  example) with **no** ``MCP_TOOL_MODE`` (users can't discover the surface). Add it.
+- ``MALFORMED_VALUE`` — a config ``env`` value with a whitespace-padded substitution like
+  ``"${ VAR:-True }"``. Use ``"${VAR:-True}"`` (no spaces inside the braces).
+- ``AGENT_VAR_IN_MCP`` — an agent-runtime var (``AGENT_DESCRIPTION``, ``MCP_URL``, a
+  ``*_ENABLE`` companion suite …) sitting in an **MCP-server** config; it launches the
+  agent, never the server. Move it to the agent config.
+- ``STALE_EXAMPLE`` — a README ``mcp_config`` example ``env`` key that isn't in the
+  code-read surface (a leftover scaffold placeholder). Regenerate the examples.
 
 The code-read set =
   ``setting("VAR", …)`` reads in the package
@@ -54,6 +61,16 @@ _ENV_READ = re.compile(
 _REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
 # A ``- "KEY=value"`` or ``KEY: value`` line inside a compose ``environment:`` list/map.
 _COMPOSE_ENV = re.compile(r"""^\s*-?\s*["']?([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
+# A ``${...}`` shell substitution — inner text is inspected for stray whitespace.
+_SUBST = re.compile(r"\$\{([^}]*)\}")
+# A fenced ```json block (README mcp_config examples).
+_JSON_FENCE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+# README markers/anchors that bound the mcp_config example region (see readme_mcp_examples).
+README_START = "<!-- MCP-CONFIG-EXAMPLES:START -->"
+README_END = "<!-- MCP-CONFIG-EXAMPLES:END -->"
+README_HEADING = "## MCP Configuration Examples"
+README_ADDL = "<!-- BEGIN GENERATED: additional-deployment-options -->"
 
 # Framework vars read inside agent-utilities (create_agent / gateway / telemetry / connector
 # base) on behalf of every connector — legitimately documentable, never "dead".
@@ -190,6 +207,41 @@ def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
     return uniq
 
 
+def _readme_example_region(text: str) -> str:
+    """The README slice that holds the mcp_config examples (markers preferred, else the
+    ``## MCP Configuration Examples`` heading up to the additional-deployment marker)."""
+    if README_START in text and README_END in text:
+        return text[text.index(README_START) : text.index(README_END)]
+    if README_HEADING in text:
+        start = text.index(README_HEADING)
+        end = (
+            text.index(README_ADDL)
+            if README_ADDL in text and text.index(README_ADDL) > start
+            else len(text)
+        )
+        return text[start:end]
+    return ""
+
+
+def _readme_example_env_blocks(root: Path) -> list[dict[str, str]]:
+    """Every ``mcpServers.<name>.env`` dict in the README's fenced ```json examples."""
+    readme = root / "README.md"
+    if not readme.exists():
+        return []
+    region = _readme_example_region(readme.read_text(encoding="utf-8"))
+    blocks: list[dict[str, str]] = []
+    for m in _JSON_FENCE.finditer(region):
+        try:
+            data = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            continue
+        for server in (data.get("mcpServers") or {}).values():
+            env = server.get("env")
+            if isinstance(env, dict):
+                blocks.append(env)
+    return blocks
+
+
 def _compose_env_keys(root: Path) -> dict[str, set[str]]:
     """Env keys referenced in each ``*compose*.yml`` ``environment:`` section."""
     out: dict[str, set[str]] = {}
@@ -305,6 +357,62 @@ def analyze(root: Path) -> dict:
                     "hint": 'add "MCP_TOOL_MODE": "condensed" to the env block',
                 }
             )
+
+    # env_sources imports this module, so defer the import to call time (no import cycle).
+    from agent_utilities.mcp.env_sources import example_env_pairs, is_agent_only
+
+    # MALFORMED_VALUE — a whitespace-padded substitution like "${ VAR:-True }".
+    for path, env in mcp_blocks:
+        for var, value in env.items():
+            if any(m.group(1) != m.group(1).strip() for m in _SUBST.finditer(str(value))):
+                findings.append(
+                    {
+                        "type": "MALFORMED_VALUE",
+                        "var": var,
+                        "sources": [_rel(path, root)],
+                        "hint": 'use "${VAR:-default}" (no spaces inside the braces)',
+                    }
+                )
+
+    # AGENT_VAR_IN_MCP — an agent-runtime var in an MCP-server config env block.
+    for path, env in mcp_blocks:
+        for var in sorted(env):
+            if is_agent_only(var):
+                findings.append(
+                    {
+                        "type": "AGENT_VAR_IN_MCP",
+                        "var": var,
+                        "sources": [_rel(path, root)],
+                        "hint": "agent-only — move to the agent config (not the MCP server)",
+                    }
+                )
+
+    # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
+    allowed = {name for name, _ in example_env_pairs(root)} | {"TRANSPORT", "HOST", "PORT"}
+    for env in _readme_example_env_blocks(root):
+        if "MCP_TOOL_MODE" not in env:
+            findings.append(
+                {
+                    "type": "MISSING_TOOL_MODE",
+                    "var": "MCP_TOOL_MODE",
+                    "sources": ["README.md (example)"],
+                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the example env block',
+                }
+            )
+        for var in sorted(env):
+            if var not in allowed:
+                findings.append(
+                    {
+                        "type": "STALE_EXAMPLE",
+                        "var": var,
+                        "sources": ["README.md (example)"],
+                        "hint": (
+                            "agent-only — belongs in the agent config"
+                            if is_agent_only(var)
+                            else "not a code-read var — regenerate the examples"
+                        ),
+                    }
+                )
 
     return {
         "package": root.name,
