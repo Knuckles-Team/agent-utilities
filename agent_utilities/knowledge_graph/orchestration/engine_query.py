@@ -237,6 +237,37 @@ class QueryMixin(_Base):
             logger.debug("sparql() row filtering skipped: %s", exc)
         return rows
 
+    def uql(self, query: str) -> list[dict[str, Any]]:
+        """Run a UQL text query over the KG via the engine's unified surface (KG-2.214).
+
+        CONCEPT:KG-2.305 — the AU→engine execution path for the engine's native
+        cross-modal query language. ``MATCH (:Label) [WHERE ...] |> TRAVERSE ... |>
+        RANK BY ~[...] |> LIMIT k`` is PARSED by the engine into the SAME cross-modal
+        ``Plan`` the ``UnifiedQuery`` path carries, then run through the IDENTICAL fused
+        executor (``eg_plan::uql::parse`` → filter/traverse/rank over one off-lock
+        snapshot). This is the surface the NL→query planner (CONCEPT:KG-2.305) submits a
+        fleet-LLM-generated UQL string to, so NL→query runs through the engine's
+        deterministic pipeline exactly like the engine's own ``NlPlanner`` seam (EG-078).
+
+        Routes to the active backend's engine client (``backend.graph._client.query.uql``
+        → the engine's ``UnifiedQueryText`` wire op). Returns one ``{"id", "score"}`` row
+        per result, in the plan's final (post-``RANK``) order. A backend with no engine
+        UQL surface (server built without the ``query`` feature, or a pure-Postgres
+        mirror) raises a clear error rather than silently returning nothing — symmetric
+        with :meth:`sql` / :meth:`sparql`.
+        """
+        graph = getattr(self.backend, "graph", None)
+        client = getattr(graph, "_client", None)
+        query_ns = getattr(client, "query", None)
+        uql_fn = getattr(query_ns, "uql", None)
+        if not callable(uql_fn):
+            raise RuntimeError(
+                "The active backend has no epistemic-graph UQL surface; "
+                "UQL-on-the-KG requires the engine backend (build with the "
+                "'query' feature)."
+            )
+        return list(uql_fn(query) or [])
+
     def resolve_temporal_contradiction(
         self,
         fact_a_id: str,
