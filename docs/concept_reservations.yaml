@@ -276,3 +276,5 @@
 - {id: KG-2.306, namespace: KG-2, session: program-b1, reserved_at: '2026-07-02T17:34:52.134341+00:00', expires_at: '2026-07-04T17:34:52.134341+00:00', status: reserved, design_doc: 'Python LMCache/vLLM connector (B1.6)'}
 - {id: KG-2.307, namespace: KG-2, session: program-b1, reserved_at: '2026-07-02T17:34:52.134341+00:00', expires_at: '2026-07-04T17:34:52.134341+00:00', status: reserved, design_doc: 'agent-native-memory lifecycle loop (B1.2)'}
 - {id: KG-2.308, namespace: KG-2, session: program-b1, reserved_at: '2026-07-02T18:12:29.786835+00:00', expires_at: '2026-07-04T18:12:29.786835+00:00', status: reserved, design_doc: 'DB-GPT text2sql agent loop (B1.4)'}
+- {id: KG-2.309, namespace: KG-2, session: program-b1, reserved_at: '2026-07-02T18:45:26.389178+00:00', expires_at: '2026-07-04T18:45:26.389178+00:00', status: reserved, design_doc: 'episodic->procedural memory distillation (B1.3)'}
+- {id: KG-2.310, namespace: KG-2, session: program-b1, reserved_at: '2026-07-02T18:45:26.389178+00:00', expires_at: '2026-07-04T18:45:26.389178+00:00', status: reserved, design_doc: 'MCP surface for new engine ops (B1.8)'}
