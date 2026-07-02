@@ -39,9 +39,17 @@ from agent_utilities.mcp.env_sources import example_env_pairs
 
 START = "<!-- MCP-CONFIG-EXAMPLES:START -->"
 END = "<!-- MCP-CONFIG-EXAMPLES:END -->"
-HEADING = "## MCP Configuration Examples"
+HEADING = "### MCP Configuration Examples"
 # End anchor for the one-time retrofit — emitted by the scaffold in every package README.
 ADDL_MARKER = "<!-- BEGIN GENERATED: additional-deployment-options -->"
+# Start anchors for the one-time retrofit — the earliest present one (before ADDL_MARKER)
+# bounds the stale hand-written example region across the heading variants in use.
+RETROFIT_ANCHORS = (
+    "## MCP Configuration Examples",
+    "### MCP Configuration Examples",
+    "### Using as an MCP Server",
+    "#### stdio Transport",
+)
 
 
 def _detect_package(root: Path) -> tuple[str, str, str]:
@@ -147,21 +155,28 @@ def _shell_value(value: str) -> str:
 
 
 def _splice(readme: str, block: str) -> tuple[str, bool]:
-    """Insert/replace the examples block. Returns ``(new_text, retrofit_failed)``."""
+    """Insert/replace the examples block. Returns ``(new_text, retrofit_failed)``.
+
+    Idempotent once the markers exist. Otherwise a one-time retrofit replaces the stale
+    hand-written region — from the earliest example-section anchor to the
+    additional-deployment marker — with a normalized ``### MCP Configuration Examples``
+    heading + the generated (marker-wrapped) block.
+    """
     if START in readme and END in readme:
         pre = readme[: readme.index(START)]
         post = readme[readme.index(END) + len(END) :]
         return pre + block + post, False
-    # Retrofit: replace [heading .. additional-deployment marker) wholesale.
-    if HEADING in readme and ADDL_MARKER in readme:
-        h_idx = readme.index(HEADING) + len(HEADING)
+    # Retrofit: bound the stale region by the earliest anchor and the additional-deployment
+    # marker, then replace it wholesale with a normalized heading + generated block.
+    if ADDL_MARKER in readme:
         a_idx = readme.index(ADDL_MARKER)
-        if h_idx < a_idx:
-            return readme[:h_idx] + "\n\n" + block + "\n\n" + readme[a_idx:], False
-    # Fallback: insert under the heading (leaves any hand-written examples for review).
-    if HEADING in readme:
-        idx = readme.index(HEADING) + len(HEADING)
-        return readme[:idx] + "\n\n" + block + "\n" + readme[idx:], True
+        starts = [readme.index(a) for a in RETROFIT_ANCHORS if a in readme]
+        starts = [s for s in starts if s < a_idx]
+        if starts:
+            line_start = readme.rfind("\n", 0, min(starts)) + 1
+            replacement = f"{HEADING}\n\n{block}\n\n"
+            return readme[:line_start] + replacement + readme[a_idx:], False
+    # Fallback: no anchors — append with a heading and warn (leaves hand-written text).
     sep = "" if readme.endswith("\n") else "\n"
     return f"{readme}{sep}\n{HEADING}\n\n{block}\n", True
 
