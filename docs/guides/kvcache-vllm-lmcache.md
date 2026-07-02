@@ -151,16 +151,32 @@ curl -fsS http://10.0.0.18:9130/kv/stats
 # → {"unique_blocks":0,"total_refs":0,"dedup_savings_bytes":0,...}
 ```
 
-### 3. Build the LMCache image + enable the override (WINDOWED restart)
+### 3. Get the LMCache image + enable the override (WINDOWED restart)
+
+The customized vLLM image (vLLM nightly + `lmcache` + the connector + configs) is a
+**first-class build definition** at **`images/vllm`**, built by GitLab CI and pushed
+to the private registry as **`registry.arpa/vllm-lmcache`** (arm64/GB10). Prefer the
+pre-compiled registry image; `compose.lmcache.yml` already references it:
+
+```bash
+# ensure GB10 resolves the registry (once): 10.0.0.13 registry.arpa in /etc/hosts
+DOCKER_HOST=ssh://genius@10.0.0.18 docker pull registry.arpa/vllm-lmcache:latest
+```
+
+Offline / local build (no registry) — the in-tree `Dockerfile.lmcache` mirrors the
+`images/vllm` build; then set `image: vllm-openai:lmcache` in `compose.lmcache.yml`:
 
 ```bash
 cd services/vllm
-DOCKER_HOST=ssh://genius@10.0.0.18 \
-  docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
+DOCKER_HOST=ssh://genius@10.0.0.18 docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
+```
 
+Enable the override (recreates `vllm-llm` on the custom image — the windowed restart):
+
+```bash
 # pick the path in compose.lmcache.yml's LMCACHE_CONFIG_FILE:
-#   Path B (default): /etc/lmcache/lmcache.redis.yaml
-#   Path A:           /etc/lmcache/lmcache.epistemic.yaml
+#   Path B (default): /etc/lmcache/lmcache.redis.yaml   (-> engine Redis wire :6379)
+#   Path A:           /etc/lmcache/lmcache.epistemic.yaml (-> EG-187 HTTP :9130)
 
 DOCKER_HOST=ssh://genius@10.0.0.18 \
   docker compose -f compose.standalone.yml -f compose.lmcache.yml up -d vllm-llm
