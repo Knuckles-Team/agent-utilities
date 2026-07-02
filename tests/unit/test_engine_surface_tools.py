@@ -65,6 +65,7 @@ _EXPECTED_ROUTES = {
     "graph_promql": "/graph/promql",
     "graph_traces": "/graph/traces",
     "graph_gis": "/graph/gis",
+    "graph_memory": "/graph/memory",
 }
 
 
@@ -324,6 +325,72 @@ def test_kg_2_310_gis_degrades(monkeypatch, tools):
         tools["graph_gis"](action="route", params_json="{}", graph="")
     )
     assert out["degraded"] is True
+
+
+# ── graph_memory (EG-318) ────────────────────────────────────────────────────
+def test_kg_2_310_memory_trajectory_dispatches(monkeypatch, tools):
+    """CONCEPT:KG-2.310 — graph_memory append_step routes into client.trajectory."""
+    calls: list = []
+    trajectory = SimpleNamespace(append_step=_recording_method(calls, "append_step"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(trajectory=trajectory)
+    )
+    out = json.loads(
+        tools["graph_memory"](
+            action="append-step",  # dash form normalizes to append_step
+            params_json='{"trajectory_id": "t1", "step": {"reward": 1.0}}',
+            graph="",
+        )
+    )
+    assert out["surface"] == "memory"
+    assert out["action"] == "append_step"
+    assert calls == [
+        ("append_step", {"trajectory_id": "t1", "step": {"reward": 1.0}})
+    ]
+
+
+def test_kg_2_310_memory_create_summary_dispatches(monkeypatch, tools):
+    """CONCEPT:KG-2.310 — graph_memory create_summary routes into client.memory."""
+    calls: list = []
+    memory = SimpleNamespace(create_summary=_recording_method(calls, "create_summary"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(memory=memory)
+    )
+    out = json.loads(
+        tools["graph_memory"](
+            action="create_summary",
+            params_json='{"node_ids": ["n1", "n2"]}',
+            graph="",
+        )
+    )
+    assert out["result"]["echoed"] == "create_summary"
+    assert calls == [("create_summary", {"node_ids": ["n1", "n2"]})]
+
+
+def test_kg_2_310_memory_read_by_action_name(monkeypatch, tools):
+    """CONCEPT:KG-2.310 — an unlisted read action probes the three sub-clients."""
+    calls: list = []
+    scene = SimpleNamespace(get_scene=_recording_method(calls, "get_scene"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(scene=scene)
+    )
+    out = json.loads(
+        tools["graph_memory"](action="get_scene", params_json="{}", graph="")
+    )
+    assert out["action"] == "get_scene"
+    assert calls == [("get_scene", {})]
+
+
+def test_kg_2_310_memory_degrades(monkeypatch, tools):
+    """CONCEPT:KG-2.310 — graph_memory degrades when no memory surface."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    out = json.loads(
+        tools["graph_memory"](
+            action="consolidate", params_json="{}", graph=""
+        )
+    )
+    assert out["degraded"] is True
+    assert out["surface"] == "memory"
 
 
 # ── transport failure ────────────────────────────────────────────────────────

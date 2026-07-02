@@ -16,6 +16,10 @@ leaving them reachable only through the generic ``engine_<domain>`` 1:1 surface
 * ``graph_promql``          — PromQL instant/range metric queries (observability).
 * ``graph_traces``          — distributed-trace search / fetch (observability).
 * ``graph_gis``             — geospatial route / tile / geo-task ops.
+* ``graph_memory``          — the EG-318 memory surface: episodic→semantic memory
+  (create-summary / consolidate / maintain), the spatial scene graph
+  (add-scene-object / world-transform), and RL trajectories (start-trajectory /
+  append-step / discounted-return), plus their reads.
 
 Design (matches the rest of ``agent_utilities/mcp/tools``):
 
@@ -78,6 +82,44 @@ _TRACES_GET_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("traces", "get"),
     ("observability", "trace"),
 )
+
+# graph_memory — EG-318 memory / scene / trajectory ops. Each logical action maps
+# to a small probe list of ``(sub_client_attr, method_attr)`` paths the engine
+# build / client may plausibly expose the EG-318 wire Method under (the client
+# wraps each wire ``Method`` as a snake_case method on a sub-client). The first
+# callable found wins; when none resolve the tool degrades cleanly. Any action not
+# listed here falls back to probing the three sub-clients with the action name
+# directly, so read ops (get_summary / get_scene / get_trajectory / …) light up
+# by name once the engine ships them.
+_MEMORY_ACTION_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
+    # episodic → semantic memory (CreateSummaryNode / Consolidate / Maintain)
+    "create_summary": (
+        ("memory", "create_summary"),
+        ("memory", "create_summary_node"),
+    ),
+    "consolidate": (("memory", "consolidate"),),
+    "maintain": (("memory", "maintain"),),
+    # spatial scene graph (AddSceneObject / world transform)
+    "add_scene_object": (
+        ("scene", "add_object"),
+        ("scene", "add_scene_object"),
+        ("memory", "add_scene_object"),
+    ),
+    "world_transform": (
+        ("scene", "world_transform"),
+        ("scene", "set_world_transform"),
+    ),
+    # trajectories / RL episodes (StartTrajectory / AppendStep / discounted return)
+    "start_trajectory": (
+        ("trajectory", "start"),
+        ("trajectory", "start_trajectory"),
+    ),
+    "append_step": (
+        ("trajectory", "append_step"),
+        ("trajectory", "append"),
+    ),
+    "discounted_return": (("trajectory", "discounted_return"),),
+}
 
 
 # ── Transport resolution (reuse the one engine client; injectable for tests) ──
@@ -568,3 +610,69 @@ def register_engine_surface_tools(mcp) -> None:
 
     kg_server.REGISTERED_TOOLS["graph_gis"] = graph_gis
     kg_server.ACTION_TOOL_ROUTES["graph_gis"] = "/graph/gis"
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_memory — EG-318 memory / scene / trajectory engine ops
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_memory",
+        description=(
+            "CONCEPT:KG-2.310 — the engine's EG-318 memory surface: episodic→semantic "
+            "memory, the spatial scene graph, and RL trajectories. Action-routed 1:1 "
+            "over the engine memory methods (dashes normalize to underscores): "
+            "'create_summary' (episodic nodes → a summary node — node_ids [+window]), "
+            "'consolidate' (roll episodic into semantic memory), 'maintain' (decay / "
+            "prune / re-index the memory store), 'add_scene_object' (object_id [+pose/"
+            "transform/parent]), 'world_transform' (object_id + transform → world pose), "
+            "'start_trajectory' (agent/episode → trajectory_id), 'append_step' "
+            "(trajectory_id + step {state,action,reward,...}), 'discounted_return' "
+            "(trajectory_id [+gamma]). Read ops (e.g. 'get_summary', 'get_scene', "
+            "'get_trajectory') route by action name too. Structured args go via "
+            "params_json. Degrades cleanly when the engine build has no memory surface."
+        ),
+        tags=["graph-os", "engine", "memory", "scene", "trajectory"],
+    )
+    def graph_memory(
+        action: str = Field(
+            default="consolidate",
+            description="Memory method: create_summary | consolidate | maintain | "
+            "add_scene_object | world_transform | start_trajectory | append_step | "
+            "discounted_return | get_* | ...",
+        ),
+        params_json: str = Field(
+            default="{}",
+            description="JSON object of kwargs for the memory method, e.g. "
+            '{"node_ids":["n1","n2"]}, {"object_id":"o1","transform":[...]}, '
+            '{"trajectory_id":"t1","step":{"state":...,"action":...,"reward":1.0}}, '
+            'or {"trajectory_id":"t1","gamma":0.99}.',
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin wrapper over the engine EG-318 memory surface (CONCEPT:KG-2.310)."""
+        action = (action or "").strip().replace("-", "_")
+        if not action:
+            return json.dumps({"surface": "memory", "error": "action is required"})
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return json.dumps({"surface": "memory", "error": f"invalid params_json: {exc}"})
+        if not isinstance(params, dict):
+            return json.dumps(
+                {"surface": "memory", "error": "params_json must decode to an object"}
+            )
+        candidates = _MEMORY_ACTION_CANDIDATES.get(
+            action,
+            (("memory", action), ("scene", action), ("trajectory", action)),
+        )
+        return _invoke(
+            surface="memory",
+            action=action,
+            graph=graph,
+            candidates=candidates,
+            params=params,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_memory"] = graph_memory
+    kg_server.ACTION_TOOL_ROUTES["graph_memory"] = "/graph/memory"
