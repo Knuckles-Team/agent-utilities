@@ -270,7 +270,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
   // ── Model Registries (PRIMARY CONFIG) ───────────────────────────
   "chat_models": [
     {
-      "id": "qwen/qwen3.6-35b-a3b",
+      "id": "qwen/qwen3.6-27b",
       "provider": "openai",
       "base_url": "http://vllm.arpa/v1",
       "supports_json": false,
@@ -306,7 +306,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | ✅ | Model identifier (e.g., `gpt-4o-mini`, `qwen/qwen3.6-35b-a3b`) |
+| `id` | string | ✅ | Model identifier (e.g., `gpt-4o-mini`, `qwen/qwen3.6-27b`) |
 | `provider` | string | ✅ | Provider name (`openai`, `anthropic`, `google`, etc.) |
 | `base_url` | string | ❌ | Override API endpoint (e.g., for LM Studio, Ollama) |
 | `api_key` | string | ❌ | Per-model API key override |

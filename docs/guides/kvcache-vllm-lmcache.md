@@ -197,7 +197,7 @@ DOCKER_HOST=ssh://genius@10.0.0.18 \
    for i in 1 2; do
      curl -s http://10.0.0.18:8000/v1/completions \
        -H 'content-type: application/json' \
-       -d "{\"model\":\"qwen/qwen3.6-35b-a3b\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
+       -d "{\"model\":\"qwen/qwen3.6-27b\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
        -o /dev/null -w "run $i: %{time_total}s\n"
    done
    ```

@@ -32,7 +32,7 @@ Usage::
         results = await search(query)
         return await synthesize(results)
 
-    @generation(name="llm_call", model="qwen3.6-35b-a3b")
+    @generation(name="llm_call", model="qwen3.6-27b")
     async def call_llm(prompt: str):
         return await model.generate(prompt)
 """
@@ -362,7 +362,7 @@ def generation(
 
     Args:
         name: Name of the generation. Defaults to function name.
-        model: LLM model identifier (e.g. ``qwen3.6-35b-a3b``).
+        model: LLM model identifier (e.g. ``qwen3.6-27b``).
         tags: Optional tags for Langfuse filtering.
     """
     return trace(

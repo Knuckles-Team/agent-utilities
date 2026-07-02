@@ -4,7 +4,7 @@ The per-model adaptive controller (CONCEPT:KG-2.145,
 :mod:`model_capacity_autoscale`) tunes each model's concurrency target on its own,
 toward that model's real serving capacity. But several models can be served from
 **one physical GPU** — on our homelab the embedder ``bge-m3`` (``vllm-embed.arpa``)
-and the chat model ``qwen3.6-35b-a3b`` (``vllm.arpa``) are *different endpoints sharing
+and the chat model ``qwen3.6-27b`` (``vllm.arpa``) are *different endpoints sharing
 the same GB10* (unified memory). Each per-model controller, tuning in isolation,
 would happily ramp both at once and **jointly oversubscribe** the device — bulk
 embedding would starve interactive chat of GPU time.

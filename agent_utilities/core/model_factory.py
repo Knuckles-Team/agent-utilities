@@ -161,7 +161,7 @@ def create_model(
     (zero overhead, e.g. unit tests), so default behavior is unchanged.
 
     ``reasoning_effort`` controls thinking on a reasoning chat model (the standard
-    ``qwen/qwen3.6-35b-a3b`` is one): it emits a long ``reasoning`` block and leaves
+    ``qwen/qwen3.6-27b`` is one): it emits a long ``reasoning`` block and leaves
     ``content`` null until thinking finishes, so a utility call with a modest ``max_tokens``
     gets EMPTY content (``finish_reason=length``) — and a retry-on-empty path then blocks to
     the 300s router/verifier timeout. Default ``"none"`` turns thinking off so the model
@@ -271,7 +271,7 @@ def _create_model_impl(
             if base_url is None:
                 base_url = _resolved.base_url
 
-    _model_id = model_id or "qwen/qwen3.6-35b-a3b"
+    _model_id = model_id or "qwen/qwen3.6-27b"
     _provider = provider or "openai"
     # Default reasoning OFF (content-bearing, fast) for every OpenAI-compatible model built
     # here; opt back in per call with reasoning_effort=None / a level. See create_model docstring.

@@ -50,7 +50,7 @@ def failover_config(monkeypatch):
         "chat_models",
         [
             ChatModelConfig(
-                id="qwen3.6-35b-a3b",
+                id="qwen3.6-27b",
                 provider="openai",
                 base_url="http://vllm.arpa/v1",
                 gpu_group="gb10",

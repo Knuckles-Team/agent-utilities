@@ -728,7 +728,7 @@ class AgentConfig(BaseSettings):
 
         1. The model's explicit ``gpu_group`` tag, if set — this is the only way to
            group models served from **different** endpoints onto one GPU (our case:
-           tag both ``bge-m3`` @ ``vllm-embed.arpa`` and ``qwen3.6-35b-a3b`` @
+           tag both ``bge-m3`` @ ``vllm-embed.arpa`` and ``qwen3.6-27b`` @
            ``vllm.arpa`` ``gpu_group="gb10"``).
         2. Otherwise the ``base_url`` host (netloc), so same-endpoint models group
            automatically with zero config.
@@ -2184,7 +2184,7 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
         (_default_chat.id if _default_chat else None)
         or os.getenv("MODEL_ID")
-        or "qwen/qwen3.6-35b-a3b"
+        or "qwen/qwen3.6-27b"
     )
     _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = (
         _default_chat.base_url if _default_chat else None
