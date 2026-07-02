@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 578
-total_pillars: 22
+total_concepts: 588
+total_pillars: 25
 pillars:
 - AHE-3
 - CE-038
@@ -17,6 +17,9 @@ pillars:
 - EG-009
 - EG-010
 - EG-037
+- EG-160
+- EG-186
+- EG-187
 - KG-1
 - KG-2
 - LGC-1
@@ -1642,6 +1645,29 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: This engine
+- id: EG-160
+  name: EG-160
+  pillar: EG-160
+  status: live
+  code_paths:
+  - agent_utilities/observability/self_ingest.py
+  doc: EG-160
+- id: EG-186
+  name: over a small HTTP surface
+  pillar: EG-186
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/remote_backend.py
+  doc: over a small HTTP surface
+- id: EG-187
+  name: is configured with, so a co-located deploy shares one source of
+  pillar: EG-187
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/__init__.py
+  - agent_utilities/kvcache/config.py
+  - agent_utilities/kvcache/remote_backend.py
+  doc: is configured with, so a co-located deploy shares one source of
 - id: KG-1.0
   name: Centralized KG Coordination Protocol
   pillar: KG-1
@@ -2256,15 +2282,16 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   doc: through the facade so orchestration code
 - id: KG-2.17
-  name: decay scanner + semantic merge
+  name: and generates summary text via the shared
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/memory/cli.py
   - agent_utilities/knowledge_graph/memory/hygiene.py
+  - agent_utilities/knowledge_graph/memory/lifecycle.py
   - agent_utilities/knowledge_graph/memory/memory_engine.py
-  doc: decay scanner + semantic merge
+  doc: and generates summary text via the shared
 - id: KG-2.18
   name: record that these memories were RECALLED, on the live retrieval path
   pillar: KG-2
@@ -2290,6 +2317,7 @@ concepts:
   - agent_utilities/agent/factory.py
   - agent_utilities/capabilities/memento.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
+  - agent_utilities/knowledge_graph/memory/lifecycle.py
   - agent_utilities/knowledge_graph/memory/memento_compressor.py
   doc: live Memento block-compress-evict sawtooth
 - id: KG-2.20g
@@ -4315,6 +4343,66 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/chunked_drain.py
   doc: Connector-declared page drainer
+- id: KG-2.304
+  name: Attaching this to the root logger routes all
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/__main__.py
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/observability/self_ingest.py
+  - agent_utilities/orchestration/engine.py
+  doc: Attaching this to the root logger routes all
+- id: KG-2.305
+  name: ask the Knowledge Graph in plain English, planned by
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/nl_planner.py
+  - agent_utilities/knowledge_graph/orchestration/data_analyst.py
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: ask the Knowledge Graph in plain English, planned by
+- id: KG-2.306
+  name: the Python LMCache/vLLM connector reads its endpoint and
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/__init__.py
+  - agent_utilities/kvcache/config.py
+  - agent_utilities/kvcache/remote_backend.py
+  doc: the Python LMCache/vLLM connector reads its endpoint and
+- id: KG-2.307
+  name: drive one agent-native-memory lifecycle cycle
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/memory/distillation.py
+  - agent_utilities/knowledge_graph/memory/lifecycle.py
+  doc: drive one agent-native-memory lifecycle cycle
+- id: KG-2.308
+  name: answer a DATA question over the Knowledge Graph with a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/data_analyst.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: answer a DATA question over the Knowledge Graph with a
+- id: KG-2.309
+  name: Episodic→procedural memory distillation
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/distillation.py
+  doc: Episodic→procedural memory distillation
+- id: KG-2.310
+  name: federated search fanned across registered external
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: federated search fanned across registered external
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5978,6 +6066,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_resolver.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/mcp/tools/engine_tools.py
   doc: One engine resolver auto-provisioning every entrypoint by precedence remote then share-running-local
     then autostart-shared-supervised
@@ -6046,12 +6135,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/ingest_profile.py
   doc: OS-5.71
 - id: OS-5.72
-  name: Env-var drift guard
+  name: Env-var single source of truth
   pillar: OS-5
   status: live
   code_paths:
   - agent_utilities/mcp/check_env_var_drift.py
-  doc: Env-var drift guard
+  - agent_utilities/mcp/env_sources.py
+  - agent_utilities/mcp/readme_mcp_examples.py
+  doc: Env-var single source of truth
 - id: OS-5.73
   name: autonomous spec→develop. OFF by default = review-first
   pillar: OS-5
