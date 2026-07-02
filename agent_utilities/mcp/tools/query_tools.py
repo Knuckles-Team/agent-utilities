@@ -527,6 +527,8 @@ def register_query_tools(mcp):
             return json.dumps({"error": str(e)})
 
     kg_server.REGISTERED_TOOLS["nl_query"] = nl_query
+    # CONCEPT:KG-2.305 — gateway REST twin (W1 exposure; MCP⇄REST parity)
+    kg_server.ACTION_TOOL_ROUTES["nl_query"] = "/graph/nl-query"
 
     # ══════════════════════════════════════════════════════════════════
     # 1a-quinquies. ask_data — CONCEPT:KG-2.308 DB-GPT-style data-analysis agent loop
@@ -580,6 +582,8 @@ def register_query_tools(mcp):
             return json.dumps({"error": str(e)})
 
     kg_server.REGISTERED_TOOLS["ask_data"] = ask_data
+    # CONCEPT:KG-2.308 — gateway REST twin (W1 exposure; MCP⇄REST parity)
+    kg_server.ACTION_TOOL_ROUTES["ask_data"] = "/graph/ask-data"
 
     # ══════════════════════════════════════════════════════════════════
     # 1a-ter. graph_table — CONCEPT:KG-2.266 connector/ETL → native engine SQL tables
