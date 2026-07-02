@@ -547,6 +547,9 @@ or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
 - T2 Business apps (Twenty, ERPNext, Plane, Mattermost, Firefly, **Camunda**, **Archi**)
 - T3 Lifestyle/utility (Mealie, wger, Gramps, FreshRSS, Calibre, Reitti)
 - T4 AI/ML (vLLM→GB10, Ollama, XTTS, Faster-Whisper) → GPU nodes
+  - **Optional KV-cache layering (opt-in):** to pool + dedup vLLM's KV cache into the
+    engine, deploy the KV-cache layer after vLLM is healthy — see **Step 11b** (LMCache
+    → the epistemic-graph kvcache-server, `CONCEPT:EG-187`/`KG-2.306`).
 - T5 Agent MCP servers (stateless) — **tolerate missing images**
 - T6 Media/NAS-bound (arr-suite, Jellyfin, Immich) → R510
   - **arr-suite VPN hardening (REQUIRED):** deploy the arr-suite with the **gluetun-namespace +
@@ -593,6 +596,47 @@ or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
 - Data platform (**Kafka**, **Apache-Jena**/Fuseki) → highest-RAM node, canary-gated
 - Requires: `portainer-mcp`, `container-manager-mcp`
 - Expected: `services-deployed, deferred-report` (arr-suite: `vpn-egress-enforced, kill-switch-verified`)
+
+### Step 11b: kvcache-layer (opt-in KV-cache pooling for vLLM)
+[depends_on: Step 11] (conditional: only when the operator opts into KV-cache pooling
+AND a vLLM stack is deployed; profiles: single-node-prod, enterprise)
+Layer **LMCache** onto the deployed vLLM so its KV cache is pooled + deduplicated into
+the **epistemic-graph engine** — cutting time-to-first-token on repeated prefixes
+(system prompts, few-shot exemplars, long docs, multi-turn history) and letting the box
+**offload KV under memory pressure** instead of recomputing it. The engine's KV-cache
+server (`CONCEPT:EG-187`) is a small HTTP surface (`GET|PUT|HEAD /kv/<hash>`,
+`GET /kv/stats`) over the tiered hot/warm/cold cache (`CONCEPT:EG-185`) + content-
+addressed shared dedup (`CONCEPT:EG-186`); the Python connector is
+`EpistemicGraphKVBackend` (`CONCEPT:KG-2.306`). Full runbook + the two wiring paths:
+agent-utilities `docs/guides/kvcache-vllm-lmcache.md` (the single source of truth —
+do not duplicate the config here).
+
+- **Co-locate on the GPU/inference host (e.g. GB10).** LMCache offload/fetch is on the
+  inference hot path, so the kvcache-server runs on the **same box** as vLLM, reached
+  over loopback (host network), NOT across the overlay. Like vLLM on GB10 it runs as a
+  **standalone compose** (`services/vllm/compose.kvcache.yml`), OUTSIDE Swarm (SBSA
+  watchdog reset). The deployment-planner constraint is `node.labels.name == <vLLM host>`.
+- **Build the KV-enabled engine image** (the default fleet `epistemic-graph` image does
+  NOT compile the KV features): `docker buildx --build-arg EG_FEATURES="node,ast-extended,kvcache-server,redis-wire"`
+  → `registry.arpa/epistemic-graph:kvcache` (multi-arch — GB10 needs `linux/arm64`).
+- **Seed the token** via `graph_configure action=vault_sync config_key=epistemic-kvcache`
+  (`CONCEPT:OS-5.43`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
+  dropped into the kvcache-server env AND the vLLM LMCache override (same value both sides).
+- **Two paths (pick one, both hit the same engine store):** **Path B — Redis drop-in**
+  (recommended default, ZERO custom code): LMCache `remote_url: redis://localhost:6379`
+  targets the engine's Redis wire (`CONCEPT:EG-174`/`EG-307`). **Path A — custom
+  connector**: LMCache external backend `EpistemicGraphExternalBackend` → the EG-187 HTTP
+  surface via `EpistemicGraphKVBackend`.
+- **Enable is a WINDOWED, opt-in restart of vLLM** — the LMCache wiring lives in an
+  OVERRIDE (`services/vllm/compose.lmcache.yml`, adds `--kv-transfer-config
+  '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'` + `LMCACHE_CONFIG_FILE`);
+  the live `compose.standalone.yml` is untouched until the operator applies the override.
+  Never redeploy the GB10 vLLM outside a maintenance window (SBSA reset risk).
+- **Health check:** `curl -fsS http://<vLLM host>:9130/kv/stats` returns occupancy +
+  dedup counters; after a warm inference run, `unique_blocks > 0` and
+  `dedup_savings_bytes` / `get_hits` grow.
+- Requires: `container-manager-mcp`, `openbao-mcp`, `graph-os` (vault_sync)
+- Expected: `kvcache-server-up, lmcache-wired, kv-stats-growing` (skipped → `kvcache-skipped`)
 
 ### Step 12: dns-migration-utility
 [depends_on: Step 11] (conditional: only when migrating from a legacy resolver — AdGuard Home, Pi-hole, bind9, dnsmasq)
@@ -1003,6 +1047,7 @@ Run this workflow as a dependency-ordered DAG. Steps with no unmet `depends_on` 
 - **After level 6:** Step 9 — gitlab-repository-seeder → Step 9b — standard-private-repos-and-ci (provision the standard operator-owned private repos + generalized CI/runners, profile-scaled; tiny = local `{inventory, config}`, no CI)
 - **After level 7:** Step 10 — portainer-gitops-bind
 - **After level 8:** Step 11 — tiered-service-deploy
+- **After level 8 (opt-in):** Step 11b — kvcache-layer (LMCache → epistemic-graph kvcache-server, co-located on the vLLM host; only when KV-cache pooling is opted into)
 - **After level 9:** Step 12 — dns-migration-utility (conditional: legacy-resolver migration only)
 - **After level 10:** Step 13 — dns-record-manager
 - **After level 11:** Step 14 — keycloak-oidc-wiring
