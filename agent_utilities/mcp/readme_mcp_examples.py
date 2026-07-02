@@ -155,19 +155,21 @@ def _shell_value(value: str) -> str:
 
 
 def _splice(readme: str, block: str) -> tuple[str, bool]:
-    """Insert/replace the examples block. Returns ``(new_text, retrofit_failed)``.
+    """Insert/replace the examples block. Returns ``(new_text, unhandled)``.
 
     Idempotent once the markers exist. Otherwise a one-time retrofit replaces the stale
-    hand-written region — from the earliest example-section anchor to the
-    additional-deployment marker — with a normalized ``### MCP Configuration Examples``
-    heading + the generated (marker-wrapped) block.
+    hand-written region — bounded by the earliest example-section anchor that precedes
+    the additional-deployment marker and the marker itself — with a normalized
+    ``### MCP Configuration Examples`` heading + the generated (marker-wrapped) block.
+
+    When there are no markers **and** no additional-deployment marker to bound the region,
+    the README is left untouched (``unhandled=True``) rather than risk a stray append —
+    such READMEs (a handful of non-standard ones) are handled by hand.
     """
     if START in readme and END in readme:
         pre = readme[: readme.index(START)]
         post = readme[readme.index(END) + len(END) :]
         return pre + block + post, False
-    # Retrofit: bound the stale region by the earliest anchor and the additional-deployment
-    # marker, then replace it wholesale with a normalized heading + generated block.
     if ADDL_MARKER in readme:
         a_idx = readme.index(ADDL_MARKER)
         starts = [readme.index(a) for a in RETROFIT_ANCHORS if a in readme]
@@ -176,21 +178,19 @@ def _splice(readme: str, block: str) -> tuple[str, bool]:
             line_start = readme.rfind("\n", 0, min(starts)) + 1
             replacement = f"{HEADING}\n\n{block}\n\n"
             return readme[:line_start] + replacement + readme[a_idx:], False
-    # Fallback: no anchors — append with a heading and warn (leaves hand-written text).
-    sep = "" if readme.endswith("\n") else "\n"
-    return f"{readme}{sep}\n{HEADING}\n\n{block}\n", True
+    return readme, True
 
 
 def sync_readme(root: Path, readme_path: Path, *, check: bool = False) -> bool:
     """Write the examples block into ``readme_path``. Returns True if it changed."""
     block = render_examples(root)
     current = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
-    updated, retrofit_failed = _splice(current, block)
-    if retrofit_failed and not check:
+    updated, unhandled = _splice(current, block)
+    if unhandled and not check:
         print(
-            f"warning: {readme_path} has no MCP-CONFIG-EXAMPLES markers and no "
-            f"'{HEADING}'/'{ADDL_MARKER}' anchors — inserted a fresh block; review for "
-            "leftover hand-written examples.",
+            f"note: {readme_path} has no MCP-CONFIG-EXAMPLES markers and no "
+            f"'{ADDL_MARKER}' anchor to bound the region — left untouched (add the "
+            "markers by hand to enable generation).",
             file=sys.stderr,
         )
     if updated == current:
