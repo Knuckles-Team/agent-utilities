@@ -469,6 +469,66 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_ask"] = graph_ask
 
     # ══════════════════════════════════════════════════════════════════
+    # 1a-quater. nl_query — CONCEPT:KG-2.305 AU-fleet-LLM as the engine's NL planner
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="nl_query",
+        description=(
+            "CONCEPT:KG-2.305 — ask the Knowledge Graph in plain English, planned by "
+            "agent-utilities' OWN configured fleet LLM (the local vLLM / provider the rest "
+            "of AU uses) acting as the engine's NL planner. The fleet model translates your "
+            "request (grounded in the live node-label + SQL-table schema) into a single "
+            "read-only query — preferring UQL, the engine's native cross-modal language "
+            "(also cypher/sql/sparql) — which is then submitted to the engine's OWN "
+            "deterministic executor via the existing AU->engine query path. This is the "
+            "'LLM opt-out from AU' half of the NL->query dual-mode: it uses the fleet LLM "
+            "instead of the engine's standalone ureq client. Returns the GENERATED query "
+            "(auditable), result rows, and citations. Set execute=false to preview without "
+            "running; pin dialect='uql'|'cypher'|'sql'|'sparql' to force one. Falls back to "
+            "a clean error when no LLM is configured."
+        ),
+        tags=["graph-os", "query", "nl"],
+    )
+    def nl_query(
+        text: str = Field(description="The natural-language request to answer."),
+        dialect: str = Field(
+            default="auto",
+            description="'auto' (model chooses, prefers uql) or 'uql'|'cypher'|'sql'|'sparql'.",
+        ),
+        schema_hint: str = Field(
+            default="",
+            description="Optional extra schema/context hint to ground the planner.",
+        ),
+        execute: bool = Field(
+            default=True,
+            description="When false, return only the generated query (preview/dry-run).",
+        ),
+        limit: int = Field(default=50, description="Max result rows to return."),
+    ) -> str:
+        from agent_utilities.knowledge_graph.core import nl_planner
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": f"no active engine: {e}"})
+        try:
+            return json.dumps(
+                nl_planner.nl_query(
+                    engine,
+                    str(text),
+                    dialect=str(dialect),
+                    schema_hint=str(schema_hint),
+                    execute=bool(execute),
+                    limit=int(limit),
+                ),
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["nl_query"] = nl_query
+
+    # ══════════════════════════════════════════════════════════════════
     # 1a-ter. graph_table — CONCEPT:KG-2.266 connector/ETL → native engine SQL tables
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
