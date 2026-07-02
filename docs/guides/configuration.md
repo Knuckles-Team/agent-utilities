@@ -94,6 +94,15 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `LANGFUSE_PUBLIC_KEY` | *None* | Langfuse integration key |
 | `LANGFUSE_SECRET_KEY` | *None* | Langfuse integration secret |
 | `LOGFIRE_TOKEN` | *None* | Pydantic Logfire token |
+| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship our own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (KG-2.304, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
+| `EPISTEMIC_GRAPH_OBS_ADDR` | *None* | Engine OTLP/HTTP log endpoint base address (engine EG-160). Empty ⇒ self-ingest disabled. |
+| `AGENT_UTILITIES_SELF_INGEST_MODE` | `otlp` | `otlp` → `POST /v1/logs`; `bulk` → `POST /_bulk` |
+| `AGENT_UTILITIES_SELF_INGEST_SERVICE` | `agent-utilities` | OTLP `service.name` stamped on records |
+| `AGENT_UTILITIES_SELF_INGEST_LEVEL` | `INFO` | Minimum log level shipped by the handler |
+| `AGENT_UTILITIES_SELF_INGEST_BATCH` | `100` | Max records per batch |
+| `AGENT_UTILITIES_SELF_INGEST_INTERVAL` | `2.0` | Background flush interval (seconds) |
+| `AGENT_UTILITIES_SELF_INGEST_QUEUE_MAX` | `10000` | Bounded queue size; overflow is dropped (never blocks) |
+| `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | `3.0` | Per-request HTTP timeout (seconds) |
 
 ### MCP Tooling
 | Variable | Default | Description |

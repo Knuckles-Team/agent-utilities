@@ -26,6 +26,18 @@ def setup_logging(debug=False):
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    # CONCEPT:KG-2.304 — self-ingest telemetry. Opt-in (default-off): ships our
+    # own logs into the epistemic-graph engine obs store. Clean no-op when
+    # AGENT_UTILITIES_SELF_INGEST/EPISTEMIC_GRAPH_OBS_ADDR are unset.
+    try:
+        from agent_utilities.observability.self_ingest import (
+            install_self_ingest_logging,
+        )
+
+        install_self_ingest_logging()
+    except Exception:  # noqa: BLE001 — telemetry must never block startup
+        logging.getLogger(__name__).debug("self-ingest logging not installed")
+
 
 def agent_server():
     """Main agent execution server.

@@ -184,6 +184,17 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    # CONCEPT:KG-2.304 — self-ingest telemetry: graph-os ships its own logs into
+    # the epistemic-graph engine obs store. Opt-in (default-off); no-op when unset.
+    try:
+        from agent_utilities.observability.self_ingest import (
+            install_self_ingest_logging,
+        )
+
+        install_self_ingest_logging()
+    except Exception:  # noqa: BLE001 — telemetry must never block the daemon
+        logger.debug("self-ingest logging not installed")
+
     if args.status:
         print(
             json.dumps(
