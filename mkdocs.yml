@@ -75,6 +75,7 @@ nav:
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
       - Graph Engine (Authority + Mirrors): guides/graph_engine.md
+      - KV-Cache Layering (vLLM → LMCache → engine): guides/kvcache-vllm-lmcache.md
   - Worked Examples:
       - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
       - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md
