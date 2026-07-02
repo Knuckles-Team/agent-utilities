@@ -2608,6 +2608,7 @@ def _build_server(bootstrap: bool = True):
         register_analysis_tools,
         register_analyze_suite_tools,
         register_bus_tools,
+        register_engine_surface_tools,
         register_engine_tools,
         register_ontology_tools,
         register_query_tools,
@@ -2637,6 +2638,7 @@ def _build_server(bootstrap: bool = True):
             register_bus_tools,
             register_secret_tools,
             register_engine_tools,
+            register_engine_surface_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
