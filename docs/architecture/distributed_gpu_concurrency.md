@@ -250,7 +250,7 @@ fails safe toward the floor.
 |---|---|---|
 | GPUs | **two**: a dedicated GR1080 embedder (`gr1080-embed.arpa`) + a GB10 generator (10.0.0.18, unified memory) — the split-GPU shape below | N GPU hosts |
 | Model→endpoint | one `base_url` per model, **plus** a `fallback` endpoint on the embedder (KG-2.299) | endpoint **list** per model |
-| Sharing | PRIMARY `bge-m3` dedicated to the GR1080 (`gpu_group="gr1080"`); the GB10 runs the `qwen3.6-35b-a3b` generator **and** the FALLBACK `bge-m3` (`gpu_group="gb10"`), which only takes load while the primary's breaker is OPEN | each host its own `gpu_group` + budget |
+| Sharing | PRIMARY `bge-m3` dedicated to the GR1080 (`gpu_group="gr1080"`); the GB10 runs the `qwen3.6-27b` generator **and** the FALLBACK `bge-m3` (`gpu_group="gb10"`), which only takes load while the primary's breaker is OPEN | each host its own `gpu_group` + budget |
 | Tier (a) | live (`KG-2.145`) | unchanged |
 | Tier (b) | **live (`KG-2.146`)** — `GPU_CONCURRENCY_BUDGETS={"gr1080": <knee>, "gb10": <knee>}`; on the GB10 the generator's floor is reserved off the top so the fallback embedder yields | per-host budgets, one per GPU |
 | Tier (c) | n/a (single host per role) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
@@ -264,7 +264,7 @@ fails safe toward the floor.
 {
   // Group both models onto the one physical GB10 (cross-endpoint grouping needs
   // the explicit tag; same-endpoint models group by host automatically).
-  "chat_models":      [{ "id": "qwen3.6-35b-a3b", "base_url": "http://vllm.arpa/v1",  "gpu_group": "gb10" }],
+  "chat_models":      [{ "id": "qwen3.6-27b", "base_url": "http://vllm.arpa/v1",  "gpu_group": "gb10" }],
   "embedding_models": [{ "id": "bge-m3",     "base_url": "http://vllm-embed.arpa/v1", "gpu_group": "gb10" }],
 
   // Total concurrent in-flight calls across ALL models on the gb10 GPU (the
@@ -331,7 +331,7 @@ the failover path too.
       "max_concurrent_requests": 8
     }
   }],
-  "chat_models": [{ "id": "qwen3.6-35b-a3b", "base_url": "http://vllm.arpa/v1", "gpu_group": "gb10" }],
+  "chat_models": [{ "id": "qwen3.6-27b", "base_url": "http://vllm.arpa/v1", "gpu_group": "gb10" }],
 
   // The GB10 joint budget governs the generator + the fallback embedder together,
   // and (separately) the dedicated GR1080 budget governs the primary embedder.

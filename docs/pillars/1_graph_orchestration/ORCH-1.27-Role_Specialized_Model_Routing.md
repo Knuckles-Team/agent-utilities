@@ -38,7 +38,7 @@ Quarq three specialized models — `agent-oss/agent.py:58-92` (verified).
 
 ## Reasoning-effort default — `create_model(reasoning_effort="none")`
 
-The default model (`qwen/qwen3.6-35b-a3b`) is a **reasoning** chat model: it emits
+The default model (`qwen/qwen3.6-27b`) is a **reasoning** chat model: it emits
 a long `reasoning` block and leaves `content` null until thinking finishes. A
 utility call with a modest `max_tokens` then returns EMPTY content
 (`finish_reason=length`), and the retry-on-empty path blocks to the 300s

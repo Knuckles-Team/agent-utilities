@@ -74,7 +74,7 @@ node id) and wires a `USES_PROMPT` edge so resolution can recover the system pro
   "system_prompt_id": "prompt:agent-utilities-expert",
   "toolset_ids": ["graph-os", "mcp-multiplexer", "repository-manager-mcp",
                   "data-science-mcp", "scholarx-mcp"],
-  "model_preference": "qwen/qwen3.6-35b-a3b",   # local fleet model; the router gets final say
+  "model_preference": "qwen/qwen3.6-27b",   # local fleet model; the router gets final say
   "execution_tier": "standard",
 }
 ```
@@ -163,7 +163,7 @@ docs, the `agent-utilities` skill-graph) first.
   never breaks prompt ingestion.
 - **Toolsets:** `graph-os`, `mcp-multiplexer`, `repository-manager-mcp`,
   `data-science-mcp`, `scholarx-mcp` — resolved to served URLs at dispatch time.
-- **Model:** prefers the local fleet model `qwen/qwen3.6-35b-a3b`; the adaptive
+- **Model:** prefers the local fleet model `qwen/qwen3.6-27b`; the adaptive
   model-router (ORCH-1.79) has the final say.
 - **Skills it leans on** (declared in the prompt): `agent-utilities` (the platform's own
   skill-graph), `knowledge-graph-ingest`, `kg-delegation-router`,

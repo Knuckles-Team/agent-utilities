@@ -204,7 +204,7 @@ _BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
             "scholarx-mcp",
         ],
         # Default to the LOCAL fleet model (the model router gets final say).
-        "model_preference": "qwen/qwen3.6-35b-a3b",
+        "model_preference": "qwen/qwen3.6-27b",
         "execution_tier": "standard",
     },
 ]
