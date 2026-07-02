@@ -529,6 +529,59 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["nl_query"] = nl_query
 
     # ══════════════════════════════════════════════════════════════════
+    # 1a-quinquies. ask_data — CONCEPT:KG-2.308 DB-GPT-style data-analysis agent loop
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="ask_data",
+        description=(
+            "CONCEPT:KG-2.308 — answer a DATA question over the Knowledge Graph with a "
+            "DB-GPT-style, multi-step data-analysis agent (distinct from the single-shot "
+            "nl_query). The agent runs a bounded ReAct loop: schema-link the question to the "
+            "most relevant tables/labels, generate a read-only query via the AU fleet-LLM "
+            "planner (KG-2.305), execute it through the engine's own deterministic executor, "
+            "and — on a query error — feed the failing query + error back for up to "
+            "'max_corrections' self-correction retries; on success it synthesizes a "
+            "natural-language ANSWER from the rows. Returns the synthesized answer, the "
+            "query used (auditable), the result rows, citations, the linked schema, and the "
+            "full attempt trace. Falls back to a clean error when no LLM is configured."
+        ),
+        tags=["graph-os", "query", "nl", "data-analysis"],
+    )
+    def ask_data(
+        question: str = Field(description="The natural-language DATA question to answer."),
+        dialect: str = Field(
+            default="auto",
+            description="'auto' (planner chooses, prefers uql) or 'uql'|'cypher'|'sql'|'sparql'.",
+        ),
+        max_corrections: int = Field(
+            default=2,
+            description="Bounded self-correction retries after a failed query (0 disables).",
+        ),
+        limit: int = Field(default=50, description="Max result rows to return."),
+    ) -> str:
+        from agent_utilities.knowledge_graph.orchestration import data_analyst
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": f"no active engine: {e}"})
+        try:
+            return json.dumps(
+                data_analyst.ask_data(
+                    engine,
+                    str(question),
+                    dialect=str(dialect),
+                    max_corrections=int(max_corrections),
+                    limit=int(limit),
+                ),
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["ask_data"] = ask_data
+
+    # ══════════════════════════════════════════════════════════════════
     # 1a-ter. graph_table — CONCEPT:KG-2.266 connector/ETL → native engine SQL tables
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
