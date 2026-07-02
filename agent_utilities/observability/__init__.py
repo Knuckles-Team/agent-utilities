@@ -181,6 +181,20 @@ from .replay_engine import (  # noqa: E402
     ReplayManifest,
 )
 
+# Self-ingest telemetry (KG-2.304) — ship our OWN logs/RunTrace/ToolCall into the
+# epistemic-graph engine obs store (dogfooding). Opt-in, default-off.
+from .self_ingest import (  # noqa: E402
+    SelfIngestConfig,
+    SelfIngestLogHandler,
+    SelfIngestSink,
+    emit_run_trace,
+    emit_tool_call,
+    get_self_ingest_sink,
+    install_self_ingest_logging,
+    reset_self_ingest_sink,
+    set_self_ingest_sink,
+)
+
 __all__ = [
     "TelemetryEngine",
     # Replay Engine (OS-5.6)
@@ -202,4 +216,14 @@ __all__ = [
     # Langfuse exporter (ECO-4.24)
     "LangfuseExporter",
     "get_langfuse_exporter",
+    # Self-ingest telemetry (KG-2.304)
+    "SelfIngestSink",
+    "SelfIngestConfig",
+    "SelfIngestLogHandler",
+    "get_self_ingest_sink",
+    "set_self_ingest_sink",
+    "reset_self_ingest_sink",
+    "install_self_ingest_logging",
+    "emit_run_trace",
+    "emit_tool_call",
 ]

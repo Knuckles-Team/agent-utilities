@@ -687,6 +687,22 @@ class AgentOrchestrationEngine:
             except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
                 logger.debug("run_graph: Langfuse export skipped: %s", _lf_exc)
 
+            # --- Self-ingest RunTrace telemetry (CONCEPT:KG-2.304) ---
+            # Dogfooding: ship this graph run's RunTrace into the epistemic-graph
+            # engine obs store. Opt-in (default-off); clean no-op when disabled.
+            try:
+                from ..observability.self_ingest import emit_run_trace
+
+                emit_run_trace(
+                    run_id=run_id,
+                    status="success" if result else "timeout",
+                    duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+                    query=query,
+                    attributes={"domain": state.routed_domain},
+                )
+            except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
+                logger.debug("run_graph: self-ingest run_trace skipped: %s", _si_exc)
+
             # CONCEPT:OS-5.31 — persist this graph run as a runtime usage row so
             # token counts/cost feed the same /api/observability surface the
             # ingested agent logs do. Best-effort; never affects the run.
