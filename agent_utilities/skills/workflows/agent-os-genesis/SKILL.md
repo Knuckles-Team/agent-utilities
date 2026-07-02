@@ -616,9 +616,14 @@ do not duplicate the config here).
   over loopback (host network), NOT across the overlay. Like vLLM on GB10 it runs as a
   **standalone compose** (`services/vllm/compose.kvcache.yml`), OUTSIDE Swarm (SBSA
   watchdog reset). The deployment-planner constraint is `node.labels.name == <vLLM host>`.
-- **Build the KV-enabled engine image** (the default fleet `epistemic-graph` image does
-  NOT compile the KV features): `docker buildx --build-arg EG_FEATURES="node,ast-extended,kvcache-server,redis-wire"`
-  → `registry.arpa/epistemic-graph:kvcache` (multi-arch — GB10 needs `linux/arm64`).
+- **Two pre-compiled images in the private registry (built by GitLab CI, arm64/GB10):**
+  (1) the **KV-enabled engine image** `registry.arpa/epistemic-graph:kvcache` — the default
+  fleet `epistemic-graph` image does NOT compile the KV features, so it is built with
+  `EG_FEATURES="node,ast-extended,kvcache-server,redis-wire"`; (2) the **customized vLLM
+  image** `registry.arpa/vllm-lmcache` (build def: **`images/vllm`**) = vLLM nightly +
+  `lmcache` + the connector + configs. Prefer `docker pull` of both over rebuilding; the
+  in-tree `services/vllm/Dockerfile.lmcache` + engine `docker/Dockerfile` remain for
+  offline/local builds. (GB10 must resolve `registry.arpa` → `10.0.0.13` in `/etc/hosts`.)
 - **Seed the token** via `graph_configure action=vault_sync config_key=epistemic-kvcache`
   (`CONCEPT:OS-5.43`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
   dropped into the kvcache-server env AND the vLLM LMCache override (same value both sides).
