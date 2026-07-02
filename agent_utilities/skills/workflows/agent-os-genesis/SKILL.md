@@ -627,11 +627,23 @@ do not duplicate the config here).
 - **Seed the token** via `graph_configure action=vault_sync config_key=epistemic-kvcache`
   (`CONCEPT:OS-5.43`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
   dropped into the kvcache-server env AND the vLLM LMCache override (same value both sides).
-- **Two paths (pick one, both hit the same engine store):** **Path B — Redis drop-in**
-  (recommended default, ZERO custom code): LMCache `remote_url: redis://localhost:6379`
-  targets the engine's Redis wire (`CONCEPT:EG-174`/`EG-307`). **Path A — custom
-  connector**: LMCache external backend `EpistemicGraphExternalBackend` → the EG-187 HTTP
-  surface via `EpistemicGraphKVBackend`.
+- **Universal connector — use `LMCacheMPConnector` for EVERY model (dense OR Mamba/GDN
+  hybrid).** The older `LMCacheConnectorV1` handles full-attention only and **crash-loops on
+  hybrid models** (`unify_hybrid_kv_cache_specs`); the MP connector buckets layers into object
+  groups (attention KV + one opaque page per Mamba/GDN state), so one config serves any
+  compatible model. Always pass `--enable-prefix-caching --mamba-cache-mode align` (align
+  no-ops on dense). For **hybrids**, additionally set `--max-num-batched-tokens` AND the
+  `lmcache server --chunk-size` to the model's **Mamba block size** (vLLM derives it, e.g.
+  1568 for Qwen3.6-27B) — required so each prefill step snapshots one Mamba block (costs cold
+  prefill throughput; dense pays nothing).
+- **Decoupled `lmcache server` = the cross-restart + engine tier.** The MP connector is a
+  client to a standalone `lmcache server` (ZMQ :5555, does NOT auto-spawn; run it as a
+  sidecar with `network:host`+`ipc:host`+`--gpus all` for CUDA-IPC transfer). Its **L1** is
+  CPU RAM (survives vLLM restarts); its **L2** is the epistemic-graph engine via
+  `--l2-adapter '{"type":"resp","host":"localhost","port":6379}'` → the engine Redis wire
+  (`CONCEPT:EG-174`/`EG-307`, content-addressed dedup EG-186, durable EG-185) — survives
+  server restarts + dedups. This is what gives cross-restart / cross-instance KV reuse on ANY
+  model (native vLLM APC is GPU-only and lost on restart).
 - **Enable is a WINDOWED, opt-in restart of vLLM** — the LMCache wiring lives in an
   OVERRIDE (`services/vllm/compose.lmcache.yml`, adds `--kv-transfer-config
   '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'` + `LMCACHE_CONFIG_FILE`);

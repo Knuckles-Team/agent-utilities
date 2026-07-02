@@ -113,6 +113,70 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
 > byte accessor and allocator call are lmcache-internal and can shift between
 > releases — the one thing to confirm for Path A. Path B has no such coupling.
 
+## Universal model support (dense + Mamba/GDN hybrid) — use the MP connector
+
+**The connector choice is the #1 failure mode, and there is a universal answer.** vLLM ships
+two LMCache connectors:
+
+| Connector | Handles | |
+|-----------|---------|---|
+| `LMCacheConnectorV1` | full-attention **only** | in-process; **crash-loops on hybrid** models (`unify_hybrid_kv_cache_specs` ValueError → EngineCore init fails). |
+| **`LMCacheMPConnector`** | **dense AND hybrid** (Mamba/GDN, sliding-window) | decoupled — a **client** to a standalone `lmcache server` (ZMQ, does NOT auto-spawn). Buckets layers into **object groups**: full-attention layers → one group; each Mamba/GDN recurrent (conv+SSM) state → its own opaque page. |
+
+**Standardize on `LMCacheMPConnector`** — it subsumes V1 (a dense model is simply one object
+group), so one config serves every compatible model. `--mamba-cache-mode align` is a **no-op
+on non-Mamba models**, so it is always safe to pass. The abstraction:
+
+```
+kv_connector = LMCacheMPConnector          # always
+--enable-prefix-caching --mamba-cache-mode align   # always (align no-ops on dense)
+if hybrid(model):                          # Mamba/GDN present
+    --max-num-batched-tokens = mamba_block_size    # model-specific (e.g. 1568)
+    lmcache server --chunk-size = mamba_block_size
+else:                                      # dense / full-attention
+    --max-num-batched-tokens = <large, throughput-optimal>
+```
+
+### Why hybrids need the block-aligned batched-tokens (and what it costs)
+
+A hybrid model's Mamba/GDN layers keep a **fixed-size recurrent state** (not per-token KV).
+LMCache reinterprets that state as an opaque page and snapshots it **at block boundaries**.
+For every boundary to be captured, a prefill step must advance **exactly one block**, so
+`--max-num-batched-tokens` must equal the Mamba block size (vLLM derives it — e.g. **1568**
+for Qwen3.6-27B — and pads the attention/Mamba pages to be exactly equal). The
+`lmcache server --chunk-size` must match. LMCache enforces this at init
+(`validate_mamba_step_alignment`).
+
+**Cost:** the small batched-token budget chunks long prefills into more steps → **slower cold
+prefill** on hybrids. Warm/cross-restart reuse is unaffected. Dense models pay nothing.
+
+### The decoupled `lmcache server` = the cross-restart tier
+
+`LMCacheMPConnector` connects to a standalone `lmcache server` (`lmcache server --l1-size-gb
+N --eviction-policy LRU`, ZMQ :5555). Because the server is a **separate process**, its L1
+(CPU) survives vLLM restarts, and its **L2 (the epistemic-graph engine, via the RESP adapter)
+survives server restarts and dedups**. vLLM + server both run `ipc:host` + host network (the
+KV transfer is CUDA-IPC "ptr" mode). This is what makes cross-restart / cross-instance reuse
+possible on ANY model — the differentiated capability over vLLM's in-HBM APC.
+
+### Compatibility matrix
+
+| Model type | KV layering | Notes |
+|------------|-------------|-------|
+| Dense / full-attention | ✅ | one object group; large batched-tokens |
+| Sliding-window hybrid (Gemma-style) | ✅ | per-window groups |
+| **Mamba/GDN hybrid** (Qwen3.6, Nemotron-3-Nano) | ✅ | needs `align` + batched-tokens/chunk = block size |
+| Compressed-KV (DeepSeek-V4-style) | ❌ | unsupported → native-APC fallback |
+| Vision-language | ✅ **text KV only** | vision KV not cached |
+
+### Validated live (Qwen3.6-27B hybrid, GB10)
+
+MP connector boots on the hybrid (V1 crash-loops); 64 layers register as **separate object
+groups** (attention bf16 + Mamba-state uint8); KV offloads block-by-block to the server;
+same-session warm cold 13.1s → 0.28s (~46×); **cross-restart** cached-prefix **1.58s** vs
+fresh-cold **11.95s** (**7.5×**), server `Retrieved 9408 tokens in 0.004 s` after a full vLLM
+restart — reuse that native APC (GPU-only) cannot provide.
+
 ## Deploy
 
 > The live vLLM is unchanged until you opt in. Nothing below restarts the live
