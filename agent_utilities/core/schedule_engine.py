@@ -572,11 +572,27 @@ def _dispatch_liveness(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     return run_code_health_sweep(engine)
 
 
+def _dispatch_memory_lifecycle(
+    engine: Any, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """CONCEPT:KG-2.307 — drive one agent-native-memory lifecycle cycle.
+
+    Selects a localized working set, summarises+consolidates a ripe episodic
+    cluster, and runs decay+evict maintenance via the engine primitives. Gated
+    off by ``AGENT_UTILITIES_MEMORY_LIFECYCLE`` (returns ``{"status":"disabled"}``
+    otherwise), so the default-disabled schedule is inert until an operator opts in.
+    """
+    from agent_utilities.knowledge_graph.memory.lifecycle import run_memory_lifecycle
+
+    return run_memory_lifecycle(engine)
+
+
 # Deterministic skill actions runnable unattended on the daemon, keyed (ref, action).
 _SKILL_HANDLERS: dict[
     tuple[str, str], Callable[[Any, dict[str, Any]], dict[str, Any]]
 ] = {
     ("code-enhancer", "liveness"): _dispatch_liveness,
+    ("memory-lifecycle", "maintain"): _dispatch_memory_lifecycle,
 }
 
 
