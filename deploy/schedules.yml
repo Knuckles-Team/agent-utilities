@@ -86,6 +86,21 @@ schedules:
     dispatch: deterministic
     enabled: true
 
+  # Agent-native memory lifecycle loop (CONCEPT:KG-2.307). Drives the engine-side
+  # summary-node / consolidate / maintain primitives (EG-220/221/222): selects a
+  # localized working set, LLM-summarizes + consolidates ripe episodic clusters,
+  # and runs decay+evict maintenance. DISABLED by default AND additionally gated by
+  # the AGENT_UTILITIES_MEMORY_LIFECYCLE env var, so it is inert until opted in.
+  - name: memory-lifecycle-maintain
+    description: Drive agent-native memory summarize/consolidate/maintain (KG-2.307).
+    cron: "20 * * * *" # hourly, off-peak minute — localized, not a global scan
+    kind: skill
+    ref: memory-lifecycle
+    action: maintain
+    dispatch: deterministic
+    prio_bucket: 3 # background — must not preempt ingestion
+    enabled: false
+
   # Outbound inventory push — create KG-discovered assets as CMDB CIs. Fail-closed:
   # also requires SERVICENOW_ENABLE_WRITE. Disabled by default (mutates the SoR).
   - name: servicenow-inventory-push
