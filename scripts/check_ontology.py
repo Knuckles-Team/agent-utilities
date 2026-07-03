@@ -77,16 +77,18 @@ def _rel(p: Path) -> Path | str:
 def _provider_ttls() -> list[Path]:
     """Contributed ontology TTLs from installed fleet packages (CONCEPT:KG-2.320).
 
-    Reuses the federation discoverer so the gate sweeps package-contributed
-    ontologies identically to bundled ones. Failure-isolated: if the discoverer
-    (or its package) can't be imported, federation is simply an empty superset.
+    Reuses the federation read-path resolver (XDG-first, CONCEPT:OS-5.78) so the gate
+    sweeps package-contributed ontologies from the same place the runtime does — the
+    materialized unified tree when populated, else live entry-point discovery.
+    Failure-isolated: if the resolver (or its package) can't be imported, federation
+    is simply an empty superset.
     """
     try:
         from agent_utilities.knowledge_graph.core.ontology_federation import (
-            discover_provider_ontologies,
+            resolve_provider_ontologies,
         )
 
-        return [p for _provider, p in discover_provider_ontologies()]
+        return [p for _provider, p in resolve_provider_ontologies()]
     except Exception:  # noqa: BLE001 — federation is additive; base gate must not break
         return []
 

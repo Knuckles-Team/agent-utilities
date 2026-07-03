@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 606
+total_concepts: 609
 total_pillars: 28
 pillars:
 - AHE-3
@@ -9303,6 +9303,46 @@ concepts:
   dotted: OS-5.76
   aliases:
   - OS-5.76
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.77
+  name: materialize the XDG tree + the skill toolkit
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/core/paths.py
+  - agent_utilities/core/unified_install.py
+  doc: materialize the XDG tree + the skill toolkit
+  dotted: OS-5.77
+  aliases:
+  - OS-5.77
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.78
+  name: the materialized unified tree when populated, else
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/providers.py
+  - agent_utilities/knowledge_graph/core/ontology_federation.py
+  doc: the materialized unified tree when populated, else
+  dotted: OS-5.78
+  aliases:
+  - OS-5.78
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.79
+  name: OS-5.79
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  doc: OS-5.79
+  dotted: OS-5.79
+  aliases:
+  - OS-5.79
   canonical_pillar: OS-5
   needs_curation: false
 - id: SAFE-1.0
