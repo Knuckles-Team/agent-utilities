@@ -144,7 +144,8 @@ browser = [
 computer-use = [
     "container-manager-mcp>=1.43.0"]
 acp = [
-    "pydantic-acp>=0.9.6"
+    "pydantic-acp>=0.9.6",
+    "acpkit[pydantic]>=0.9.6"
 ]
 documents = [
     "llama-index-core>=0.14.22",
@@ -194,7 +195,8 @@ owl = [
     "pyshacl>=0.31.0"
 ]
 stardog = [
-    "agent-utilities[owl]"
+    "agent-utilities[owl]",
+    "pystardog>=0.20.0"
 ]
 fuseki = [
     "httpx>=0.28.1",
