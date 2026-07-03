@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-03
+
+### Summary — analytics kernel axis: numpy replaced by a parity-gated Rust kernel
+Completes the analytics program on the agent-utilities side: the `xp` numeric shim
+is now backed by the compiled `eg-numeric` kernel (faer/ndarray) as the **primary**
+backend, with numpy demoted to an explicit fallback extra — and a CI gate proves the
+kernel matches numpy op-for-op. Also adds the memory→weights distillation export path.
+
+### Added
+- **KG-2.314 — `xp` ufunc-method surface.** `xp.maximum`/`xp.minimum` expose
+  `.accumulate`/`.reduce`/`.outer`/`.at`, closing the last 3 raw-numpy call sites.
+- **KG-2.315 — kernel-live `xp` shim.** When the `eg-numeric` pyo3 wheel is installed
+  the shim binds the compiled kernel (`HAVE_KERNEL=True`); clean numpy fallback otherwise.
+- **KG-2.316 — memory→weights distillation.** Torch-free exporter turning consolidated
+  agent-memory into a deterministic SFT/preference JSONL corpus + `DistillationTargetSpec`,
+  with the LoRA training handed off to `agents/data-science-mcp` (MCP + REST surfaces).
+- **KG-2.317 — kernel-primary numeric backend (P5).** `numeric-kernel` extra (primary)
+  + `numeric-fallback` extra (numpy/scipy, degraded); numpy is out of base deps.
+
+### Changed
+- **KG-2.313 — numpy→`xp` migration.** 34 files migrated from `import numpy as np` to the
+  `xp` shim (P2 light-ops + P3 faer-backed linalg); no numerical regressions.
+
 ## [0.53.0] - 2026-06-28
 
 ### Summary — the saturate-and-delegate program
