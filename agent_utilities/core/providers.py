@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 SKILL_PROVIDER_GROUP = "agent_utilities.skill_providers"
 PROMPT_PROVIDER_GROUP = "agent_utilities.prompt_providers"
+# CONCEPT:KG-2.320 — the third federation leg: any installed agent-package can
+# contribute its own OWL/RDF ontology module(s) to the central hub by declaring an
+# ``agent_utilities.ontology_providers`` entry-point pointing at a *data-only*
+# ``<pkg>.ontology`` subpackage carrying ``*.ttl`` (+ optional ``shapes/*.ttl``).
+# Resolved identically to skills/prompts via :func:`iter_provider_dirs`.
+ONTOLOGY_PROVIDER_GROUP = "agent_utilities.ontology_providers"
 
 
 def iter_provider_dirs(group: str) -> list[tuple[str, Path]]:
