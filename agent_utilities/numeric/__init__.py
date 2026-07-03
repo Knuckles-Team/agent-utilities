@@ -31,6 +31,17 @@ finance files (``composite_backtest``, ``profit_attribution``,
 ``xp`` surface — previously ``xp.maximum`` was a bare callable with no
 ``.accumulate`` attribute, blocking their migration.
 
+CONCEPT:KG-2.315 — the shim goes **kernel-LIVE**. Once the ``eg-numeric`` Surface-A
+pyo3 wheel (engine CONCEPT:EG-346) is installed, the kernel-discovery loop below finds
+``epistemic_graph.numeric`` / ``numeric`` (``__kernel__ == "eg-numeric"``), so
+``HAVE_KERNEL`` flips to ``True`` and every routed op executes the compiled faer/ndarray
+kernel instead of numpy — with ZERO code change at the call sites (the ``np`` alias is
+unchanged). The wheel is built with
+``maturin build --release -m crates/eg-numeric/Cargo.toml --features python`` (on Python
+> 3.13 add ``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``); ``tests/test_numeric_parity.py``
+then exercises the KERNEL path ``np.allclose`` vs numpy — not just the fallback — and the
+engine's ``numeric-parity`` CI job gates the kernel against numpy so it can never diverge.
+
 Any attribute not explicitly overridden below is delegated straight to numpy, so
 ``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
 ``xp.newaxis``, ``xp.float64``, ``xp.linalg.eig`` … all resolve to numpy).
