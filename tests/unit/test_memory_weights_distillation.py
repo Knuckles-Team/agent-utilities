@@ -343,3 +343,151 @@ def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
     assert payload["job"]["status"] == "enqueued"
     assert payload["job"]["handoff"]["workflow"]["name"] == "train_model"
     assert engine.nodes[payload["job"]["job_id"]]["label"] == "TrainingJob"
+
+
+# ── KG-2.318: LIVE data-science-mcp dispatch + status poll ─────────────────────
+def test_kg_2_318_submit_invokes_live_dispatch_and_marks_running(
+    tmp_path, monkeypatch
+) -> None:
+    """The default submit dispatches the train LIVE through the dispatcher seam.
+
+    Injects a MOCK data-science-mcp client (the dispatcher) — standing in for the
+    ``train_model`` workflow over ``graph_orchestrate`` — and asserts submit ACTUALLY
+    invokes it, marks the job ``running`` with the remote run handle, and registers a
+    ``TrainingJob`` node the fleet + poll can read back.
+    """
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+
+    seen: dict[str, Any] = {}
+
+    def _mock_mcp_dispatch(
+        handoff: dict[str, Any],
+        corpus: DistillationCorpus,
+        spec: DistillationTargetSpec,
+    ) -> dict[str, Any]:
+        # Assert the concrete data-science-mcp hand-off reaches the client.
+        seen["workflow"] = handoff["workflow"]["name"]
+        seen["base_model"] = spec.base_model
+        seen["examples"] = len(corpus.examples)
+        return {
+            "dispatched": True,
+            "status": "running",
+            "run_id": "dsmcp-run-42",
+            "via": "execute_workflow",
+        }
+
+    engine = _MockEngine(_consolidated_and_noise())
+    dist = MemoryWeightsDistiller(
+        engine,
+        spec=DistillationTargetSpec(base_model="Qwen2.5-1.5B", adapter_rank=8),
+        dispatcher=_mock_mcp_dispatch,
+    )
+
+    job = dist.submit(dist.export())
+
+    # The mock MCP client was actually invoked with the train_model hand-off.
+    assert seen == {
+        "workflow": "train_model",
+        "base_model": "Qwen2.5-1.5B",
+        "examples": 2,
+    }
+    # Live-dispatched ⇒ the job is running and carries the remote run handle.
+    assert job.status == "running"
+    assert job.handoff["dispatch"]["dispatched"] is True
+    assert job.handoff["dispatch"]["run_id"] == "dsmcp-run-42"
+    # The durable TrainingJob node records the dispatch for the fleet + poll.
+    node = engine.nodes[job.job_id]
+    assert node["label"] == "TrainingJob"
+    assert node["status"] == "running"
+    assert node["dispatched"] is True
+    assert node["run_id"] == "dsmcp-run-42"
+
+    # Poll reads the live state back — and once data-science-mcp finishes the train
+    # (updating the node + linking a register_checkpoint node), poll surfaces it.
+    assert dist.poll(job.job_id)["status"] == "running"
+    engine.nodes[job.job_id]["status"] = "succeeded"
+    engine.nodes[job.job_id]["checkpoint_ref"] = "ckpt-1"
+    engine.add_node(
+        "ckpt-1",
+        "ModelCheckpoint",
+        {"adapter_path": "/models/lora/ckpt-1", "base_model": "Qwen2.5-1.5B"},
+    )
+    polled = dist.poll(job.job_id)
+    assert polled["status"] == "succeeded"
+    assert polled["run_id"] == "dsmcp-run-42"
+    assert polled["checkpoint"]["adapter_path"] == "/models/lora/ckpt-1"
+
+
+def test_kg_2_318_dispatch_degrades_to_enqueued_when_unreachable(
+    tmp_path, monkeypatch
+) -> None:
+    """An unreachable data-science-mcp degrades to a durable ``enqueued`` job.
+
+    A dispatcher that raises (data-science-mcp down) must NOT abort the submit; the
+    corpus is still materialized and a ``TrainingJob`` node enqueued for later pickup.
+    """
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+
+    def _unreachable(*_a: Any, **_k: Any) -> dict[str, Any]:
+        raise ConnectionError("data-science-mcp unreachable")
+
+    engine = _MockEngine(_consolidated_and_noise())
+    dist = MemoryWeightsDistiller(
+        engine,
+        spec=DistillationTargetSpec(base_model="m"),
+        dispatcher=_unreachable,
+    )
+    job = dist.submit(dist.export())
+
+    assert job.status == "enqueued"  # durable — fleet can still pick it up
+    assert job.handoff["dispatch"]["dispatched"] is False
+    assert engine.nodes[job.job_id]["status"] == "enqueued"
+    assert engine.nodes[job.job_id]["dispatched"] is False
+    # The corpus was still materialized despite the failed dispatch.
+    assert (tmp_path / "distillation" / f"{job.job_id}.jsonl").exists()
+
+
+def test_kg_2_318_default_dispatch_skips_non_orchestration_engine(
+    tmp_path, monkeypatch
+) -> None:
+    """The DEFAULT dispatcher (no injection) is bounded: a mock engine that is not an
+    orchestration ``IntelligenceGraphEngine`` degrades straight to ``enqueued`` without
+    attempting (or hanging on) a live workflow run."""
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+    engine = _MockEngine(_consolidated_and_noise())
+    dist = MemoryWeightsDistiller(engine, spec=DistillationTargetSpec(base_model="m"))
+
+    job = dist.submit(dist.export())
+
+    assert job.status == "enqueued"
+    assert job.handoff["dispatch"]["dispatched"] is False
+    assert "no orchestration engine" in job.handoff["dispatch"]["detail"]
+
+
+def test_kg_2_318_action_core_poll_reads_status_back(tmp_path, monkeypatch) -> None:
+    """The ``poll_job_id`` param on the action-core reads a job's live state back —
+    the status-poll surface both the MCP tool and its REST twin dispatch into."""
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+    engine = _MockEngine(_consolidated_and_noise())
+
+    submitted = distill_memory_to_weights(
+        engine,
+        params={"base_model": "m", "scopes": ["procedural", "semantic"]},
+        submit=True,
+    )
+    job_id = submitted["job"]["job_id"]
+
+    # data-science-mcp advances the train.
+    engine.nodes[job_id]["status"] = "running"
+    polled = distill_memory_to_weights(engine, params={"poll_job_id": job_id})
+    assert polled["concept"] == "KG-2.318"
+    assert polled["poll"]["status"] == "running"
+    assert polled["poll"]["job_id"] == job_id

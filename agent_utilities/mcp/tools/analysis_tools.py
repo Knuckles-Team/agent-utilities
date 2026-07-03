@@ -1585,7 +1585,8 @@ def register_analysis_tools(mcp):
                     ),
                     default=str,
                 )
-            # ── KG-2.316: memory→weights distillation EXPORT + DS-MCP hand-off ──
+            # ── KG-2.316/2.318: memory→weights distillation EXPORT + LIVE DS-MCP
+            # dispatch (train_model over graph_orchestrate) + status poll ──
             elif action == "distill_memory":
                 import json as _json
 
@@ -1594,8 +1595,10 @@ def register_analysis_tools(mcp):
                 )
 
                 # `query` may carry a JSON params object (base_model/scopes/method/
-                # adapter_rank/time_window_days/target_entities/submit/…); `target`
-                # is the base model shorthand; `top_k` overrides max_examples.
+                # adapter_rank/time_window_days/target_entities/submit/…, or
+                # `poll_job_id` to read a submitted job's live train state back —
+                # CONCEPT:KG-2.318); `target` is the base model shorthand; `top_k`
+                # overrides max_examples.
                 params: dict[str, Any] = {}
                 q = (query or "").strip()
                 if q.startswith("{"):
