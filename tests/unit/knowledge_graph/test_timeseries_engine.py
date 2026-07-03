@@ -36,9 +36,7 @@ def test_engine_tsdb_range_window_asof(engine_graph):
     assert [v[0] for _ts, v in got] == [10.0, 20.0, 30.0, 40.0]
 
     # window: 2-second buckets, mean → bucket[0..2s)=mean(10,20)=15, [2..4s)=mean(30,40)=35.
-    bars = client.timeseries.window(
-        sid, 0, 4_000_000_000, 2_000_000_000, "mean"
-    )
+    bars = client.timeseries.window(sid, 0, 4_000_000_000, 2_000_000_000, "mean")
     means = [v for _b, v, _c in bars]
     assert means == [15.0, 35.0]
 
@@ -120,9 +118,7 @@ def test_finance_gap_fill_parity(engine_graph):
     from agent_utilities.domains.finance.engine_series import gap_fill_series
 
     # Irregular daily series with a GAP (missing 2026-01-03): LOCF must carry 20 forward.
-    idx = pd.to_datetime(
-        ["2026-01-01", "2026-01-02", "2026-01-04"], utc=True
-    )
+    idx = pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-04"], utc=True)
     s = pd.Series([10.0, 20.0, 40.0], index=idx, name="close")
 
     filled = gap_fill_series(s, "1D", client=engine_graph._client)

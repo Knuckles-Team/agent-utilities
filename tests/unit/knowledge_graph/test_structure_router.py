@@ -28,15 +28,10 @@ PROSE = (
 
 JSON_OBJ = '{"invoice_number": "INV-1001", "amount_due": "420.00", "currency": "USD"}'
 
-JSON_ARRAY = (
-    '[{"name": "alice", "role": "admin"}, {"name": "bob", "role": "viewer"}]'
-)
+JSON_ARRAY = '[{"name": "alice", "role": "admin"}, {"name": "bob", "role": "viewer"}]'
 
 CSV_TABLE = (
-    "name,role,team\n"
-    "alice,admin,platform\n"
-    "bob,viewer,growth\n"
-    "carol,editor,docs\n"
+    "name,role,team\nalice,admin,platform\nbob,viewer,growth\ncarol,editor,docs\n"
 )
 
 TSV_TABLE = "id\tstatus\tpriority\n1\topen\thigh\n2\tclosed\tlow\n3\topen\tmed\n"

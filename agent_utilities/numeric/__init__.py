@@ -82,7 +82,9 @@ class _Linalg:
         return getattr(_np.linalg, name)
 
     # -- kernel-routed (2-D float64) --
-    def norm(self, x: Any, ord: Any = None, axis: Any = None, keepdims: bool = False) -> Any:
+    def norm(
+        self, x: Any, ord: Any = None, axis: Any = None, keepdims: bool = False
+    ) -> Any:
         if HAVE_KERNEL and axis is None and not keepdims:
             a = _f64_1d(x)
             if a is not None:

@@ -156,7 +156,9 @@ def _egeria_engine() -> FakeEngine:
 def _leanix_engine() -> FakeEngine:
     """LeanIX maps capabilities + processes; seed a capability + a process."""
     e = FakeEngine()
-    e.add_node("leanix_cap:reporting", "BusinessCapability", {"name": "Financial Reporting"})
+    e.add_node(
+        "leanix_cap:reporting", "BusinessCapability", {"name": "Financial Reporting"}
+    )
     _seed_process(
         e,
         proc_id="leanix_process:close",
@@ -318,7 +320,9 @@ def test_draft_artifact_writes_to_staging_not_repo(tmp_path):
         (_leanix_engine, "month-end-close", "leanix"),
     ],
 )
-def test_every_connector_yields_a_correct_candidate(factory, expect_name, expect_system):
+def test_every_connector_yields_a_correct_candidate(
+    factory, expect_name, expect_system
+):
     engine = factory()
     d = ConnectorSkillDistiller(engine)
     candidates = d.classify(d.discover())

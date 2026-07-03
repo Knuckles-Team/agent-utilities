@@ -37,7 +37,10 @@ def test_run_loop_completes_develop_and_checkpoints(tmp_path):
     loop = {"id": "loop:develop:g", "kind": "develop", "validation_cmd": "x"}
     res = asyncio.run(
         c.run_loop(
-            loop, max_iterations=10, sleep_s=0, durable=_durable(tmp_path, "loop:develop:g")
+            loop,
+            max_iterations=10,
+            sleep_s=0,
+            durable=_durable(tmp_path, "loop:develop:g"),
         )
     )
     assert res["status"] == "completed" and res["iterations"] == 3

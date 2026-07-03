@@ -19,7 +19,9 @@ from agent_utilities.knowledge_graph.ingestion.gpu_slot_scheduler import (
 )
 
 
-def _make_runner(total: int, *, gate: asyncio.Event | None = None, log: list | None = None):
+def _make_runner(
+    total: int, *, gate: asyncio.Event | None = None, log: list | None = None
+):
     """A cooperative runner that processes ``total`` items, resuming from the
     job's checkpoint, yielding the slot when asked to pause."""
 
@@ -54,7 +56,9 @@ async def test_single_job_runs_to_done() -> None:
     sched = GpuSlotScheduler()
     await sched.start(_make_runner(3))
     await sched.submit("j1")
-    await _wait_until(lambda: sched.get("j1") and sched.get("j1").state == JobState.DONE)
+    await _wait_until(
+        lambda: sched.get("j1") and sched.get("j1").state == JobState.DONE
+    )
     assert sched.get("j1").checkpoint["done"] == 3
     await sched.stop()
 

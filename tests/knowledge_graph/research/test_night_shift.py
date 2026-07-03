@@ -22,7 +22,14 @@ def _swarm(tmp_path: Path, **kw) -> NightShiftSwarm:
 
 def test_layout_created(tmp_path: Path) -> None:
     _swarm(tmp_path)
-    for stage in ("0-raw", "sources", "2-atoms", "3-threads", "briefings", "2-atoms/archive"):
+    for stage in (
+        "0-raw",
+        "sources",
+        "2-atoms",
+        "3-threads",
+        "briefings",
+        "2-atoms/archive",
+    ):
         assert (tmp_path / stage).is_dir()
 
 
@@ -43,7 +50,9 @@ def test_scout_writes_sources_and_does_not_overwrite(tmp_path: Path) -> None:
 
 def test_catalog_one_atom_per_idea_with_source(tmp_path: Path) -> None:
     # Injected deterministic extractor → exactly two atoms.
-    swarm = _swarm(tmp_path, extract_fn=lambda t: [s.strip() for s in t.split("|") if s.strip()])
+    swarm = _swarm(
+        tmp_path, extract_fn=lambda t: [s.strip() for s in t.split("|") if s.strip()]
+    )
     swarm.scout([("src-a", "idea one | idea two")])
     atoms = swarm.catalog()
     assert len(atoms) == 2
@@ -61,8 +70,14 @@ def test_catalog_one_atom_per_idea_with_source(tmp_path: Path) -> None:
 
 
 def test_cartograph_links_min_two(tmp_path: Path) -> None:
-    swarm = _swarm(tmp_path, extract_fn=lambda t: [s for s in t.split("|") if s.strip()], min_links=2)
-    swarm.scout([("s", "alpha topic one|beta topic two|gamma topic three|delta topic four")])
+    swarm = _swarm(
+        tmp_path,
+        extract_fn=lambda t: [s for s in t.split("|") if s.strip()],
+        min_links=2,
+    )
+    swarm.scout(
+        [("s", "alpha topic one|beta topic two|gamma topic three|delta topic four")]
+    )
     atoms = swarm.catalog()
     swarm.cartograph(atoms)
     # Re-load each atom from disk and assert >= 2 links.
@@ -74,7 +89,9 @@ def test_cartograph_links_min_two(tmp_path: Path) -> None:
 def test_critique_surfaces_friction_for_contradiction(tmp_path: Path) -> None:
     swarm = _swarm(tmp_path)
     # Existing belief: lithium cost is the binding constraint on EV adoption.
-    swarm.scout([("battery-econ-2024", "lithium cost is the binding constraint on EV adoption")])
+    swarm.scout(
+        [("battery-econ-2024", "lithium cost is the binding constraint on EV adoption")]
+    )
     swarm.catalog()
     swarm.cartograph(swarm._existing_atoms())
 
@@ -99,7 +116,10 @@ def test_edit_writes_briefing_mentioning_contradiction(tmp_path: Path) -> None:
     swarm = _swarm(tmp_path)
     report = swarm.run_shift(
         [
-            ("battery-econ-2024", "lithium cost is the binding constraint on EV adoption"),
+            (
+                "battery-econ-2024",
+                "lithium cost is the binding constraint on EV adoption",
+            ),
         ]
     )
     # Second shift introduces the contradiction.
@@ -149,7 +169,10 @@ def test_run_shift_returns_populated_report(tmp_path: Path) -> None:
     swarm = _swarm(tmp_path)
     report = swarm.run_shift(
         [
-            ("a", "Solar power is getting cheaper every year. Wind power also keeps falling in cost."),
+            (
+                "a",
+                "Solar power is getting cheaper every year. Wind power also keeps falling in cost.",
+            ),
             ("b", "Battery storage costs are declining rapidly alongside renewables."),
         ]
     )

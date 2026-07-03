@@ -41,6 +41,7 @@ class _FixedAgent(SwarmAgent):
         self._signal_history.append(signal)
         return signal
 
+
 pytestmark = pytest.mark.concept("KG-2.27")
 
 BULLISH_DATA = {

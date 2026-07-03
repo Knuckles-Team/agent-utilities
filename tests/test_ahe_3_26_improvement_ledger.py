@@ -34,7 +34,10 @@ class LedgerEngine:
 
     def query_cypher(self, query, params=None):
         if "EvolutionCycle" in query:
-            return [{"ts": ts, "metadata": json.dumps({"duration_ms": ms})} for ts, ms in self._cycles]
+            return [
+                {"ts": ts, "metadata": json.dumps({"duration_ms": ms})}
+                for ts, ms in self._cycles
+            ]
         if "ProposalPublication" in query:
             return [{"kind": k, "ok": ok, "ts": ts} for k, ok, ts in self._pubs]
         if "CapabilityRatchetResult" in query:
@@ -101,7 +104,9 @@ def test_rising_cadence_flags_research_harder():
 
 
 def test_record_persists_velocity_node_and_module_fn():
-    eng = LedgerEngine(cycles=[("a", 100.0)], pubs=[("code", True, "t1")], ratchet=[("pass", "t1")])
+    eng = LedgerEngine(
+        cycles=[("a", 100.0)], pubs=[("code", True, "t1")], ratchet=[("pass", "t1")]
+    )
     v = ImprovementLedger(eng).record()
     nodes = [n for n in eng.nodes.values() if n["type"] == "ImprovementVelocity"]
     assert nodes and json.loads(nodes[0]["metrics_json"])["verdict"] == v.verdict

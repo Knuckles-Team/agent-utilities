@@ -114,7 +114,9 @@ def test_sample_k_zero_and_missing_pile() -> None:
 def test_from_evidence_corpus_clusters() -> None:
     corpus = StubCorpus(
         failure_clusters=[
-            StubCluster(label="timeout", root_cause_summary="hung", task_ids=["a", "b"]),
+            StubCluster(
+                label="timeout", root_cause_summary="hung", task_ids=["a", "b"]
+            ),
             StubCluster(label="auth", root_cause_summary="401", task_ids=["c"]),
         ]
     )
@@ -134,7 +136,9 @@ def test_from_evidence_corpus_entries_fallback() -> None:
     corpus = StubCorpus(
         entries=[
             StubEntry(task_id="t1", pass_fail=True, root_cause=None),
-            StubEntry(task_id="t2", pass_fail=False, root_cause="parse error", content="trace"),
+            StubEntry(
+                task_id="t2", pass_fail=False, root_cause="parse error", content="trace"
+            ),
             StubEntry(task_id="t3", pass_fail=False, root_cause="parse error"),
         ]
     )

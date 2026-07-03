@@ -89,7 +89,9 @@ class _RecordingPublisher:
     def __init__(self):
         self.calls: list[dict] = []
 
-    def push_to_jena_fuseki(self, rdf_graph, endpoint=None, dataset="agent_kg", named_graph=None):
+    def push_to_jena_fuseki(
+        self, rdf_graph, endpoint=None, dataset="agent_kg", named_graph=None
+    ):
         self.calls.append(
             {
                 "triples": len(rdf_graph),

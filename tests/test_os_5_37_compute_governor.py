@@ -28,10 +28,14 @@ class TestGovernor:
 
     def test_stops_on_diminishing_returns(self):
         # second attempt added no gain over the first ⇒ stop
-        assert ComputeGovernor(min_marginal_gain=0.05).should_continue([0.5, 0.5]) is False
+        assert (
+            ComputeGovernor(min_marginal_gain=0.05).should_continue([0.5, 0.5]) is False
+        )
 
     def test_continues_on_meaningful_gain(self):
-        assert ComputeGovernor(min_marginal_gain=0.05).should_continue([0.5, 0.7]) is True
+        assert (
+            ComputeGovernor(min_marginal_gain=0.05).should_continue([0.5, 0.7]) is True
+        )
 
     def test_hard_cap(self):
         assert ComputeGovernor(max_attempts=2).should_continue([0.1, 0.2]) is False

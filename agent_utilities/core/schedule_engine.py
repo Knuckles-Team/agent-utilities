@@ -572,9 +572,7 @@ def _dispatch_liveness(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     return run_code_health_sweep(engine)
 
 
-def _dispatch_memory_lifecycle(
-    engine: Any, payload: dict[str, Any]
-) -> dict[str, Any]:
+def _dispatch_memory_lifecycle(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     """CONCEPT:KG-2.307 — drive one agent-native-memory lifecycle cycle.
 
     Selects a localized working set, summarises+consolidates a ripe episodic

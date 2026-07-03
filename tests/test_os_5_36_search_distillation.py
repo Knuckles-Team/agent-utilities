@@ -50,7 +50,9 @@ class TestCollapseGuard:
         assert ok is False and "synthetic fraction" in reason
 
     def test_embedding_novelty_floor(self):
-        g = CorpusCollapseGuard(min_novelty=0.1, synthetic_cap=1.0)  # isolate the novelty gate
+        g = CorpusCollapseGuard(
+            min_novelty=0.1, synthetic_cap=1.0
+        )  # isolate the novelty gate
         assert g.admit("a", embedding=[1.0, 0.0])[0] is True
         ok, reason = g.admit("b", embedding=[1.0, 0.001])  # ~identical direction
         assert ok is False and "novelty" in reason
@@ -78,27 +80,42 @@ class TestHarvester:
     def test_high_score_result_is_distilled(self):
         eng = _Engine()
         h = SearchDistillationHarvester(eng, min_score=0.8)
-        row = h.harvest_result(_Task("q1"), ReasoningResult(answer="A1", reasoner="deductive", score=1.0))
-        assert isinstance(row, SFTRow) and row.completion == "A1" and row.source == "deductive"
+        row = h.harvest_result(
+            _Task("q1"), ReasoningResult(answer="A1", reasoner="deductive", score=1.0)
+        )
+        assert (
+            isinstance(row, SFTRow)
+            and row.completion == "A1"
+            and row.source == "deductive"
+        )
         assert any(n["type"] == "SyntheticCorpus" for n in eng.nodes.values())
         assert len(h.corpus()) == 1
 
     def test_low_score_not_distilled(self):
         h = SearchDistillationHarvester(min_score=0.8)
-        assert h.harvest_result(_Task("q"), ReasoningResult("a", "gen", score=0.3)) is None
+        assert (
+            h.harvest_result(_Task("q"), ReasoningResult("a", "gen", score=0.3)) is None
+        )
         assert h.corpus() == []
 
     def test_duplicate_rejected_by_guard(self):
         h = SearchDistillationHarvester(min_score=0.5)
         h.harvest_result(_Task("q"), ReasoningResult("same", "d", 1.0))
-        assert h.harvest_result(_Task("q"), ReasoningResult("same", "d", 1.0)) is None  # dup
+        assert (
+            h.harvest_result(_Task("q"), ReasoningResult("same", "d", 1.0)) is None
+        )  # dup
         assert len(h.corpus()) == 1
 
     def test_best_of_k_yields_sft_and_preference_pairs(self):
         h = SearchDistillationHarvester(min_score=0.8)
-        rows, pairs = h.harvest_candidates("q", [("best", 1.0), ("mid", 0.6), ("worst", 0.2)])
+        rows, pairs = h.harvest_candidates(
+            "q", [("best", 1.0), ("mid", 0.6), ("worst", 0.2)]
+        )
         assert len(rows) == 1 and rows[0].completion == "best"
-        assert {(p.chosen, p.rejected) for p in pairs} == {("best", "mid"), ("best", "worst")}
+        assert {(p.chosen, p.rejected) for p in pairs} == {
+            ("best", "mid"),
+            ("best", "worst"),
+        }
 
 
 # ── live router wiring (OS-5.36 producer) ────────────────────────────

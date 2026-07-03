@@ -26,9 +26,18 @@ pytestmark = pytest.mark.asyncio
 # Real deployment outcomes the agent reached — they double as the trainset (demos) and
 # the eval slice the candidate is scored against.
 _OUTCOMES = [
-    ("how do I deploy the api service?", "run kubectl apply -f api.yaml then verify rollout status"),
-    ("restart the worker", "scale the worker deployment to zero then back to three replicas"),
-    ("check the database health", "query pg_stat_activity and confirm replication lag is under one second"),
+    (
+        "how do I deploy the api service?",
+        "run kubectl apply -f api.yaml then verify rollout status",
+    ),
+    (
+        "restart the worker",
+        "scale the worker deployment to zero then back to three replicas",
+    ),
+    (
+        "check the database health",
+        "query pg_stat_activity and confirm replication lag is under one second",
+    ),
 ]
 
 
@@ -138,9 +147,10 @@ async def test_cycle_is_shadow_when_gate_off(tmp_path):
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
     assert rec["status"] == "proposed"
-    assert "LEARNED EXEMPLARS" in rec["candidate_blueprint"]["instructions"][
-        "core_directive"
-    ]
+    assert (
+        "LEARNED EXEMPLARS"
+        in rec["candidate_blueprint"]["instructions"]["core_directive"]
+    )
 
     # ...and approval applies it on demand (steerable, not auto)
     approved = evolver.approve_proposed_change(rec["id"])

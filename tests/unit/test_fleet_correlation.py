@@ -38,7 +38,8 @@ class _CaptureEngine:
             return [
                 {"e": n}
                 for n in self.nodes
-                if n.get("type") == "FleetEvent" and n.get("subject") == params.get("res")
+                if n.get("type") == "FleetEvent"
+                and n.get("subject") == params.get("res")
             ]
         return []
 
@@ -81,9 +82,7 @@ async def test_fleet_trace_returns_stamped_nodes(monkeypatch):
     with correlation.bind_carrier({correlation.CORRELATION_HEADER: "other"}):
         fleet_events.persist_event(engine, _event(subject="svc-c"))
 
-    monkeypatch.setattr(
-        "agent_utilities.mcp.kg_server._get_engine", lambda: engine
-    )
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._get_engine", lambda: engine)
     resp = await fleet.fleet_trace(_Req(query={"correlation_id": "cid-xyz"}))
     data = await _payload(resp)
     assert data["status"] == "success"
@@ -97,9 +96,7 @@ async def test_fleet_touched_resolves_resource(monkeypatch):
     with correlation.bind_carrier({correlation.CORRELATION_HEADER: "cid-1"}):
         fleet_events.persist_event(engine, _event(subject="db-primary"))
 
-    monkeypatch.setattr(
-        "agent_utilities.mcp.kg_server._get_engine", lambda: engine
-    )
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._get_engine", lambda: engine)
     resp = await fleet.fleet_touched(_Req(query={"resource": "db-primary"}))
     data = await _payload(resp)
     assert data["status"] == "success"

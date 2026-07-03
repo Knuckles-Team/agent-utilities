@@ -44,13 +44,21 @@ class _FakeMCP:
 def _bundle_dict(sid: str) -> dict:
     return ParsedSessionBundle(
         session=UsageSession(
-            id=sid, project="p", agent="claude", message_count=1,
-            total_output_tokens=10, outcome="success",
+            id=sid,
+            project="p",
+            agent="claude",
+            message_count=1,
+            total_output_tokens=10,
+            outcome="success",
         ),
         usage_events=[
             UsageEvent(
-                session_id=sid, source="agent", model="claude-opus-4-8",
-                input_tokens=100, output_tokens=10, dedup_key=f"{sid}-e1",
+                session_id=sid,
+                source="agent",
+                model="claude-opus-4-8",
+                input_tokens=100,
+                output_tokens=10,
+                dedup_key=f"{sid}-e1",
             ),
         ],
     ).model_dump(mode="json")

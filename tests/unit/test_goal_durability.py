@@ -202,9 +202,9 @@ async def test_goal_loop_honors_kill_request(goal_db):
 
     assert _sessions.active_goals["g-kill"]["status"] == GoalStatus.CANCELLED
     conn = sqlite3.connect(str(_sessions._get_db_path()))
-    status = conn.execute(
-        "SELECT status FROM sessions WHERE id = 's-kill'"
-    ).fetchone()[0]
+    status = conn.execute("SELECT status FROM sessions WHERE id = 's-kill'").fetchone()[
+        0
+    ]
     conn.close()
     assert status == "cancelled"
     assert goal_db.nodes["g-kill"]["status"] == "cancelled"

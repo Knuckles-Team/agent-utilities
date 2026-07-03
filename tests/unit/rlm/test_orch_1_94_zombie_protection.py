@@ -105,9 +105,7 @@ def test_hard_lifetime_constants_wired() -> None:
 def _iso(epoch: float) -> str:
     from datetime import datetime
 
-    return datetime.fromtimestamp(epoch, tz=UTC).strftime(
-        "%Y-%m-%dT%H:%M:%S.%f000Z"
-    )
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
 
 
 if __name__ == "__main__":  # script-mode fallback when pytest is unavailable

@@ -60,7 +60,9 @@ class RatchetVerdict:
     """Outcome of a capability-ratchet evaluation."""
 
     passed: bool
-    recommendation: str  # confirm | partial_revert | full_revert | not_measured | bootstrap
+    recommendation: (
+        str  # confirm | partial_revert | full_revert | not_measured | bootstrap
+    )
     scores: dict[str, float] = field(default_factory=dict)
     baseline: dict[str, float] = field(default_factory=dict)
     regressions: list[str] = field(default_factory=list)

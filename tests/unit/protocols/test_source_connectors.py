@@ -218,9 +218,7 @@ def test_rss_connector_registered():
 @pytest.mark.concept("KG-2.121")
 def test_rss_connector_parses_rss_and_atom():
     feeds = {"http://feed/rss": _RSS_XML, "http://feed/atom": _ATOM_XML}
-    conn = build_connector(
-        "rss", {"feed_urls": list(feeds), "fetch_fn": feeds.get}
-    )
+    conn = build_connector("rss", {"feed_urls": list(feeds), "fetch_fn": feeds.get})
     assert isinstance(conn, (LoadConnector, PollConnector))
     docs = list(conn.load())
     assert len(docs) == 3
@@ -241,7 +239,9 @@ def test_rss_connector_parses_rss_and_atom():
 @pytest.mark.concept("KG-2.121")
 def test_rss_connector_poll_watermark_dedup():
     feeds = {"http://feed/rss": _RSS_XML}
-    conn = build_connector("rss", {"feed_urls": "http://feed/rss", "fetch_fn": feeds.get})
+    conn = build_connector(
+        "rss", {"feed_urls": "http://feed/rss", "fetch_fn": feeds.get}
+    )
     b1 = conn.poll()
     assert len(b1.documents) == 2  # first poll → all
     assert b1.checkpoint.watermark == "2025-06-18T10:00:00Z"

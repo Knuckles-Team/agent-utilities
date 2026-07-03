@@ -165,7 +165,9 @@ def test_batch_known_ids_one_round_trip_via_has_batch():
     engine = SimpleNamespace(graph=SimpleNamespace(has_batch=has_batch))
     runner = WorldModelPipelineRunner(engine=engine)
     docs = [
-        _doc("i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}),
+        _doc(
+            "i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}
+        ),
         _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
     ]
     known_ids = runner._batch_known_ids(docs)
@@ -190,7 +192,9 @@ def test_run_gated_ingest_skips_batch_known_item():
         graph=SimpleNamespace(has_batch=lambda ids: {k: k == known_key for k in ids})
     )
     docs = [
-        _doc("i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}),
+        _doc(
+            "i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}
+        ),
         _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
     ]
     report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)

@@ -63,7 +63,9 @@ def test_memento_compression_does_not_patch_asyncio(monkeypatch):
         mock_result = MagicMock()
         mock_result.data = "Memento: ok"
         mock_run.return_value = mock_result
-        compress_to_memento(MagicMock(), [{"role": "user", "content": "hi"}], dry_run=True)
+        compress_to_memento(
+            MagicMock(), [{"role": "user", "content": "hi"}], dry_run=True
+        )
 
     assert calls == [], "compress_to_memento leaked the global nest_asyncio patch"
 

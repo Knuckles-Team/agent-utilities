@@ -187,7 +187,8 @@ def test_emit_saturation_signal_only_when_requested():
 def test_distilled_spec_becomes_developable_node_with_provenance():
     eng = FakeEngine()
     sid = sp.persist_spec_proposal(
-        eng, _Spec("Add a thing", concept_ids=["concept:a", "concept:b"]),
+        eng,
+        _Spec("Add a thing", concept_ids=["concept:a", "concept:b"]),
         spec_path="/repo/.specify/specs/kg-distilled/add-a-thing.md",
     )
     assert sid == "spec_proposal:add-a-thing"
@@ -324,10 +325,16 @@ def test_evolution_state_aggregates_everything():
     sp.persist_spec_proposal(eng, _Spec("A"))
     sp.persist_spec_proposal(eng, _Spec("B"))
     # a couple EvolutionCycle nodes for the gaps trend
-    eng.add_node("evo_cycle_1", "EvolutionCycle", {
-        "created_at": "2026-06-28T01", "metadata": json.dumps({"open_gaps": 9})})
-    eng.add_node("evo_cycle_2", "EvolutionCycle", {
-        "created_at": "2026-06-28T02", "metadata": json.dumps({"open_gaps": 9})})
+    eng.add_node(
+        "evo_cycle_1",
+        "EvolutionCycle",
+        {"created_at": "2026-06-28T01", "metadata": json.dumps({"open_gaps": 9})},
+    )
+    eng.add_node(
+        "evo_cycle_2",
+        "EvolutionCycle",
+        {"created_at": "2026-06-28T02", "metadata": json.dumps({"open_gaps": 9})},
+    )
 
     state = es.read_evolution_state(eng, include_coverage=False)
     assert state["beacon"]["stage"] == "distill"

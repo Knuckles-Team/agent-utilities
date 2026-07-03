@@ -187,7 +187,9 @@ def test_ingest_creates_definition_steps_and_dag(corpus):
 
     # HAS_STEP edges from the definition.
     has_step = [
-        e for e in eng.edges_of("HAS_STEP") if e[0] == "skill_workflow:tiny_infra_deploy"
+        e
+        for e in eng.edges_of("HAS_STEP")
+        if e[0] == "skill_workflow:tiny_infra_deploy"
     ]
     assert len(has_step) == 3
 

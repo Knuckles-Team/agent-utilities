@@ -98,6 +98,8 @@ def example_env_pairs(root: Path) -> list[tuple[str, str]]:
             values[name] = example
     pairs: list[tuple[str, str]] = [("MCP_TOOL_MODE", "condensed")]
     for var in sorted(package_env_vars(root)):
-        value = values.get(var) or (INHERITED_ENV[var][0] if var in INHERITED_ENV else "")
+        value = values.get(var) or (
+            INHERITED_ENV[var][0] if var in INHERITED_ENV else ""
+        )
         pairs.append((var, value))
     return pairs

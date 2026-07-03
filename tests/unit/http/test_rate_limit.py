@@ -24,7 +24,11 @@ from agent_utilities.http.rate_limit import (
 
 def test_parses_x_ratelimit_family():
     snapshot = parse_rate_limit(
-        {"X-RateLimit-Limit": "100", "X-RateLimit-Remaining": "42", "X-RateLimit-Reset": "30"}
+        {
+            "X-RateLimit-Limit": "100",
+            "X-RateLimit-Remaining": "42",
+            "X-RateLimit-Reset": "30",
+        }
     )
     assert snapshot == RateLimitSnapshot(limit=100, remaining=42, reset=30.0)
     assert not snapshot.exhausted
@@ -32,7 +36,11 @@ def test_parses_x_ratelimit_family():
 
 def test_parses_okta_x_rate_limit_family_case_insensitively():
     snapshot = parse_rate_limit(
-        {"x-rate-limit-limit": "600", "X-Rate-Limit-Remaining": "0", "X-Rate-Limit-Reset": "1750000000"}
+        {
+            "x-rate-limit-limit": "600",
+            "X-Rate-Limit-Remaining": "0",
+            "X-Rate-Limit-Reset": "1750000000",
+        }
     )
     assert snapshot is not None
     assert snapshot.limit == 600
@@ -53,12 +61,17 @@ def test_no_rate_limit_headers_returns_none():
 
 
 def test_unparseable_values_are_skipped():
-    snapshot = parse_rate_limit({"X-RateLimit-Limit": "soon", "X-RateLimit-Remaining": "3"})
+    snapshot = parse_rate_limit(
+        {"X-RateLimit-Limit": "soon", "X-RateLimit-Remaining": "3"}
+    )
     assert snapshot == RateLimitSnapshot(limit=None, remaining=3)
 
 
 def test_snapshot_to_dict_omits_missing_fields():
-    assert RateLimitSnapshot(limit=10, remaining=2).to_dict() == {"limit": 10, "remaining": 2}
+    assert RateLimitSnapshot(limit=10, remaining=2).to_dict() == {
+        "limit": 10,
+        "remaining": 2,
+    }
 
 
 # --------------------------------------------------------------------------- #

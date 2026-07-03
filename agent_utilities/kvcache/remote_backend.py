@@ -198,9 +198,7 @@ class EpistemicGraphKVBackend:
             return False
         if resp.status_code in (200, 201):
             return True
-        logger.warning(
-            "kvcache put(%s) rejected with status %s", key, resp.status_code
-        )
+        logger.warning("kvcache put(%s) rejected with status %s", key, resp.status_code)
         return False
 
     def contains(self, key: str) -> bool:

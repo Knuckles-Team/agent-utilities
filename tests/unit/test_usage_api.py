@@ -44,21 +44,40 @@ def _seed():
     get_usage_recorder().record_bundle(
         ParsedSessionBundle(
             session=UsageSession(
-                id=sid, project="proj-a", agent="claude",
-                started_at="2026-06-10T09:00:00Z", message_count=2,
-                health_grade="A", outcome="success",
+                id=sid,
+                project="proj-a",
+                agent="claude",
+                started_at="2026-06-10T09:00:00Z",
+                message_count=2,
+                health_grade="A",
+                outcome="success",
             ),
             messages=[
-                UsageMessage(session_id=sid, ordinal=0, role="user",
-                             content="refactor the parser registry"),
+                UsageMessage(
+                    session_id=sid,
+                    ordinal=0,
+                    role="user",
+                    content="refactor the parser registry",
+                ),
             ],
             tool_calls=[
-                UsageToolCall(session_id=sid, message_ordinal=0, tool_name="Edit",
-                              category="edit", status="ok"),
+                UsageToolCall(
+                    session_id=sid,
+                    message_ordinal=0,
+                    tool_name="Edit",
+                    category="edit",
+                    status="ok",
+                ),
             ],
             usage_events=[
-                UsageEvent(session_id=sid, source="agent", model="claude-opus-4-8",
-                           input_tokens=1000, output_tokens=500, dedup_key="e1"),
+                UsageEvent(
+                    session_id=sid,
+                    source="agent",
+                    model="claude-opus-4-8",
+                    input_tokens=1000,
+                    output_tokens=500,
+                    dedup_key="e1",
+                ),
             ],
         )
     )
@@ -98,11 +117,19 @@ def test_search_and_activity(client):
 
 def test_upload_transport(client):
     bundle = ParsedSessionBundle(
-        session=UsageSession(id="up1", project="remote", agent="codex",
-                             message_count=1),
-        usage_events=[UsageEvent(session_id="up1", source="agent",
-                                 model="gpt-5.5", input_tokens=100,
-                                 output_tokens=50, dedup_key="u1")],
+        session=UsageSession(
+            id="up1", project="remote", agent="codex", message_count=1
+        ),
+        usage_events=[
+            UsageEvent(
+                session_id="up1",
+                source="agent",
+                model="gpt-5.5",
+                input_tokens=100,
+                output_tokens=50,
+                dedup_key="u1",
+            )
+        ],
     )
     resp = client.post(
         "/api/observability/sessions/upload",

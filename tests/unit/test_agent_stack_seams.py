@@ -85,9 +85,7 @@ async def test_run_agent_bounded_timeout_is_excluded_from_valid_outputs():
         "agent_utilities.orchestration.agent_runner.run_agent",
         new=_hang,
     ):
-        out = await engine._run_agent_bounded(
-            agent_name="w0", task="t", timeout_s=0.1
-        )
+        out = await engine._run_agent_bounded(agent_name="w0", task="t", timeout_s=0.1)
 
     assert _is_agent_error(out) is True
     assert json.loads(out)["agent"] == "w0"
@@ -158,9 +156,7 @@ async def test_run_agent_exceptiongroup_unwrap_end_to_end():
     fake_engine.backend = None
 
     with (
-        patch.object(
-            agent_runner, "_get_or_create_engine", return_value=fake_engine
-        ),
+        patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),
         patch.object(
             agent_runner, "_resolve_agent_from_kg", return_value={"type": "unknown"}
         ),
@@ -220,7 +216,7 @@ async def test_allowed_tools_bound_as_real_callable_toolset():
     fake_agent_run.run.return_value.output = "ok"
 
     with patch("agent_utilities.agent.factory.create_agent") as mock_ca:
-        mock_ca.side_effect = lambda **kw: (captured.update(kw) or (fake_agent_run, []))
+        mock_ca.side_effect = lambda **kw: captured.update(kw) or (fake_agent_run, [])
         await _execute_single_server(
             config={
                 "mcp_toolsets": [ts],
@@ -324,9 +320,7 @@ async def test_run_agent_bounded_timeout_message_is_clean():
 
     engine = AgentOrchestrationEngine.__new__(AgentOrchestrationEngine)
     engine.engine = None
-    with patch(
-        "agent_utilities.orchestration.agent_runner.run_agent", new=_hang
-    ):
+    with patch("agent_utilities.orchestration.agent_runner.run_agent", new=_hang):
         out = await engine._run_agent_bounded("a", "t", timeout_s=0.05)
     payload = _json.loads(out)
     assert "timed out" in payload["error"] and "CancelledError" not in out
@@ -378,8 +372,7 @@ def test_apply_tool_scope_empty_result_is_loud():
 
     from agent_utilities.graph.executor import apply_tool_scope
 
-    def some_tool():
-        ...
+    def some_tool(): ...
 
     state = SimpleNamespace(invoker_allowed_tools=["nonexistent"])
     with pytest.raises(RuntimeError, match="eliminated every bound tool"):

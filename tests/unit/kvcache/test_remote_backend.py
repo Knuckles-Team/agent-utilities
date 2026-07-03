@@ -58,9 +58,7 @@ class _FakeKvServer:
 
         if path.endswith("/exists"):
             key = path[len("/kv/") : -len("/exists")]
-            return httpx.Response(
-                200, json={"hash": key, "exists": key in self.store}
-            )
+            return httpx.Response(200, json={"hash": key, "exists": key in self.store})
 
         key = path[len("/kv/") :]
         if request.method == "PUT":
@@ -220,9 +218,7 @@ def test_stats_malformed_json_degrades_kg_2_306() -> None:
     def bad_json(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not json")
 
-    client = create_http_client(
-        base_url=BASE, transport=httpx.MockTransport(bad_json)
-    )
+    client = create_http_client(base_url=BASE, transport=httpx.MockTransport(bad_json))
     backend = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE), client=client)
     assert backend.stats() == KvCacheStats()
 
@@ -236,7 +232,9 @@ def test_key_is_percent_encoded_kg_2_306() -> None:
     # Round-trips despite reserved characters in the token-hash key.
     assert backend.get(key) == b"blob"
     put_req = server.requests[0]
-    assert "%2F" in put_req.url.raw_path.decode() or "%2f" in put_req.url.raw_path.decode()
+    assert (
+        "%2F" in put_req.url.raw_path.decode() or "%2f" in put_req.url.raw_path.decode()
+    )
 
 
 def test_context_manager_closes_owned_client_kg_2_306() -> None:

@@ -41,7 +41,9 @@ def test_build_catalog_emits_signed_server_entries() -> None:
     assert entry["exampleQueries"]  # representative queries derived from synonyms/tools
     # The entry's signature verifies against the manifest's publisher key.
     unsigned = {k: v for k, v in entry.items() if k != "signature"}
-    assert ard_signing.verify_datapoint(unsigned, entry["signature"], cat["publisherKey"])
+    assert ard_signing.verify_datapoint(
+        unsigned, entry["signature"], cat["publisherKey"]
+    )
 
 
 def test_build_catalog_includes_kg_skills_as_ai_skill() -> None:

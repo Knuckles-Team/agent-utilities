@@ -61,7 +61,9 @@ class TestHarness:
         h = MultiAgentScalingHarness(eng)
         law = h.measure(lambda n: n**0.7, sizes=[1, 2, 4, 8])
         assert isinstance(law, ScalingLaw) and law.alpha == pytest.approx(0.7, abs=1e-6)
-        node = [n for n in eng.nodes.values() if n["type"] == "ScalingLawMeasurement"][0]
+        node = [n for n in eng.nodes.values() if n["type"] == "ScalingLawMeasurement"][
+            0
+        ]
         assert node["regime"] == law.regime
 
     def test_failed_sizes_skipped(self):

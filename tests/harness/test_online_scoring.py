@@ -46,12 +46,23 @@ class _Case:
 def _trace(backend: KGTraceBackend, tid: str, output: str, tags=None):
     # Synthesize a finished trace: a child generation + the root (with output text).
     backend.record_event(
-        trace_id=tid, span_id=f"{tid}:g", name="llm", is_root=False, kind="llm",
-        model="vllm-x", input_tokens=10, output_tokens=5,
+        trace_id=tid,
+        span_id=f"{tid}:g",
+        name="llm",
+        is_root=False,
+        kind="llm",
+        model="vllm-x",
+        input_tokens=10,
+        output_tokens=5,
     )
     backend.record_event(
-        trace_id=tid, span_id=f"{tid}:root", name="agent.run", is_root=True,
-        tags=tags or [], input_text="what is 2+2?", output_text=output,
+        trace_id=tid,
+        span_id=f"{tid}:root",
+        name="agent.run",
+        is_root=True,
+        tags=tags or [],
+        input_text="what is 2+2?",
+        output_text=output,
     )
 
 
@@ -60,6 +71,7 @@ def _judge_contains(expected_word):
     def judge(assertion, query, actual):
         ok = expected_word.lower() in (actual or "").lower()
         return (1.0 if ok else 0.0, f"contains({expected_word})={ok}")
+
     return judge
 
 
@@ -103,10 +115,14 @@ def test_install_defers_scoring_via_completion_hook():
         rules=[AutomationRule("correctness", "answer is 4")],
         judge=_judge_contains("4"),
     )
-    sampler._pool = None  # force inline scoring in the hook (deterministic for the test)
+    sampler._pool = (
+        None  # force inline scoring in the hook (deterministic for the test)
+    )
     sampler.install()
     assert be.on_trace_complete is not None
-    _trace(be, "t3", "the answer is 4")  # root completion fires the hook → scores inline
+    _trace(
+        be, "t3", "the answer is 4"
+    )  # root completion fires the hook → scores inline
     assert any(p.get("type") == "online_score" for p in kg.nodes.values())
 
 
@@ -133,7 +149,9 @@ def test_sandboxed_metric_error_is_contained():
     kg = _FakeKG()
     be = KGTraceBackend(backend=kg)
     _trace(be, "m2", "x")
-    bad = Metric(name="boom", source="def metric(trace):\n    raise RuntimeError('x')\n")
+    bad = Metric(
+        name="boom", source="def metric(trace):\n    raise RuntimeError('x')\n"
+    )
     sampler = OnlineScoringSampler(backend=be, metrics=[bad])
     written = sampler.score_trace("m2")
     n = next(w for w in written if w.evaluator == "metric:boom")

@@ -52,7 +52,9 @@ async def test_fast_path_strategy_decides():
     s = FastPathStrategy()
     assert await s.decide(_ctx("hello")) == "fast_path"
     # Multi-clause → structural escalation → the fast path defers.
-    assert await s.decide(_ctx("design the schema and then build the scheduler")) is None
+    assert (
+        await s.decide(_ctx("design the schema and then build the scheduler")) is None
+    )
 
 
 @pytest.mark.asyncio

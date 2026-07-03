@@ -30,7 +30,14 @@ class TestMdlSelection:
             {"id": "long", "score": 1.0, "length": 4},
             {"id": "short", "score": 1.0, "length": 1},
         ]
-        best = select_top_k(rows, 1, method="mdl", score_key="score", length_key="length", mdl_weight=0.5)
+        best = select_top_k(
+            rows,
+            1,
+            method="mdl",
+            score_key="score",
+            length_key="length",
+            mdl_weight=0.5,
+        )
         assert best[0]["id"] == "short"
 
     def test_mdl_still_prefers_higher_score(self):
@@ -38,7 +45,14 @@ class TestMdlSelection:
             {"id": "short_worse", "score": 0.4, "length": 1},
             {"id": "long_better", "score": 1.0, "length": 4},
         ]
-        best = select_top_k(rows, 1, method="mdl", score_key="score", length_key="length", mdl_weight=0.5)
+        best = select_top_k(
+            rows,
+            1,
+            method="mdl",
+            score_key="score",
+            length_key="length",
+            mdl_weight=0.5,
+        )
         assert best[0]["id"] == "long_better"  # score dominates a modest length penalty
 
 

@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.knowledge_graph.research.loop_controller import run_assimilation_pass
+from agent_utilities.knowledge_graph.research.loop_controller import (
+    run_assimilation_pass,
+)
 
 pytestmark = pytest.mark.concept("KG-2.7")
 
@@ -93,6 +95,8 @@ def test_run_assimilation_pass_idempotent_and_force():
 
 def test_mcp_assimilate_action_is_wired():
     # Regression guard: the graph_orchestrate tool routes an 'assimilate' action.
-    src = Path("agent_utilities/mcp/tools/analysis_tools.py").read_text(encoding="utf-8")
+    src = Path("agent_utilities/mcp/tools/analysis_tools.py").read_text(
+        encoding="utf-8"
+    )
     assert 'action == "assimilate"' in src
     assert "run_assimilation_pass" in src

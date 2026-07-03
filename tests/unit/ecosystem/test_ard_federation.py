@@ -28,7 +28,10 @@ def _relay(monkeypatch: pytest.MonkeyPatch) -> ArdFederationRelay:
     monkeypatch.setattr(
         ard_registry,
         "ard_search",
-        lambda *a, **k: {"results": [_local_result("a", 0.9)], "publisher": {"domain": "local"}},
+        lambda *a, **k: {
+            "results": [_local_result("a", 0.9)],
+            "publisher": {"domain": "local"},
+        },
     )
     monkeypatch.setattr(ard_federation, "origin", lambda: "local")
     return ArdFederationRelay()
@@ -42,7 +45,9 @@ def test_mode_none_is_local_only(_relay: ArdFederationRelay) -> None:
 
 def test_referrals_lists_peers(_relay: ArdFederationRelay, monkeypatch) -> None:
     monkeypatch.setattr(
-        ArdFederationRelay, "list_registries", lambda self: [{"name": "hf", "url": "http://hf"}]
+        ArdFederationRelay,
+        "list_registries",
+        lambda self: [{"name": "hf", "url": "http://hf"}],
     )
     out = _relay.federated_search("x", mode="referrals")
     assert out["federationMode"] == "referrals"
@@ -51,7 +56,9 @@ def test_referrals_lists_peers(_relay: ArdFederationRelay, monkeypatch) -> None:
 
 def test_auto_merges_and_dedupes(_relay: ArdFederationRelay, monkeypatch) -> None:
     monkeypatch.setattr(
-        ArdFederationRelay, "list_registries", lambda self: [{"name": "hf", "url": "http://hf"}]
+        ArdFederationRelay,
+        "list_registries",
+        lambda self: [{"name": "hf", "url": "http://hf"}],
     )
     # Peer returns a higher-scoring copy of "a" (same domain+id) + a unique "b".
     monkeypatch.setattr(

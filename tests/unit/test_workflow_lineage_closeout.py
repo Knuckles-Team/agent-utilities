@@ -51,9 +51,7 @@ class FakeEngine:
         self.backend = None
 
     def add_node(self, node_id, node_type, properties=None, **props):
-        self.graph.add_node(
-            node_id, {"type": node_type, **(properties or props or {})}
-        )
+        self.graph.add_node(node_id, {"type": node_type, **(properties or props or {})})
 
     def link_nodes(self, source, target, rel_type, properties=None):
         self.graph.add_edge(source, target, type=rel_type, **(properties or {}))

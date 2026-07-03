@@ -227,8 +227,7 @@ class TraceDistiller:
         if biggest is not None:
             pile, cases = biggest
             logger.info(
-                "TraceDistiller: largest failure pile to attack first: "
-                "%r (%d cases)",
+                "TraceDistiller: largest failure pile to attack first: %r (%d cases)",
                 pile,
                 len(cases),
             )

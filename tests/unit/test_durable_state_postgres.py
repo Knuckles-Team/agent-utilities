@@ -194,9 +194,7 @@ class FakeQueueConn:
         s = " ".join(sql.split())
         rows = self.db[self._table(s)]
         if s.startswith("INSERT INTO kg_task_queue"):
-            rows.append(
-                {"id": self.db["seq"](), "data": params[0], "claimed_at": None}
-            )
+            rows.append({"id": self.db["seq"](), "data": params[0], "claimed_at": None})
             return _Cursorish()
         if s.startswith("INSERT INTO kg_task_staging"):
             rows.append(

@@ -52,8 +52,7 @@ class CodeSynthesizer(Protocol):
 
     def generate(
         self, *, goal: str, target_path: str, current_source: str
-    ) -> str | None:
-        ...
+    ) -> str | None: ...
 
 
 def _repo_root() -> str | None:

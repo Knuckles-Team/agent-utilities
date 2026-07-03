@@ -29,7 +29,9 @@ def loop_env(tmp_path, monkeypatch):
     import tests.conftest as _ct
 
     if not getattr(_ct, "_TEST_ENGINE_AVAILABLE", False):
-        pytest.skip("epistemic-graph engine not reachable; goal-loop live path needs it")
+        pytest.skip(
+            "epistemic-graph engine not reachable; goal-loop live path needs it"
+        )
 
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))

@@ -246,7 +246,9 @@ def test_legacy_kafka_unreachable_falls_back_to_sqlite(confluent_stub, tmp_path)
     assert backend.get_queue_size() == 1  # served by the SQLite fallback
 
 
-def test_create_task_queue_explicit_kafka_fail_loud(confluent_stub, monkeypatch, tmp_path):
+def test_create_task_queue_explicit_kafka_fail_loud(
+    confluent_stub, monkeypatch, tmp_path
+):
     """End-to-end through the factory: explicit kafka + dead broker raises."""
     from agent_utilities.knowledge_graph.core import kafka_queue_backend as kqb
 
@@ -332,15 +334,9 @@ def test_partition_key_same_repo_files_share_key():
         partition_key_for,
     )
 
-    k1 = partition_key_for(
-        _envelope(target="/work/agent-packages/repo-a/src/one.py")
-    )
-    k2 = partition_key_for(
-        _envelope(target="/work/agent-packages/repo-a/docs/two.md")
-    )
-    k3 = partition_key_for(
-        _envelope(target="/work/agent-packages/repo-b/src/three.py")
-    )
+    k1 = partition_key_for(_envelope(target="/work/agent-packages/repo-a/src/one.py"))
+    k2 = partition_key_for(_envelope(target="/work/agent-packages/repo-a/docs/two.md"))
+    k3 = partition_key_for(_envelope(target="/work/agent-packages/repo-b/src/three.py"))
     assert k1 == k2 != k3
 
 
@@ -653,9 +649,7 @@ def test_live_kafka_roundtrip():
     )
 
     servers = os.environ["AGENT_UTILITIES_KAFKA_LIVE"]
-    backend = KafkaQueueBackend(
-        bootstrap_servers=servers, fail_loud=True, partitions=2
-    )
+    backend = KafkaQueueBackend(bootstrap_servers=servers, fail_loud=True, partitions=2)
     job_id = f"live-{int(time.time())}"
     backend.put(_envelope(job_id, target="/tmp/live.txt"))
     deadline = time.time() + 30

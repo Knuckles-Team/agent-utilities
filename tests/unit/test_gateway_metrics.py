@@ -152,7 +152,11 @@ class TestMetricsMiddleware:
         assert sent[0]["status"] == 200
         incs = [e for e in fakes["requests"].events if e[0] == "inc"]
         assert incs == [
-            ("inc", {"route": "/api/graph/{name}", "method": "POST", "status": "200"}, 1.0)
+            (
+                "inc",
+                {"route": "/api/graph/{name}", "method": "POST", "status": "200"},
+                1.0,
+            )
         ]
         observes = [e for e in fakes["duration"].events if e[0] == "observe"]
         assert len(observes) == 1

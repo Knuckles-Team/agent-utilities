@@ -23,7 +23,9 @@ def _spy(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         KGCoordinator,
         "spawn_server",
-        classmethod(lambda cls, *a, **k: calls.__setitem__("spawn", calls["spawn"] + 1)),
+        classmethod(
+            lambda cls, *a, **k: calls.__setitem__("spawn", calls["spawn"] + 1)
+        ),
     )
     return calls
 
@@ -34,9 +36,7 @@ def test_client_role_does_not_spawn(monkeypatch: pytest.MonkeyPatch, _spy) -> No
     assert _spy["spawn"] == 0  # no spawn, no `uv` shell-out
 
 
-def test_host_role_spawns_when_unhealthy(
-    monkeypatch: pytest.MonkeyPatch, _spy
-) -> None:
+def test_host_role_spawns_when_unhealthy(monkeypatch: pytest.MonkeyPatch, _spy) -> None:
     monkeypatch.setattr(kg_coordinator, "setting", lambda *a, **k: "host")
     KGCoordinator.get_kg_client()
     assert _spy["spawn"] == 1  # host owns the server → spawns when unhealthy

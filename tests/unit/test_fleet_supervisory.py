@@ -269,8 +269,11 @@ def _actor(actor_id="alice", tenant="acme", roles=()):
     from agent_utilities.security.brain_context import ActorContext
 
     return ActorContext(
-        actor_id=actor_id, actor_type=ActorType.HUMAN, roles=tuple(roles),
-        tenant_id=tenant, authenticated=True,
+        actor_id=actor_id,
+        actor_type=ActorType.HUMAN,
+        roles=tuple(roles),
+        tenant_id=tenant,
+        authenticated=True,
     )
 
 

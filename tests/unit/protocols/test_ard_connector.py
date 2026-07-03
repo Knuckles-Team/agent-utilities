@@ -58,7 +58,11 @@ def test_ard_connector_is_discovered() -> None:
 
 def test_connector_loads_resources_offline() -> None:
     cls = get_connector_class("ard")
-    conn = cls(catalog_url="https://registry.test", verify=False, fetch_fn=lambda _u: _manifest())
+    conn = cls(
+        catalog_url="https://registry.test",
+        verify=False,
+        fetch_fn=lambda _u: _manifest(),
+    )
     docs = list(conn.load())
     assert {d.metadata["ard_media_type"] for d in docs} == {
         "application/mcp-server+json",
@@ -82,10 +86,16 @@ def test_media_type_filter() -> None:
 @pytest.mark.skipif(
     not ard_signing.signing_available(), reason="cryptography not installed"
 )
-def test_signature_verification_drops_bad_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_signature_verification_drops_bad_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cls = get_connector_class("ard")
     # Signed manifest whose publisher domain matches the catalog host → accepted.
-    conn = cls(catalog_url="https://registry.test", verify=True, fetch_fn=lambda _u: _manifest(sign=True))
+    conn = cls(
+        catalog_url="https://registry.test",
+        verify=True,
+        fetch_fn=lambda _u: _manifest(sign=True),
+    )
     assert len(list(conn.load())) == 2
     assert conn.verify_failures == 0
 
@@ -104,7 +114,11 @@ def test_signature_verification_drops_bad_entries(monkeypatch: pytest.MonkeyPatc
 def test_require_signature_drops_unsigned(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARD_REQUIRE_SIGNATURE", "true")
     cls = get_connector_class("ard")
-    conn = cls(catalog_url="https://registry.test", verify=True, fetch_fn=lambda _u: _manifest(sign=False))
+    conn = cls(
+        catalog_url="https://registry.test",
+        verify=True,
+        fetch_fn=lambda _u: _manifest(sign=False),
+    )
     assert list(conn.load()) == []
     assert conn.verify_failures == 2
 
@@ -127,7 +141,9 @@ def test_sync_ard_live_path_writes_typed_nodes(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setenv(
         "ARD_REGISTRIES",
-        json.dumps([{"name": "peer", "catalog_url": "https://registry.test", "verify": False}]),
+        json.dumps(
+            [{"name": "peer", "catalog_url": "https://registry.test", "verify": False}]
+        ),
     )
     engine = _FakeEngine()
     res = _sync_ard(engine, mode="full", ids=None, client=lambda _u: _manifest())

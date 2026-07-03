@@ -119,9 +119,7 @@ def test_shard_selection_matches_shard_router():
 
 
 def test_shard_selection_spreads_keys():
-    chosen = {
-        shard_endpoint_for(f"graph_{i}", THREE_SHARDS) for i in range(64)
-    }
+    chosen = {shard_endpoint_for(f"graph_{i}", THREE_SHARDS) for i in range(64)}
     assert chosen == set(THREE_SHARDS)
 
 
@@ -178,9 +176,7 @@ def test_resolve_routing_graph_precedence():
     custom = _FakeConfig(kg_default_graph="knowledge")
     assert resolve_routing_graph(None, custom) == "knowledge"
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        assert resolve_routing_graph("knowledge", custom) == (
-            "tenant__acme__knowledge"
-        )
+        assert resolve_routing_graph("knowledge", custom) == ("tenant__acme__knowledge")
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +276,7 @@ def test_unreachable_remote_shard_fails_loud_without_autostart(
     def _refuse(**kwargs):
         raise ConnectionRefusedError("connection refused")
 
-    monkeypatch.setattr(
-        SyncEpistemicGraphClient, "connect", staticmethod(_refuse)
-    )
+    monkeypatch.setattr(SyncEpistemicGraphClient, "connect", staticmethod(_refuse))
     spawned: list = []
     monkeypatch.setattr(
         subprocess, "Popen", lambda *a, **k: spawned.append(a) or MagicMock()
@@ -367,9 +361,7 @@ def test_unified_daemon_status_includes_shards(monkeypatch):
         def _maintenance_jobs(self):
             return []
 
-    monkeypatch.setattr(
-        shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True
-    )
+    monkeypatch.setattr(shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True)
     # __new__: unified_daemon_status reads its attributes defensively, and the
     # full mixin __init__ would build a real task queue this test doesn't need.
     status = _Daemonish.__new__(_Daemonish).unified_daemon_status()
@@ -384,9 +376,7 @@ def test_gateway_daemon_shards_route(monkeypatch):
 
     from agent_utilities.gateway import api as gateway_api
 
-    monkeypatch.setattr(
-        shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True
-    )
+    monkeypatch.setattr(shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True)
     result = asyncio.run(gateway_api.daemon_shards())
     assert result["mode"] in {"single", "sharded"}
     assert result["endpoints"]

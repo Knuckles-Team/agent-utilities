@@ -92,7 +92,9 @@ def test_abstract_contract_method_set_is_stable() -> None:
 
 
 @pytest.mark.parametrize(
-    "name,cls", sorted(_concrete_backends().items()), ids=lambda v: v if isinstance(v, str) else ""
+    "name,cls",
+    sorted(_concrete_backends().items()),
+    ids=lambda v: v if isinstance(v, str) else "",
 )
 def test_backend_implements_full_interface(name: str, cls: type[Any]) -> None:
     # A concrete backend has NO unimplemented abstractmethods — Python would refuse to

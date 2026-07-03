@@ -17,9 +17,7 @@ SAMPLE = """def greet(name):
 
 
 def _sr(path: str, search: str, replace: str) -> str:
-    return (
-        f"{path}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n"
-    )
+    return f"{path}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n"
 
 
 def test_parse_search_replace_block():
@@ -162,7 +160,9 @@ async def test_reflection_recovers_from_failure(tmp_path):
         assert "could not be applied" in correction
         return good
 
-    result = await apply_with_reflection(bad, reprompt, root=tmp_path, max_reflections=2)
+    result = await apply_with_reflection(
+        bad, reprompt, root=tmp_path, max_reflections=2
+    )
     assert result.ok
     assert calls["n"] == 1
     assert "# done" in f.read_text(encoding="utf-8")

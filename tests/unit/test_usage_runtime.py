@@ -19,10 +19,16 @@ def backend(tmp_path):
 def test_record_run_creates_runtime_session(backend):
     rec = UsageRecorder(backend)
     ok = rec.record_run(
-        run_id="run-xyz", query="do a thing", status="success",
-        duration_ms=1234.0, model="claude-opus-4-8",
-        token_usage={"input_tokens": 1000, "output_tokens": 200,
-                     "reasoning_tokens": 50},
+        run_id="run-xyz",
+        query="do a thing",
+        status="success",
+        duration_ms=1234.0,
+        model="claude-opus-4-8",
+        token_usage={
+            "input_tokens": 1000,
+            "output_tokens": 200,
+            "reasoning_tokens": 50,
+        },
     )
     assert ok is True
     s = backend.summary(origin=ORIGIN_RUNTIME)
@@ -48,12 +54,20 @@ def test_record_run_disabled(monkeypatch, backend):
 
 def test_tool_call_metrics_and_rows(backend):
     rec = UsageRecorder(backend)
-    rec.record_run(run_id="run-1", model="claude-opus-4-8",
-                   token_usage={"input_tokens": 10, "output_tokens": 5})
-    rec.record_tool_call(session_id="run-1", tool_name="graph_query",
-                         category="db", status="ok")
-    rec.record_tool_call(session_id="run-1", tool_name="run-tests",
-                         category="skill", skill_name="automated-test-runner")
+    rec.record_run(
+        run_id="run-1",
+        model="claude-opus-4-8",
+        token_usage={"input_tokens": 10, "output_tokens": 5},
+    )
+    rec.record_tool_call(
+        session_id="run-1", tool_name="graph_query", category="db", status="ok"
+    )
+    rec.record_tool_call(
+        session_id="run-1",
+        tool_name="run-tests",
+        category="skill",
+        skill_name="automated-test-runner",
+    )
     detail = backend.session_detail("run-1")
     cats = {t.category for t in detail.tool_calls}
     assert cats == {"db", "skill"}

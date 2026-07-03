@@ -489,7 +489,9 @@ async def test_varied_ack_lite_llm_with_static_fallback(
 
     shape = SimpleNamespace(tool_servers=("github-mcp",))
     # lite model available → its varied line is used
-    monkeypatch.setattr(cards, "make_lite_llm_fn", lambda: (lambda p: "Grabbing that now ⏳"))
+    monkeypatch.setattr(
+        cards, "make_lite_llm_fn", lambda: lambda p: "Grabbing that now ⏳"
+    )
     assert await rt._varied_ack("list my issues", shape) == "Grabbing that now ⏳"
     # lite model unavailable → varied static fallback (references the server, has ⏳)
     monkeypatch.setattr(cards, "make_lite_llm_fn", lambda: None)

@@ -17,7 +17,9 @@ from agent_utilities.http.redaction import REDACTED, LogRedactor, redact_text
 
 
 def test_redacts_bearer_and_ssws_scheme_tokens():
-    text = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig and SSWS 00abcDEF123456"
+    text = (
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig and SSWS 00abcDEF123456"
+    )
     redacted = redact_text(text)
     assert "eyJhbGciOiJIUzI1NiJ9" not in redacted
     assert "00abcDEF123456" not in redacted

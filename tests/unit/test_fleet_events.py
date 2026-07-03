@@ -78,7 +78,9 @@ class _Engine:
             ]
         return []
 
-    def submit_task(self, target_path, is_codebase, provenance, task_type=None, skip_dedupe=False):
+    def submit_task(
+        self, target_path, is_codebase, provenance, task_type=None, skip_dedupe=False
+    ):
         job_id = f"job-{len(self.submitted)}"
         self.submitted.append(
             {
@@ -292,9 +294,7 @@ class TestTriage:
         report = fleet_event_triage.triage_fleet_event(engine, eid)
         assert report["triaged"] is True
         assert "gap_topic" not in report
-        assert not [
-            n for n in engine.nodes.values() if n.get("kind") == "failure_gap"
-        ]
+        assert not [n for n in engine.nodes.values() if n.get("kind") == "failure_gap"]
 
     def test_correlation_links_known_entities(self):
         engine = _Engine()

@@ -47,9 +47,7 @@ def test_gamed_task_scores_low_and_rejected() -> None:
     # Naturalness must collapse under connective spam + illogical cue words.
     assert score.naturalness < 0.3
     # overall = weakest dimension -> a single low dim tanks the whole conjecture.
-    assert score.overall == min(
-        score.relevance, score.conciseness, score.naturalness
-    )
+    assert score.overall == min(score.relevance, score.conciseness, score.naturalness)
     assert score.accepted() is False
     assert guide.gate(TARGET, GAMED_TASK) is False
 

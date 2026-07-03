@@ -34,8 +34,9 @@ class Completion:
 
 
 class Completer(Protocol):
-    async def complete(self, system: str, user: str, *, model_id: str) -> Completion:
-        ...
+    async def complete(
+        self, system: str, user: str, *, model_id: str
+    ) -> Completion: ...
 
 
 @dataclass

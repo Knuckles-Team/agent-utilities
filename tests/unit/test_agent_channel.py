@@ -32,8 +32,12 @@ class _FakeChannels:
 
     def send_message(self, channel_id, sender, payload):
         if sender not in self._members.get(channel_id, set()):
-            raise RuntimeError(f"Agent '{sender}' is not a member of channel '{channel_id}'")
-        self._msgs.setdefault(channel_id, []).append({"sender": sender, "payload": payload})
+            raise RuntimeError(
+                f"Agent '{sender}' is not a member of channel '{channel_id}'"
+            )
+        self._msgs.setdefault(channel_id, []).append(
+            {"sender": sender, "payload": payload}
+        )
 
     def get_messages(self, channel_id, limit=None):
         return list(self._msgs.get(channel_id, []))
@@ -45,7 +49,9 @@ class _FakeChannels:
 class _FakeEngine:
     def __init__(self):
         ch = _FakeChannels()
-        self.graph_compute = type("C", (), {"_client": type("X", (), {"channels": ch})()})()
+        self.graph_compute = type(
+            "C", (), {"_client": type("X", (), {"channels": ch})()}
+        )()
         self._nodes: dict[str, dict] = {}
         self._edges: list[tuple] = []
 
@@ -128,7 +134,9 @@ def test_deps_carry_channel_id_from_state():
             "event_queue": None,
         },
     )()
-    state = type("S", (), {"invoker_channel_id": "orch:s:r", "invoker_cred_ref": None})()
+    state = type(
+        "S", (), {"invoker_channel_id": "orch:s:r", "invoker_cred_ref": None}
+    )()
     ad = agent_deps_from_graph(deps, [], state)
     assert isinstance(ad, AgentDeps)
     assert ad.message_channel_id == "orch:s:r"

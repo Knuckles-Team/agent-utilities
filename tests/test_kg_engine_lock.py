@@ -74,7 +74,9 @@ def test_concurrent_holder_blocks_second_spawner():
         t0 = time.monotonic()
         with el.engine_spawn_guard(sock, timeout=1.0) as acquired:
             elapsed = time.monotonic() - t0
-            assert acquired is False, "second spawner acquired a held guard (split-brain!)"
+            assert acquired is False, (
+                "second spawner acquired a held guard (split-brain!)"
+            )
             assert elapsed >= 0.9, "guard returned False before waiting out the timeout"
     finally:
         proc.wait(timeout=10)

@@ -29,6 +29,7 @@ pytestmark = pytest.mark.integration
 
 ENHANCED_PREFIX = "/api/enhanced"
 
+
 def _find_agent_packages_root() -> Path:
     """Locate the ``agent-packages`` root that holds the sibling ``agent-webui``.
 

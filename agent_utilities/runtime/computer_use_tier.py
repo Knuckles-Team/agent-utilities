@@ -35,8 +35,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ComputerUseDriver(Protocol):
-    async def run(self, action: ComputerUseAction) -> Observation:
-        ...
+    async def run(self, action: ComputerUseAction) -> Observation: ...
 
 
 class NullComputerUseDriver:

@@ -25,7 +25,9 @@ from agent_utilities.harness.dspy_optimization import (
 
 
 def test_graded_score_is_graded_not_exact():
-    assert graded_score("the cat sat on the mat", "the cat sat on the mat") == pytest.approx(1.0)
+    assert graded_score(
+        "the cat sat on the mat", "the cat sat on the mat"
+    ) == pytest.approx(1.0)
     near = graded_score("the cat sat on the mat", "the cat sat on a mat")
     assert 0.0 < near < 1.0  # graded — exact-match would be 0
     assert graded_score("alpha beta", "totally different words") < near
@@ -184,7 +186,9 @@ def test_classification_accuracy_and_routing_success():
         routing_success_rate,
     )
 
-    assert classification_accuracy([True, False, True], [True, True, True]) == pytest.approx(2 / 3)
+    assert classification_accuracy(
+        [True, False, True], [True, True, True]
+    ) == pytest.approx(2 / 3)
     assert classification_accuracy([], []) == 0.0
     assert routing_success_rate(
         [{"success": True}, {"success": False}, {"success": True}]
@@ -207,12 +211,16 @@ def test_self_supervised_optimizers_noop_without_data():
 def test_run_component_optimization_dispatch():
     assert "error" in run_component_optimization("bogus")
     assert run_component_optimization("system_prompt")["status"] == "registered"
-    assert run_component_optimization("tool_description")["target"] == "tool_description"
+    assert (
+        run_component_optimization("tool_description")["target"] == "tool_description"
+    )
     # self-supervised targets report no_data when given none
     assert run_component_optimization("extraction", {"documents": []})["status"] == (
         "no_data_or_dspy_unavailable"
     )
-    assert run_component_optimization("routing")["status"] == "no_data_or_dspy_unavailable"
+    assert (
+        run_component_optimization("routing")["status"] == "no_data_or_dspy_unavailable"
+    )
 
 
 # ── AHE-3.46 — scheduled optimization sweep (the daemon-tick twin) ───────────

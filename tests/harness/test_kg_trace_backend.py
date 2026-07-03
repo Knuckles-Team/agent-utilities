@@ -40,7 +40,9 @@ def test_emit_persists_trace_subgraph_and_rolls_up_cost():
     be = KGTraceBackend(backend=kg)
 
     trace = TraceNode(id="trace:1", name="agent.run", agent="planner")
-    span = SpanNode(id="span:1", name="retrieve", trace_id="trace:1", span_kind="retrieval")
+    span = SpanNode(
+        id="span:1", name="retrieve", trace_id="trace:1", span_kind="retrieval"
+    )
     gen = GenerationNode(
         id="gen:1",
         name="llm",

@@ -78,7 +78,9 @@ def test_fast_step_with_no_new_traces_keeps_harness():
 
 def test_slow_step_fires_only_for_recurring_keys():
     trainer, absorbed = _recording_trainer()
-    ctrl = FastSlowController(_counting_harness()[0], trainer_fn=trainer, recurrence_threshold=3)
+    ctrl = FastSlowController(
+        _counting_harness()[0], trainer_fn=trainer, recurrence_threshold=3
+    )
     # "hot" recurs 3 times (>= threshold); "cold" only twice.
     for r in (1.0, 2.0, 3.0):
         ctrl.observe(Trace("hot", r))
@@ -121,7 +123,9 @@ def test_default_trainer_is_deferred_noop_but_still_summarizes():
 
 def test_slow_step_clears_consumed_groups():
     trainer, absorbed = _recording_trainer()
-    ctrl = FastSlowController(_counting_harness()[0], trainer_fn=trainer, recurrence_threshold=2)
+    ctrl = FastSlowController(
+        _counting_harness()[0], trainer_fn=trainer, recurrence_threshold=2
+    )
     for r in (1.0, 2.0):
         ctrl.observe(Trace("hot", r))
     ctrl.observe(Trace("cold", 9.0))

@@ -53,6 +53,8 @@ async def test_10m_token_stress_needle():
 async def test_dropin_completion_smoke():
     rlm = RLM(backend="openai", backend_kwargs={"model_name": "gpt-4o-mini"})
     resp = await rlm.acompletion(
-        "Find the secret code 778899 buried here: " + ("filler " * 5000) + " code=778899",
+        "Find the secret code 778899 buried here: "
+        + ("filler " * 5000)
+        + " code=778899",
     )
     assert resp.ok

@@ -149,9 +149,7 @@ class TestHungTaskTimeout:
         ):
             # A non-heavy type skips the throttle context — keep the test pure.
             with pytest.raises(RuntimeError, match="soft timeout"):
-                obj._execute_claimed_task(
-                    "job-1", Path("/x"), False, "conversation"
-                )
+                obj._execute_claimed_task("job-1", Path("/x"), False, "conversation")
 
     def test_normal_task_completes_through_the_watchdog(self):
         obj = self._mixin()
@@ -184,7 +182,9 @@ class TestHungTaskTimeout:
         obj.backend = MagicMock()
         # 3rd attempt (attempts already 2, max 3) → dead_letter.
         obj._control_cypher = MagicMock(  # type: ignore[attr-defined]
-            return_value=[{"meta": _encode_metadata({"attempts": 2, "max_attempts": 3})}]
+            return_value=[
+                {"meta": _encode_metadata({"attempts": 2, "max_attempts": 3})}
+            ]
         )
         statuses: list[str] = []
         obj._update_task_status = lambda jid, status, meta: statuses.append(status)  # type: ignore[attr-defined]
@@ -271,7 +271,9 @@ class TestCodebaseFanout:
             files.append(root / f"pkg{i % 20}" / f"mod{i}.py")
         return files
 
-    def test_large_repo_splits_into_parallel_shard_routed_subtasks(self, tmp_path: Path):
+    def test_large_repo_splits_into_parallel_shard_routed_subtasks(
+        self, tmp_path: Path
+    ):
         files = self._big_repo(tmp_path)
         obj = self._mixin()
         patches = self._patch_env(files, routing=True, shards=4)
@@ -323,9 +325,7 @@ class TestCodebaseFanout:
         patches = self._patch_env(files)
         with patches[0], patches[1], patches[2]:
             assert (
-                obj._maybe_fanout_codebase(
-                    "c1", tmp_path, {"only_files": ["/a/b.py"]}
-                )
+                obj._maybe_fanout_codebase("c1", tmp_path, {"only_files": ["/a/b.py"]})
                 is False
             )
         obj.submit_task.assert_not_called()

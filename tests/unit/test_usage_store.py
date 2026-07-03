@@ -31,34 +31,56 @@ def backend(tmp_path):
 def _bundle(sid="s1", project="proj-a", agent="claude", model="claude-opus-4-8"):
     return ParsedSessionBundle(
         session=UsageSession(
-            id=sid, project=project, agent=agent, started_at="2026-06-10T09:00:00Z",
-            message_count=2, total_output_tokens=500, health_grade="A",
+            id=sid,
+            project=project,
+            agent=agent,
+            started_at="2026-06-10T09:00:00Z",
+            message_count=2,
+            total_output_tokens=500,
+            health_grade="A",
             outcome="success",
         ),
         messages=[
             UsageMessage(
-                session_id=sid, ordinal=0, role="user",
+                session_id=sid,
+                ordinal=0,
+                role="user",
                 content="please refactor the authentication module",
             ),
             UsageMessage(
-                session_id=sid, ordinal=1, role="assistant",
-                content="done, edited auth.py", has_tool_use=True, output_tokens=500,
+                session_id=sid,
+                ordinal=1,
+                role="assistant",
+                content="done, edited auth.py",
+                has_tool_use=True,
+                output_tokens=500,
             ),
         ],
         tool_calls=[
             UsageToolCall(
-                session_id=sid, message_ordinal=1, tool_name="Edit",
-                category="edit", status="ok",
+                session_id=sid,
+                message_ordinal=1,
+                tool_name="Edit",
+                category="edit",
+                status="ok",
             ),
             UsageToolCall(
-                session_id=sid, message_ordinal=1, tool_name="run_tests",
-                category="skill", skill_name="automated-test-runner", status="error",
+                session_id=sid,
+                message_ordinal=1,
+                tool_name="run_tests",
+                category="skill",
+                skill_name="automated-test-runner",
+                status="error",
             ),
         ],
         usage_events=[
             UsageEvent(
-                session_id=sid, source="agent", model=model,
-                input_tokens=1000, output_tokens=500, cache_read_input_tokens=200,
+                session_id=sid,
+                source="agent",
+                model=model,
+                input_tokens=1000,
+                output_tokens=500,
+                cache_read_input_tokens=200,
                 dedup_key="e1",
             ),
         ],
@@ -143,18 +165,25 @@ def test_filters_by_project_and_origin(backend):
     assert backend.summary(project="proj-a").session_count == 1
     # runtime origin
     rec = UsageRecorder(backend)
-    rec.record_run(run_id="run-1", model="claude-opus-4-8",
-                   token_usage={"input_tokens": 10, "output_tokens": 20})
+    rec.record_run(
+        run_id="run-1",
+        model="claude-opus-4-8",
+        token_usage={"input_tokens": 10, "output_tokens": 20},
+    )
     assert backend.summary(origin=ORIGIN_RUNTIME).session_count == 1
     assert backend.summary().session_count == 3
 
 
 def test_record_tool_call_runtime(backend):
     rec = UsageRecorder(backend)
-    rec.record_run(run_id="run-1", model="claude-opus-4-8",
-                   token_usage={"input_tokens": 10, "output_tokens": 20})
-    rec.record_tool_call(session_id="run-1", tool_name="graph_query",
-                         category="db", status="ok")
+    rec.record_run(
+        run_id="run-1",
+        model="claude-opus-4-8",
+        token_usage={"input_tokens": 10, "output_tokens": 20},
+    )
+    rec.record_tool_call(
+        session_id="run-1", tool_name="graph_query", category="db", status="ok"
+    )
     stats = {t.name: t for t in backend.tool_stats(origin=ORIGIN_RUNTIME)}
     # tool_stats filters on session origin; runtime session has the call
     assert "graph_query" in stats

@@ -23,8 +23,7 @@ class RoutingStrategy(Protocol):
 
     name: str
 
-    async def decide(self, ctx: Any) -> Any | None:
-        ...
+    async def decide(self, ctx: Any) -> Any | None: ...
 
 
 @dataclass

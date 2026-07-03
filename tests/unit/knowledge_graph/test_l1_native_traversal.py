@@ -29,7 +29,9 @@ class FakeGraph:
         return list(self.pred.get(nid, []))
 
     def get_neighbors(self, nid):
-        return list(dict.fromkeys(self.get_successors(nid) + self.get_predecessors(nid)))
+        return list(
+            dict.fromkeys(self.get_successors(nid) + self.get_predecessors(nid))
+        )
 
     def _get_node_properties(self, nid):
         return dict(self.nodes.get(nid, {}))

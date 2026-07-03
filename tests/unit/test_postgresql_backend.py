@@ -201,21 +201,28 @@ class TestRowLevelSecurity:
     def test_rls_statements_idempotent_and_complete(self):
         stmts = PostgreSQLBackend.rls_statements("Agent")
         joined = " | ".join(stmts)
-        assert 'ADD COLUMN IF NOT EXISTS tenant_id TEXT' in joined
-        assert 'ENABLE ROW LEVEL SECURITY' in joined
-        assert 'FORCE ROW LEVEL SECURITY' in joined  # owners must not bypass
-        assert 'DROP POLICY IF EXISTS tenant_isolation' in joined  # re-runnable
-        assert 'CREATE POLICY tenant_isolation' in joined
+        assert "ADD COLUMN IF NOT EXISTS tenant_id TEXT" in joined
+        assert "ENABLE ROW LEVEL SECURITY" in joined
+        assert "FORCE ROW LEVEL SECURITY" in joined  # owners must not bypass
+        assert "DROP POLICY IF EXISTS tenant_isolation" in joined  # re-runnable
+        assert "CREATE POLICY tenant_isolation" in joined
         assert "current_setting('app.tenant_id', true)" in joined
 
     def test_rls_policy_admits_commons_and_unscoped(self):
-        policy = next(s for s in PostgreSQLBackend.rls_statements("kg_edges") if "CREATE POLICY" in s)
+        policy = next(
+            s
+            for s in PostgreSQLBackend.rls_statements("kg_edges")
+            if "CREATE POLICY" in s
+        )
         # commons rows (empty/NULL tenant) and the unscoped/admin path are allowed.
         assert "tenant_id IS NULL OR tenant_id = ''" in policy
         assert "current_setting('app.tenant_id', true) = ''" in policy
 
     def test_tenant_guc_sql_scoped(self):
-        assert PostgreSQLBackend.tenant_guc_sql("acme") == "SET LOCAL app.tenant_id = 'acme'"
+        assert (
+            PostgreSQLBackend.tenant_guc_sql("acme")
+            == "SET LOCAL app.tenant_id = 'acme'"
+        )
 
     def test_tenant_guc_sql_unscoped_is_empty(self):
         assert PostgreSQLBackend.tenant_guc_sql(None) == "SET LOCAL app.tenant_id = ''"

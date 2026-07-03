@@ -43,12 +43,24 @@ class _RecordingBackend:
 def make_sql_server() -> FastMCP:
     """A fake sql-mcp: keyset-paginated sql_query over a 3-row table."""
     table = [
-        {"id": 1, "title": "Graphs", "body": "alpha content about graphs. " * 6,
-         "updated_at": "2026-01-01"},
-        {"id": 2, "title": "Ontologies", "body": "beta content on ontologies. " * 6,
-         "updated_at": "2026-02-01"},
-        {"id": 3, "title": "Retrieval", "body": "gamma content on retrieval. " * 6,
-         "updated_at": "2026-03-01"},
+        {
+            "id": 1,
+            "title": "Graphs",
+            "body": "alpha content about graphs. " * 6,
+            "updated_at": "2026-01-01",
+        },
+        {
+            "id": 2,
+            "title": "Ontologies",
+            "body": "beta content on ontologies. " * 6,
+            "updated_at": "2026-02-01",
+        },
+        {
+            "id": 3,
+            "title": "Retrieval",
+            "body": "gamma content on retrieval. " * 6,
+            "updated_at": "2026-03-01",
+        },
     ]
     server = FastMCP("fake-sql-mcp")
 

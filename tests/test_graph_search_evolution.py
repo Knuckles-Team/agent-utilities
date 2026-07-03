@@ -100,21 +100,33 @@ def test_uct_unvisited_is_infinite():
 
 def test_uct_exploitation_plus_exploration_ordering():
     # Same visits, higher reward → higher UCT (exploitation dominates).
-    high = SearchNode("h", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=2, total_reward=2.0)
-    low = SearchNode("l", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=2, total_reward=0.5)
+    high = SearchNode(
+        "h", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=2, total_reward=2.0
+    )
+    low = SearchNode(
+        "l", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=2, total_reward=0.5
+    )
     assert high.uct(10, 1.4) > low.uct(10, 1.4)
 
     # Same reward mean, fewer visits → higher exploration bonus.
-    rare = SearchNode("r", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=1, total_reward=1.0)
-    common = SearchNode("o", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=8, total_reward=8.0)
+    rare = SearchNode(
+        "r", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=1, total_reward=1.0
+    )
+    common = SearchNode(
+        "o", "c", "p", 1.0, Stage.IMPROVE, branch_id=1, visits=8, total_reward=8.0
+    )
     assert rare.uct(10, 1.4) > common.uct(10, 1.4)
 
 
 # ── GlobalCodeMemory ────────────────────────────────────────────────────────
 
 
-def _rec(rid: str, plan: str, *, label: int = 1, stage: Stage = Stage.IMPROVE) -> MemRecord:
-    return MemRecord(record_id=rid, plan=plan, code_summary=f"sum:{rid}", stage=stage, label=label)
+def _rec(
+    rid: str, plan: str, *, label: int = 1, stage: Stage = Stage.IMPROVE
+) -> MemRecord:
+    return MemRecord(
+        record_id=rid, plan=plan, code_summary=f"sum:{rid}", stage=stage, label=label
+    )
 
 
 def test_memory_save_idempotent():
@@ -189,12 +201,19 @@ def test_coldstart_custom_table():
 
 def test_select_coding_mode_dispatch():
     # Error/retry → stepwise (takes precedence even when large/stagnating).
-    assert select_coding_mode(stagnating=True, code_size=9999, has_error=True) == "stepwise"
+    assert (
+        select_coding_mode(stagnating=True, code_size=9999, has_error=True)
+        == "stepwise"
+    )
     # Large or stagnating working code → diff.
     assert select_coding_mode(stagnating=True, code_size=10, has_error=False) == "diff"
-    assert select_coding_mode(stagnating=False, code_size=5000, has_error=False) == "diff"
+    assert (
+        select_coding_mode(stagnating=False, code_size=5000, has_error=False) == "diff"
+    )
     # Default → single (full rewrite).
-    assert select_coding_mode(stagnating=False, code_size=10, has_error=False) == "single"
+    assert (
+        select_coding_mode(stagnating=False, code_size=10, has_error=False) == "single"
+    )
 
 
 # ── GraphSearchEvolver.run ──────────────────────────────────────────────────
@@ -239,7 +258,9 @@ def test_run_triggers_cross_branch_fusion():
     assert ev.fusion_nodes, "expected at least one fusion node when a branch stagnates"
     fusion_node = ev.nodes[ev.fusion_nodes[0]]
     assert fusion_node.stage == Stage.FUSION
-    assert fusion_node.reference_ids, "fusion node must carry cross-branch reference edges"
+    assert fusion_node.reference_ids, (
+        "fusion node must carry cross-branch reference edges"
+    )
     # References point at OTHER branches (cross-branch knowledge flow).
     for ref_id in fusion_node.reference_ids:
         assert ev.nodes[ref_id].branch_id != fusion_node.branch_id
@@ -249,7 +270,12 @@ def test_run_is_deterministic_under_fixed_seed():
     def run_once():
         coder_fn, evaluate_fn = make_stubs()
         ev = GraphSearchEvolver(
-            coder_fn, evaluate_fn, num_branches=3, num_steps=14, seed=42, stagnation_patience=2
+            coder_fn,
+            evaluate_fn,
+            num_branches=3,
+            num_steps=14,
+            seed=42,
+            stagnation_patience=2,
         )
         best = ev.run("an image classification task")
         return (
@@ -268,4 +294,6 @@ def test_run_buggy_branch_does_not_break_search():
     best = ev.run("an image classification task")
     # Branch 2's drafts are buggy; the best node must come from a clean branch.
     assert best.is_buggy is False
-    assert any(n.is_buggy for n in ev.nodes.values()), "expected the buggy branch to exist"
+    assert any(n.is_buggy for n in ev.nodes.values()), (
+        "expected the buggy branch to exist"
+    )

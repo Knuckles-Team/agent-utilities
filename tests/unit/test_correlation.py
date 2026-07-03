@@ -95,7 +95,10 @@ def test_inject_carries_tenant_and_actor():
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     actor = ActorContext(
-        actor_id="alice", actor_type=ActorType.HUMAN, tenant_id="acme", authenticated=True
+        actor_id="alice",
+        actor_type=ActorType.HUMAN,
+        tenant_id="acme",
+        authenticated=True,
     )
     with use_actor(actor):
         ensure_correlation_id()

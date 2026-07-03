@@ -125,16 +125,24 @@ class MemoryLifecycleConfig:
         """Build a config from ``AGENT_UTILITIES_MEMORY_LIFECYCLE*`` env vars."""
         return cls(
             enabled=_env_bool("AGENT_UTILITIES_MEMORY_LIFECYCLE"),
-            max_working_set=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_WORKING_SET", 500),
-            min_cluster_size=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_MIN_CLUSTER", 3),
+            max_working_set=_env_int(
+                "AGENT_UTILITIES_MEMORY_LIFECYCLE_WORKING_SET", 500
+            ),
+            min_cluster_size=_env_int(
+                "AGENT_UTILITIES_MEMORY_LIFECYCLE_MIN_CLUSTER", 3
+            ),
             min_cluster_age_hours=_env_float(
                 "AGENT_UTILITIES_MEMORY_LIFECYCLE_MIN_AGE_HOURS", 6.0
             ),
-            max_cluster_size=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_MAX_CLUSTER", 32),
+            max_cluster_size=_env_int(
+                "AGENT_UTILITIES_MEMORY_LIFECYCLE_MAX_CLUSTER", 32
+            ),
             decay_half_life_secs=_env_float(
                 "AGENT_UTILITIES_MEMORY_LIFECYCLE_HALF_LIFE_SECS", 604_800.0
             ),
-            decay_floor=_env_float("AGENT_UTILITIES_MEMORY_LIFECYCLE_DECAY_FLOOR", 0.05),
+            decay_floor=_env_float(
+                "AGENT_UTILITIES_MEMORY_LIFECYCLE_DECAY_FLOOR", 0.05
+            ),
             evict_max_nodes=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_EVICT_MAX", 0),
         )
 
@@ -328,11 +336,7 @@ class MemoryLifecycle:
                 continue
             if not (n.get("content") or n.get("name")):
                 continue
-            key = str(
-                n.get(self.config.cluster_key)
-                or n.get("category")
-                or "general"
-            )
+            key = str(n.get(self.config.cluster_key) or n.get("category") or "general")
             groups.setdefault(key, []).append(n)
 
         best: list[dict[str, Any]] = []

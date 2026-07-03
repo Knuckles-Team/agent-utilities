@@ -229,7 +229,9 @@ class _CollapseEngine:
 
     def __init__(self, tasks: list[dict]):
         self.tasks = tasks
-        self.backend = self  # collapse cancels via engine.backend.compare_and_set_node_fields
+        self.backend = (
+            self  # collapse cancels via engine.backend.compare_and_set_node_fields
+        )
 
     def query_cypher(self, _q, params=None):
         st = (params or {}).get("status")
@@ -259,7 +261,10 @@ def test_collapse_cancels_duplicate_active_ticks_per_schedule() -> None:
     # (over-subscribed across statuses); enrichment_demo: 1 pending (healthy); a
     # running file_watch tick must NEVER be cancelled.
     tasks = (
-        [{"id": f"fw{i}", "schedule": "file_watch", "status": "pending"} for i in range(3)]
+        [
+            {"id": f"fw{i}", "schedule": "file_watch", "status": "pending"}
+            for i in range(3)
+        ]
         + [{"id": "run0", "schedule": "file_watch", "status": "running"}]
         + [
             {"id": "an0", "schedule": "analysis", "status": "pending"},

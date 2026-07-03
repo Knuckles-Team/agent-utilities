@@ -59,11 +59,51 @@ _ANSWER_SYSTEM_PROMPT = (
 #: Tokens too generic to be useful for schema-linking (question stop-words).
 _STOPWORDS = frozenset(
     {
-        "the", "and", "for", "how", "many", "much", "what", "which", "who", "are",
-        "was", "were", "with", "from", "that", "this", "count", "list", "show",
-        "give", "all", "get", "find", "per", "each", "have", "has", "does", "did",
-        "into", "over", "than", "then", "top", "most", "least", "average", "avg",
-        "sum", "total", "number", "there", "their", "them", "about",
+        "the",
+        "and",
+        "for",
+        "how",
+        "many",
+        "much",
+        "what",
+        "which",
+        "who",
+        "are",
+        "was",
+        "were",
+        "with",
+        "from",
+        "that",
+        "this",
+        "count",
+        "list",
+        "show",
+        "give",
+        "all",
+        "get",
+        "find",
+        "per",
+        "each",
+        "have",
+        "has",
+        "does",
+        "did",
+        "into",
+        "over",
+        "than",
+        "then",
+        "top",
+        "most",
+        "least",
+        "average",
+        "avg",
+        "sum",
+        "total",
+        "number",
+        "there",
+        "their",
+        "them",
+        "about",
     }
 )
 
@@ -184,9 +224,7 @@ class DataAnalystAgent:
         self._limit = max(1, int(limit))
 
     # -- synthesis ---------------------------------------------------------
-    def _default_synthesize(
-        self, question: str, rows: list[dict[str, Any]]
-    ) -> str:
+    def _default_synthesize(self, question: str, rows: list[dict[str, Any]]) -> str:
         """Synthesize the NL answer via the AU fleet LLM; deterministic fallback if none."""
         if not nl_planner.is_llm_configured():
             return _fallback_answer(question, rows)
@@ -267,7 +305,9 @@ class DataAnalystAgent:
 
             if nl_query._is_mutation(parsed["query"]):
                 # A mutation is a hard refusal, not a correctable error.
-                step["error"] = "generated query is a mutation; refused (read-only surface)"
+                step["error"] = (
+                    "generated query is a mutation; refused (read-only surface)"
+                )
                 attempts.append(step)
                 return {
                     "question": question,
@@ -280,7 +320,9 @@ class DataAnalystAgent:
 
             try:
                 rows = list(
-                    nl_planner._execute(self._engine, parsed["dialect"], parsed["query"])
+                    nl_planner._execute(
+                        self._engine, parsed["dialect"], parsed["query"]
+                    )
                     or []
                 )
             except Exception as exc:  # noqa: BLE001 — execution error → self-correct

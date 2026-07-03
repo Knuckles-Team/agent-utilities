@@ -129,7 +129,11 @@ def test_entities_from_index_result_maps_symbols_and_resolved_edges():
                 "source": "symbol:caller",
                 "target": "symbol:helper",
                 "edge_type": "calls",
-                "properties": {"name": "helper", "strategy": "same_file", "confidence": "0.90"},
+                "properties": {
+                    "name": "helper",
+                    "strategy": "same_file",
+                    "confidence": "0.90",
+                },
             },
             {
                 "source": "symbol:Child",

@@ -20,7 +20,9 @@ class _GraphBackend:
     """A tiered/graph backend: it has no WAL, and execute() hits the engine."""
 
     def execute(self, *_a, **_k):  # pragma: no cover - must never be called
-        raise AssertionError("_checkpoint_db must not call execute() on a graph backend")
+        raise AssertionError(
+            "_checkpoint_db must not call execute() on a graph backend"
+        )
 
 
 class _SqliteBackend:

@@ -68,7 +68,9 @@ def test_db_query_allows_write_when_opted_in(sqlite_dsn, monkeypatch):
         asyncio.run(db_query(None, sqlite_dsn, "DELETE FROM users WHERE id=1"))
     )
     assert "error" not in out or "blocked" not in out.get("error", "")
-    remaining = json.loads(asyncio.run(db_query(None, sqlite_dsn, "SELECT * FROM users")))
+    remaining = json.loads(
+        asyncio.run(db_query(None, sqlite_dsn, "SELECT * FROM users"))
+    )
     assert remaining["row_count"] == 1
 
 

@@ -70,7 +70,14 @@ class TestBayesianSignalFusion:
     def test_seed_from_kg_accepts_plain_mappings(self):
         fusion = BayesianSignalFusion()
         n = fusion.seed_from_kg(
-            [{"name": "queue", "directional_accuracy": 0.55, "standalone_sharpe": 1.0, "pbo": 0.1}]
+            [
+                {
+                    "name": "queue",
+                    "directional_accuracy": 0.55,
+                    "standalone_sharpe": 1.0,
+                    "pbo": 0.1,
+                }
+            ]
         )
         assert n == 1 and "queue" in fusion.sources
 

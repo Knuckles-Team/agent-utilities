@@ -258,7 +258,9 @@ class TestLoopTopicsOverride:
 
         monkeypatch.setattr(synth_mod, "synthesize_team", fake_synth)
         monkeypatch.setattr(synth_mod, "persist_synthesis", lambda *a, **k: (1, 0))
-        monkeypatch.setattr(cards_mod, "make_lite_llm_fn", lambda *a, **k: (lambda p: "{}"))
+        monkeypatch.setattr(
+            cards_mod, "make_lite_llm_fn", lambda *a, **k: lambda p: "{}"
+        )
 
         def _boom(*a, **k):  # must never run when topics are supplied
             raise AssertionError("generic active_loops scan should be skipped")
@@ -270,7 +272,7 @@ class TestLoopTopicsOverride:
         eng = MagicMock()
         eng.backend.semantic_search = lambda *a, **k: []
         ctrl = LoopController(eng)
-        ctrl._capability_search = lambda: (lambda q, top_k=5: [])  # type: ignore[assignment]
+        ctrl._capability_search = lambda: lambda q, top_k=5: []  # type: ignore[assignment]
 
         rep = ctrl.run_one_cycle(
             topics=[{"id": "failure_gap:x", "name": "Failure: timeout in loop"}],

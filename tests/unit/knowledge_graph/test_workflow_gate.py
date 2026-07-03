@@ -70,9 +70,7 @@ def _seed_workflow(engine, name="invoice_flow", step_count=2, steps=None):
         steps = [{"node_id": "review"}, {"node_id": "archive"}]
     for i, step in enumerate(steps):
         sid = f"{wid}:step:{i}"
-        engine.graph.add_node(
-            sid, {"type": "WorkflowStep", "step_order": i, **step}
-        )
+        engine.graph.add_node(sid, {"type": "WorkflowStep", "step_order": i, **step})
         engine.graph.add_edge(wid, sid, type="HAS_STEP", step_order=i)
     return wid
 
@@ -105,9 +103,7 @@ class TestShapeGate:
         )
         gate = gate_workflow_execution(engine, "broken_flow")
         assert gate["allowed"] is False
-        assert any(
-            "node_id" in str(v.get("message", "")) for v in gate["violations"]
-        )
+        assert any("node_id" in str(v.get("message", "")) for v in gate["violations"])
 
     def test_unstored_workflow_passes_through(self):
         engine = FakeEngine()

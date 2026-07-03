@@ -64,7 +64,10 @@ def test_get_value_type_round_trips(client):
     assert resp.status_code == 200
     assert resp.json()["result"]["name"] == "EmailAddress"
     # Dispatched through the shared tool with the right collapsed action.
-    assert ("ontology_value_types", {"action": "describe", "name": "EmailAddress"}) in captured
+    assert (
+        "ontology_value_types",
+        {"action": "describe", "name": "EmailAddress"},
+    ) in captured
 
 
 def test_unknown_value_type_is_404(client):
@@ -83,5 +86,8 @@ def test_object_history_round_trips(client):
 
 def test_get_function_by_name_filters(client):
     tc, _ = client
-    assert tc.get("/api/ontology/functions/score_risk").json()["result"]["version"] == "1.0.0"
+    assert (
+        tc.get("/api/ontology/functions/score_risk").json()["result"]["version"]
+        == "1.0.0"
+    )
     assert tc.get("/api/ontology/functions/missing").status_code == 404

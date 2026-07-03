@@ -11,6 +11,7 @@ from agent_utilities.rlm.telemetry import LMUsage
 
 # ── model-family-aware prompt (ORCH-1.54) ──
 
+
 def test_infer_family():
     assert infer_family("anthropic:claude-sonnet-4-6") == "anthropic"
     assert infer_family("openai:gpt-4o-mini") == "openai"
@@ -42,6 +43,7 @@ def test_config_has_prompt_family_default_auto():
 
 
 # ── drop-in client (ORCH-1.54) ──
+
 
 async def test_rlm_acompletion_maps_result(monkeypatch):
     async def fake_run_rlm(task, input_text="", *, config=None, **kw):
@@ -83,6 +85,7 @@ async def test_sync_completion_inside_loop_raises():
 
 
 # ── usage capture wiring (AHE-3.32) ──
+
 
 def test_accumulate_root_usage():
     from agent_utilities.rlm.repl import _accumulate_root_usage

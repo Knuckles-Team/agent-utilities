@@ -46,10 +46,30 @@ INDEX_RESULT = {
         },
     ],
     "edges": [
-        {"source": "file:pkg/util.py", "target": "symbol:aaa", "edge_type": "IMPLEMENTS", "properties": {}},
-        {"source": "file:pkg/app.py", "target": "symbol:bbb", "edge_type": "IMPLEMENTS", "properties": {}},
-        {"source": "symbol:bbb", "target": "symbol:aaa", "edge_type": "calls", "properties": {"name": "shared"}},
-        {"source": "file:pkg/app.py", "target": "file:pkg/util.py", "edge_type": "depends_on", "properties": {"module": "pkg.util"}},
+        {
+            "source": "file:pkg/util.py",
+            "target": "symbol:aaa",
+            "edge_type": "IMPLEMENTS",
+            "properties": {},
+        },
+        {
+            "source": "file:pkg/app.py",
+            "target": "symbol:bbb",
+            "edge_type": "IMPLEMENTS",
+            "properties": {},
+        },
+        {
+            "source": "symbol:bbb",
+            "target": "symbol:aaa",
+            "edge_type": "calls",
+            "properties": {"name": "shared"},
+        },
+        {
+            "source": "file:pkg/app.py",
+            "target": "file:pkg/util.py",
+            "edge_type": "depends_on",
+            "properties": {"module": "pkg.util"},
+        },
     ],
 }
 
@@ -73,14 +93,19 @@ class FakeSource:
 
 
 def _proj(pid="42", **kw):
-    return GitLabProject(id=pid, path_with_namespace=f"grp/{pid}", default_branch="main", **kw)
+    return GitLabProject(
+        id=pid, path_with_namespace=f"grp/{pid}", default_branch="main", **kw
+    )
 
 
 def _source(pid="42"):
     files = {pid: ["pkg/util.py", "pkg/app.py", "README.md", "logo.png"]}
     contents = {
         (pid, "pkg/util.py"): b"def shared():\n    return 1\n",
-        (pid, "pkg/app.py"): b"from pkg.util import shared\n\ndef run():\n    return shared()\n",
+        (
+            pid,
+            "pkg/app.py",
+        ): b"from pkg.util import shared\n\ndef run():\n    return shared()\n",
         (pid, "README.md"): b"# readme",
         (pid, "logo.png"): b"\x89PNG...",
     }
@@ -121,7 +146,14 @@ def test_index_instance_filters_code_and_maps_resolved_graph():
     types = {e["type"] for e in entities}
     assert {"Repository", "File", "Code"} <= types
     rel_types = sorted(r["type"] for r in rels)
-    assert rel_types == ["CONTAINS", "CONTAINS", "IMPLEMENTS", "IMPLEMENTS", "calls", "depends_on"]
+    assert rel_types == [
+        "CONTAINS",
+        "CONTAINS",
+        "IMPLEMENTS",
+        "IMPLEMENTS",
+        "calls",
+        "depends_on",
+    ]
 
 
 def test_no_dangling_edge_endpoints_and_namespacing():
@@ -145,9 +177,14 @@ def test_index_instance_survives_enumeration_blip():
             yield _proj("1", last_activity_at="2026-06-01")
             raise ConnectionError("page 2 refused")
 
-    src = _FlakySource([], {"1": ["a.py"]}, {("1", "a.py"): b"def x():\n    return 1\n"})
+    src = _FlakySource(
+        [], {"1": ["a.py"]}, {("1", "a.py"): b"def x():\n    return 1\n"}
+    )
     summary = index_instance(
-        instance="t", source=src, index_fn=lambda f: INDEX_RESULT, ingest=lambda *a: None
+        instance="t",
+        source=src,
+        index_fn=lambda f: INDEX_RESULT,
+        ingest=lambda *a: None,
     )
     assert summary.projects_indexed == 1  # the good project still indexed
     assert any("enumeration stopped early" in e for e in summary.errors)
@@ -222,7 +259,11 @@ _PUSH = {
     "object_kind": "push",
     "project": {"id": 42, "path_with_namespace": "grp/app"},
     "commits": [
-        {"added": ["pkg/new.py"], "modified": ["pkg/app.py", "README.md"], "removed": []},
+        {
+            "added": ["pkg/new.py"],
+            "modified": ["pkg/app.py", "README.md"],
+            "removed": [],
+        },
         {"added": [], "modified": ["pkg/util.go"], "removed": ["old.txt"]},
     ],
 }
@@ -262,7 +303,9 @@ def test_handle_push_triggers_scoped_delta_sync():
 
 def test_handle_ignores_non_code_events():
     res = handle_gitlab_webhook(
-        object(), {"object_kind": "issue", "project": {"id": 1}}, sync=lambda *a, **k: {}
+        object(),
+        {"object_kind": "issue", "project": {"id": 1}},
+        sync=lambda *a, **k: {},
     )
     assert res["status"] == "ignored"
 
