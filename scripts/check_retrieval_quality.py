@@ -33,8 +33,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
-
 # Make agent_utilities importable when run from the scripts/ dir or repo root.
 _PKG_ROOT = Path(__file__).resolve().parents[1]
 if str(_PKG_ROOT) not in sys.path:
@@ -43,6 +41,7 @@ if str(_PKG_ROOT) not in sys.path:
 from agent_utilities.knowledge_graph.retrieval.capability_index import (  # noqa: E402
     CapabilityIndex,
 )
+from agent_utilities.numeric import xp as np  # noqa: E402
 
 DIM = 32
 K = 5

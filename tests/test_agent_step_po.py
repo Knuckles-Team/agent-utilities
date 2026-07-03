@@ -6,7 +6,7 @@ write-back, and the live router path (SubagentLifecyclePolicy branches on a
 high-entropy step).
 """
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.graph.agent_step_po import (

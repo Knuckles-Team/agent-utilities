@@ -1,12 +1,5 @@
 from agent_utilities.numeric import xp as np
 
-try:
-    from scipy.stats import ks_2samp
-except ImportError as e:
-    raise ImportError(
-        "Finance extra dependencies missing. Please install agent-utilities[finance]"
-    ) from e
-
 
 def calculate_kelly_fraction(
     accuracy: float, win_loss_ratio: float, half_kelly: bool = True
@@ -45,7 +38,7 @@ def check_regime_shift(
     if len(historical_predictions) == 0 or len(recent_predictions) == 0:
         return False
 
-    statistic, p_value = ks_2samp(historical_predictions, recent_predictions)
+    statistic, p_value = np.ks_2samp(historical_predictions, recent_predictions)
     # If the KS statistic is greater than the threshold (0.1), the distributions
     # are meaningfully different, indicating a regime shift.
     return statistic > threshold

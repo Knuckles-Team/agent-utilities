@@ -1,6 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Alpha Factor Library."""
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pandas as pd
 import pytest
 

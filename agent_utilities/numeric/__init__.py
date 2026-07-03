@@ -1,103 +1,73 @@
-"""``xp`` — a numpy-compatible numeric namespace backed by the epistemic-graph kernel.
+"""``xp`` — a numpy-compatible numeric namespace backed SOLELY by the epistemic-graph kernel.
 
 CONCEPT:KG-2.312 — Surface A of the Analytics Program's "one kernel, two surfaces"
 (engine side: CONCEPT:EG-321). ``xp`` mirrors the subset of the numpy API that
 agent-utilities actually uses (the 598-site audit: reductions/stats, element-wise,
-the linalg-6 + ``LinAlgError``, random) and routes those ops through the compiled
-``epistemic_graph.numeric`` kernel (pure-Rust faer + ndarray, BLAS/LAPACK-free)
-**when it is importable**, transparently **falling back to numpy** when the compiled
-module is absent — so nothing breaks before the engine wheel is rebuilt.
+the linalg-6 + ``LinAlgError``, random, the four scipy ops) and routes those ops
+through the compiled ``epistemic_graph.numeric`` kernel (pure-Rust faer + ndarray,
+BLAS/LAPACK-free).
 
-Migration (phases P2-P3) is then mechanical::
+CONCEPT:KG-2.324 — **the hard numpy/scipy drop (Analytics Program P5 final).** numpy
+and scipy are **fully removed** from agent-utilities: this package **imports numpy
+nowhere and declares it in no dependency** (``requirements.txt`` / ``pyproject.toml``
+carry neither). The compiled ``epistemic_graph.numeric`` kernel is the **sole numeric
+backend** and is a **hard requirement** — importing this module **raises ``ImportError``
+when the kernel is absent**; there is NO numpy fallback for a missing kernel (the old
+``HAVE_KERNEL``-false path and the ``import numpy as _np`` binding are gone).
 
-    import numpy as np              # before
-    from agent_utilities.numeric import xp as np   # after
+How numpy still functions **without agent-utilities depending on it**: the kernel is a
+**rust-numpy container** — numpy lives INSIDE ``epistemic-graph[numeric]`` as the
+kernel's own zero-copy interop dependency, and the compiled module re-exports numpy's
+array primitives (``ndarray``, the dtypes, ``newaxis`` / ``pi`` / ``inf`` / ``nan``).
+The kernel's compiled fast-path is deliberately **narrow** — contiguous 1-D/2-D
+``float64`` for the element-wise + linalg ops; general (lists / N-D / ``axis`` /
+``keepdims`` / int) for the reductions/stats. For inputs OUTSIDE that compiled
+fast-path (N-D element-wise, ``axis`` norms, the ``random`` Generator API,
+``cov`` / ``corrcoef`` / ``save`` / ``load`` / …) the shim delegates to the numpy
+module **the kernel itself already loaded** — obtained from the kernel
+(``sys.modules[_KERNEL.ndarray.__module__]``), never via an ``import numpy`` statement
+in this package and never as an agent-utilities dependency. So numpy is an
+**internal implementation detail of the kernel**, exactly as the model states, and
+agent-utilities' whole numeric surface flows through this one module.
 
-CONCEPT:KG-2.313 — the executed P2/P3 rollout: 34 agent-utilities numpy call
-sites (28 light-op files + the 6 linalg files ``optimization_engine``,
-``world_model``, ``formal_reasoning_core``, ``spectral_navigator``, finance
-``cross_market_arb`` and ``signal_fusion``) were swapped to this ``xp`` surface,
-keeping the ``np`` alias so bodies are unchanged. Behaviour is identical today
-(kernel absent → numpy fallback) and becomes kernel-accelerated once the
-``epistemic_graph.numeric`` wheel is deployed.
+Migration (executed) is mechanical — the old ``numpy as np`` import line becomes::
 
-CONCEPT:KG-2.314 — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are
-not plain callables but small ``_Ufunc`` wrapper objects: calling them keeps the
-kernel-routed element-wise behaviour, while ``.accumulate`` / ``.reduce`` /
-``.outer`` / ``.at`` forward to numpy's real ufunc methods (and to the kernel
-when ``HAVE_KERNEL`` and a matching kernel op exists). This lets the three
-finance files (``composite_backtest``, ``profit_attribution``,
-``research_autopilot``) that call ``np.maximum.accumulate(...)`` migrate onto the
-``xp`` surface — previously ``xp.maximum`` was a bare callable with no
-``.accumulate`` attribute, blocking their migration.
+    from agent_utilities.numeric import xp as np    # kernel-backed drop-in for `np`
 
-CONCEPT:KG-2.315 — the shim goes **kernel-LIVE**. Once the ``eg-numeric`` Surface-A
-pyo3 wheel (engine CONCEPT:EG-346) is installed, the kernel-discovery loop below finds
-``epistemic_graph.numeric`` / ``numeric`` (``__kernel__ == "eg-numeric"``), so
-``HAVE_KERNEL`` flips to ``True`` and every routed op executes the compiled faer/ndarray
-kernel instead of numpy — with ZERO code change at the call sites (the ``np`` alias is
-unchanged). The wheel is built with
-``maturin build --release -m crates/eg-numeric/Cargo.toml --features python`` (on Python
-> 3.13 add ``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``); ``tests/test_numeric_parity.py``
-then exercises the KERNEL path ``np.allclose`` vs numpy — not just the fallback — and the
-engine's ``numeric-parity`` CI job gates the kernel against numpy so it can never diverge.
+CONCEPT:KG-2.313 — the executed P2/P3 rollout: the agent-utilities numpy call sites were
+swapped to this ``xp`` surface, keeping the ``np`` alias so bodies are unchanged.
 
-CONCEPT:KG-2.317 — the kernel is the **PRIMARY** numeric backend; numpy is **demoted to
-fallback-only** (Analytics Program P5). The discovery loop below is kernel-FIRST: it prefers
-``epistemic_graph.numeric`` / ``numeric`` and only binds numpy when no kernel is importable.
-Packaging mirrors this: ``pyproject.toml`` declares a ``numeric-kernel`` extra (pulls the
-``epistemic-graph[numeric]`` engine wheel that carries the ``eg-numeric`` kernel) as the
-*intended* backend, and a separate ``numeric-fallback`` extra (numpy/scipy) as the *degraded*
-path; numpy/scipy are NOT in base ``dependencies`` (they live only in the leaf-numeric extras
-``finance``/``embeddings``/``ann``). The numpy fallback code is deliberately KEPT so the
-abstraction still works where the kernel is absent. **Honest P5 status:** kernel is
-primary + numpy is fallback-demoted + parity-gated; the kernel ships as a single package —
-``epistemic-graph[numeric]`` — so it is a real, index-resolvable hard dependency (the ``.so``
-is folded into the engine wheel; there is no separate ``eg-numeric`` package on PyPI).
-See ``docs/guides/numeric-kernel.md``.
+CONCEPT:KG-2.314 — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are small
+``_Ufunc`` wrapper objects: calling them keeps the kernel-routed element-wise behaviour,
+while ``.accumulate`` / ``.reduce`` / ``.outer`` / ``.at`` forward to the kernel's cumulative
+op (``cummax`` / ``cummin``) on a bare 1-D float64 input, else to the (kernel-internal)
+numpy ufunc method.
 
-CONCEPT:KG-2.319 — the full numpy drop (P5 final). The kernel ships as ONE published package:
-the ``eg-numeric`` Surface-A pyo3 ``.so`` (cp39-abi3) is **folded into the ``epistemic-graph``
-wheel** as ``epistemic_graph.numeric`` (engine CONCEPT:EG-346) — there is NO separate
-``eg-numeric`` package on PyPI. So the ``numeric-kernel`` extra declares a single **hard
-dependency** with a *loose floor* — ``epistemic-graph[numeric]>=2.6.0`` (the ``[numeric]``
-extra adds numpy for the kernel's zero-copy interop), never an exact pin. numpy is
-therefore no longer a base/primary dependency of any kind; it survives ONLY as the
-``numeric-fallback`` extra and in the leaf ``finance``/``embeddings``/``ann`` extras that use
-genuinely numpy/scipy-specific ops (``scipy.stats``, ``scipy.sparse``) with no kernel
-equivalent. The numpy fallback branch below is still KEPT — deleting it would break minimal
-(kernel-absent) environments. **Dev is editable / non-publishing:** the fleet dev deploy
-source-mounts the repos (``PYTHONPATH=/au:/eg``, ``services/graph-os/compose.dev.yml``) and
-installs an EDITABLE kernel via ``maturin develop -m
-crates/eg-numeric/Cargo.toml --features python`` (with
-``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``) on the epistemic-graph project — so dev builds the
-kernel from source and never depends on the published wheel. Prod installs pull the folded
-kernel via ``epistemic-graph[numeric]`` (the ``numeric-kernel`` extra).
-See ``docs/guides/numeric-kernel.md``.
+The four scipy ops used by ``domains/finance`` + ``spectral_navigator`` are now native
+kernel exports (CONCEPT:EG-356): ``xp.eigsh`` (``scipy.sparse.linalg.eigsh``, k
+smallest-magnitude symmetric eigenpairs), ``xp.spearmanr`` (``scipy.stats.spearmanr``),
+``xp.ks_2samp`` (``scipy.stats.ks_2samp``), ``xp.norm_ppf`` / ``xp.norm_pdf``
+(``scipy.stats.norm.ppf`` / ``.pdf``). No scipy import remains anywhere in agent-utilities.
 
-Any attribute not explicitly overridden below is delegated straight to numpy, so
-``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
-``xp.newaxis``, ``xp.float64``, ``xp.linalg.eig`` … all resolve to numpy).
-
-Routing is conservative: a kernel op is used ONLY when the input matches the
-kernel's supported domain (contiguous 1-D/2-D float64, no ``axis``/``keepdims``);
-otherwise numpy handles it. The kernel is parity-proven ``np.allclose`` vs numpy
-(``tests/test_numeric_parity.py``), so both paths agree.
+Routing is conservative: a kernel fast-path op is used ONLY when the input matches the
+kernel's supported domain (contiguous 1-D/2-D float64, no ``axis``/``keepdims`` where the
+kernel op lacks it); otherwise the kernel's internal numpy handles it. The kernel is
+parity-proven ``np.allclose`` vs numpy (``tests/test_numeric_parity.py``), so both paths
+agree. See ``docs/guides/numeric-kernel.md``.
 """
 
 from __future__ import annotations
 
 import importlib
+import sys
 from typing import Any
 
-import numpy as _np
-
 # ---------------------------------------------------------------------------
-# Kernel discovery — prefer the engine-shipped ``epistemic_graph.numeric``; also
-# accept a standalone ``numeric`` build (the pre-fold parity/dev wheel). Absent →
-# numpy fallback (HAVE_KERNEL = False).
+# Kernel discovery — REQUIRED. Prefer the engine-shipped ``epistemic_graph.numeric``;
+# also accept a standalone ``numeric`` build (the editable dev / parity wheel). If
+# neither is importable, raise — there is NO numpy fallback for a missing kernel.
 # ---------------------------------------------------------------------------
-_kernel: Any = None
+_KERNEL: Any = None
 KERNEL_SOURCE: str | None = None
 for _modpath in ("epistemic_graph.numeric", "numeric"):
     try:
@@ -105,179 +75,199 @@ for _modpath in ("epistemic_graph.numeric", "numeric"):
     except Exception:
         continue
     if getattr(_mod, "__kernel__", None) == "eg-numeric":
-        _kernel = _mod
+        _KERNEL = _mod
         KERNEL_SOURCE = _modpath
         break
 
-HAVE_KERNEL: bool = _kernel is not None
+if _KERNEL is None:
+    raise ImportError(
+        "epistemic-graph kernel required: pip install epistemic-graph[numeric]>=2.7.0"
+    )
+
+#: The kernel is always live once this module imports (import raises otherwise). Kept as a
+#: public boolean so callers can still introspect ``xp.HAVE_KERNEL`` / ``xp.KERNEL_SOURCE``.
+HAVE_KERNEL: bool = True
+
+# numpy is an INTERNAL dependency of the kernel (rust-numpy) — the kernel already imported
+# it, and re-exports ``numpy.ndarray``. Grab that module here so the shim can serve the
+# long-tail array ops the compiled kernel does not expose natively (random Generator API,
+# ``cov`` / ``corrcoef`` / ``save`` / ``load`` / ``atleast_2d`` / ``roll`` / ``triu_indices`` /
+# ``allclose`` / axis norms / N-D element-wise). This is NOT an ``import numpy`` and NOT an
+# agent-utilities dependency — it is the numpy that shipped inside ``epistemic-graph[numeric]``.
+_knp: Any = sys.modules[_KERNEL.ndarray.__module__]
 
 #: ``numpy.linalg.LinAlgError``-compatible exception. The kernel raises its own
-#: ``LinAlgError`` (a distinct type); we expose numpy's so existing
-#: ``except np.linalg.LinAlgError`` handlers keep working, and normalize kernel
-#: errors to it at the boundary.
-LinAlgError = _np.linalg.LinAlgError
-_KERNEL_LINALG_ERROR = getattr(_kernel, "LinAlgError", ()) if HAVE_KERNEL else ()
+#: ``LinAlgError`` (a distinct type); we expose the (kernel-internal) numpy one so existing
+#: ``except np.linalg.LinAlgError`` handlers keep working, and normalize kernel errors to it.
+LinAlgError = _knp.linalg.LinAlgError
+_KERNEL_LINALG_ERROR = getattr(_KERNEL, "LinAlgError", ())
 
 
-def _f64_1d(x: Any) -> _np.ndarray | None:
+def _kernel_eligible(x: Any) -> bool:
+    """Whether *x* may take the compiled kernel fast path.
+
+    ONLY raw numpy ``ndarray`` / ``list`` / ``tuple`` inputs are eligible. Duck-typed
+    array wrappers (pandas ``Series`` / ``DataFrame``, xarray, …) are NOT: numpy's ufunc
+    protocol preserves such wrappers on element-wise/cumulative ops, but the compiled
+    kernel returns a bare ``ndarray`` and would silently strip the wrapper. Deferring
+    those to the kernel-internal numpy keeps ``np.log(series)`` a ``Series`` (etc.)."""
+    return isinstance(x, (_knp.ndarray, list, tuple))
+
+
+def _f64_1d(x: Any) -> Any:
     """Return a contiguous 1-D float64 view of *x*, or ``None`` if it doesn't fit
-    the kernel's domain (so the caller falls back to numpy)."""
-    a = _np.asarray(x)
-    if a.ndim == 1 and a.dtype == _np.float64:
-        return _np.ascontiguousarray(a)
+    the kernel's compiled domain (so the caller delegates to the kernel-internal numpy)."""
+    if not _kernel_eligible(x):
+        return None
+    a = _knp.asarray(x)
+    if a.ndim == 1 and a.dtype == _knp.float64:
+        return _knp.ascontiguousarray(a)
     return None
 
 
-def _f64_2d(x: Any) -> _np.ndarray | None:
-    a = _np.asarray(x)
-    if a.ndim == 2 and a.dtype == _np.float64:
-        return _np.ascontiguousarray(a)
+def _f64_2d(x: Any) -> Any:
+    if not _kernel_eligible(x):
+        return None
+    a = _knp.asarray(x)
+    if a.ndim == 2 and a.dtype == _knp.float64:
+        return _knp.ascontiguousarray(a)
     return None
 
 
 class _Linalg:
-    """The ``xp.linalg`` sub-namespace (numpy-delegating, kernel-accelerated)."""
+    """The ``xp.linalg`` sub-namespace (kernel fast-path, kernel-internal-numpy tail)."""
 
     LinAlgError = LinAlgError
 
-    def __getattr__(self, name: str) -> Any:  # numpy fallback for everything else
-        return getattr(_np.linalg, name)
+    def __getattr__(
+        self, name: str
+    ) -> Any:  # kernel-internal numpy for everything else
+        return getattr(_knp.linalg, name)
 
-    # -- kernel-routed (2-D float64) --
+    # -- kernel-routed (contiguous float64) --
     def norm(
         self, x: Any, ord: Any = None, axis: Any = None, keepdims: bool = False
     ) -> Any:
-        if HAVE_KERNEL and axis is None and not keepdims:
+        if axis is None and not keepdims:
             a = _f64_1d(x)
             if a is not None:
                 if ord is None or ord == 2:
-                    return _kernel.norm(a)
-                if ord in (1, _np.inf, -_np.inf):
-                    return _kernel.norm_ord(a, float(ord))
-        return _np.linalg.norm(x, ord=ord, axis=axis, keepdims=keepdims)
+                    return _KERNEL.norm(a)
+                if ord in (1, _knp.inf, -_knp.inf):
+                    return _KERNEL.norm_ord(a, float(ord))
+        return _knp.linalg.norm(x, ord=ord, axis=axis, keepdims=keepdims)
 
     def solve(self, a: Any, b: Any) -> Any:
-        if HAVE_KERNEL:
-            am, bv = _f64_2d(a), _f64_1d(b)
-            if am is not None and bv is not None:
-                try:
-                    return _kernel.solve(am, bv)
-                except _KERNEL_LINALG_ERROR as e:  # type: ignore[misc]
-                    raise LinAlgError(str(e)) from None
-        return _np.linalg.solve(a, b)
+        am, bv = _f64_2d(a), _f64_1d(b)
+        if am is not None and bv is not None:
+            try:
+                return _KERNEL.solve(am, bv)
+            except _KERNEL_LINALG_ERROR as e:  # type: ignore[misc]
+                raise LinAlgError(str(e)) from None
+        return _knp.linalg.solve(a, b)
 
     def svd(self, a: Any, full_matrices: bool = True, compute_uv: bool = True) -> Any:
-        if HAVE_KERNEL and full_matrices:
+        if full_matrices:
             am = _f64_2d(a)
             if am is not None:
                 if not compute_uv:
-                    return _kernel.svdvals(am)
-                return _kernel.svd(am)
-        return _np.linalg.svd(a, full_matrices=full_matrices, compute_uv=compute_uv)
+                    return _KERNEL.svdvals(am)
+                return _KERNEL.svd(am)
+        return _knp.linalg.svd(a, full_matrices=full_matrices, compute_uv=compute_uv)
 
     def eigh(self, a: Any, UPLO: str = "L") -> Any:
-        if HAVE_KERNEL:
-            am = _f64_2d(a)
-            if am is not None:
-                return _kernel.eigh(am)
-        return _np.linalg.eigh(a, UPLO=UPLO)
+        am = _f64_2d(a)
+        if am is not None:
+            return _KERNEL.eigh(am)
+        return _knp.linalg.eigh(a, UPLO=UPLO)
 
     def pinv(self, a: Any, *args: Any, **kwargs: Any) -> Any:
-        if HAVE_KERNEL and not args and not kwargs:
+        if not args and not kwargs:
             am = _f64_2d(a)
             if am is not None:
-                return _kernel.pinv(am)
-        return _np.linalg.pinv(a, *args, **kwargs)
+                return _KERNEL.pinv(am)
+        return _knp.linalg.pinv(a, *args, **kwargs)
 
     def lstsq(self, a: Any, b: Any, rcond: Any = None) -> Any:
-        # numpy returns (x, residuals, rank, s); the kernel returns x only. Only
-        # route when the caller can accept the numpy-shaped tuple built here.
-        if HAVE_KERNEL:
-            am, bv = _f64_2d(a), _f64_1d(b)
-            if am is not None and bv is not None:
-                x = _kernel.lstsq(am, bv)
-                resid = _np.asarray([], dtype=_np.float64)
-                rank = int(_np.linalg.matrix_rank(am))
-                s = _kernel.svdvals(am)
-                return x, resid, rank, s
-        return _np.linalg.lstsq(a, b, rcond=rcond)
+        # numpy returns (x, residuals, rank, s); the kernel returns x only. Only route
+        # when the caller can accept the numpy-shaped tuple built here.
+        am, bv = _f64_2d(a), _f64_1d(b)
+        if am is not None and bv is not None:
+            x = _KERNEL.lstsq(am, bv)
+            resid = _knp.asarray([], dtype=_knp.float64)
+            rank = int(_knp.linalg.matrix_rank(am))
+            s = _KERNEL.svdvals(am)
+            return x, resid, rank, s
+        return _knp.linalg.lstsq(a, b, rcond=rcond)
 
     def qr(self, a: Any, mode: str = "reduced") -> Any:
-        if HAVE_KERNEL and mode == "reduced":
+        if mode == "reduced":
             am = _f64_2d(a)
             if am is not None:
-                return _kernel.qr(am)
-        return _np.linalg.qr(a, mode=mode)
+                return _KERNEL.qr(am)
+        return _knp.linalg.qr(a, mode=mode)
 
     def cholesky(self, a: Any, *args: Any, **kwargs: Any) -> Any:
-        if HAVE_KERNEL and not args and not kwargs:
+        if not args and not kwargs:
             am = _f64_2d(a)
             if am is not None:
                 try:
-                    return _kernel.cholesky(am)
+                    return _KERNEL.cholesky(am)
                 except _KERNEL_LINALG_ERROR as e:  # type: ignore[misc]
                     raise LinAlgError(str(e)) from None
-        return _np.linalg.cholesky(a, *args, **kwargs)
+        return _knp.linalg.cholesky(a, *args, **kwargs)
 
     def det(self, a: Any) -> Any:
-        if HAVE_KERNEL:
-            am = _f64_2d(a)
-            if am is not None:
-                return _kernel.det(am)
-        return _np.linalg.det(a)
+        am = _f64_2d(a)
+        if am is not None:
+            return _KERNEL.det(am)
+        return _knp.linalg.det(a)
 
     def inv(self, a: Any) -> Any:
-        if HAVE_KERNEL:
-            am = _f64_2d(a)
-            if am is not None:
-                try:
-                    return _kernel.inv(am)
-                except _KERNEL_LINALG_ERROR as e:  # type: ignore[misc]
-                    raise LinAlgError(str(e)) from None
-        return _np.linalg.inv(a)
+        am = _f64_2d(a)
+        if am is not None:
+            try:
+                return _KERNEL.inv(am)
+            except _KERNEL_LINALG_ERROR as e:  # type: ignore[misc]
+                raise LinAlgError(str(e)) from None
+        return _knp.linalg.inv(a)
 
     def matrix_power(self, a: Any, n: int) -> Any:
-        if HAVE_KERNEL:
-            am = _f64_2d(a)
-            if am is not None:
-                return _kernel.matrix_power(am, int(n))
-        return _np.linalg.matrix_power(a, n)
+        am = _f64_2d(a)
+        if am is not None:
+            return _KERNEL.matrix_power(am, int(n))
+        return _knp.linalg.matrix_power(a, n)
 
 
 def _maximum_call(a: Any, b: Any, **kw: Any) -> Any:
-    if HAVE_KERNEL and not kw:
+    if not kw:
         va, vb = _f64_1d(a), _f64_1d(b)
         if va is not None and vb is not None and va.shape == vb.shape:
-            return _kernel.maximum(va, vb)
-    return _np.maximum(a, b, **kw)
+            return _KERNEL.maximum(va, vb)
+    return _knp.maximum(a, b, **kw)
 
 
 def _minimum_call(a: Any, b: Any, **kw: Any) -> Any:
-    if HAVE_KERNEL and not kw:
+    if not kw:
         va, vb = _f64_1d(a), _f64_1d(b)
         if va is not None and vb is not None and va.shape == vb.shape:
-            return _kernel.minimum(va, vb)
-    return _np.minimum(a, b, **kw)
+            return _KERNEL.minimum(va, vb)
+    return _knp.minimum(a, b, **kw)
 
 
 class _Ufunc:
-    """A callable that mirrors a numpy ufunc's method surface (CONCEPT:KG-2.314).
+    """A callable mirroring a numpy ufunc's method surface (CONCEPT:KG-2.314).
 
-    Calling the object routes through *call* (which may be kernel-accelerated),
-    keeping ``xp.maximum(a, b)`` identical to before. The ufunc methods
-    ``.accumulate`` / ``.reduce`` / ``.outer`` / ``.at`` forward to numpy's real
-    ufunc (``numpy.maximum`` / ``numpy.minimum`` …), so ``np.maximum.accumulate``
-    resolves under the ``xp`` shim exactly as under plain numpy. When
-    ``HAVE_KERNEL`` and the kernel exposes a matching cumulative op
-    (``cummax`` / ``cummin``), ``.accumulate`` on a bare 1-D float64 input is
-    kernel-routed; otherwise numpy handles it (parity-proven).
+    Calling routes through *call* (kernel-accelerated on the fast path). ``.accumulate``
+    is kernel-routed (``cummax`` / ``cummin``) on a bare 1-D float64 input; the other
+    ufunc methods forward to the kernel-internal numpy ufunc.
     """
 
     __slots__ = ("_name", "_npufunc", "_call", "_kernel_accum")
 
     def __init__(self, name: str, call: Any, kernel_accum: str | None = None) -> None:
         self._name = name
-        self._npufunc = getattr(_np, name)
+        self._npufunc = getattr(_knp, name)
         self._call = call
         self._kernel_accum = kernel_accum
 
@@ -288,13 +278,12 @@ class _Ufunc:
         self, array: Any, axis: int = 0, dtype: Any = None, out: Any = None
     ) -> Any:
         if (
-            HAVE_KERNEL
-            and self._kernel_accum is not None
+            self._kernel_accum is not None
             and axis in (0, -1)
             and dtype is None
             and out is None
         ):
-            kfn = getattr(_kernel, self._kernel_accum, None)
+            kfn = getattr(_KERNEL, self._kernel_accum, None)
             if kfn is not None:
                 v = _f64_1d(array)
                 if v is not None:
@@ -317,160 +306,183 @@ class _Ufunc:
 
 
 class _XP:
-    """The ``xp`` namespace: numpy-delegating, kernel-accelerated where safe."""
+    """The ``xp`` namespace: kernel-native fast path, kernel-internal-numpy long tail."""
 
     linalg = _Linalg()
     LinAlgError = LinAlgError
-    #: Whether the compiled kernel is live (mirrors the module global) so callers
-    #: can introspect ``xp.HAVE_KERNEL`` / ``xp.KERNEL_SOURCE`` directly instead of
-    #: falling through ``__getattr__`` to numpy (which has no such attribute).
     HAVE_KERNEL = HAVE_KERNEL
     KERNEL_SOURCE = KERNEL_SOURCE
 
-    def __getattr__(self, name: str) -> Any:  # numpy fallback for everything else
-        return getattr(_np, name)
+    def __getattr__(self, name: str) -> Any:
+        # Prefer a native kernel export (constructors, dtypes, constants, ``ndarray``,
+        # seeded ``normal`` / ``uniform`` / ``integers``, the four scipy ops, …); fall to
+        # the kernel-internal numpy for the long tail (``random``, ``cov``, ``corrcoef``,
+        # ``save`` / ``load``, ``log2`` / ``any`` / ``atleast_2d`` / ``roll`` /
+        # ``triu_indices`` / ``allclose`` / ``where`` broadcast forms, …).
+        try:
+            return getattr(_KERNEL, name)
+        except AttributeError:
+            return getattr(_knp, name)
 
-    # ---- reductions / stats (route only for bare 1-D float64, no axis) ----
-    def sum(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+    # ---- reductions / stats ----
+    # The kernel handles eligible (ndarray / list / tuple) inputs incl. N-D + axis +
+    # keepdims; non-eligible array wrappers (pandas Series / DataFrame) defer to the
+    # kernel-internal numpy so axis semantics + any wrapper are preserved exactly.
+    def _reduce(self, name: str, a: Any, axis: Any, kw: Any) -> Any:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.sum(v)
-        return _np.sum(a, axis=axis, **kw)
+                return getattr(_KERNEL, name)(v)
+        if _kernel_eligible(a):
+            return getattr(_KERNEL, name)(a, axis=axis, **kw)
+        return getattr(_knp, name)(a, axis=axis, **kw)
+
+    def sum(self, a: Any, axis: Any = None, **kw: Any) -> Any:
+        return self._reduce("sum", a, axis, kw)
 
     def prod(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
-            v = _f64_1d(a)
-            if v is not None:
-                return _kernel.prod(v)
-        return _np.prod(a, axis=axis, **kw)
+        return self._reduce("prod", a, axis, kw)
 
     def mean(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
-            v = _f64_1d(a)
-            if v is not None:
-                return _kernel.mean(v)
-        return _np.mean(a, axis=axis, **kw)
+        return self._reduce("mean", a, axis, kw)
 
     def std(self, a: Any, axis: Any = None, ddof: int = 0, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        # CRITICAL: the kernel signature is ``std(a, axis=None, ddof=0, keepdims=False)`` —
+        # pass ``ddof`` by KEYWORD (positional would bind to ``axis``).
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.std(v, ddof)
-        return _np.std(a, axis=axis, ddof=ddof, **kw)
+                return _KERNEL.std(v, ddof=ddof)
+        if _kernel_eligible(a):
+            return _KERNEL.std(a, axis=axis, ddof=ddof, **kw)
+        return _knp.std(a, axis=axis, ddof=ddof, **kw)
 
     def var(self, a: Any, axis: Any = None, ddof: int = 0, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        # CRITICAL: same as ``std`` — ``ddof`` is keyword, not positional.
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.var(v, ddof)
-        return _np.var(a, axis=axis, ddof=ddof, **kw)
+                return _KERNEL.var(v, ddof=ddof)
+        if _kernel_eligible(a):
+            return _KERNEL.var(a, axis=axis, ddof=ddof, **kw)
+        return _knp.var(a, axis=axis, ddof=ddof, **kw)
 
     def min(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.amin(v)
-        return _np.min(a, axis=axis, **kw)
+                return _KERNEL.amin(v)
+        if _kernel_eligible(a):
+            return _KERNEL.amin(a, axis=axis, **kw)
+        return _knp.amin(a, axis=axis, **kw)
 
     amin = min
 
     def max(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.amax(v)
-        return _np.max(a, axis=axis, **kw)
+                return _KERNEL.amax(v)
+        if _kernel_eligible(a):
+            return _KERNEL.amax(a, axis=axis, **kw)
+        return _knp.amax(a, axis=axis, **kw)
 
     amax = max
 
     def argmin(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.argmin(v)
-        return _np.argmin(a, axis=axis, **kw)
+                return _KERNEL.argmin(v)
+        if _kernel_eligible(a):
+            return _KERNEL.argmin(a, axis=axis, **kw)
+        return _knp.argmin(a, axis=axis, **kw)
 
     def argmax(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.argmax(v)
-        return _np.argmax(a, axis=axis, **kw)
+                return _KERNEL.argmax(v)
+        if _kernel_eligible(a):
+            return _KERNEL.argmax(a, axis=axis, **kw)
+        return _knp.argmax(a, axis=axis, **kw)
 
     def argsort(self, a: Any, axis: int = -1, kind: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis in (-1, 0) and not kw:
+        if axis in (-1, 0) and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.argsort(v)
-        return _np.argsort(a, axis=axis, kind=kind, **kw)
+                return _KERNEL.argsort(v)
+        return _knp.argsort(a, axis=axis, kind=kind, **kw)
 
     def cumsum(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.cumsum(v)
-        return _np.cumsum(a, axis=axis, **kw)
+                return _KERNEL.cumsum(v)
+        return _knp.cumsum(a, axis=axis, **kw)
 
     def cumprod(self, a: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw:
+        if axis is None and not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.cumprod(v)
-        return _np.cumprod(a, axis=axis, **kw)
+                return _KERNEL.cumprod(v)
+        return _knp.cumprod(a, axis=axis, **kw)
 
     def percentile(self, a: Any, q: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw and _np.isscalar(q):
+        if axis is None and not kw and _knp.isscalar(q):
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.percentile(v, float(q))
-        return _np.percentile(a, q, axis=axis, **kw)
+                return _KERNEL.percentile(v, float(q))
+        return _knp.percentile(a, q, axis=axis, **kw)
 
     def quantile(self, a: Any, q: Any, axis: Any = None, **kw: Any) -> Any:
-        if HAVE_KERNEL and axis is None and not kw and _np.isscalar(q):
+        if axis is None and not kw and _knp.isscalar(q):
             v = _f64_1d(a)
             if v is not None and v.size:
-                return _kernel.quantile(v, float(q))
-        return _np.quantile(a, q, axis=axis, **kw)
+                return _KERNEL.quantile(v, float(q))
+        return _knp.quantile(a, q, axis=axis, **kw)
 
-    # ---- element-wise (route bare 1-D float64) ----
-    def _ew1(self, npfn: Any, kfn: Any, a: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
+    # ---- element-wise (kernel fast path is contiguous 1-D float64) ----
+    def _ew1(self, name: str, a: Any, **kw: Any) -> Any:
+        if not kw:
             v = _f64_1d(a)
             if v is not None:
-                return kfn(v)
-        return npfn(a, **kw)
+                return getattr(_KERNEL, name)(v)
+        return getattr(_knp, name)(a, **kw)
 
     def sqrt(self, a: Any, **kw: Any) -> Any:
-        return self._ew1(_np.sqrt, _kernel.sqrt if HAVE_KERNEL else None, a, **kw)
+        return self._ew1("sqrt", a, **kw)
 
     def log(self, a: Any, **kw: Any) -> Any:
-        return self._ew1(_np.log, _kernel.log if HAVE_KERNEL else None, a, **kw)
+        return self._ew1("log", a, **kw)
 
     def exp(self, a: Any, **kw: Any) -> Any:
-        return self._ew1(_np.exp, _kernel.exp if HAVE_KERNEL else None, a, **kw)
+        return self._ew1("exp", a, **kw)
 
     def abs(self, a: Any, **kw: Any) -> Any:
-        return self._ew1(_np.abs, _kernel.absolute if HAVE_KERNEL else None, a, **kw)
+        if not kw:
+            v = _f64_1d(a)
+            if v is not None:
+                return _KERNEL.absolute(v)
+        return _knp.absolute(a, **kw)
 
     absolute = abs
 
     def tanh(self, a: Any, **kw: Any) -> Any:
-        return self._ew1(_np.tanh, _kernel.tanh if HAVE_KERNEL else None, a, **kw)
+        return self._ew1("tanh", a, **kw)
 
     def clip(self, a: Any, a_min: Any = None, a_max: Any = None, **kw: Any) -> Any:
         if (
-            HAVE_KERNEL
-            and not kw
+            not kw
             and a_min is not None
             and a_max is not None
-            and _np.isscalar(a_min)
-            and _np.isscalar(a_max)
+            and _knp.isscalar(a_min)
+            and _knp.isscalar(a_max)
         ):
             v = _f64_1d(a)
             if v is not None:
-                return _kernel.clip(v, float(a_min), float(a_max))
-        return _np.clip(a, a_min, a_max, **kw)
+                return _KERNEL.clip(v, float(a_min), float(a_max))
+        return _knp.clip(a, a_min, a_max, **kw)
 
     def nan_to_num(
         self,
@@ -480,30 +492,36 @@ class _XP:
         posinf: Any = None,
         neginf: Any = None,
     ) -> Any:
-        if HAVE_KERNEL and _np.isscalar(nan):
+        if _knp.isscalar(nan):
             v = _f64_1d(a)
             if v is not None:
-                pi = float(posinf) if posinf is not None else _np.finfo(_np.float64).max
-                ni = float(neginf) if neginf is not None else _np.finfo(_np.float64).min
-                return _kernel.nan_to_num(v, float(nan), pi, ni)
-        return _np.nan_to_num(a, copy=copy, nan=nan, posinf=posinf, neginf=neginf)
+                pi = (
+                    float(posinf)
+                    if posinf is not None
+                    else _knp.finfo(_knp.float64).max
+                )
+                ni = (
+                    float(neginf)
+                    if neginf is not None
+                    else _knp.finfo(_knp.float64).min
+                )
+                return _KERNEL.nan_to_num(v, float(nan), pi, ni)
+        return _knp.nan_to_num(a, copy=copy, nan=nan, posinf=posinf, neginf=neginf)
 
     def isnan(self, a: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
+        if not kw:
             v = _f64_1d(a)
             if v is not None:
-                return _np.asarray(_kernel.isnan(v), dtype=bool)
-        return _np.isnan(a, **kw)
+                return _knp.asarray(_KERNEL.isnan(v), dtype=bool)
+        return _knp.isnan(a, **kw)
 
-    #: ufunc-method surface (CONCEPT:KG-2.314): callable + ``.accumulate`` /
-    #: ``.reduce`` / ``.outer`` / ``.at``. Class attributes (not methods) so
-    #: ``xp.maximum`` yields the wrapper object, not a bound method.
+    #: ufunc-method surface (CONCEPT:KG-2.314).
     maximum = _Ufunc("maximum", _maximum_call, kernel_accum="cummax")
     minimum = _Ufunc("minimum", _minimum_call, kernel_accum="cummin")
 
     def where(self, condition: Any, *args: Any) -> Any:
-        if HAVE_KERNEL and len(args) == 2:
-            cond = _np.asarray(condition)
+        if len(args) == 2:
+            cond = _knp.asarray(condition)
             va, vb = _f64_1d(args[0]), _f64_1d(args[1])
             if (
                 cond.ndim == 1
@@ -511,25 +529,56 @@ class _XP:
                 and vb is not None
                 and cond.shape == va.shape == vb.shape
             ):
-                return _kernel.where_(cond.astype(bool).tolist(), va, vb)
-        return _np.where(condition, *args)
+                return _KERNEL.where_(cond.astype(bool).tolist(), va, vb)
+        return _knp.where(condition, *args)
 
     def dot(self, a: Any, b: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
+        if not kw:
             va, vb = _f64_1d(a), _f64_1d(b)
             if va is not None and vb is not None and va.shape == vb.shape:
-                return _kernel.dot(va, vb)
+                return _KERNEL.dot(va, vb)
             ma, mb = _f64_2d(a), _f64_2d(b)
             if ma is not None and mb is not None and ma.shape[1] == mb.shape[0]:
-                return _kernel.matmul(ma, mb)
-        return _np.dot(a, b, **kw)
+                return _KERNEL.matmul(ma, mb)
+        return _knp.dot(a, b, **kw)
 
     def matmul(self, a: Any, b: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
+        if not kw:
             ma, mb = _f64_2d(a), _f64_2d(b)
             if ma is not None and mb is not None and ma.shape[1] == mb.shape[0]:
-                return _kernel.matmul(ma, mb)
-        return _np.matmul(a, b, **kw)
+                return _KERNEL.matmul(ma, mb)
+        return _knp.matmul(a, b, **kw)
+
+    # ---- scipy ops, now native kernel exports (CONCEPT:EG-356 / KG-2.324) ----
+    def eigsh(self, a: Any, k: int, which: str = "SM") -> Any:
+        """``scipy.sparse.linalg.eigsh(A, k, which="SM")`` — the ``k`` smallest-magnitude
+        symmetric eigenpairs. The kernel op is always smallest-magnitude; ``which`` is
+        accepted for call-site compatibility and must be ``"SM"``."""
+        if which != "SM":
+            raise ValueError(f"xp.eigsh only supports which='SM' (got {which!r})")
+        return _KERNEL.eigsh(
+            _knp.ascontiguousarray(_knp.asarray(a, dtype=_knp.float64)), int(k)
+        )
+
+    def spearmanr(self, a: Any, b: Any) -> Any:
+        """``scipy.stats.spearmanr(a, b)`` → ``(correlation, pvalue)``."""
+        return _KERNEL.spearmanr(
+            _knp.asarray(a, dtype=_knp.float64), _knp.asarray(b, dtype=_knp.float64)
+        )
+
+    def ks_2samp(self, a: Any, b: Any) -> Any:
+        """``scipy.stats.ks_2samp(a, b)`` → ``(statistic, pvalue)``."""
+        return _KERNEL.ks_2samp(
+            _knp.asarray(a, dtype=_knp.float64), _knp.asarray(b, dtype=_knp.float64)
+        )
+
+    def norm_ppf(self, q: Any) -> Any:
+        """``scipy.stats.norm.ppf(q)`` — standard-normal inverse CDF."""
+        return _KERNEL.norm_ppf(float(q))
+
+    def norm_pdf(self, x: Any) -> Any:
+        """``scipy.stats.norm.pdf(x)`` — standard-normal PDF."""
+        return _KERNEL.norm_pdf(float(x))
 
 
 #: The public namespace. Import as ``from agent_utilities.numeric import xp as np``.
