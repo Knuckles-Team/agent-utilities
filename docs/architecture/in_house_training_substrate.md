@@ -164,6 +164,56 @@ prepare_corpus → curate/dedup/decontaminate → (train_tokenizer) →
 Run it with `graph_orchestrate(action="execute_workflow", name="train_model", task=…)`.
 Install dependencies per capability: see data-science-mcp `docs/installation.md`.
 
+## Memory → weights distillation (the export path, CONCEPT:KG-2.316)
+
+> **Spans:** `agent-utilities` (EXPORT: consolidated-memory → corpus + spec) ·
+> `data-science-mcp` (the LoRA/SFT train run — the integration point).
+
+Beyond retrieval-time context assembly (EG-195), consolidated agent-memory can be
+folded directly into model **weights**. The KG-2.307 lifecycle consolidates
+episodic memory into semantic summaries (EG-220/221) and KG-2.309 distills
+recurring clusters into *procedural* memory nodes; **KG-2.316** takes that
+consolidated/procedural memory one hop further and exports it as a training-ready
+corpus for a fine-tune.
+
+`agent_utilities/knowledge_graph/memory/weights_distillation.py` (torch-free core,
+per *Dependency discipline*) is the EXPORT half:
+
+- **`MemoryWeightsDistiller.export()`** reads a bounded working set of `:Memory`
+  nodes (reusing the KG-2.307 reader), selects the in-scope tiers
+  (`scopes`, default `procedural` + `semantic`) filtered by ACTIVE status, an
+  optional time-window, a trust floor and optional `target_entities`, and renders
+  each node into one training example. Output is a **deterministic**
+  `DistillationCorpus` — JSONL of SFT `{prompt, completion}` pairs (or preference
+  `{prompt, chosen, rejected}` triples when a node carries them) with a content
+  `checksum`. The keys match what `data-science-mcp` `training_data.py` consumes.
+- **`DistillationTargetSpec`** is the typed target: `base_model`, `adapter_type`
+  (`lora`), `adapter_rank`/`adapter_alpha`, `method` (`sft`|`dpo`), and the memory
+  slice that was distilled (`scopes` / `time_window_days` / `target_entities`).
+- **`MemoryWeightsDistiller.submit()`** is the hand-off. The default submitter is
+  durable and torch-free: it materializes the JSONL + a job manifest under the
+  memory dir and (best-effort) registers a `TrainingJob` node the fleet can pick
+  up, returning a typed `DistillationJob`.
+
+### data-science-mcp hand-off contract (`DATA_SCIENCE_MCP_CONTRACT`)
+
+The `DistillationJob.handoff` is a ready-to-dispatch payload. The **live LoRA
+train is the integration point** (GPU-gated, runs in `data-science-mcp` on GB10):
+
+- **Preferred — one call drives the whole DAG:**
+  `graph_orchestrate(action="execute_workflow", name="train_model", task=<corpus_ref + spec>)`.
+- **Or the direct tools:** `build_training_dataset` → `train_sft`/`train_dpo`
+  (`execute=true`) → `register_checkpoint`. The trained adapter goes live via the
+  deploy seam (`model_registry.resolve_role`) with no hot-path edit.
+
+### Surfaces
+
+Exposed on **both** surfaces from one action-core method
+(`distill_memory_to_weights`): the MCP tool `graph_analyze action=distill_memory`
+and its REST twin `POST /graph/analyze` (`{"action":"distill_memory", ...}`) —
+both funnel through `kg_server._execute_tool`. Params: `target`/`query`-JSON carry
+`base_model` + spec overrides; set `"submit": true` in the JSON to hand off.
+
 ## Related
 
 - data-science-mcp: `docs/training.md` (trainer usage + GPU recipes),

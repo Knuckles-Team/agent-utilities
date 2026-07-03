@@ -1585,6 +1585,35 @@ def register_analysis_tools(mcp):
                     ),
                     default=str,
                 )
+            # ── KG-2.316: memory→weights distillation EXPORT + DS-MCP hand-off ──
+            elif action == "distill_memory":
+                import json as _json
+
+                from agent_utilities.knowledge_graph.memory.weights_distillation import (
+                    distill_memory_to_weights,
+                )
+
+                # `query` may carry a JSON params object (base_model/scopes/method/
+                # adapter_rank/time_window_days/target_entities/submit/…); `target`
+                # is the base model shorthand; `top_k` overrides max_examples.
+                params: dict[str, Any] = {}
+                q = (query or "").strip()
+                if q.startswith("{"):
+                    try:
+                        loaded = _json.loads(q)
+                        if isinstance(loaded, dict):
+                            params = loaded
+                    except (TypeError, ValueError):
+                        params = {}
+                if isinstance(target, str) and target:
+                    params.setdefault("base_model", target)
+                if isinstance(top_k, int) and top_k and top_k != 10:
+                    params.setdefault("max_examples", top_k)
+                submit = bool(params.pop("submit", False))
+                return _json.dumps(
+                    distill_memory_to_weights(engine, params=params, submit=submit),
+                    default=str,
+                )
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
