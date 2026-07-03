@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-03
+
+### Summary — the full numpy drop (Analytics P5 final)
+Finishes the numeric axis the honest way: the published `eg-numeric` kernel wheel
+(cp39-abi3, shipped with `epistemic-graph` 2.6.0) becomes a **hard dependency** of the
+`numeric-kernel` extra, so the `xp` shim is kernel-primary with numpy demoted to a
+fallback-only extra. numpy is no longer a base or primary dependency — it survives only as
+the `numeric-fallback` extra and in the leaf `finance`/`embeddings`/`ann` extras that use
+genuinely scipy-specific ops. Dev stays editable and non-publishing.
+
+### Added
+- **KG-2.319 — `eg-numeric` hard dependency (loose floor).** `numeric-kernel` now declares
+  `eg-numeric>=0.1.0` directly (alongside `epistemic-graph>=2.6.0`), both loose floors —
+  never exact pins. Prod pulls the published kernel wheel; the `xp` shim's numpy fallback
+  branch is deliberately kept for kernel-absent environments.
+- **KG-2.319 — editable, non-publishing dev path documented.** `maturin develop -m
+  crates/eg-numeric/Cargo.toml --features python` (with `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`)
+  installs an editable kernel from local source over `PYTHONPATH=/au:/eg` — dev never depends
+  on the published wheel. See `docs/guides/numeric-kernel.md`.
+
+### Changed
+- **KG-2.319 — `epistemic-graph` floor bumped to `>=2.6.0`** in the `engine` and
+  `numeric-kernel` extras (the release that ships the abi3 kernel wheel). Still floors.
+- **Version bumped 1.2.0 → 1.3.0** consistently across `pyproject.toml`,
+  `agent_utilities/__init__.py`, `agent_utilities/agent_utilities.py`, `README.md`, and
+  `.bumpversion.cfg`.
+
 ## [1.2.0] - 2026-07-03
 
 ### Summary — analytics kernel axis: numpy replaced by a parity-gated Rust kernel
