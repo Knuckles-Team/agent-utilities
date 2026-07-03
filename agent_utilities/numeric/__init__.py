@@ -56,6 +56,22 @@ to publish the ``eg-numeric`` wheel to a package index so it can become a hard d
 (today it is folded into the engine wheel behind a maturin feature, not yet index-published).
 See ``docs/guides/numeric-kernel.md``.
 
+CONCEPT:KG-2.319 — the full numpy drop (P5 final). The ``eg-numeric`` Surface-A wheel is now
+**published** (cp39-abi3, shipped with the ``epistemic-graph`` 2.6.0 engine release), so the
+``numeric-kernel`` extra now declares it as a **hard dependency** with a *loose floor*
+(``eg-numeric>=0.1.0``, alongside ``epistemic-graph>=2.6.0``) — never an exact pin. numpy is
+therefore no longer a base/primary dependency of any kind; it survives ONLY as the
+``numeric-fallback`` extra and in the leaf ``finance``/``embeddings``/``ann`` extras that use
+genuinely numpy/scipy-specific ops (``scipy.stats``, ``scipy.sparse``) with no kernel
+equivalent. The numpy fallback branch below is still KEPT — deleting it would break minimal
+(kernel-absent) environments. **Dev is editable / non-publishing:** the fleet dev deploy
+source-mounts the repos (``PYTHONPATH=/au:/eg``, ``services/graph-os/compose.dev.yml``) and
+installs an EDITABLE kernel via ``maturin develop -m
+crates/eg-numeric/Cargo.toml --features python`` (with
+``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``) — so dev builds the kernel from source and never
+depends on the published wheel. Prod installs pull the published wheel via ``numeric-kernel``.
+See ``docs/guides/numeric-kernel.md``.
+
 Any attribute not explicitly overridden below is delegated straight to numpy, so
 ``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
 ``xp.newaxis``, ``xp.float64``, ``xp.linalg.eig`` … all resolve to numpy).
@@ -302,6 +318,11 @@ class _XP:
 
     linalg = _Linalg()
     LinAlgError = LinAlgError
+    #: Whether the compiled kernel is live (mirrors the module global) so callers
+    #: can introspect ``xp.HAVE_KERNEL`` / ``xp.KERNEL_SOURCE`` directly instead of
+    #: falling through ``__getattr__`` to numpy (which has no such attribute).
+    HAVE_KERNEL = HAVE_KERNEL
+    KERNEL_SOURCE = KERNEL_SOURCE
 
     def __getattr__(self, name: str) -> Any:  # numpy fallback for everything else
         return getattr(_np, name)
