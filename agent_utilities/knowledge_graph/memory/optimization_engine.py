@@ -912,8 +912,8 @@ class AutoSimilarityLinker:
         threshold = self.config.similarity_threshold
 
         def _numpy_edges() -> list[SimilarityEdgeNode]:
-            # numpy fallback over the in-hand nodes (Rust core not running, or L0 doesn't
-            # hold these nodes so the native result came back empty).
+            # local-compute fallback over the in-hand nodes (Rust core not running, or L0
+            # doesn't hold these nodes so the native result came back empty).
             items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
             out: list[SimilarityEdgeNode] = []
             for i, a in enumerate(items):
@@ -945,10 +945,10 @@ class AutoSimilarityLinker:
                         len(edges),
                     )
                     return edges
-                # Empty native result: L0 likely lacks these nodes — disambiguate with numpy.
-            except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
+                # Empty native result: L0 likely lacks these nodes — disambiguate locally.
+            except Exception as e:  # noqa: BLE001 - Rust core unavailable → local compute
                 logger.debug(
-                    "Native compute_similarity_edges unavailable (%s); numpy fallback",
+                    "Native compute_similarity_edges unavailable (%s); local-compute fallback",
                     e,
                 )
 
