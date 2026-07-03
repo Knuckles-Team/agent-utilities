@@ -1,0 +1,345 @@
+"""Unit + live-path tests for memory→weights distillation (CONCEPT:KG-2.316).
+
+Drives the AU-side EXPORT path with a MOCK engine whose backend returns synthetic
+consolidated/procedural memory. Asserts:
+  * the exported corpus SHAPE (deterministic JSONL of ``{prompt, completion}`` SFT
+    examples, or ``{prompt, chosen, rejected}`` preference triples),
+  * the typed :class:`DistillationTargetSpec` (base model / adapter rank / scopes),
+  * the data-science-mcp hand-off :class:`DistillationJob` contract,
+  * the live MCP surface (``graph_analyze action=distill_memory``) — the exact
+    coroutine the ``graph-os`` MCP tool + its ``POST /graph/analyze`` REST twin
+    dispatch into.
+
+No live engine, model, or torch is required.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from agent_utilities.knowledge_graph.memory.weights_distillation import (
+    DATA_SCIENCE_MCP_CONTRACT,
+    DistillationCorpus,
+    DistillationJob,
+    DistillationTargetSpec,
+    MemoryWeightsDistiller,
+    distill_memory_to_weights,
+)
+
+
+# ── Mock engine + backend ──────────────────────────────────────────────────────
+class _MockBackend:
+    """Minimal backend exposing the Cypher-subset ``execute`` the reader uses."""
+
+    def __init__(self, nodes: list[dict[str, Any]]) -> None:
+        self._nodes = nodes
+
+    def execute(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        return [{"id": n["id"], "data": dict(n)} for n in self._nodes]
+
+
+class _MockEngine:
+    """Mock engine exposing the backend reader + an ``add_node`` job surface."""
+
+    def __init__(self, nodes: list[dict[str, Any]]) -> None:
+        self.backend = _MockBackend(nodes)
+        self.nodes: dict[str, dict[str, Any]] = {}
+
+    def add_node(self, node_id: str, label: str, properties: dict[str, Any]) -> None:
+        self.nodes[node_id] = {"label": label, **properties}
+
+    def get_node(self, node_id: str) -> dict[str, Any]:
+        return self.nodes.get(node_id, {})
+
+
+class _BareEngine:
+    """An engine with only a reader (no job surface) — export must still work."""
+
+    def __init__(self, nodes: list[dict[str, Any]]) -> None:
+        self.backend = _MockBackend(nodes)
+
+
+def _consolidated_and_noise() -> list[dict[str, Any]]:
+    """A procedural artifact + a semantic summary (in scope) + noise to skip."""
+    procedural = {
+        "id": "proc-rotate-creds",
+        "memory_type": "procedural",
+        "status": "ACTIVE",
+        "target_entity": "rotate-creds",
+        "name": "Rotate deploy credentials",
+        "content": "PROCEDURE: Rotate deploy credentials\nSTEPS:\n1. fetch\n2. rotate",
+        "trust_score": 0.9,
+    }
+    semantic = {
+        "id": "sem-deploy-summary",
+        "memory_type": "semantic",
+        "status": "ACTIVE",
+        "target_entity": "deploy",
+        "content": "Deploys succeed when the vault is reachable and services healthy.",
+        "trust_score": 0.8,
+    }
+    # Noise: wrong tier (episodic default-out-of-scope), retired, empty content.
+    episodic = {
+        "id": "ep-0",
+        "memory_type": "episodic",
+        "status": "ACTIVE",
+        "target_entity": "deploy",
+        "content": "one deploy happened",
+    }
+    retired = {
+        "id": "sem-old",
+        "memory_type": "semantic",
+        "status": "RETIRED",
+        "content": "stale summary",
+    }
+    empty = {"id": "sem-empty", "memory_type": "semantic", "status": "ACTIVE"}
+    return [procedural, semantic, episodic, retired, empty]
+
+
+# ── spec ────────────────────────────────────────────────────────────────────────
+def test_kg_2_316_spec_from_params_normalizes() -> None:
+    spec = DistillationTargetSpec.from_params(
+        {
+            "base_model": "qwen/qwen3.6-35b-a3b",
+            "adapter_rank": 32,
+            "scopes": "procedural, semantic",
+            "method": "SFT",
+            "time_window_days": 30,
+        }
+    )
+    assert spec.base_model == "qwen/qwen3.6-35b-a3b"
+    assert spec.adapter_rank == 32
+    assert spec.scopes == ["procedural", "semantic"]
+    assert spec.method == "sft"
+    assert spec.is_preference is False
+    assert spec.time_window_days == 30
+    # JSON-safe round trip carries the LoRA target shape.
+    d = spec.to_dict()
+    assert d["adapter_type"] == "lora" and d["adapter_alpha"] == 32
+
+
+# ── export: consolidated/procedural memory → SFT corpus ────────────────────────
+def test_kg_2_316_export_builds_deterministic_sft_corpus() -> None:
+    engine = _MockEngine(_consolidated_and_noise())
+    spec = DistillationTargetSpec(
+        base_model="Qwen2.5-1.5B", scopes=["procedural", "semantic"]
+    )
+    dist = MemoryWeightsDistiller(engine, spec=spec)
+
+    corpus = dist.export()
+
+    assert isinstance(corpus, DistillationCorpus)
+    # Only the ACTIVE procedural + semantic nodes with content are exported.
+    assert corpus.source_ids == ["proc-rotate-creds", "sem-deploy-summary"]
+    assert len(corpus.examples) == 2
+    # SFT shape: every example is a {prompt, completion} instruction/response pair.
+    for ex in corpus.examples:
+        assert set(ex.keys()) == {"prompt", "completion", "source_id"}
+        assert ex["prompt"] and ex["completion"]
+    # The procedural artifact's rendered steps become the completion.
+    proc_ex = next(e for e in corpus.examples if e["source_id"] == "proc-rotate-creds")
+    assert "STEPS:" in proc_ex["completion"]
+    assert "rotate-creds" in proc_ex["prompt"]
+    # Deterministic: JSONL + checksum are stable across re-export.
+    assert corpus.to_jsonl() == dist.export().to_jsonl()
+    assert corpus.checksum == dist.export().checksum
+    # JSONL is one valid JSON object per line.
+    lines = corpus.to_jsonl().splitlines()
+    assert len(lines) == 2
+    assert all("prompt" in json.loads(ln) for ln in lines)
+
+
+def test_kg_2_316_scope_and_entity_filters() -> None:
+    engine = _MockEngine(_consolidated_and_noise())
+    # Restrict to procedural tier AND the rotate-creds entity only.
+    spec = DistillationTargetSpec(
+        base_model="m", scopes=["procedural"], target_entities=["rotate-creds"]
+    )
+    corpus = MemoryWeightsDistiller(engine, spec=spec).export()
+    assert corpus.source_ids == ["proc-rotate-creds"]
+    assert corpus.stats["by_scope"] == {"procedural": 1}
+
+
+def test_kg_2_316_preference_corpus_when_nodes_carry_chosen_rejected() -> None:
+    nodes = [
+        {
+            "id": "sem-pref",
+            "memory_type": "semantic",
+            "status": "ACTIVE",
+            "target_entity": "deploy",
+            "content": "context",
+            "prompt": "How should I deploy?",
+            "chosen": "Deploy after the vault check passes.",
+            "rejected": "Deploy immediately without checks.",
+        }
+    ]
+    spec = DistillationTargetSpec(base_model="m", method="dpo", scopes=["semantic"])
+    corpus = MemoryWeightsDistiller(_MockEngine(nodes), spec=spec).export()
+    assert len(corpus.examples) == 1
+    ex = corpus.examples[0]
+    assert set(ex.keys()) == {"prompt", "chosen", "rejected", "source_id"}
+    assert ex["chosen"].startswith("Deploy after")
+
+
+# ── submit: data-science-mcp hand-off contract ─────────────────────────────────
+def test_kg_2_316_default_submit_enqueues_training_job(tmp_path, monkeypatch) -> None:
+    # Redirect the memory dir so the corpus/manifest land in a temp dir.
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+
+    engine = _MockEngine(_consolidated_and_noise())
+    spec = DistillationTargetSpec(base_model="Qwen2.5-1.5B", adapter_rank=8)
+    dist = MemoryWeightsDistiller(engine, spec=spec)
+    corpus = dist.export()
+
+    job = dist.submit(corpus)
+
+    assert isinstance(job, DistillationJob)
+    assert job.status == "enqueued"  # engine has add_node → durable job node
+    assert job.example_count == 2
+    assert job.checksum == corpus.checksum
+    # The JSONL corpus was materialized to disk.
+    assert (tmp_path / "distillation" / f"{job.job_id}.jsonl").exists()
+    # A durable TrainingJob node was registered for the fleet to pick up.
+    assert engine.nodes[job.job_id]["label"] == "TrainingJob"
+    assert engine.nodes[job.job_id]["server"] == "data-science-mcp"
+    # The hand-off carries the concrete train_model workflow + spec.
+    hoff = job.handoff
+    assert hoff["contract"] == "KG-2.316"
+    assert hoff["workflow"]["name"] == "train_model"
+    assert hoff["workflow"]["task"]["spec"]["adapter_rank"] == 8
+    assert hoff["tools"][1]["tool"] == "train_sft"
+    # Poll reports the durable enqueued state.
+    assert dist.poll(job.job_id)["status"] == "enqueued"
+
+
+def test_kg_2_316_default_submit_degrades_without_job_surface(
+    tmp_path, monkeypatch
+) -> None:
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+    dist = MemoryWeightsDistiller(
+        _BareEngine(_consolidated_and_noise()),
+        spec=DistillationTargetSpec(base_model="m"),
+    )
+    job = dist.submit(dist.export())
+    assert job.status == "exported"  # materialized only, nothing enqueued
+    assert "no job surface" in job.detail
+
+
+def test_kg_2_316_injected_submitter_seam() -> None:
+    seen: dict[str, Any] = {}
+
+    def _stub(
+        corpus: DistillationCorpus, spec: DistillationTargetSpec
+    ) -> DistillationJob:
+        seen["examples"] = len(corpus.examples)
+        seen["base_model"] = spec.base_model
+        return DistillationJob(
+            job_id="stub-1",
+            status="submitted",
+            spec=spec.to_dict(),
+            corpus_ref="stub",
+            checksum=corpus.checksum,
+            example_count=len(corpus.examples),
+            handoff={"contract": "KG-2.316"},
+        )
+
+    dist = MemoryWeightsDistiller(
+        _MockEngine(_consolidated_and_noise()),
+        spec=DistillationTargetSpec(base_model="stubbed"),
+        submitter=_stub,
+    )
+    job = dist.submit(dist.export())
+    assert job.job_id == "stub-1" and job.status == "submitted"
+    assert seen == {"examples": 2, "base_model": "stubbed"}
+
+
+def test_kg_2_316_contract_shape() -> None:
+    assert DATA_SCIENCE_MCP_CONTRACT["server"] == "data-science-mcp"
+    assert DATA_SCIENCE_MCP_CONTRACT["corpus_format"]["sft"] == ["prompt", "completion"]
+    assert DATA_SCIENCE_MCP_CONTRACT["mcp_tools"]["train"]["dpo"] == "train_dpo"
+
+
+# ── action-core entry ───────────────────────────────────────────────────────────
+def test_kg_2_316_action_core_export_only() -> None:
+    engine = _MockEngine(_consolidated_and_noise())
+    res = distill_memory_to_weights(
+        engine, params={"base_model": "m", "scopes": ["procedural", "semantic"]}
+    )
+    assert res["status"] == "ok"
+    assert res["concept"] == "KG-2.316"
+    assert res["corpus"]["example_count"] == 2
+    assert res["corpus"]["format"] == "sft"
+    # Export-only: a hand-off preview is offered but no job is submitted.
+    assert "job" not in res
+    assert res["handoff"]["workflow"]["name"] == "train_model"
+
+
+# ── LIVE PATH: the graph_analyze MCP tool (+ REST twin) dispatch ───────────────
+class _FakeMCP:
+    """Captures the tool coroutines ``register_analysis_tools`` registers."""
+
+    def __init__(self) -> None:
+        self.tools: dict[str, Any] = {}
+
+    def tool(self, *, name: str, description: str = "", tags: Any = None):
+        def _decorator(fn):
+            self.tools[name] = fn
+            return fn
+
+        return _decorator
+
+
+def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
+    """Invoke the REAL graph_analyze tool coroutine with action=distill_memory.
+
+    This is the exact function the graph-os MCP surface and the POST /graph/analyze
+    REST twin dispatch into (both funnel through kg_server._execute_tool), so it
+    proves the action is wired live on BOTH surfaces from one action-core method.
+    """
+    import asyncio
+
+    import agent_utilities.knowledge_graph.memory.memory_engine as me
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import analysis_tools
+
+    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
+    engine = _MockEngine(_consolidated_and_noise())
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    assert (
+        kg_server.REGISTERED_TOOLS.get("graph_analyze") is fake.tools["graph_analyze"]
+    )
+
+    # Dispatch through the SHARED core (_execute_tool) that BOTH the MCP tool
+    # surface and the POST /graph/analyze REST twin funnel through — it resolves
+    # the Field() defaults exactly as the live surfaces do.
+    params = json.dumps(
+        {
+            "base_model": "Qwen2.5-1.5B",
+            "scopes": ["procedural", "semantic"],
+            "adapter_rank": 8,
+            "submit": True,
+        }
+    )
+    out = asyncio.run(
+        kg_server._execute_tool("graph_analyze", action="distill_memory", query=params)
+    )
+    payload = json.loads(out)
+
+    assert payload["status"] == "ok"
+    assert payload["concept"] == "KG-2.316"
+    assert payload["corpus"]["example_count"] == 2
+    assert payload["corpus"]["spec"]["adapter_rank"] == 8
+    # Submitted live: a job with the data-science-mcp hand-off came back.
+    assert payload["job"]["status"] == "enqueued"
+    assert payload["job"]["handoff"]["workflow"]["name"] == "train_model"
+    assert engine.nodes[payload["job"]["job_id"]]["label"] == "TrainingJob"
