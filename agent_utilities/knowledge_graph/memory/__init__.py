@@ -74,6 +74,14 @@ from .session_memento_cache import (
     SessionMementoCache,
     refresh_session_memento_cache,
 )
+from .weights_distillation import (
+    DATA_SCIENCE_MCP_CONTRACT,
+    DistillationCorpus,
+    DistillationJob,
+    DistillationTargetSpec,
+    MemoryWeightsDistiller,
+    distill_memory_to_weights,
+)
 
 __all__ = [
     # Memory Lifecycle
@@ -136,4 +144,11 @@ __all__ = [
     "CKAResult",
     "EmbeddingHealthReport",
     "FusionResult",
+    # Memory→weights distillation (KG-2.316)
+    "MemoryWeightsDistiller",
+    "DistillationTargetSpec",
+    "DistillationCorpus",
+    "DistillationJob",
+    "DATA_SCIENCE_MCP_CONTRACT",
+    "distill_memory_to_weights",
 ]
