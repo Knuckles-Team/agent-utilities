@@ -284,6 +284,26 @@ def collect_bundled_ontology_graph() -> Any:
             graph.parse(str(ttl_path), format="turtle")
         except Exception as exc:  # noqa: BLE001 — one bad module never blocks the rest
             logger.warning("Skipping unparseable ontology module %s: %s", ttl_path, exc)
+    # CONCEPT:KG-2.320 — federation: contributed ontology modules from installed
+    # fleet packages (declared via the ``agent_utilities.ontology_providers``
+    # entry-point) are parsed into the SAME published TBox as the bundled modules,
+    # so a moved module (e.g. servicenow now living in the servicenow-api wheel) is
+    # indistinguishable from a bundled one. Failure-isolated per file.
+    try:
+        from .ontology_federation import discover_provider_ontologies
+
+        for provider, ttl_path in discover_provider_ontologies():
+            try:
+                graph.parse(str(ttl_path), format="turtle")
+            except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
+                logger.warning(
+                    "Skipping unparseable contributed ontology %s (%s): %s",
+                    ttl_path,
+                    provider,
+                    exc,
+                )
+    except Exception as exc:  # noqa: BLE001 — federation is additive, never fatal
+        logger.debug("Ontology federation discovery unavailable: %s", exc)
     return graph
 
 

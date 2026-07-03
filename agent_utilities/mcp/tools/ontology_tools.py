@@ -37,6 +37,54 @@ def _run_coro(coro: Any) -> Any:
         return ex.submit(lambda: asyncio.run(coro)).result()
 
 
+def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
+    """Load every package-contributed ontology through the given lifecycle.
+
+    CONCEPT:KG-2.321 — federation runtime: iterate
+    ``discover_provider_ontologies()`` and call the EXISTING
+    :meth:`OntologyLifecycle.load` per contributed ``.ttl`` (parse + SHACL-validate
+    + register + activate for reasoning). No new load logic — reuse the one path
+    ``graph_ontology action='load'`` and boot hydration already use. Per-file
+    failure-isolated so one bad contribution never blocks the rest. Shape files
+    (``shapes/*.ttl``) are skipped (validation constraints, not loadable
+    ontologies). Called at graph-os boot and via ``graph_ontology
+    action='sync_packages'``.
+    """
+    from agent_utilities.knowledge_graph.core.ontology_federation import (
+        discover_provider_ontologies,
+    )
+
+    loaded: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for provider, ttl_path in discover_provider_ontologies():
+        if ttl_path.parent.name == "shapes":
+            continue
+        try:
+            report = lc.load(str(ttl_path), source_type="file")
+            loaded.append(
+                {
+                    "provider": provider,
+                    "path": str(ttl_path),
+                    "iri": report.get("iri"),
+                    "status": report.get("status"),
+                    "idempotent": report.get("idempotent", False),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
+            logger.warning(
+                "sync_packages: failed to load %s (%s): %s", ttl_path, provider, exc
+            )
+            errors.append(
+                {"provider": provider, "path": str(ttl_path), "error": str(exc)}
+            )
+    return {
+        "action": "sync_packages",
+        "providers_loaded": len(loaded),
+        "loaded": loaded,
+        "errors": errors,
+    }
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -333,14 +381,18 @@ def register_ontology_tools(mcp):
             "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
             "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
             "gate on a candidate WITHOUT committing), 'activate'/'deactivate' "
-            "(toggle participation in reasoning)."
+            "(toggle participation in reasoning), 'sync_packages' (CONCEPT:KG-2.321 "
+            "— federation: discover every ontology .ttl contributed by installed "
+            "fleet packages via the agent_utilities.ontology_providers entry-point "
+            "and load each through the SAME load path, so package-contributed "
+            "ontologies become live for reasoning)."
         ),
         tags=["graph-os", "ontology", "lifecycle"],
     )
     def graph_ontology(
         action: str = Field(
             default="list",
-            description="load | list | get | update | delete | validate | activate | deactivate.",
+            description="load | list | get | update | delete | validate | activate | deactivate | sync_packages.",
         ),
         source: str = Field(
             default="",
@@ -432,6 +484,8 @@ def register_ontology_tools(mcp):
                 return json.dumps(
                     lc.validate(source, source_type=source_type), default=str
                 )
+            if action == "sync_packages":
+                return json.dumps(_sync_package_ontologies(lc), default=str)
             if action in ("activate", "deactivate"):
                 if not iri:
                     return json.dumps({"error": f"{action} requires `iri`"})

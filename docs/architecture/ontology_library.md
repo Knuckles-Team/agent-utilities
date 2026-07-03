@@ -100,13 +100,29 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
 | `ontology_quant.ttl` | `…/kg/quant` | Quantitative finance domain. |
 | `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |
-| `ontology_servicenow.ttl` | `…/kg/servicenow` | ServiceNow integration. |
 | `ontology_social.ttl` | `…/kg/social` | Social / community domain. |
 | `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
 | `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
 | `ontology_trading.ttl` | `…/kg/trading` | Trading: microstructure signals, market-knowledge provenance. |
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
 | `ontology_wellness.ttl` | `…/kg/wellness` | Wellness domain. |
+
+### Federated (package-contributed) ontologies — CONCEPT:KG-2.320
+
+Some ontology modules no longer live in this wheel: they are **contributed by fleet
+agent-packages** through the `agent_utilities.ontology_providers` entry-point (the
+third federation leg alongside skills and prompts). When the owning package is
+installed, its `.ttl` is discovered by
+`knowledge_graph/core/ontology_federation.py::discover_provider_ontologies()` and
+treated identically to a bundled module — parsed into the published TBox, pre-loaded
+into the live OWL reasoner, and swept by this valid/connected/SHACL gate. The
+canonical `ontology.ttl` keeps its `owl:imports` edge; when the provider is absent
+the import is a tolerated superset no-op (registered in
+`REGISTERED_FEDERATED_IRIS`).
+
+| File (in provider wheel) | IRI | Provider package | Role |
+|------|-----|------------------|------|
+| `servicenow.ttl` (`servicenow_api/ontology/`) | `…/kg/servicenow` | `servicenow-api` | ServiceNow ITSM integration (incidents, changes, CMDB). |
 
 ### SHACL shapes
 

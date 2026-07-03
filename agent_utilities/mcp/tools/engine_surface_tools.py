@@ -232,6 +232,167 @@ def _drop_empty(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v not in ("", None)}
 
 
+def _run_coro(coro: Any) -> Any:
+    """Run an async coroutine from a sync MCP handler (loop-running or not)."""
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(coro)).result()
+
+
+# CONCEPT:KG-2.322 — the unified memory-CRUD core. graph_memory's recall/store/link
+# actions route into the SAME ``graph_write`` tool the REST ``/graph/write/memory``
+# [``/recall``] twins and the harness ``kg_memory_recall``/``kg_memory_store`` tools
+# already use — one core, no fourth memory surface. ``link`` reuses graph_write's
+# ``add_edge`` so relating two memories rides the same mutation path.
+_MEMORY_CRUD_ACTIONS = ("recall", "store", "link")
+
+
+def _memory_crud(action: str, params: dict[str, Any]) -> str:
+    """Dispatch recall/store/link into the shared ``graph_write`` memory core."""
+    if action == "store":
+        call = dict(
+            action="store_memory",
+            agent_id=params.get("agent_id", params.get("agent", "")),
+            node_type=params.get("memory_type", params.get("type", "")),
+            properties=params.get("content", params.get("properties", "")),
+            nodes=json.dumps(params.get("tags", [])),
+        )
+    elif action == "recall":
+        call = dict(
+            action="recall_memory",
+            properties=params.get("query", params.get("content", "")),
+            node_type=params.get("memory_type", params.get("type", "")),
+        )
+    else:  # link
+        src = params.get("source", params.get("source_id", ""))
+        tgt = params.get("target", params.get("target_id", ""))
+        if not src or not tgt:
+            return json.dumps(
+                {
+                    "surface": "memory",
+                    "action": "link",
+                    "error": "link requires 'source' and 'target' (memory node ids)",
+                }
+            )
+        call = dict(
+            action="add_edge",
+            source_id=src,
+            target_id=tgt,
+            rel_type=params.get("rel_type", "RELATES_TO"),
+            properties=json.dumps(params.get("properties", {})),
+        )
+    try:
+        result = _run_coro(kg_server._execute_tool("graph_write", **call))
+    except Exception as exc:  # noqa: BLE001 — surface engine/core errors as data
+        return json.dumps({"surface": "memory", "action": action, "error": str(exc)})
+    return json.dumps(
+        {"surface": "memory", "action": action, "result": result}, default=_json_default
+    )
+
+
+def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
+    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:KG-2.323).
+
+    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
+    and selects the first backend whose capabilities advertise ``warm_fork`` and
+    which is available on this host. ``preferred`` pins a rung by name when set.
+    """
+    try:
+        from agent_utilities.rlm.sandboxes.registry import default_sandboxes
+    except Exception:  # noqa: BLE001 — subsystem unimportable ⇒ degrade cleanly
+        return None
+
+    forkable = [
+        sb
+        for sb in default_sandboxes()
+        if getattr(getattr(sb, "capabilities", None), "warm_fork", False)
+    ]
+    if preferred:
+        forkable = [sb for sb in forkable if sb.name == preferred] or forkable
+    for sb in forkable:
+        try:
+            if sb.is_available():
+                return sb
+        except Exception:  # noqa: BLE001 — an unprobeable rung is simply skipped
+            continue
+    return None
+
+
+def _fork_fanout(branches: list[Any], seed_vars: dict[str, Any], preferred: str) -> str:
+    """Warm a fork parent once and fan out ``branches``, returning per-branch results.
+
+    Backed by the ORCH-1.86..93 warm-fork primitive: the base
+    :class:`ForkableSandbox.execute` warms-or-reuses one parent (copy-on-write) and
+    forks a child per branch. Fan-out is concurrent ``execute`` calls sharing that
+    one warm parent. Degrades cleanly to a structured ``unavailable`` payload when no
+    warm-fork rung is available on this host (CONCEPT:KG-2.323).
+    """
+    sb = _pick_warm_fork_sandbox(preferred)
+    if sb is None:
+        return json.dumps(
+            {
+                "surface": "fork",
+                "degraded": True,
+                "error": (
+                    "no warm-fork rung available on this host (forkserver needs a "
+                    "POSIX-fork-capable interpreter; container_fork needs a docker "
+                    "runtime; firecracker needs a reachable forkd + KVM), and the "
+                    "epistemic-graph engine client exposes no warm-fork primitive"
+                ),
+                "followup": (
+                    "spike: surface a first-class engine warm-fork/KV-cache-fork op "
+                    "on the epistemic_graph client (LMCacheMPConnector snapshot → "
+                    "branch), then route graph_fork to it when present, keeping the "
+                    "local ForkableSandbox rungs as the fallback"
+                ),
+                "branch_count": len(branches),
+            }
+        )
+
+    from agent_utilities.rlm.sandboxes.base import SandboxEnv
+
+    async def _run_all() -> list[dict[str, Any]]:
+        import asyncio
+
+        async def _one(idx: int, snippet: Any) -> dict[str, Any]:
+            try:
+                result = await sb.execute(
+                    str(snippet), SandboxEnv(vars=dict(seed_vars))
+                )
+                return {
+                    "index": idx,
+                    "ok": result.error is None,
+                    "stdout": result.stdout,
+                    "error": result.error,
+                    "vars": result.updated_vars,
+                }
+            except Exception as exc:  # noqa: BLE001 — one branch never fails the set
+                return {"index": idx, "ok": False, "error": str(exc)}
+
+        return await asyncio.gather(*(_one(i, s) for i, s in enumerate(branches)))
+
+    try:
+        results = _run_coro(_run_all())
+    except Exception as exc:  # noqa: BLE001 — infra death → structured error, no crash
+        return json.dumps({"surface": "fork", "sandbox": sb.name, "error": str(exc)})
+    return json.dumps(
+        {
+            "surface": "fork",
+            "sandbox": sb.name,
+            "branch_count": len(results),
+            "branches": results,
+        },
+        default=_json_default,
+    )
+
+
 def register_engine_surface_tools(mcp) -> None:
     """Register the KG-2.310 engine-surface tools + their REST twins.
 
@@ -672,8 +833,13 @@ def register_engine_surface_tools(mcp) -> None:
             "'start_trajectory' (agent/episode → trajectory_id), 'append_step' "
             "(trajectory_id + step {state,action,reward,...}), 'discounted_return' "
             "(trajectory_id [+gamma]). Read ops (e.g. 'get_summary', 'get_scene', "
-            "'get_trajectory') route by action name too. Structured args go via "
-            "params_json. Degrades cleanly when the engine build has no memory surface."
+            "'get_trajectory') route by action name too. UNIFIED memory-CRUD "
+            "(CONCEPT:KG-2.322) — 'store' (agent_id + content [+memory_type,+tags]), "
+            "'recall' (query [+memory_type]), 'link' (source + target [+rel_type]) — "
+            "route into the SAME graph_write memory core as the REST "
+            "/graph/write/memory[/recall] twins and the harness kg_memory_recall/store "
+            "tools (one core, no separate surface). Structured args go via params_json. "
+            "Degrades cleanly when the engine build has no memory surface."
         ),
         tags=["graph-os", "engine", "memory", "scene", "trajectory"],
     )
@@ -709,6 +875,11 @@ def register_engine_surface_tools(mcp) -> None:
             return json.dumps(
                 {"surface": "memory", "error": "params_json must decode to an object"}
             )
+        # CONCEPT:KG-2.322 — unified memory-CRUD short-circuit: recall/store/link go
+        # to the shared graph_write memory core (same as REST + harness), not the
+        # engine EG-318 surface.
+        if action in _MEMORY_CRUD_ACTIONS:
+            return _memory_crud(action, params)
         candidates = _MEMORY_ACTION_CANDIDATES.get(
             action,
             (("memory", action), ("scene", action), ("trajectory", action)),
@@ -723,3 +894,78 @@ def register_engine_surface_tools(mcp) -> None:
 
     kg_server.REGISTERED_TOOLS["graph_memory"] = graph_memory
     kg_server.ACTION_TOOL_ROUTES["graph_memory"] = "/graph/memory"
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:KG-2.323)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_fork",
+        description=(
+            "CONCEPT:KG-2.323 — warm-fork fan-out over the ORCH-1.86..93 warm-fork "
+            "primitive (LMCache KV / copy-on-write sandboxes): pay warm-up ONCE for a "
+            "parent context, then fork N copy-on-write branches to run per-branch "
+            "computations concurrently and return each branch's result. Provide either "
+            "'branches_json' (a JSON list of per-branch code snippets) or 'code' + 'n' "
+            "(run the same snippet across n branches); 'vars_json' seeds the shared "
+            "namespace forked into every branch; 'sandbox' optionally pins a rung "
+            "(forkserver | container_fork | firecracker), else the cheapest available "
+            "warm-fork rung is used. Degrades cleanly (structured 'unavailable') when no "
+            "warm-fork rung is available on this host."
+        ),
+        tags=["graph-os", "engine", "fork", "warm-fork", "fanout"],
+    )
+    def graph_fork(
+        code: str = Field(
+            default="",
+            description="A single code snippet run on each of 'n' branches (ignored "
+            "when 'branches_json' is provided).",
+        ),
+        n: int = Field(
+            default=0, description="Fan-out count when using 'code' (branches to fork)."
+        ),
+        branches_json: str = Field(
+            default="[]",
+            description="JSON list of per-branch code snippets; overrides code/n.",
+        ),
+        vars_json: str = Field(
+            default="{}",
+            description="JSON object seeding the namespace forked into every branch.",
+        ),
+        sandbox: str = Field(
+            default="",
+            description="Preferred warm-fork rung name (empty ⇒ cheapest available).",
+        ),
+    ) -> str:
+        """Thin verb over the warm-fork primitive (CONCEPT:KG-2.323)."""
+        try:
+            branches = json.loads(branches_json) if branches_json else []
+        except (TypeError, ValueError) as exc:
+            return json.dumps(
+                {"surface": "fork", "error": f"invalid branches_json: {exc}"}
+            )
+        if not isinstance(branches, list):
+            return json.dumps(
+                {"surface": "fork", "error": "branches_json must decode to a list"}
+            )
+        if not branches:
+            if code and int(n) > 0:
+                branches = [code] * int(n)
+            else:
+                return json.dumps(
+                    {
+                        "surface": "fork",
+                        "error": "provide branches_json (list) or code + n (>0)",
+                    }
+                )
+        try:
+            seed_vars = json.loads(vars_json) if vars_json else {}
+        except (TypeError, ValueError) as exc:
+            return json.dumps({"surface": "fork", "error": f"invalid vars_json: {exc}"})
+        if not isinstance(seed_vars, dict):
+            return json.dumps(
+                {"surface": "fork", "error": "vars_json must decode to an object"}
+            )
+        return _fork_fanout(branches, seed_vars, sandbox.strip())
+
+    kg_server.REGISTERED_TOOLS["graph_fork"] = graph_fork
+    kg_server.ACTION_TOOL_ROUTES["graph_fork"] = "/graph/fork"
