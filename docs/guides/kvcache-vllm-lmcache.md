@@ -5,6 +5,7 @@
 >
 > **Concepts:** `CONCEPT:EG-187` (engine kvcache-server HTTP surface) ·
 > `CONCEPT:KG-2.306` (`EpistemicGraphKVBackend` Python connector) ·
+> `CONCEPT:KG-2.311` (`EpistemicGraphL2Connector` — the LMCache `native_plugin` L2 adapter) ·
 > `CONCEPT:EG-185` (tiered hot/warm/cold cache) · `CONCEPT:EG-186` (content-addressed
 > shared dedup) · `CONCEPT:EG-174`/`EG-307` (Redis RESP wire).
 
@@ -77,6 +78,8 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
 | `lmcache/lmcache.redis.yaml` | Path B config (`remote_url: redis://localhost:6379`) |
 | `lmcache/lmcache.epistemic.yaml` | Path A config (`external_backends` → the adapter) |
 | `lmcache/epistemic_graph_backend.py` | Path A `StorageBackendInterface` adapter → `EpistemicGraphKVBackend` (KG-2.306) |
+| `agent_utilities/kvcache/l2_native_connector.py` | the engine-native EG-187 **`native_plugin` L2 adapter** connector `EpistemicGraphL2Connector` (KG-2.311) — for the `lmcache server --l2-adapter` |
+| `lmcache/epistemic_graph_l2_adapter.py` | baked re-export shim so `--l2-adapter` can load the above via `epistemic_graph_lmcache.epistemic_graph_l2_adapter` |
 
 ## LMCache integration mechanism (confirmed)
 
@@ -154,10 +157,60 @@ prefill** on hybrids. Warm/cross-restart reuse is unaffected. Dense models pay n
 
 `LMCacheMPConnector` connects to a standalone `lmcache server` (`lmcache server --l1-size-gb
 N --eviction-policy LRU`, ZMQ :5555). Because the server is a **separate process**, its L1
-(CPU) survives vLLM restarts, and its **L2 (the epistemic-graph engine, via the RESP adapter)
-survives server restarts and dedups**. vLLM + server both run `ipc:host` + host network (the
-KV transfer is CUDA-IPC "ptr" mode). This is what makes cross-restart / cross-instance reuse
-possible on ANY model — the differentiated capability over vLLM's in-HBM APC.
+(CPU) survives vLLM restarts, and its **L2 (the epistemic-graph engine) survives server
+restarts and dedups**. vLLM + server both run `ipc:host` + host network (the KV transfer is
+CUDA-IPC "ptr" mode). This is what makes cross-restart / cross-instance reuse possible on ANY
+model — the differentiated capability over vLLM's in-HBM APC.
+
+### L2 adapter: engine-native EG-187 (dedup + `/kv/stats`) vs the `resp` drop-in
+
+The `lmcache server` writes its **L2 tier** through an `--l2-adapter '<JSON>'` plugin. There
+are two ways to land it in the epistemic-graph engine — they reach the **same** durable,
+tiered store (EG-185) but differ in whether the engine's content-addressed dedup (EG-186) and
+the EG-187 `/kv/stats` counters apply:
+
+| | **Engine-native EG-187 adapter** (recommended) | **`resp` Redis adapter** (zero-code) |
+|---|---|---|
+| `--l2-adapter` type | `native_plugin` → `EpistemicGraphL2Connector` | `resp` (built-in) |
+| Wire | EG-187 HTTP `GET/PUT/HEAD /kv/<hash>` | Redis RESP `:6379` |
+| Lands in | the **content-addressed dedup KV tier** (EG-186) | the engine's **generic Redis keyspace** |
+| Engine-side dedup (EG-186) | ✅ `dedup_hits` increment on repeat keys | ❌ (generic keyspace) |
+| `/kv/stats` counters (EG-187) | ✅ `unique_blocks` / `logical_bytes` / `dedup_hits` move | ❌ do **not** move |
+| Custom code | one native-client class (shipped, KG-2.311) | none |
+| Concept | `CONCEPT:KG-2.311` (+ KG-2.306 transport) | `CONCEPT:EG-174/307` |
+
+**Engine-native spec** (CONCEPT:KG-2.311). The adapter is LMCache's `native_plugin`: LMCache's
+`NativeConnectorL2Adapter` owns the event-fd / task-demux machinery and drives a small **native
+client** — `EpistemicGraphL2Connector`
+(`agent_utilities.kvcache.l2_native_connector`) — that runs the HTTP I/O on a thread pool,
+signals a Linux `eventfd`, and delegates every `put`/`get`/`contains` to `EpistemicGraphKVBackend`
+(KG-2.306) over EG-187. Load it via:
+
+```
+--l2-adapter '{"type":"native_plugin",
+  "module_path":"agent_utilities.kvcache.l2_native_connector",
+  "class_name":"EpistemicGraphL2Connector",
+  "adapter_params":{"base_url":"http://localhost:9130"}}'
+```
+
+`adapter_params` are forwarded as keyword args (all optional — with none supplied the connector
+reads `EPISTEMIC_GRAPH_KVCACHE_URL|ADDR|TOKEN` via `KvCacheConfig.from_env`): `base_url` / `addr`,
+`token`, `timeout_s`, `num_workers`, `max_connections`, `verify_tls`. There is deliberately **no**
+`submit_batch_delete` — the shared pool is evicted by the engine's own tiered store (EG-185), so
+LMCache never deletes remote blocks (the wrapper logs L2 delete as a no-op). Every transport error
+degrades to a cache miss (KG-2.306), so an unreachable engine never crashes token generation.
+
+> **Image requirement.** Both the native adapter and Path A need the `agent-utilities` wheel
+> **with** `agent_utilities.kvcache` in the `vllm-lmcache` image — rebuild `Dockerfile.lmcache`
+> (it bakes a re-export shim at `epistemic_graph_lmcache.epistemic_graph_l2_adapter` too, so
+> `module_path` can point at either the wheel module or the baked plugin). The `resp` adapter has
+> no such dependency — use it if the native-adapter image is unavailable.
+
+**Standalone check (no vLLM reboot).** Because the adapter is plain Python over EG-187, you can
+exercise it directly against a running `epistemic-kvcache` — instantiate `EpistemicGraphL2Connector`,
+`submit_batch_set` a blob, `submit_batch_get` it back, and watch `GET /kv/stats`: `unique_blocks`
+and `logical_bytes` grow on a first put, and a **repeat-key** put trips `dedup_hits` while
+`resident_bytes` stays flat (EG-186). See "Validate the adapter" below.
 
 ### Compatibility matrix
 
@@ -247,6 +300,46 @@ DOCKER_HOST=ssh://genius@10.0.0.18 \
 ```
 
 ## Test / validate
+
+### Validate the adapter directly (no vLLM reboot)
+
+The native EG-187 L2 adapter (KG-2.311) is plain Python over the HTTP KV surface, so you can
+exercise it against a running `epistemic-kvcache` **without touching vLLM** — the fastest way
+to confirm dedup + `/kv/stats` before committing to a windowed vLLM restart:
+
+```python
+import os, select
+from agent_utilities.kvcache import EpistemicGraphL2Connector, EpistemicGraphKVBackend, KvCacheConfig
+
+BASE = "http://10.0.0.18:9130"   # or loopback on GB10
+def stats():
+    b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE));  s = b.stats().model_dump();  b.close();  return s
+
+conn = EpistemicGraphL2Connector(base_url=BASE)
+blob, key = b"kv-page-" + os.urandom(2048), "tok-hash-demo"
+print("before", stats())
+
+fid = conn.submit_batch_set([key], [memoryview(bytearray(blob))])         # offload (PUT)
+select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
+print("after put", stats())                                              # unique_blocks/logical_bytes ↑
+
+buf = bytearray(len(blob))
+gid = conn.submit_batch_get([key], [memoryview(buf)])                     # fetch back (GET)
+select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
+assert bytes(buf) == blob, "round-trip mismatch"
+
+fid2 = conn.submit_batch_set([key], [memoryview(bytearray(blob))])        # repeat key ⇒ dedup (EG-186)
+select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
+print("after dup", stats())                                              # dedup_hits ↑, resident_bytes flat
+conn.close()
+```
+
+Expect: first put grows `unique_blocks` + `logical_bytes` + `resident_bytes`; the round-trip
+returns the bytes verbatim; the repeat-key put increments **`dedup_hits`** and `logical_bytes`
+while `resident_bytes` stays flat (the engine stores the block once — EG-186). The `resp`
+adapter shows **no** `/kv/stats` movement because it writes the generic Redis keyspace instead.
+
+### Full-stack (with vLLM)
 
 1. **KV server is live and empty:**
    ```bash
