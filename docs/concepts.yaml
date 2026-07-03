@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 596
-total_pillars: 27
+total_concepts: 598
+total_pillars: 28
 pillars:
 - AHE-3
 - CE-038
@@ -22,6 +22,7 @@ pillars:
 - EG-186
 - EG-187
 - EG-321
+- EG-346
 - KG-1
 - KG-2
 - LGC-1
@@ -2538,6 +2539,19 @@ concepts:
   aliases:
   - EG-0.321
   - EG-321
+  canonical_pillar: EG-0
+  needs_curation: true
+- id: EG-346
+  name: is installed, the kernel-discovery loop below finds
+  pillar: EG-346
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: is installed, the kernel-discovery loop below finds
+  dotted: EG-0.346
+  aliases:
+  - EG-0.346
+  - EG-346
   canonical_pillar: EG-0
   needs_curation: true
 - id: KG-1.0
@@ -6568,6 +6582,18 @@ concepts:
   dotted: KG-2.314
   aliases:
   - KG-2.314
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.315
+  name: the shim goes **kernel-LIVE**. Once the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: the shim goes **kernel-LIVE**. Once the
+  dotted: KG-2.315
+  aliases:
+  - KG-2.315
   canonical_pillar: KG-2
   needs_curation: false
 - id: LGC-1.0
