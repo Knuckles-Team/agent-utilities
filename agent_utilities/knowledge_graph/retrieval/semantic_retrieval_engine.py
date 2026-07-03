@@ -6,8 +6,6 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from agent_utilities.knowledge_graph.core.spectral_navigator import (
     SpectralClusterNavigator,
 )
@@ -21,6 +19,7 @@ from agent_utilities.models.knowledge_graph import (
     SimilarityEdgeNode,
     SpectralClusterNode,
 )
+from agent_utilities.numeric import xp as np
 
 """Hybrid Search Scorer.
 

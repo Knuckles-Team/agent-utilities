@@ -25,7 +25,7 @@ Source: ``.specify/specs/reasoning-rl-2026/spec-vpo-test-time-diversity.md``.
 import logging
 from typing import Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

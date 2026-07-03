@@ -444,7 +444,7 @@ def _top_k_cosine(
     if not concept_vecs:
         return []
     try:
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         cmat = np.asarray([v for _, v in concept_vecs], dtype=np.float32)
         norms = np.linalg.norm(cmat, axis=1, keepdims=True)

@@ -12,7 +12,7 @@ novel edge intersections based purely on their structural positional interaction
 import logging
 import math
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

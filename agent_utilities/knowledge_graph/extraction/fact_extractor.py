@@ -299,7 +299,7 @@ class FactDeduper:
         self.threshold = threshold
         self._rows: list[list[float]] = []
         try:  # vectorize when numpy is available; degrade gracefully otherwise
-            import numpy as np  # noqa: F401
+            from agent_utilities.numeric import xp as np  # noqa: F401
 
             self._np = np
             self._mat: Any = None  # lazily-stacked (n, d) matrix

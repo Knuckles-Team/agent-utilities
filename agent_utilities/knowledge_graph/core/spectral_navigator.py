@@ -19,11 +19,10 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from agent_utilities.models.knowledge_graph import (
     SpectralClusterNode,
 )
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

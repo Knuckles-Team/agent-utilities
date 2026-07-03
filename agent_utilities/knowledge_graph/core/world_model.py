@@ -83,7 +83,7 @@ def _hash_embed(text: str, dim: int) -> Any:
     """
     import hashlib
 
-    import numpy as np
+    from agent_utilities.numeric import xp as np
 
     v = np.zeros(dim, dtype=np.float64)
     s = f"  {text} "
@@ -134,13 +134,13 @@ class LatentDynamicsModel:
         self._dirty = True
 
     def _feature(self, state: str, action: str) -> Any:
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         return np.concatenate([self._embed(state), self._embed(action)])
 
     def fit(self) -> None:
         """Solve the ridge map from the observed-transition buffer."""
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         if not self._buffer:
             self._w = None
@@ -176,7 +176,7 @@ class LatentDynamicsModel:
         Returns ``(results, latent)`` where ``latent`` is the (blended) next-state
         latent to carry, or ``None`` when the model is untrained.
         """
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         if self._dirty or self._w is None:
             self.fit()
@@ -328,7 +328,7 @@ class WorldModel:
         latent_norm = 0.0
         drift = 0.0
         if self._latent is not None and latent_cache is not None:
-            import numpy as np
+            from agent_utilities.numeric import xp as np
 
             prior = latent_cache.get("latent")
             preds, y_eff = self._latent.predict_latent(

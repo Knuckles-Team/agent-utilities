@@ -4445,7 +4445,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             }
 
         # Compute centroid
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         centroid = np.mean(target_embeddings, axis=0)
         centroid_norm = np.linalg.norm(centroid)

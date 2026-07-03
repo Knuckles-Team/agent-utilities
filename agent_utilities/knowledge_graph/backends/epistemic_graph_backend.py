@@ -1446,7 +1446,7 @@ class EpistemicGraphBackend(GraphBackend):
         if not self._embeddings:
             return []
 
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         query_vec = np.array(query_embedding)
         query_norm = np.linalg.norm(query_vec)

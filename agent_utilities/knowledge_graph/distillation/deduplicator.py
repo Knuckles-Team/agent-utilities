@@ -26,7 +26,7 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from .lsh_index import LSHIndex
 
