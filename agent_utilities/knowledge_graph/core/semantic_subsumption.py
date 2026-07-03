@@ -7,12 +7,11 @@ embedding is compared against existing OWL class prototypes to automatically inj
 it into the correct class hierarchy.
 """
 
-import numpy as np
-
 from agent_utilities.models.knowledge_graph import (
     RegistryNode,
     SubsumptionAlignmentNode,
 )
+from agent_utilities.numeric import xp as np
 
 
 class SemanticSubsumptionEngine:

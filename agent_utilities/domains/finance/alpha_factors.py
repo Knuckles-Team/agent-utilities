@@ -10,7 +10,7 @@ Sources: Qlib Alpha158, Vibe-Trading Factor Research
 import logging
 from typing import Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 try:
     import pandas as pd

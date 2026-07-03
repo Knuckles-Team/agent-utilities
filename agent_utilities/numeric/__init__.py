@@ -13,6 +13,22 @@ Migration (phases P2-P3) is then mechanical::
     import numpy as np              # before
     from agent_utilities.numeric import xp as np   # after
 
+CONCEPT:KG-2.313 — the executed P2/P3 rollout: 34 agent-utilities numpy call
+sites (28 light-op files + the 6 linalg files ``optimization_engine``,
+``world_model``, ``formal_reasoning_core``, ``spectral_navigator``, finance
+``cross_market_arb`` and ``signal_fusion``) were swapped to this ``xp`` surface,
+keeping the ``np`` alias so bodies are unchanged. Behaviour is identical today
+(kernel absent → numpy fallback) and becomes kernel-accelerated once the
+``epistemic_graph.numeric`` wheel is deployed.
+
+Three finance files (``composite_backtest``, ``profit_attribution``,
+``research_autopilot``) stay on ``import numpy as np`` for now: they call
+``np.maximum.accumulate(...)`` — a numpy **ufunc method**. ``xp.maximum`` is a
+plain callable here, not a ufunc object, so ``.accumulate`` is absent and cannot
+be reached via the numpy fallback. Migrating them needs a P1 op-surface
+extension (expose ``xp.maximum``/``xp.minimum`` as ufunc-like objects carrying
+``.accumulate``/``.reduce``/``.outer``/``.at``).
+
 Any attribute not explicitly overridden below is delegated straight to numpy, so
 ``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
 ``xp.newaxis``, ``xp.float64``, ``xp.linalg.eig`` … all resolve to numpy).

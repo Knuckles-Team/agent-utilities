@@ -37,9 +37,8 @@ See docs/pillars/3_agentic_harness_engineering/AHE-3.6*.md
 import logging
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from agent_utilities.core.config import setting
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

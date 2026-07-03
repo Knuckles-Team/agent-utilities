@@ -1025,7 +1025,7 @@ def register_analysis_tools(mcp):
 
                 # Create synthetic OHLC data for demonstration
                 # In production, this would ingest real market data
-                import numpy as np
+                from agent_utilities.numeric import xp as np
 
                 dates = pd.date_range(end=pd.Timestamp.now(), periods=100)
                 base_price = 100.0

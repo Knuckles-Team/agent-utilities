@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

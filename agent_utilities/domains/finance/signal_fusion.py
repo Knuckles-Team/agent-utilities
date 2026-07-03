@@ -148,7 +148,7 @@ class AlphaCombinationEngine:
         normalised to sum to 1. No equal-weight fallback: degenerate input raises
         rather than silently returning a meaningless uniform vector.
         """
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         n = len(returns_matrix)
         if n == 0:

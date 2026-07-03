@@ -7,7 +7,7 @@ and optimal execution threshold derivation for predicting cross-platform spreads
 
 import logging
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 try:
     from statsmodels.tsa.stattools import adfuller

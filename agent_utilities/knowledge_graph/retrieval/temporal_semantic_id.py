@@ -34,7 +34,7 @@ L2-normalization used by
 
 from collections.abc import Sequence
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 __all__ = ["TemporalSemanticIdEncoder"]
 

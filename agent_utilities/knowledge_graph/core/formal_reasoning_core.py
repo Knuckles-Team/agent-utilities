@@ -10,9 +10,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-import numpy as np
-
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
+from agent_utilities.numeric import xp as np
 
 """Formal Graph Theory Primitives.
 

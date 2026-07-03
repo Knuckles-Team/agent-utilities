@@ -51,7 +51,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
