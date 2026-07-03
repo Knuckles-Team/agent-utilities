@@ -45,21 +45,23 @@ engine's ``numeric-parity`` CI job gates the kernel against numpy so it can neve
 CONCEPT:KG-2.317 — the kernel is the **PRIMARY** numeric backend; numpy is **demoted to
 fallback-only** (Analytics Program P5). The discovery loop below is kernel-FIRST: it prefers
 ``epistemic_graph.numeric`` / ``numeric`` and only binds numpy when no kernel is importable.
-Packaging mirrors this: ``pyproject.toml`` declares a ``numeric-kernel`` extra (pins the
-``epistemic-graph`` engine wheel that carries the ``eg-numeric`` kernel) as the *intended*
-backend, and a separate ``numeric-fallback`` extra (numpy/scipy) as the *degraded* path;
-numpy/scipy are NOT in base ``dependencies`` (they live only in the leaf-numeric extras
+Packaging mirrors this: ``pyproject.toml`` declares a ``numeric-kernel`` extra (pulls the
+``epistemic-graph[numeric]`` engine wheel that carries the ``eg-numeric`` kernel) as the
+*intended* backend, and a separate ``numeric-fallback`` extra (numpy/scipy) as the *degraded*
+path; numpy/scipy are NOT in base ``dependencies`` (they live only in the leaf-numeric extras
 ``finance``/``embeddings``/``ann``). The numpy fallback code is deliberately KEPT so the
-abstraction still works where the kernel wheel is absent. **Honest P5 status:** kernel is
-primary + numpy is fallback-demoted + parity-gated; the ONE step left to fully drop numpy is
-to publish the ``eg-numeric`` wheel to a package index so it can become a hard dependency
-(today it is folded into the engine wheel behind a maturin feature, not yet index-published).
+abstraction still works where the kernel is absent. **Honest P5 status:** kernel is
+primary + numpy is fallback-demoted + parity-gated; the kernel ships as a single package —
+``epistemic-graph[numeric]`` — so it is a real, index-resolvable hard dependency (the ``.so``
+is folded into the engine wheel; there is no separate ``eg-numeric`` package on PyPI).
 See ``docs/guides/numeric-kernel.md``.
 
-CONCEPT:KG-2.319 — the full numpy drop (P5 final). The ``eg-numeric`` Surface-A wheel is now
-**published** (cp39-abi3, shipped with the ``epistemic-graph`` 2.6.0 engine release), so the
-``numeric-kernel`` extra now declares it as a **hard dependency** with a *loose floor*
-(``eg-numeric>=0.1.0``, alongside ``epistemic-graph>=2.6.0``) — never an exact pin. numpy is
+CONCEPT:KG-2.319 — the full numpy drop (P5 final). The kernel ships as ONE published package:
+the ``eg-numeric`` Surface-A pyo3 ``.so`` (cp39-abi3) is **folded into the ``epistemic-graph``
+wheel** as ``epistemic_graph.numeric`` (engine CONCEPT:EG-346) — there is NO separate
+``eg-numeric`` package on PyPI. So the ``numeric-kernel`` extra declares a single **hard
+dependency** with a *loose floor* — ``epistemic-graph[numeric]>=2.6.0`` (the ``[numeric]``
+extra adds numpy for the kernel's zero-copy interop), never an exact pin. numpy is
 therefore no longer a base/primary dependency of any kind; it survives ONLY as the
 ``numeric-fallback`` extra and in the leaf ``finance``/``embeddings``/``ann`` extras that use
 genuinely numpy/scipy-specific ops (``scipy.stats``, ``scipy.sparse``) with no kernel
@@ -68,8 +70,9 @@ equivalent. The numpy fallback branch below is still KEPT — deleting it would 
 source-mounts the repos (``PYTHONPATH=/au:/eg``, ``services/graph-os/compose.dev.yml``) and
 installs an EDITABLE kernel via ``maturin develop -m
 crates/eg-numeric/Cargo.toml --features python`` (with
-``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``) — so dev builds the kernel from source and never
-depends on the published wheel. Prod installs pull the published wheel via ``numeric-kernel``.
+``PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1``) on the epistemic-graph project — so dev builds the
+kernel from source and never depends on the published wheel. Prod installs pull the folded
+kernel via ``epistemic-graph[numeric]`` (the ``numeric-kernel`` extra).
 See ``docs/guides/numeric-kernel.md``.
 
 Any attribute not explicitly overridden below is delegated straight to numpy, so

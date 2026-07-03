@@ -78,19 +78,19 @@ engine = [
 # HARD, index-resolvable dependency, so the shim goes kernel-LIVE (`HAVE_KERNEL == True`)
 # with ZERO call-site changes. This is the intended numeric backend; `numeric-fallback`
 # below is the degraded path.
-#   The `eg-numeric` Surface-A wheel is now PUBLISHED (cp39-abi3, shipped alongside the
-#   `epistemic-graph` 2.6.0 engine release), so we can declare it directly here as a
-#   loose floor (`>=0.1.0`) — a real dependency, not just the engine carrier. The
-#   `epistemic-graph>=2.6.0` floor pins the engine release that carries the same kernel
-#   folded behind its `numeric` maturin feature. Both are FLOORS, never exact pins.
+#   There is ONE published package: the kernel is FOLDED INTO the `epistemic-graph`
+#   wheel as `epistemic_graph.numeric` (engine CONCEPT:EG-346) — there is no separate
+#   `eg-numeric` package on PyPI. So this extra pulls `epistemic-graph[numeric]` (the
+#   engine wheel that carries the kernel `.so` + numpy for interop) at a LOOSE FLOOR
+#   (`>=2.6.0`, never an exact pin). `HAVE_KERNEL` flips True because the shim probes
+#   `epistemic_graph.numeric`, which the `[numeric]` build ships.
 #   DEV (non-publishing) builds the kernel from source instead: source-mounts +
 #   `PYTHONPATH=/au:/eg` (services/graph-os/compose.dev.yml) plus an editable install via
 #   `maturin develop -m crates/eg-numeric/Cargo.toml --features python`
-#   (`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`). Dev never depends on the published wheel.
-#   See docs/guides/numeric-kernel.md.
+#   (`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`) on the epistemic-graph project. Dev never
+#   depends on the published wheel. See docs/guides/numeric-kernel.md.
 numeric-kernel = [
-    "eg-numeric>=0.1.0",
-    "epistemic-graph>=2.6.0"
+    "epistemic-graph[numeric]>=2.6.0"
 ]
 # CONCEPT:KG-2.319 — the numpy/scipy FALLBACK path, demoted to an explicit extra. The `xp`
 # shim transparently falls back to numpy when the kernel is absent, so this keeps the
