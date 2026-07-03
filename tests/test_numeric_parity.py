@@ -214,3 +214,55 @@ def test_fallthrough_attrs():
 
 def test_kernel_flag_is_bool():
     assert isinstance(HAVE_KERNEL, bool)
+
+
+# --------------------------------------------------------------------------- #
+# ufunc-method surface (CONCEPT:KG-2.314) — xp.maximum / xp.minimum expose the
+# numpy ufunc-method API (.accumulate / .reduce / .outer / .at) while keeping
+# plain-call behaviour identical. Exercised on both HAVE_KERNEL branches (kernel
+# absent here -> numpy fallback; the kernel .accumulate hook is getattr-guarded).
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "x",
+    [
+        np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0]),
+        np.array([-2.0, -5.0, 0.0, 7.0, 7.0, -1.0]),
+        np.array([1.5]),
+        np.linspace(-3.0, 3.0, 50),
+    ],
+)
+def test_ufunc_accumulate_parity(x):
+    assert _close(xp.maximum.accumulate(x), np.maximum.accumulate(x))
+    assert _close(xp.minimum.accumulate(x), np.minimum.accumulate(x))
+
+
+def test_ufunc_reduce_parity():
+    x = np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
+    assert _close(xp.maximum.reduce(x), np.maximum.reduce(x))
+    assert _close(xp.minimum.reduce(x), np.minimum.reduce(x))
+
+
+def test_ufunc_outer_and_call_parity():
+    a = np.array([1.0, 2.0, 3.0])
+    b = np.array([0.0, 4.0])
+    assert _close(xp.maximum.outer(a, b), np.maximum.outer(a, b))
+    assert _close(xp.minimum.outer(a, b), np.minimum.outer(a, b))
+    # plain-call behaviour is unchanged (elementwise, and scalar broadcast).
+    assert _close(xp.maximum(a, 2.0), np.maximum(a, 2.0))
+    assert _close(xp.maximum(a, a[::-1]), np.maximum(a, a[::-1]))
+
+
+def test_ufunc_at_parity():
+    a = np.array([1.0, 2.0, 3.0, 4.0])
+    b = a.copy()
+    np.maximum.at(a, [0, 1, 2], [5.0, 0.0, 9.0])
+    xp.maximum.at(b, [0, 1, 2], [5.0, 0.0, 9.0])
+    assert _close(a, b)
+
+
+def test_ufunc_is_wrapper_not_bound_method():
+    # xp.maximum must be a stable callable object carrying ufunc methods.
+    assert callable(xp.maximum)
+    for m in ("accumulate", "reduce", "outer", "at"):
+        assert hasattr(xp.maximum, m)
+        assert hasattr(xp.minimum, m)

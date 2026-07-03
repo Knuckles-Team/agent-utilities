@@ -21,13 +21,15 @@ keeping the ``np`` alias so bodies are unchanged. Behaviour is identical today
 (kernel absent → numpy fallback) and becomes kernel-accelerated once the
 ``epistemic_graph.numeric`` wheel is deployed.
 
-Three finance files (``composite_backtest``, ``profit_attribution``,
-``research_autopilot``) stay on ``import numpy as np`` for now: they call
-``np.maximum.accumulate(...)`` — a numpy **ufunc method**. ``xp.maximum`` is a
-plain callable here, not a ufunc object, so ``.accumulate`` is absent and cannot
-be reached via the numpy fallback. Migrating them needs a P1 op-surface
-extension (expose ``xp.maximum``/``xp.minimum`` as ufunc-like objects carrying
-``.accumulate``/``.reduce``/``.outer``/``.at``).
+CONCEPT:KG-2.314 — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are
+not plain callables but small ``_Ufunc`` wrapper objects: calling them keeps the
+kernel-routed element-wise behaviour, while ``.accumulate`` / ``.reduce`` /
+``.outer`` / ``.at`` forward to numpy's real ufunc methods (and to the kernel
+when ``HAVE_KERNEL`` and a matching kernel op exists). This lets the three
+finance files (``composite_backtest``, ``profit_attribution``,
+``research_autopilot``) that call ``np.maximum.accumulate(...)`` migrate onto the
+``xp`` surface — previously ``xp.maximum`` was a bare callable with no
+``.accumulate`` attribute, blocking their migration.
 
 Any attribute not explicitly overridden below is delegated straight to numpy, so
 ``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
@@ -196,6 +198,78 @@ class _Linalg:
             if am is not None:
                 return _kernel.matrix_power(am, int(n))
         return _np.linalg.matrix_power(a, n)
+
+
+def _maximum_call(a: Any, b: Any, **kw: Any) -> Any:
+    if HAVE_KERNEL and not kw:
+        va, vb = _f64_1d(a), _f64_1d(b)
+        if va is not None and vb is not None and va.shape == vb.shape:
+            return _kernel.maximum(va, vb)
+    return _np.maximum(a, b, **kw)
+
+
+def _minimum_call(a: Any, b: Any, **kw: Any) -> Any:
+    if HAVE_KERNEL and not kw:
+        va, vb = _f64_1d(a), _f64_1d(b)
+        if va is not None and vb is not None and va.shape == vb.shape:
+            return _kernel.minimum(va, vb)
+    return _np.minimum(a, b, **kw)
+
+
+class _Ufunc:
+    """A callable that mirrors a numpy ufunc's method surface (CONCEPT:KG-2.314).
+
+    Calling the object routes through *call* (which may be kernel-accelerated),
+    keeping ``xp.maximum(a, b)`` identical to before. The ufunc methods
+    ``.accumulate`` / ``.reduce`` / ``.outer`` / ``.at`` forward to numpy's real
+    ufunc (``numpy.maximum`` / ``numpy.minimum`` …), so ``np.maximum.accumulate``
+    resolves under the ``xp`` shim exactly as under plain numpy. When
+    ``HAVE_KERNEL`` and the kernel exposes a matching cumulative op
+    (``cummax`` / ``cummin``), ``.accumulate`` on a bare 1-D float64 input is
+    kernel-routed; otherwise numpy handles it (parity-proven).
+    """
+
+    __slots__ = ("_name", "_npufunc", "_call", "_kernel_accum")
+
+    def __init__(self, name: str, call: Any, kernel_accum: str | None = None) -> None:
+        self._name = name
+        self._npufunc = getattr(_np, name)
+        self._call = call
+        self._kernel_accum = kernel_accum
+
+    def __call__(self, *args: Any, **kw: Any) -> Any:
+        return self._call(*args, **kw)
+
+    def accumulate(
+        self, array: Any, axis: int = 0, dtype: Any = None, out: Any = None
+    ) -> Any:
+        if (
+            HAVE_KERNEL
+            and self._kernel_accum is not None
+            and axis in (0, -1)
+            and dtype is None
+            and out is None
+        ):
+            kfn = getattr(_kernel, self._kernel_accum, None)
+            if kfn is not None:
+                v = _f64_1d(array)
+                if v is not None:
+                    return kfn(v)
+        return self._npufunc.accumulate(array, axis=axis, dtype=dtype, out=out)
+
+    def reduce(self, *args: Any, **kw: Any) -> Any:
+        return self._npufunc.reduce(*args, **kw)
+
+    def outer(self, a: Any, b: Any, **kw: Any) -> Any:
+        return self._npufunc.outer(a, b, **kw)
+
+    def at(self, a: Any, indices: Any, b: Any = None) -> Any:
+        if b is None:
+            return self._npufunc.at(a, indices)
+        return self._npufunc.at(a, indices, b)
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        return f"<xp ufunc {self._name!r}>"
 
 
 class _XP:
@@ -372,19 +446,11 @@ class _XP:
                 return _np.asarray(_kernel.isnan(v), dtype=bool)
         return _np.isnan(a, **kw)
 
-    def maximum(self, a: Any, b: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
-            va, vb = _f64_1d(a), _f64_1d(b)
-            if va is not None and vb is not None and va.shape == vb.shape:
-                return _kernel.maximum(va, vb)
-        return _np.maximum(a, b, **kw)
-
-    def minimum(self, a: Any, b: Any, **kw: Any) -> Any:
-        if HAVE_KERNEL and not kw:
-            va, vb = _f64_1d(a), _f64_1d(b)
-            if va is not None and vb is not None and va.shape == vb.shape:
-                return _kernel.minimum(va, vb)
-        return _np.minimum(a, b, **kw)
+    #: ufunc-method surface (CONCEPT:KG-2.314): callable + ``.accumulate`` /
+    #: ``.reduce`` / ``.outer`` / ``.at``. Class attributes (not methods) so
+    #: ``xp.maximum`` yields the wrapper object, not a bound method.
+    maximum = _Ufunc("maximum", _maximum_call, kernel_accum="cummax")
+    minimum = _Ufunc("minimum", _minimum_call, kernel_accum="cummin")
 
     def where(self, condition: Any, *args: Any) -> Any:
         if HAVE_KERNEL and len(args) == 2:
