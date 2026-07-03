@@ -50,9 +50,13 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
 
     captured = {}
 
-    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
     monkeypatch.setattr(
-        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {"tag_prompts": {}}
+        agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"}
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_build_execution_config",
+        lambda e, n, m, **kw: {"tag_prompts": {}},
     )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
@@ -92,9 +96,13 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
                 return [{"content": "RESOLVED BLOB CONTENT"}]
             return []
 
-    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
     monkeypatch.setattr(
-        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {"tag_prompts": {}}
+        agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"}
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_build_execution_config",
+        lambda e, n, m, **kw: {"tag_prompts": {}},
     )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
@@ -126,11 +134,15 @@ def test_plan_output_type_uses_promptedoutput_for_non_json_models(monkeypatch):
     # ensure the helper imports our patched get_model_config path:
     import agent_utilities.core.model_factory as mf
 
-    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": False})
+    monkeypatch.setattr(
+        mf, "get_model_config", lambda mid=None: {"supports_json": False}
+    )
     out = hp._plan_output_type(_M())
     assert isinstance(out, PromptedOutput)
 
-    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": True})
+    monkeypatch.setattr(
+        mf, "get_model_config", lambda mid=None: {"supports_json": True}
+    )
     assert hp._plan_output_type(_M()) is hp.GraphPlan
 
 
@@ -177,7 +189,9 @@ def test_cred_ref_resolves_to_auth_token_only_on_transient_deps():
 
     from agent_utilities.graph.executor import agent_deps_from_graph
 
-    secrets = SimpleNamespace(get=lambda key: "SECRET-TOKEN-XYZ" if key == "cred:sess1" else None)
+    secrets = SimpleNamespace(
+        get=lambda key: "SECRET-TOKEN-XYZ" if key == "cred:sess1" else None
+    )
     deps = SimpleNamespace(
         project_root="",
         knowledge_engine=None,

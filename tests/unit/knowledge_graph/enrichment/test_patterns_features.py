@@ -204,4 +204,6 @@ def test_cluster_features_honors_precomputed_call_edges(monkeypatch):
 
     feat_mod.cluster_features(code, fake_community, min_size=3, call_edges=provided)
     assert called["n"] == 0, "resolve_call_edges recomputed despite provided call_edges"
-    assert seen_edges["e"] == [(a.id, b.id)], "community_fn did not get the provided edges"
+    assert seen_edges["e"] == [(a.id, b.id)], (
+        "community_fn did not get the provided edges"
+    )

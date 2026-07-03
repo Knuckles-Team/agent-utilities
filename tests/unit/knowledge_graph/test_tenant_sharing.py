@@ -68,7 +68,10 @@ def test_visibility_predicate_for_user():
 
 def test_visibility_predicate_none_for_privileged():
     assert ts.visibility_predicate(_user("root", roles=("admin",))) is None
-    assert ts.visibility_predicate(ActorContext(actor_id="system", roles=("system",))) is None
+    assert (
+        ts.visibility_predicate(ActorContext(actor_id="system", roles=("system",)))
+        is None
+    )
 
 
 def test_visibility_predicate_unsafe_id_fails_closed():
@@ -123,7 +126,9 @@ def test_read_union_dedups_org_wins():
     def executor(graph, cypher, params):
         return data.get(graph, [])
 
-    rows = ts.read_union("MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg)
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
     by_id = {r["id"]: r["src"] for r in rows}
     assert by_id == {"n1": "org", "n2": "org", "n3": "commons"}  # org wins n1
 
@@ -136,7 +141,9 @@ def test_read_union_tolerates_missing_commons():
             raise ConnectionError("commons down")
         return [{"id": "n1"}]
 
-    rows = ts.read_union("MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg)
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
     assert [r["id"] for r in rows] == ["n1"]  # degrades to org-only
 
 
@@ -173,7 +180,9 @@ def test_make_private_sets_owner_to_caller():
 def test_promote_to_commons_copies_node():
     src = _FakeStore(rows=[{"props": {"id": "n1", "title": "x"}, "labels": ["Doc"]}])
     dst = _FakeStore()
-    ok = ts.promote_to_commons("n1", store=src, commons_store=dst, actor=_user("alice", "acme"))
+    ok = ts.promote_to_commons(
+        "n1", store=src, commons_store=dst, actor=_user("alice", "acme")
+    )
     assert ok is True
     # Wrote into commons with commons scope.
     dst_cypher, dst_params = dst.calls[0]

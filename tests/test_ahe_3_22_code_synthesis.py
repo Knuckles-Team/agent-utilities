@@ -43,7 +43,9 @@ class _StubSynthesizer:
         self.content = content
         self.calls: list[str] = []
 
-    def generate(self, *, goal: str, target_path: str, current_source: str) -> str | None:
+    def generate(
+        self, *, goal: str, target_path: str, current_source: str
+    ) -> str | None:
         self.calls.append(target_path)
         return self.content
 
@@ -64,19 +66,31 @@ def repo(tmp_path: Path) -> Path:
 
 class TestResolveTarget:
     def test_resolves_existing_py_target(self, repo: Path):
-        assert resolve_target_file({"file_path": "pkg/mod.py"}, repo_root=str(repo)) == "pkg/mod.py"
+        assert (
+            resolve_target_file({"file_path": "pkg/mod.py"}, repo_root=str(repo))
+            == "pkg/mod.py"
+        )
 
     def test_unattributed_proposal_is_none(self, repo: Path):
         assert resolve_target_file({"goal": "do a thing"}, repo_root=str(repo)) is None
 
     def test_non_python_target_is_none(self, repo: Path):
-        assert resolve_target_file({"file_path": "pkg/notes.md"}, repo_root=str(repo)) is None
+        assert (
+            resolve_target_file({"file_path": "pkg/notes.md"}, repo_root=str(repo))
+            is None
+        )
 
     def test_missing_file_is_none(self, repo: Path):
-        assert resolve_target_file({"file_path": "pkg/ghost.py"}, repo_root=str(repo)) is None
+        assert (
+            resolve_target_file({"file_path": "pkg/ghost.py"}, repo_root=str(repo))
+            is None
+        )
 
     def test_escaping_path_is_none(self, repo: Path):
-        assert resolve_target_file({"file_path": "../etc/x.py"}, repo_root=str(repo)) is None
+        assert (
+            resolve_target_file({"file_path": "../etc/x.py"}, repo_root=str(repo))
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +102,9 @@ class TestSynthesizeCode:
     def test_attributed_proposal_yields_single_file_edit(self, repo: Path):
         stub = _StubSynthesizer()
         out = synthesize_code(
-            {"file_path": "pkg/mod.py", "goal": "tweak"}, synthesizer=stub, repo_root=str(repo)
+            {"file_path": "pkg/mod.py", "goal": "tweak"},
+            synthesizer=stub,
+            repo_root=str(repo),
         )
         assert out is not None
         assert [f.path for f in out] == ["pkg/mod.py"]
@@ -97,20 +113,31 @@ class TestSynthesizeCode:
 
     def test_unattributed_proposal_skips_generation(self, repo: Path):
         stub = _StubSynthesizer()
-        assert synthesize_code({"goal": "x"}, synthesizer=stub, repo_root=str(repo)) is None
+        assert (
+            synthesize_code({"goal": "x"}, synthesizer=stub, repo_root=str(repo))
+            is None
+        )
         assert stub.calls == []  # generator never invoked without a target
 
     def test_unchanged_or_empty_output_is_none(self, repo: Path):
-        assert synthesize_code(
-            {"file_path": "pkg/mod.py"},
-            synthesizer=_StubSynthesizer(content="VALUE = 1"),  # == current (stripped)
-            repo_root=str(repo),
-        ) is None
-        assert synthesize_code(
-            {"file_path": "pkg/mod.py"},
-            synthesizer=_StubSynthesizer(content=""),
-            repo_root=str(repo),
-        ) is None
+        assert (
+            synthesize_code(
+                {"file_path": "pkg/mod.py"},
+                synthesizer=_StubSynthesizer(
+                    content="VALUE = 1"
+                ),  # == current (stripped)
+                repo_root=str(repo),
+            )
+            is None
+        )
+        assert (
+            synthesize_code(
+                {"file_path": "pkg/mod.py"},
+                synthesizer=_StubSynthesizer(content=""),
+                repo_root=str(repo),
+            )
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +147,11 @@ class TestSynthesizeCode:
 
 class TestExtraFilesBridge:
     def test_generated_files_take_the_code_branch(self):
-        proposal = {"id": "p:1", "name": "Improve mod", "goal": "g"}  # no embedded files
+        proposal = {
+            "id": "p:1",
+            "name": "Improve mod",
+            "goal": "g",
+        }  # no embedded files
         change = synthesize_change_set(
             proposal, extra_files=[FileChange(path="pkg/mod.py", content="VALUE = 2\n")]
         )
@@ -130,11 +161,17 @@ class TestExtraFilesBridge:
         assert change.publishable
 
     def test_no_extra_files_falls_back_to_prose(self):
-        change = synthesize_change_set({"id": "p:2", "name": "Improve mod", "goal": "g"})
+        change = synthesize_change_set(
+            {"id": "p:2", "name": "Improve mod", "goal": "g"}
+        )
         assert change.kind == "sdd_plan"
 
     def test_embedded_files_win_over_extra_files(self):
-        proposal = {"id": "p:3", "name": "x", "files": [{"path": "pkg/a.py", "content": "A = 1\n"}]}
+        proposal = {
+            "id": "p:3",
+            "name": "x",
+            "files": [{"path": "pkg/a.py", "content": "A = 1\n"}],
+        }
         change = synthesize_change_set(
             proposal, extra_files=[FileChange(path="pkg/b.py", content="B = 2\n")]
         )
@@ -168,30 +205,43 @@ def target_repo(tmp_path: Path) -> Path:
     _git("init", "-q", "-b", "main", ".", cwd=r)
     (r / "README.md").write_text("seed\n", encoding="utf-8")
     _git("add", "-A", cwd=r)
-    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=r)
+    _git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=r
+    )
     return r
 
 
 class TestGovernedPublishLivePath:
-    def test_governed_publish_emits_generated_code(self, monkeypatch, target_repo, tmp_path):
+    def test_governed_publish_emits_generated_code(
+        self, monkeypatch, target_repo, tmp_path
+    ):
         # Fake the generator so the live path does not need an LLM or the real repo.
         monkeypatch.setattr(
             code_synthesis,
             "synthesize_code",
-            lambda proposal, **kw: [FileChange(path="pkg/gen.py", content="GENERATED = 1\n")],
+            lambda proposal, **kw: [
+                FileChange(path="pkg/gen.py", content="GENERATED = 1\n")
+            ],
         )
         engine = FakeEngine()
         # Relax the merge_promotion tier to auto so the gate allows (no human grant).
         engine.add_node(
             "rule:promo-auto",
             "governance_rule",
-            properties={"scope": "action_policy", "kind": "merge_promotion", "target": "*", "tier": "auto"},
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
         )
         publisher = LocalBranchPublisher(
             engine, repo_path=target_repo, worktree_root=tmp_path / "wt"
         )
         report = governed_publish(
-            engine, {"id": "proposal:gen-1", "name": "Gen", "goal": "g"}, publisher=publisher
+            engine,
+            {"id": "proposal:gen-1", "name": "Gen", "goal": "g"},
+            publisher=publisher,
         )
         assert report["status"] == "published"
         assert report["change_kind"] == "code"
@@ -205,13 +255,20 @@ class TestGovernedPublishLivePath:
         engine.add_node(
             "rule:promo-auto",
             "governance_rule",
-            properties={"scope": "action_policy", "kind": "merge_promotion", "target": "*", "tier": "auto"},
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
         )
         publisher = LocalBranchPublisher(
             engine, repo_path=target_repo, worktree_root=tmp_path / "wt"
         )
         report = governed_publish(
-            engine, {"id": "proposal:prose-1", "name": "Prose only", "goal": "g"}, publisher=publisher
+            engine,
+            {"id": "proposal:prose-1", "name": "Prose only", "goal": "g"},
+            publisher=publisher,
         )
         assert report["status"] == "published"
         assert report["change_kind"] == "sdd_plan"

@@ -100,4 +100,6 @@ def test_schedule_accelerates_toward_horizon():
     # The final slice has no remaining exposure ⇒ enforcement→0 ⇒ baseline intensity.
     last = sched[-1]
     assert math.isclose(last["enforcement"], 0.0, abs_tol=1e-12)
-    assert math.isclose(last["intensity"], solve_equilibrium(p, enforcement=0.0).intensity, rel_tol=1e-9)
+    assert math.isclose(
+        last["intensity"], solve_equilibrium(p, enforcement=0.0).intensity, rel_tol=1e-9
+    )

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.research.feed_grading import grade_and_enqueue_paper
+from agent_utilities.knowledge_graph.research.feed_grading import (
+    grade_and_enqueue_paper,
+)
 
 
 class _Engine:
@@ -46,12 +48,20 @@ def _patched(monkeypatch):
             ["d"],
         ),
     )
-    monkeypatch.setattr(ResearchPipelineRunner, "_paper_novelty", lambda self, t, a: 1.0)
+    monkeypatch.setattr(
+        ResearchPipelineRunner, "_paper_novelty", lambda self, t, a: 1.0
+    )
     monkeypatch.setattr(ResearchPipelineRunner, "ingest_paper_marginal", _marginal)
 
 
 def _paper(pid, title):
-    return {"id": pid, "title": title, "abstract": "", "authors": [], "url": f"http://x/{pid}"}
+    return {
+        "id": pid,
+        "title": title,
+        "abstract": "",
+        "authors": [],
+        "url": f"http://x/{pid}",
+    }
 
 
 def test_high_grade_enqueues_prioritized_fetch(_patched):

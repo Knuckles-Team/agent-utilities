@@ -51,7 +51,9 @@ def test_read_eml_html_only_body_is_detagged(tmp_path):
     msg = EmailMessage()
     msg["From"] = "x@y.com"
     msg["Subject"] = "HTML mail"
-    msg.add_alternative("<html><body><p>Hello <b>world</b></p></body></html>", subtype="html")
+    msg.add_alternative(
+        "<html><body><p>Hello <b>world</b></p></body></html>", subtype="html"
+    )
     p = tmp_path / "html.eml"
     p.write_bytes(msg.as_bytes())
     text = ro.read_eml(str(p))
@@ -230,9 +232,7 @@ def test_readers_self_register():
         if callable(fn):
             fn()
             break
-    importlib.import_module(
-        "agent_utilities.knowledge_graph.extraction.readers_office"
-    )
+    importlib.import_module("agent_utilities.knowledge_graph.extraction.readers_office")
     lookup = getattr(reg, "get_reader", None)
     if not callable(lookup):
         pytest.skip("registry has no get_reader accessor to assert against")

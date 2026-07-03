@@ -101,7 +101,15 @@ def test_kg_2_310_broker_dispatches_to_client(monkeypatch, tools):
     assert out["action"] == "publish"
     assert out["result"]["echoed"] == "publish"
     assert calls == [
-        ("publish", {"exchange": "ex1", "routing_key": "rk", "payload": "hello", "durable": True})
+        (
+            "publish",
+            {
+                "exchange": "ex1",
+                "routing_key": "rk",
+                "payload": "hello",
+                "durable": True,
+            },
+        )
     ]
 
 
@@ -195,13 +203,19 @@ def test_kg_2_310_kvcache_contains(monkeypatch, tools):
 def test_kg_2_310_federated_search_dispatches(monkeypatch, tools):
     """CONCEPT:KG-2.310 — graph_federated_search routes into a search sub-client."""
     calls: list = []
-    search = SimpleNamespace(federated_search=_recording_method(calls, "federated_search"))
+    search = SimpleNamespace(
+        federated_search=_recording_method(calls, "federated_search")
+    )
     monkeypatch.setattr(
         engine_surface_tools, "_client", lambda graph: _fake_client(search=search)
     )
     out = json.loads(
         tools["graph_federated_search"](
-            query="who calls foo", references="ref1, ref2", top_k=5, params_json="{}", graph=""
+            query="who calls foo",
+            references="ref1, ref2",
+            top_k=5,
+            params_json="{}",
+            graph="",
         )
     )
     assert out["surface"] == "federated_search"
@@ -236,13 +250,27 @@ def test_kg_2_310_promql_instant_and_range(monkeypatch, tools):
     )
     inst = json.loads(
         tools["graph_promql"](
-            query="up", action="instant", time="", start="", end="", step="", params_json="{}", graph=""
+            query="up",
+            action="instant",
+            time="",
+            start="",
+            end="",
+            step="",
+            params_json="{}",
+            graph="",
         )
     )
     assert inst["action"] == "instant"
     rng = json.loads(
         tools["graph_promql"](
-            query="up", action="range", time="", start="0", end="10", step="30s", params_json="{}", graph=""
+            query="up",
+            action="range",
+            time="",
+            start="0",
+            end="10",
+            step="30s",
+            params_json="{}",
+            graph="",
         )
     )
     assert rng["action"] == "range"
@@ -255,7 +283,14 @@ def test_kg_2_310_promql_degrades(monkeypatch, tools):
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_promql"](
-            query="up", action="instant", time="", start="", end="", step="", params_json="{}", graph=""
+            query="up",
+            action="instant",
+            time="",
+            start="",
+            end="",
+            step="",
+            params_json="{}",
+            graph="",
         )
     )
     assert out["degraded"] is True
@@ -274,14 +309,28 @@ def test_kg_2_310_traces_search_and_get(monkeypatch, tools):
     )
     s = json.loads(
         tools["graph_traces"](
-            action="search", trace_id="", service="svc", operation="", query="", limit=7, params_json="{}", graph=""
+            action="search",
+            trace_id="",
+            service="svc",
+            operation="",
+            query="",
+            limit=7,
+            params_json="{}",
+            graph="",
         )
     )
     assert s["action"] == "search"
     assert calls[0][1] == {"service": "svc", "limit": 7}
     g = json.loads(
         tools["graph_traces"](
-            action="get", trace_id="t123", service="", operation="", query="", limit=20, params_json="{}", graph=""
+            action="get",
+            trace_id="t123",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
         )
     )
     assert g["action"] == "get"
@@ -293,7 +342,14 @@ def test_kg_2_310_traces_degrades(monkeypatch, tools):
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_traces"](
-            action="search", trace_id="", service="", operation="", query="", limit=20, params_json="{}", graph=""
+            action="search",
+            trace_id="",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
         )
     )
     assert out["degraded"] is True
@@ -321,9 +377,7 @@ def test_kg_2_310_gis_dispatches(monkeypatch, tools):
 def test_kg_2_310_gis_degrades(monkeypatch, tools):
     """CONCEPT:KG-2.310 — graph_gis degrades when no GIS surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
-    out = json.loads(
-        tools["graph_gis"](action="route", params_json="{}", graph="")
-    )
+    out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
     assert out["degraded"] is True
 
 
@@ -333,7 +387,9 @@ def test_kg_2_310_memory_trajectory_dispatches(monkeypatch, tools):
     calls: list = []
     trajectory = SimpleNamespace(append_step=_recording_method(calls, "append_step"))
     monkeypatch.setattr(
-        engine_surface_tools, "_client", lambda graph: _fake_client(trajectory=trajectory)
+        engine_surface_tools,
+        "_client",
+        lambda graph: _fake_client(trajectory=trajectory),
     )
     out = json.loads(
         tools["graph_memory"](
@@ -344,9 +400,7 @@ def test_kg_2_310_memory_trajectory_dispatches(monkeypatch, tools):
     )
     assert out["surface"] == "memory"
     assert out["action"] == "append_step"
-    assert calls == [
-        ("append_step", {"trajectory_id": "t1", "step": {"reward": 1.0}})
-    ]
+    assert calls == [("append_step", {"trajectory_id": "t1", "step": {"reward": 1.0}})]
 
 
 def test_kg_2_310_memory_create_summary_dispatches(monkeypatch, tools):
@@ -385,9 +439,7 @@ def test_kg_2_310_memory_degrades(monkeypatch, tools):
     """CONCEPT:KG-2.310 — graph_memory degrades when no memory surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
-        tools["graph_memory"](
-            action="consolidate", params_json="{}", graph=""
-        )
+        tools["graph_memory"](action="consolidate", params_json="{}", graph="")
     )
     assert out["degraded"] is True
     assert out["surface"] == "memory"
@@ -401,7 +453,5 @@ def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
         raise ConnectionError("engine down")
 
     monkeypatch.setattr(engine_surface_tools, "_client", _boom)
-    out = json.loads(
-        tools["graph_gis"](action="route", params_json="{}", graph="")
-    )
+    out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
     assert "engine unavailable" in out["error"]

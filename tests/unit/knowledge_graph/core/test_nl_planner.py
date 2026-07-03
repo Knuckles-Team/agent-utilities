@@ -213,7 +213,9 @@ def test_kg_2_305_nl_query_mcp_tool_registered():
         # (routing through the saved class, not the override — no self-recursion).
         orig_planner = np.AuNlPlanner
         np.AuNlPlanner = lambda **k: orig_planner(
-            run=lambda prompt, system: '{"dialect": "uql", "query": "MATCH (:Agent) |> LIMIT 1"}'
+            run=lambda prompt, system: (
+                '{"dialect": "uql", "query": "MATCH (:Agent) |> LIMIT 1"}'
+            )
         )
         try:
             res = json.loads(

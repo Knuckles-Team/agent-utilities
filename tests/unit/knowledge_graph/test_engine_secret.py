@@ -57,9 +57,7 @@ def test_existing_secret_file_wins(data_dir):
 
 @pytest.mark.concept("CONCEPT:OS-5.14")
 def test_resolve_uses_configured_secret_verbatim(data_dir):
-    secret, insecure = resolve_engine_auth(
-        _cfg(graph_service_auth_secret="configured")
-    )
+    secret, insecure = resolve_engine_auth(_cfg(graph_service_auth_secret="configured"))
     assert (secret, insecure) == ("configured", False)
     # Nothing is generated when the secret is configured explicitly.
     assert not (data_dir / "engine_secret").exists()

@@ -65,9 +65,9 @@ class KnowledgeClassification(BaseModel):
 
     importance_score: float = Field(ge=0.0, le=1.0)
     is_permanent: bool = False
-    content_tier: Literal[
-        "ephemeral", "standard", "high_value", "critical"
-    ] = "standard"
+    content_tier: Literal["ephemeral", "standard", "high_value", "critical"] = (
+        "standard"
+    )
     evolution_potential: float = Field(default=0.0, ge=0.0, le=1.0)
     evolution_reasoning: str = ""
     suggested_node_type: str = "social_post"
@@ -290,9 +290,9 @@ class UniversalKnowledgeClassifier:
 
         # Determine tier
         if importance >= 0.9:
-            tier: Literal[
-                "ephemeral", "standard", "high_value", "critical"
-            ] = "critical"
+            tier: Literal["ephemeral", "standard", "high_value", "critical"] = (
+                "critical"
+            )
         elif importance >= 0.7:
             tier = "high_value"
         elif importance >= 0.4:
@@ -302,9 +302,9 @@ class UniversalKnowledgeClassifier:
 
         # Determine action
         if evolution_potential >= 0.7:
-            action: Literal[
-                "ingest", "ingest_and_evolve", "decay", "skip"
-            ] = "ingest_and_evolve"
+            action: Literal["ingest", "ingest_and_evolve", "decay", "skip"] = (
+                "ingest_and_evolve"
+            )
         elif importance >= 0.5:
             action = "ingest"
         elif importance >= 0.3:

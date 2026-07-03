@@ -17,7 +17,9 @@ _NODE = {"Task", "Schedule"}  # node-shaped subset
 
 
 def test_labelless_property_union_spans_only_node_tables():
-    sql = transpile("MATCH (n {id: $id}) RETURN n", {"id": "x"}, _KNOWN, node_tables=_NODE).sql
+    sql = transpile(
+        "MATCH (n {id: $id}) RETURN n", {"id": "x"}, _KNOWN, node_tables=_NODE
+    ).sql
     assert "Account" not in sql and "Action" not in sql
     assert "Task" in sql and "Schedule" in sql
 
@@ -25,7 +27,10 @@ def test_labelless_property_union_spans_only_node_tables():
 def test_labelless_set_union_excludes_non_node_tables():
     # The CAS L3-mirror shape that was failing on Account/Action.
     sql = transpile(
-        "MATCH (n {id: $id}) SET n.status = $s", {"id": "x", "s": "cancelled"}, _KNOWN, node_tables=_NODE
+        "MATCH (n {id: $id}) SET n.status = $s",
+        {"id": "x", "s": "cancelled"},
+        _KNOWN,
+        node_tables=_NODE,
     ).sql
     assert "Account" not in sql and "Action" not in sql
 

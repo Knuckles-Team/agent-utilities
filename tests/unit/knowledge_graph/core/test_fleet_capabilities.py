@@ -137,7 +137,10 @@ def test_derive_tool_mode_classifies_variant():
     """CONCEPT:KG-2.133 — condensed = action+params_json schema; verbose = typed params."""
     from agent_utilities.knowledge_graph.core.source_sync import _derive_tool_mode
 
-    assert _derive_tool_mode({"properties": {"action": {}, "params_json": {}}}) == "condensed"
+    assert (
+        _derive_tool_mode({"properties": {"action": {}, "params_json": {}}})
+        == "condensed"
+    )
     assert _derive_tool_mode({"properties": {"owner": {}, "repo": {}}}) == "verbose"
     assert _derive_tool_mode({}) == "verbose"
     assert _derive_tool_mode(None) == "verbose"
@@ -166,4 +169,6 @@ def test_both_tool_variants_ingested_with_mode():
     eng = FakeEngine()
     _write_fleet_nodes(eng, catalog)
     assert eng.nodes["tool_github-mcp_github_issues"][1]["tool_mode"] == "condensed"
-    assert eng.nodes["tool_github-mcp_github_search_issues"][1]["tool_mode"] == "verbose"
+    assert (
+        eng.nodes["tool_github-mcp_github_search_issues"][1]["tool_mode"] == "verbose"
+    )

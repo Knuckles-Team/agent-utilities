@@ -43,7 +43,9 @@ def test_to_model_settings_merges_extra_body_without_clobber():
         "max_tokens": 16384,
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
     }
-    prof = SamplingProfile(task_class="extraction", temperature=0.0, top_k=20, min_p=0.0)
+    prof = SamplingProfile(
+        task_class="extraction", temperature=0.0, top_k=20, min_p=0.0
+    )
     ms = prof.to_model_settings(base)
     assert ms["temperature"] == 0.0
     # vLLM knobs land in extra_body, and the pre-existing key survives.
@@ -139,7 +141,11 @@ def test_router_populates_sampling_profile():
         RuleBasedPolicy,
     )
 
-    cands = [RoutingCandidate(model_id="m1", primitive=RoutingPrimitive.DIRECT, confidence=0.9)]
+    cands = [
+        RoutingCandidate(
+            model_id="m1", primitive=RoutingPrimitive.DIRECT, confidence=0.9
+        )
+    ]
     policy = RuleBasedPolicy()
     d_code = policy.route("extract entities from this invoice", cands)
     assert d_code.sampling_profile.temperature <= 0.2
@@ -158,7 +164,9 @@ def test_rlm_role_profiles():
 
 def test_evolve_profile_promotes_best_and_registry_serves_it():
     from agent_utilities.harness.variant_pool import VariantPool
-    from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+    from agent_utilities.knowledge_graph.retrieval.capability_index import (
+        CapabilityIndex,
+    )
     import random
 
     reg = ModelRegistry()
@@ -189,7 +197,9 @@ def test_mutate_profile_stays_within_bounds():
     import random
 
     vp = VariantPool.__new__(VariantPool)
-    base = SamplingProfile(task_class="code", temperature=0.1, top_p=0.9, top_k=20, min_p=0.0)
+    base = SamplingProfile(
+        task_class="code", temperature=0.1, top_p=0.9, top_k=20, min_p=0.0
+    )
     for child in vp.mutate_profile(base, count=20, jitter=0.9, rng=random.Random(1)):
         assert sampling_profile_violations(child.model_dump()) == []
 
@@ -225,7 +235,9 @@ def test_inference_profile_interface_and_model_implementer():
 
 
 def test_inference_links_registered():
-    from agent_utilities.knowledge_graph.ontology.links import DEFAULT_LINK_REGISTRY as L
+    from agent_utilities.knowledge_graph.ontology.links import (
+        DEFAULT_LINK_REGISTRY as L,
+    )
 
     for name in ("model_has_profile", "profile_tuned_for", "agent_uses_profile"):
         assert L.get(name) is not None
@@ -264,7 +276,13 @@ def sampling_tool():
 def _call_tool(tool, **kwargs):
     # Provide every arg explicitly (FastMCP substitutes Field defaults; a raw call
     # would otherwise leave FieldInfo objects in place).
-    args = {"action": "list", "task_class": "", "task_text": "", "role": "", "profile_json": "{}"}
+    args = {
+        "action": "list",
+        "task_class": "",
+        "task_text": "",
+        "role": "",
+        "profile_json": "{}",
+    }
     args.update(kwargs)
     return json.loads(tool(**args))
 
@@ -272,20 +290,36 @@ def _call_tool(tool, **kwargs):
 def test_tool_list_describe_resolve(sampling_tool):
     listed = _call_tool(sampling_tool, action="list")["profiles"]
     assert "code" in listed and "brainstorm" in listed
-    assert _call_tool(sampling_tool, action="describe", task_class="code")["temperature"] == pytest.approx(0.1)
+    assert _call_tool(sampling_tool, action="describe", task_class="code")[
+        "temperature"
+    ] == pytest.approx(0.1)
     assert (
-        _call_tool(sampling_tool, action="resolve", task_text="extract fields from invoice")["task_class"]
+        _call_tool(
+            sampling_tool, action="resolve", task_text="extract fields from invoice"
+        )["task_class"]
         == "extraction"
     )
 
 
 def test_tool_set_validates_and_persists(sampling_tool):
-    bad = _call_tool(sampling_tool, action="set", task_class="code", profile_json='{"temperature": 1.99, "top_p": 5.0}')
+    bad = _call_tool(
+        sampling_tool,
+        action="set",
+        task_class="code",
+        profile_json='{"temperature": 1.99, "top_p": 5.0}',
+    )
     assert "error" in bad  # top_p out of bounds
-    good = _call_tool(sampling_tool, action="set", task_class="code", profile_json='{"temperature": 0.05, "top_k": 10}')
+    good = _call_tool(
+        sampling_tool,
+        action="set",
+        task_class="code",
+        profile_json='{"temperature": 0.05, "top_k": 10}',
+    )
     assert good["set"]["temperature"] == pytest.approx(0.05)
     # persists in the process-global registry
-    assert _call_tool(sampling_tool, action="describe", task_class="code")["temperature"] == pytest.approx(0.05)
+    assert _call_tool(sampling_tool, action="describe", task_class="code")[
+        "temperature"
+    ] == pytest.approx(0.05)
 
 
 def test_tool_owl(sampling_tool):
@@ -295,4 +329,7 @@ def test_tool_owl(sampling_tool):
 def test_route_map_registered():
     from agent_utilities.mcp import kg_server
 
-    assert kg_server.ACTION_TOOL_ROUTES["ontology_sampling_profile"] == "/ontology/sampling-profiles"
+    assert (
+        kg_server.ACTION_TOOL_ROUTES["ontology_sampling_profile"]
+        == "/ontology/sampling-profiles"
+    )

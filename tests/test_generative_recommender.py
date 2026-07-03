@@ -26,7 +26,9 @@ _N_PER_CLUSTER = 12
 _SEED = 7
 
 
-def _clustered_catalog() -> tuple[list[tuple[str, list[float]]], dict[str, int], np.ndarray]:
+def _clustered_catalog() -> tuple[
+    list[tuple[str, list[float]]], dict[str, int], np.ndarray
+]:
     """Build three well-separated clusters of unit-ish embeddings.
 
     Returns the ``(item_id, embedding)`` catalog, an ``item_id -> cluster``
@@ -55,9 +57,9 @@ def _make_encoder() -> TemporalSemanticIdEncoder:
     )
 
 
-def _fitted_recommender(pause_steps: int = 2) -> tuple[
-    ImplicitReasoningRecommender, dict[str, int], np.ndarray
-]:
+def _fitted_recommender(
+    pause_steps: int = 2,
+) -> tuple[ImplicitReasoningRecommender, dict[str, int], np.ndarray]:
     catalog, cluster_of, centers = _clustered_catalog()
     rec = ImplicitReasoningRecommender(_make_encoder(), pause_steps=pause_steps)
     rec.fit_catalog(catalog)
@@ -130,9 +132,7 @@ def test_history_biases_recommendations() -> None:
     # Query sits between cluster 0 and cluster 2; history points at cluster 2.
     ambiguous = (0.5 * centers[0] + 0.5 * centers[2]).tolist()
     cluster2_item = next(i for i, c in cluster_of.items() if c == 2)
-    hist_sid = rec._encoder.encode_content(
-        dict(_clustered_catalog()[0])[cluster2_item]
-    )
+    hist_sid = rec._encoder.encode_content(dict(_clustered_catalog()[0])[cluster2_item])
 
     no_hist = rec.recommend(ambiguous, top_k=6)
     with_hist = rec.recommend(ambiguous, top_k=6, history_sids=[hist_sid])

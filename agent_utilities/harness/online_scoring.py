@@ -72,7 +72,9 @@ def _run_metric_source(source: str, trace: dict[str, Any]) -> float:
 class OnlineScoringSampler:
     """Scores live traces through the shared LLM-judge path (CONCEPT:AHE-3.64)."""
 
-    backend: Any  # KGTraceBackend (provides get_trace + add_node/link_nodes via .backend)
+    backend: (
+        Any  # KGTraceBackend (provides get_trace + add_node/link_nodes via .backend)
+    )
     rules: list[AutomationRule] = field(default_factory=list)
     metrics: list[Metric] = field(default_factory=list)
     eval_corpus: Any = None

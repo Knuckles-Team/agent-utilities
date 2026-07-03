@@ -67,7 +67,9 @@ def _build_expander(**kwargs: Any) -> IterativeQueryExpander:
 
 
 def test_build_expanded_query_repeats_query_and_appends_passages() -> None:
-    expanded = build_expanded_query("cat", ["a much longer pseudo passage here"] * 3, alpha=5)
+    expanded = build_expanded_query(
+        "cat", ["a much longer pseudo passage here"] * 3, alpha=5
+    )
     # Query token repeated at least twice (alpha-repetition against long passages).
     assert expanded.split().count("cat") >= 2
     # Pseudo passages appended verbatim.
@@ -93,7 +95,9 @@ def test_dedup_no_doc_judged_twice() -> None:
     all_judged: list[str] = []
     for rd in history.rounds:
         all_judged.extend(rd.judged.keys())
-    assert len(all_judged) == len(set(all_judged)), "a doc was judged in more than one round"
+    assert len(all_judged) == len(set(all_judged)), (
+        "a doc was judged in more than one round"
+    )
 
 
 def test_final_ranking_best_first_with_high_grade_docs_first() -> None:

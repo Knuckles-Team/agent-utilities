@@ -28,7 +28,12 @@ class _StubBackend:
 
 def _traces(scores):
     return [
-        {"id": f"t{i}", "name": f"task{i}", "score": s, "error": "" if s >= 0.6 else "boom"}
+        {
+            "id": f"t{i}",
+            "name": f"task{i}",
+            "score": s,
+            "error": "" if s >= 0.6 else "boom",
+        }
         for i, s in enumerate(scores)
     ]
 

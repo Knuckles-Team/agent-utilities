@@ -80,6 +80,7 @@ async def test_hydrate_bundle(sample_bundle):
         no_url_node = next(n for n in hydrated_bundle.nodes if n["id"] == "node_no_url")
         assert "content" not in no_url_node
 
+
 # ---------------------------------------------------------------------------
 # KG-2.59 reuse policy: web retrieval routes through the searxng-mcp
 # mcp_tool source preset when configured; crawl4ai stays the final fallback.

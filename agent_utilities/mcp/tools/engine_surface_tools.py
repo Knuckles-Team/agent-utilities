@@ -205,7 +205,11 @@ def _invoke(
         client = _client(graph)
     except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
         return json.dumps(
-            {"surface": surface, "action": action, "error": f"engine unavailable: {exc}"}
+            {
+                "surface": surface,
+                "action": action,
+                "error": f"engine unavailable: {exc}",
+            }
         )
     fn = _resolve(client, candidates)
     if fn is None:
@@ -269,8 +273,8 @@ def register_engine_surface_tools(mcp) -> None:
         ),
         params_json: str = Field(
             default="{}",
-            description="JSON object of extra kwargs, e.g. {\"max_messages\":10,"
-            "\"ack\":true,\"durable\":true}. Merged over the typed fields.",
+            description='JSON object of extra kwargs, e.g. {"max_messages":10,'
+            '"ack":true,"durable":true}. Merged over the typed fields.',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
@@ -282,7 +286,9 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "broker", "error": f"invalid params_json: {exc}"})
+            return json.dumps(
+                {"surface": "broker", "error": f"invalid params_json: {exc}"}
+            )
         if not isinstance(extra, dict):
             return json.dumps(
                 {"surface": "broker", "error": "params_json must decode to an object"}
@@ -325,7 +331,9 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="stats", description="get | put | contains | exists | stats"
         ),
-        key: str = Field(default="", description="Opaque block key (get/put/contains/exists)."),
+        key: str = Field(
+            default="", description="Opaque block key (get/put/contains/exists)."
+        ),
         value_b64: str = Field(
             default="", description="Base64-encoded block bytes to store (put)."
         ),
@@ -335,7 +343,11 @@ def register_engine_surface_tools(mcp) -> None:
             backend = _kv_backend()
         except Exception as exc:  # noqa: BLE001 — mis-config degrades, never raises
             return json.dumps(
-                {"surface": "kvcache", "action": action, "error": f"kvcache unavailable: {exc}"}
+                {
+                    "surface": "kvcache",
+                    "action": action,
+                    "error": f"kvcache unavailable: {exc}",
+                }
             )
         try:
             if action == "get":
@@ -364,27 +376,35 @@ def register_engine_surface_tools(mcp) -> None:
                         {"surface": "kvcache", "error": f"invalid value_b64: {exc}"}
                     )
                 return json.dumps(
-                    {"surface": "kvcache", "action": action, "stored": bool(backend.put(key, raw))}
+                    {
+                        "surface": "kvcache",
+                        "action": action,
+                        "stored": bool(backend.put(key, raw)),
+                    }
                 )
             if action in ("contains", "exists"):
                 if not key:
                     return json.dumps({"surface": "kvcache", "error": "key required"})
                 probe = backend.exists if action == "exists" else backend.contains
                 return json.dumps(
-                    {"surface": "kvcache", "action": action, "present": bool(probe(key))}
+                    {
+                        "surface": "kvcache",
+                        "action": action,
+                        "present": bool(probe(key)),
+                    }
                 )
             if action == "stats":
                 stats = backend.stats()
                 data = (
-                    stats.model_dump()
-                    if hasattr(stats, "model_dump")
-                    else dict(stats)
+                    stats.model_dump() if hasattr(stats, "model_dump") else dict(stats)
                 )
                 return json.dumps(
                     {"surface": "kvcache", "action": action, "result": data},
                     default=_json_default,
                 )
-            return json.dumps({"surface": "kvcache", "error": f"unknown action {action!r}"})
+            return json.dumps(
+                {"surface": "kvcache", "error": f"unknown action {action!r}"}
+            )
         finally:
             close = getattr(backend, "close", None)
             if callable(close):
@@ -433,7 +453,10 @@ def register_engine_surface_tools(mcp) -> None:
             )
         if not isinstance(extra, dict):
             return json.dumps(
-                {"surface": "federated_search", "error": "params_json must decode to an object"}
+                {
+                    "surface": "federated_search",
+                    "error": "params_json must decode to an object",
+                }
             )
         refs = [r.strip() for r in references.split(",") if r.strip()]
         params: dict[str, Any] = {"query": query, "top_k": int(top_k)}
@@ -467,7 +490,9 @@ def register_engine_surface_tools(mcp) -> None:
     def graph_promql(
         query: str = Field(description="A PromQL expression."),
         action: str = Field(default="instant", description="instant | range"),
-        time: str = Field(default="", description="Evaluation time (instant), RFC3339/unix."),
+        time: str = Field(
+            default="", description="Evaluation time (instant), RFC3339/unix."
+        ),
         start: str = Field(default="", description="Range start (range)."),
         end: str = Field(default="", description="Range end (range)."),
         step: str = Field(default="", description="Range step, e.g. '30s' (range)."),
@@ -482,9 +507,13 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "promql", "error": f"invalid params_json: {exc}"})
+            return json.dumps(
+                {"surface": "promql", "error": f"invalid params_json: {exc}"}
+            )
         if not isinstance(extra, dict):
-            return json.dumps({"surface": "promql", "error": "params_json must decode to an object"})
+            return json.dumps(
+                {"surface": "promql", "error": "params_json must decode to an object"}
+            )
         if action == "range":
             params = _drop_empty(query=query, start=start, end=end, step=step)
             candidates = _PROMQL_RANGE_CANDIDATES
@@ -492,7 +521,9 @@ def register_engine_surface_tools(mcp) -> None:
             params = _drop_empty(query=query, time=time)
             candidates = _PROMQL_INSTANT_CANDIDATES
         else:
-            return json.dumps({"surface": "promql", "error": f"unknown action {action!r}"})
+            return json.dumps(
+                {"surface": "promql", "error": f"unknown action {action!r}"}
+            )
         params.update(extra)
         return _invoke(
             surface="promql",
@@ -523,8 +554,12 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(default="search", description="search | get"),
         trace_id: str = Field(default="", description="Trace id (action='get')."),
         service: str = Field(default="", description="Service name filter (search)."),
-        operation: str = Field(default="", description="Operation/span name filter (search)."),
-        query: str = Field(default="", description="Free-form filter expression (search)."),
+        operation: str = Field(
+            default="", description="Operation/span name filter (search)."
+        ),
+        query: str = Field(
+            default="", description="Free-form filter expression (search)."
+        ),
         limit: int = Field(default=20, description="Max traces to return (search)."),
         params_json: str = Field(
             default="{}", description="JSON object of extra engine kwargs."
@@ -537,9 +572,13 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "traces", "error": f"invalid params_json: {exc}"})
+            return json.dumps(
+                {"surface": "traces", "error": f"invalid params_json: {exc}"}
+            )
         if not isinstance(extra, dict):
-            return json.dumps({"surface": "traces", "error": "params_json must decode to an object"})
+            return json.dumps(
+                {"surface": "traces", "error": "params_json must decode to an object"}
+            )
         if action == "get":
             if not trace_id:
                 return json.dumps({"surface": "traces", "error": "trace_id required"})
@@ -550,7 +589,9 @@ def register_engine_surface_tools(mcp) -> None:
             params["limit"] = int(limit)
             candidates = _TRACES_SEARCH_CANDIDATES
         else:
-            return json.dumps({"surface": "traces", "error": f"unknown action {action!r}"})
+            return json.dumps(
+                {"surface": "traces", "error": f"unknown action {action!r}"}
+            )
         params.update(extra)
         return _invoke(
             surface="traces",
@@ -572,7 +613,7 @@ def register_engine_surface_tools(mcp) -> None:
             "CONCEPT:KG-2.310 — the engine's GIS surface. Action-routed 1:1 over the "
             "engine geo methods: e.g. 'route' (from + to [+profile]), 'tile' (z/x/y), "
             "'nearest' (lat + lon [+limit]), 'geo_task' (a named geospatial job). All "
-            "structured args go via params_json (e.g. {\"from\":[lat,lon],\"to\":[lat,"
+            'structured args go via params_json (e.g. {"from":[lat,lon],"to":[lat,'
             "lon]}). Degrades cleanly when the engine build has no GIS surface."
         ),
         tags=["graph-os", "engine", "gis", "geospatial"],
@@ -597,9 +638,13 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "gis", "error": f"invalid params_json: {exc}"})
+            return json.dumps(
+                {"surface": "gis", "error": f"invalid params_json: {exc}"}
+            )
         if not isinstance(params, dict):
-            return json.dumps({"surface": "gis", "error": "params_json must decode to an object"})
+            return json.dumps(
+                {"surface": "gis", "error": "params_json must decode to an object"}
+            )
         return _invoke(
             surface="gis",
             action=action,
@@ -657,7 +702,9 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "memory", "error": f"invalid params_json: {exc}"})
+            return json.dumps(
+                {"surface": "memory", "error": f"invalid params_json: {exc}"}
+            )
         if not isinstance(params, dict):
             return json.dumps(
                 {"surface": "memory", "error": "params_json must decode to an object"}

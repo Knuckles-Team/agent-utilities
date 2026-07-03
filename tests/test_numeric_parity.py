@@ -25,8 +25,9 @@ from agent_utilities.numeric import HAVE_KERNEL, xp
 
 
 def _close(a, b, atol=1e-6, rtol=1e-6):
-    return np.allclose(np.asarray(a, float), np.asarray(b, float),
-                       atol=atol, rtol=rtol, equal_nan=True)
+    return np.allclose(
+        np.asarray(a, float), np.asarray(b, float), atol=atol, rtol=rtol, equal_nan=True
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -142,7 +143,9 @@ def test_linalg(seed):
     assert _close(xp.dot(Sq, B), Sq @ B)
 
     # svdvals (exact) + svd reconstruction
-    assert _close(xp.linalg.svd(A, compute_uv=False), np.linalg.svd(A, compute_uv=False))
+    assert _close(
+        xp.linalg.svd(A, compute_uv=False), np.linalg.svd(A, compute_uv=False)
+    )
     U, s, Vt = xp.linalg.svd(A)
     assert _close(U[:, : len(s)] @ np.diag(s) @ Vt[: len(s), :], A)
 
@@ -174,7 +177,9 @@ def test_linalg(seed):
     assert _close(xp.linalg.det(Sq), np.linalg.det(Sq))
     assert _close(xp.linalg.inv(Sq), np.linalg.inv(Sq))
     for p in (0, 1, 3, -2):
-        assert _close(xp.linalg.matrix_power(Sq, p), np.linalg.matrix_power(Sq, p), atol=1e-5)
+        assert _close(
+            xp.linalg.matrix_power(Sq, p), np.linalg.matrix_power(Sq, p), atol=1e-5
+        )
 
 
 def test_linalg_singular_raises_linalgerror():

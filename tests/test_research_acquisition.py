@@ -33,7 +33,9 @@ async def test_roundup_page_acquires_and_links_papers(monkeypatch):
 
     # Fake the download → three local PDFs (no network).
     monkeypatch.setattr(
-        ra, "acquire_papers", lambda refs, **k: [Path(f"/tmp/p{i}.pdf") for i in range(3)]
+        ra,
+        "acquire_papers",
+        lambda refs, **k: [Path(f"/tmp/p{i}.pdf") for i in range(3)],
     )
 
     # Fake the recursive per-paper ingest → each becomes a Document with a doc_id.
@@ -114,7 +116,9 @@ async def test_non_roundup_page_skips(monkeypatch):
     kg.backend = MagicMock()
     engine = IngestionEngine(kg_engine=kg)
     called = {"n": 0}
-    monkeypatch.setattr(ra, "acquire_papers", lambda refs, **k: called.__setitem__("n", 1))
+    monkeypatch.setattr(
+        ra, "acquire_papers", lambda refs, **k: called.__setitem__("n", 1)
+    )
 
     page_result = IngestionResult(
         manifest=IngestionManifest(content_type=ContentType.DOCUMENT, source_uri="u"),

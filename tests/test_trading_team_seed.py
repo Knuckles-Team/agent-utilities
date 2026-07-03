@@ -16,9 +16,7 @@ def test_build_trading_team_config_shape():
     assert tc.success_rate >= tc.reuse_threshold
     # Execution tools concentrated on exactly one specialist (paper-gate point).
     holders = [
-        sid
-        for sid, tools in tc.tool_assignments.items()
-        if "emerald_orders" in tools
+        sid for sid, tools in tc.tool_assignments.items() if "emerald_orders" in tools
     ]
     assert holders == ["execution-specialist"]
     # Risk manager gets the adversarial critic capability.

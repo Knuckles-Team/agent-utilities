@@ -35,8 +35,11 @@ def engine(monkeypatch):
         ]
     ):
         eng.graph.add_node(
-            cid, name=cid, description=f"item {cid} python tooling",
-            embedding=vec, event_time=now,
+            cid,
+            name=cid,
+            description=f"item {cid} python tooling",
+            embedding=vec,
+            event_time=now,
         )
     return eng
 

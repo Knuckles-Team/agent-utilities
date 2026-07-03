@@ -631,7 +631,9 @@ async def test_always_on_holds_verbose_tools_in_catalog(tmp_path):
     async def fake_start_child(server_name, cfg):
         tools = [
             _fake_tool("graph_write", "condensed", tags=["graph-os", "write"]),
-            _fake_tool("graph_write_add_node", "verbose", tags=["graph_write", "verbose"]),
+            _fake_tool(
+                "graph_write_add_node", "verbose", tags=["graph_write", "verbose"]
+            ),
         ]
         return server_name, AsyncMock(), tools, cfg
 

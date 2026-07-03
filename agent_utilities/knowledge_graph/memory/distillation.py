@@ -177,22 +177,16 @@ class MemoryDistillerConfig:
         """Build a config from ``AGENT_UTILITIES_MEMORY_DISTILL*`` env vars."""
         return cls(
             enabled=_env_bool("AGENT_UTILITIES_MEMORY_DISTILL"),
-            max_working_set=_env_int(
-                "AGENT_UTILITIES_MEMORY_DISTILL_WORKING_SET", 500
-            ),
-            min_recurrence=_env_int(
-                "AGENT_UTILITIES_MEMORY_DISTILL_MIN_RECURRENCE", 3
-            ),
-            max_cluster_size=_env_int(
-                "AGENT_UTILITIES_MEMORY_DISTILL_MAX_CLUSTER", 32
-            ),
+            max_working_set=_env_int("AGENT_UTILITIES_MEMORY_DISTILL_WORKING_SET", 500),
+            min_recurrence=_env_int("AGENT_UTILITIES_MEMORY_DISTILL_MIN_RECURRENCE", 3),
+            max_cluster_size=_env_int("AGENT_UTILITIES_MEMORY_DISTILL_MAX_CLUSTER", 32),
             max_clusters_per_cycle=_env_int(
                 "AGENT_UTILITIES_MEMORY_DISTILL_MAX_CLUSTERS", 4
             ),
-            register_flywheel=_env_bool("AGENT_UTILITIES_MEMORY_DISTILL_FLYWHEEL", True),
-            seed_reward=_env_float(
-                "AGENT_UTILITIES_MEMORY_DISTILL_SEED_REWARD", 0.5
+            register_flywheel=_env_bool(
+                "AGENT_UTILITIES_MEMORY_DISTILL_FLYWHEEL", True
             ),
+            seed_reward=_env_float("AGENT_UTILITIES_MEMORY_DISTILL_SEED_REWARD", 0.5),
         )
 
 
@@ -271,9 +265,7 @@ class MemoryDistiller:
                 continue
             if not (n.get("content") or n.get("name")):
                 continue
-            key = str(
-                n.get(self.config.cluster_key) or n.get("category") or "general"
-            )
+            key = str(n.get(self.config.cluster_key) or n.get("category") or "general")
             groups.setdefault(key, []).append(n)
 
         ripe: list[list[dict[str, Any]]] = []

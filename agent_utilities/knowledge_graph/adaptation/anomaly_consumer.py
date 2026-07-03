@@ -58,8 +58,7 @@ def _already_evidencing(engine: Any) -> set[str]:
     """Ids of anomalies that already EVIDENCE a gap Concept (skip refiling)."""
     try:
         rows = engine.query_cypher(
-            "MATCH (a:PerformanceAnomaly)-[:EVIDENCES]->(c:Concept) "
-            "RETURN a.id AS id"
+            "MATCH (a:PerformanceAnomaly)-[:EVIDENCES]->(c:Concept) RETURN a.id AS id"
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("anomaly evidence lookup failed: %s", e)

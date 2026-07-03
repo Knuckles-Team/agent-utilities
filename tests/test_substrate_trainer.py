@@ -23,7 +23,9 @@ from agent_utilities.harness.substrate_trainer import (
 
 def _traces(rewards, prompt="p"):
     """Deterministic stub traces with .reward / .prompt."""
-    return [SimpleNamespace(reward=r, prompt=f"{prompt}-{i}") for i, r in enumerate(rewards)]
+    return [
+        SimpleNamespace(reward=r, prompt=f"{prompt}-{i}") for i, r in enumerate(rewards)
+    ]
 
 
 def test_build_corpus_uses_real_batch_normalized_advantage():

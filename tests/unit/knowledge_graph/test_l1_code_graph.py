@@ -46,7 +46,9 @@ class MutableFakeGraph:
         return list(self.pred.get(nid, []))
 
     def get_neighbors(self, nid):
-        return list(dict.fromkeys(self.get_successors(nid) + self.get_predecessors(nid)))
+        return list(
+            dict.fromkeys(self.get_successors(nid) + self.get_predecessors(nid))
+        )
 
     def has_edge(self, src, tgt):
         return (src, tgt) in self.edges
@@ -67,7 +69,10 @@ class MutableFakeGraph:
         out = []
         for n, p in self.nodes.items():
             labels = p.get("labels") if isinstance(p.get("labels"), list) else []
-            if label in (p.get("label"), p.get("type"), p.get("node_type")) or label in labels:
+            if (
+                label in (p.get("label"), p.get("type"), p.get("node_type"))
+                or label in labels
+            ):
                 out.append((n, dict(p)))
         return out[:limit] if limit else out
 
@@ -90,7 +95,10 @@ def test_unwind_to_per_row_translation():
     )
     assert out == "MERGE (n:Code {id: $id}) SET n.`name` = $name"
     # Non-UNWIND passes through unchanged.
-    assert EpistemicGraphBackend._unwind_to_per_row("MATCH (n) RETURN n") == "MATCH (n) RETURN n"
+    assert (
+        EpistemicGraphBackend._unwind_to_per_row("MATCH (n) RETURN n")
+        == "MATCH (n) RETURN n"
+    )
 
 
 def _seed(b):
@@ -98,7 +106,11 @@ def _seed(b):
     # bulk-writer emits.
     b.execute_batch(
         "UNWIND $batch AS row MERGE (n:Code {id: row.id}) SET n.`name` = row.`name`",
-        [{"id": "top", "name": "top"}, {"id": "mid", "name": "mid"}, {"id": "leaf", "name": "leaf"}],
+        [
+            {"id": "top", "name": "top"},
+            {"id": "mid", "name": "mid"},
+            {"id": "leaf", "name": "leaf"},
+        ],
     )
     b.execute_batch(
         "UNWIND $batch AS row MATCH (s {id: row.source}) MATCH (t {id: row.target}) MERGE (s)-[r:calls]->(t)",
@@ -139,4 +151,7 @@ def test_impact_of_change_where_anchored_varlen():
     b = _backend()
     _seed(b)
     cy, p = build_code_nav_query(action="impact_of_change", symbol="leaf", depth=3)
-    assert _names(b.execute(cy, p)) == ["mid", "top"]  # transitive callers (blast radius)
+    assert _names(b.execute(cy, p)) == [
+        "mid",
+        "top",
+    ]  # transitive callers (blast radius)

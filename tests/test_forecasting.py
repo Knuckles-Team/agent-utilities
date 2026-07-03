@@ -112,9 +112,9 @@ def test_surprises_worst_first() -> None:
     board.predict("mid", "h", predicted=0.4, confidence=0.5)
     board.predict("tiny", "h", predicted=0.5, confidence=0.5)
     board.resolve("small", 0.55)  # dev 0.05 -> not a surprise (<=0.25)
-    board.resolve("big", 0.95)    # dev 0.85 -> biggest surprise
-    board.resolve("mid", 0.80)    # dev 0.40 -> surprise
-    board.resolve("tiny", 0.50)   # dev 0.0  -> not a surprise
+    board.resolve("big", 0.95)  # dev 0.85 -> biggest surprise
+    board.resolve("mid", 0.80)  # dev 0.40 -> surprise
+    board.resolve("tiny", 0.50)  # dev 0.0  -> not a surprise
 
     surprises = board.surprises(tolerance=0.25)
     assert [f.experiment_id for f in surprises] == ["big", "mid"]

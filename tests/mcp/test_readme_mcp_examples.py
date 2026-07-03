@@ -102,7 +102,10 @@ def test_sync_mcp_configs_rewrites_env(tmp_path: Path) -> None:
                     "demo-mcp": {
                         "command": "uvx",
                         "args": ["demo-mcp"],
-                        "env": {"AGENT_DESCRIPTION": "x", "SYSTEM_TOOLS_ENABLE": "True"},
+                        "env": {
+                            "AGENT_DESCRIPTION": "x",
+                            "SYSTEM_TOOLS_ENABLE": "True",
+                        },
                     }
                 }
             }

@@ -70,7 +70,9 @@ def test_verifier_rewards_accuracy_above_majority_baseline():
 
 
 def test_verifier_handles_bad_config():
-    verifier = WorldModelVerifier(train=_ring_transitions(), holdout=_ring_transitions())
+    verifier = WorldModelVerifier(
+        train=_ring_transitions(), holdout=_ring_transitions()
+    )
     assert verifier.verify("not json").passed is False
     assert verifier.verify("[1,2,3]").passed is False
 

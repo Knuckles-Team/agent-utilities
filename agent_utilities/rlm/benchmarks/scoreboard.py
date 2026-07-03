@@ -82,7 +82,7 @@ def render_scoreboard(
             else "—"
         )
         lines.append(
-            f"| {task} | {our_acc} | " f"{paper_acc:.1f}% | {delta} | {mode} | {base} |"
+            f"| {task} | {our_acc} | {paper_acc:.1f}% | {delta} | {mode} | {base} |"
             if paper_acc is not None
             else f"| {task} | {our_acc} | — | — | {mode} | {base} |"
         )

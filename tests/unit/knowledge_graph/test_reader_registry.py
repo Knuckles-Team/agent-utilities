@@ -6,9 +6,7 @@ import importlib
 
 import pytest
 
-readers = importlib.import_module(
-    "agent_utilities.knowledge_graph.extraction.readers"
-)
+readers = importlib.import_module("agent_utilities.knowledge_graph.extraction.readers")
 
 
 @pytest.fixture(autouse=True)

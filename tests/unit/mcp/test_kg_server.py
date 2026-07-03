@@ -318,7 +318,11 @@ class _FakeSpecializeEngine:
 
     def query_cypher(self, _cypher: str, *_a, **_k):
         return [
-            {"state": f"cell_{i:02d}", "action": act, "next_state": f"cell_{i:02d}_{act}"}
+            {
+                "state": f"cell_{i:02d}",
+                "action": act,
+                "next_state": f"cell_{i:02d}_{act}",
+            }
             for i in range(8)
             for act in ("north", "south", "east", "west")
         ]
@@ -328,7 +332,9 @@ class _FakeSpecializeEngine:
 
 
 @pytest.mark.asyncio
-async def test_graph_analyze_specialize_action_is_gateway_reachable(server_tools, monkeypatch):
+async def test_graph_analyze_specialize_action_is_gateway_reachable(
+    server_tools, monkeypatch
+):
     """The SAI factory is reachable through the graph_analyze tool (the gateway path)."""
     from agent_utilities.mcp import kg_server
 
@@ -348,7 +354,9 @@ async def test_graph_analyze_specialize_action_is_gateway_reachable(server_tools
 
 
 @pytest.mark.asyncio
-async def test_graph_analyze_specialize_noops_without_history(server_tools, monkeypatch):
+async def test_graph_analyze_specialize_noops_without_history(
+    server_tools, monkeypatch
+):
     from agent_utilities.mcp import kg_server
 
     class _Empty:

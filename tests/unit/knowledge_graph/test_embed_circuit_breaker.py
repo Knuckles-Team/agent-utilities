@@ -39,7 +39,9 @@ def test_breaker_allows_probe_after_cooldown():
         TaskManagerMixin._embed_circuit_record(o, False, now)
     assert TaskManagerMixin._embed_circuit_open(o, now) is True
     # Once the cooldown elapses the breaker no longer skips → one probe tick runs.
-    assert TaskManagerMixin._embed_circuit_open(o, now + _EMBED_CB_COOLDOWN + 1) is False
+    assert (
+        TaskManagerMixin._embed_circuit_open(o, now + _EMBED_CB_COOLDOWN + 1) is False
+    )
 
 
 def test_success_resets_failures_and_closes():

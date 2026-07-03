@@ -48,9 +48,7 @@ def test_sync_archivebox_ingests_new_snapshots(monkeypatch):
         seen_manifests["m"] = manifests
         from agent_utilities.knowledge_graph.ingestion.engine import IngestionResult
 
-        return [
-            IngestionResult(manifest=m, status="success") for m in manifests
-        ]
+        return [IngestionResult(manifest=m, status="success") for m in manifests]
 
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine.ingest_batch",

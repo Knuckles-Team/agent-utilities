@@ -462,9 +462,11 @@ def test_llms_index_strips_raw_html(monkeypatch):
     """An llms.txt link that serves HTML (not markdown) is stripped, not stored raw."""
     import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
 
-    html = "<!doctype html><html><head><title>P</title></head><body>" + (
-        "<p>real content here</p>" * 50
-    ) + "</body></html>"
+    html = (
+        "<!doctype html><html><head><title>P</title></head><body>"
+        + ("<p>real content here</p>" * 50)
+        + "</body></html>"
+    )
     pages = {
         "https://h.io/llms-full.txt": None,
         "https://h.io/llms.txt": "# H\n\n- [Page](https://h.io/page)\n",

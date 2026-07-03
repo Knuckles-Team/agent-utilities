@@ -92,7 +92,12 @@ def test_metrics_summary_is_serializable():
     assert m["sample_complexity"] == 30
     assert m["iterations"] == 2
     # round-trippable through json-ish primitives
-    assert set(m) >= {"time_to_target_s", "sample_complexity", "learning_auc", "peak_reward"}
+    assert set(m) >= {
+        "time_to_target_s",
+        "sample_complexity",
+        "learning_auc",
+        "peak_reward",
+    }
 
 
 def test_marginal_speed_gain_prefers_the_faster_arm():
@@ -114,7 +119,11 @@ class _ThresholdVerifier:
 
     def verify(self, candidate: str) -> VerifierResult:
         hit = self.target in (candidate or "")
-        reward = 1.0 if hit else (0.5 if self.target[: len(self.target) // 2] in candidate else 0.0)
+        reward = (
+            1.0
+            if hit
+            else (0.5 if self.target[: len(self.target) // 2] in candidate else 0.0)
+        )
         return VerifierResult(reward=reward, passed=hit, detail={"target": self.target})
 
 

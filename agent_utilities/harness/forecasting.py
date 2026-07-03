@@ -52,7 +52,9 @@ class Forecast:
 
     experiment_id: str
     hypothesis: str
-    predicted: float  # predicted metric/probability in [0,1] (or any float for point metrics)
+    predicted: (
+        float  # predicted metric/probability in [0,1] (or any float for point metrics)
+    )
     confidence: float  # subjective confidence in [0,1]
     actual: float | None = None
     resolved: bool = False

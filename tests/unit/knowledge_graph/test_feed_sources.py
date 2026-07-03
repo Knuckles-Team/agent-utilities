@@ -47,7 +47,11 @@ def test_register_and_list_feed_sources():
 
 def test_upsert_is_idempotent():
     eng = _Engine()
-    a = upsert_feed_source(eng, key="http://x", source_system="rss", feed_url="http://x")
-    b = upsert_feed_source(eng, key="http://x", source_system="rss", feed_url="http://x")
+    a = upsert_feed_source(
+        eng, key="http://x", source_system="rss", feed_url="http://x"
+    )
+    b = upsert_feed_source(
+        eng, key="http://x", source_system="rss", feed_url="http://x"
+    )
     assert a == b
     assert len(list_feed_sources(eng)) == 1

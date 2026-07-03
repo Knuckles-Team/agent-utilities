@@ -24,7 +24,11 @@ def _backend(tmp_path):
 
 
 def _seed_chain(b):
-    for r in [{"id": "top", "name": "top"}, {"id": "mid", "name": "mid"}, {"id": "leaf", "name": "leaf"}]:
+    for r in [
+        {"id": "top", "name": "top"},
+        {"id": "mid", "name": "mid"},
+        {"id": "leaf", "name": "leaf"},
+    ]:
         b.execute("MERGE (n:Code {id:$id}) SET n.name=$name", r)
     # The exact label-LESS edge shape ingest_external_batch emits.
     for s, t in [("top", "mid"), ("mid", "leaf")]:
@@ -37,7 +41,9 @@ def _seed_chain(b):
 def test_label_less_edge_binds_and_traverses(tmp_path):
     b = _backend(tmp_path)
     _seed_chain(b)
-    edges = b.execute("MATCH (a:Code)-[:calls]->(c:Code) RETURN a.name AS f, c.name AS t")
+    edges = b.execute(
+        "MATCH (a:Code)-[:calls]->(c:Code) RETURN a.name AS f, c.name AS t"
+    )
     assert {(e["f"], e["t"]) for e in edges} == {("top", "mid"), ("mid", "leaf")}
     # find_references (callers of mid)
     refs = b.execute(
@@ -59,6 +65,6 @@ def test_execute_batch_unwind_persists(tmp_path):
         "UNWIND $batch AS row MERGE (n:Code {id: row.id}) SET n.name = row.`name`",
         [{"id": "a", "name": "alpha"}, {"id": "b", "name": "beta"}],
     )
-    assert b.execute("MATCH (c:Code) WHERE c.name=$n RETURN c.id AS id", {"n": "beta"}) == [
-        {"id": "b"}
-    ]
+    assert b.execute(
+        "MATCH (c:Code) WHERE c.name=$n RETURN c.id AS id", {"n": "beta"}
+    ) == [{"id": "b"}]

@@ -298,9 +298,9 @@ def register_write_ingest_tools(mcp):
             if registry.is_writable(name):
                 writable.append((name, eng))
             else:
-                errors[
-                    name
-                ] = f"connection '{name}' is read-only (role={registry.role(name)})"
+                errors[name] = (
+                    f"connection '{name}' is read-only (role={registry.role(name)})"
+                )
 
         if not fanout:
             if not writable:

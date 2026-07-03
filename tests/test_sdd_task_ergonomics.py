@@ -70,8 +70,12 @@ def test_detect_cycles_none_for_dag():
 
 def test_validate_dependencies_flags_problems():
     tasks = Tasks(
-        tasks=[_t("1", deps=["1"]), _t("2", deps=["99"]), _t("3", deps=["4"]),
-               _t("4", deps=["3"])]
+        tasks=[
+            _t("1", deps=["1"]),
+            _t("2", deps=["99"]),
+            _t("3", deps=["4"]),
+            _t("4", deps=["3"]),
+        ]
     )
     errors = tasks.validate_dependencies()
     assert any("itself" in e for e in errors)
@@ -105,13 +109,20 @@ def test_analyze_complexity_heuristic_persists_report(tmp_path):
         feature_id="f",
         tasks=[
             Task(id="1", title="simple", description="tiny"),
-            Task(id="2", title="big", description=long_desc, depends_on=["1"],
-                 file_paths=["a.py", "b.py"]),
+            Task(
+                id="2",
+                title="big",
+                description=long_desc,
+                depends_on=["1"],
+                file_paths=["a.py", "b.py"],
+            ),
         ],
     )
     mgr.save(tasks, "f")
     report = mgr.analyze_complexity("f")
-    scores = {r["task_id"]: r["complexity_score"] for r in report["complexity_analysis"]}
+    scores = {
+        r["task_id"]: r["complexity_score"] for r in report["complexity_analysis"]
+    }
     assert scores["2"] > scores["1"]
     assert (tmp_path / ".specify" / "reports" / "task-complexity-f.json").exists()
     # Scores written back onto the tasks.
@@ -124,8 +135,11 @@ def test_analyze_complexity_injectable_scorer(tmp_path):
     mgr.save(Tasks(feature_id="f", tasks=[Task(id="1", title="x")]), "f")
 
     def fake_scorer(task):
-        return {"complexity_score": 9.0, "recommended_subtasks": 5,
-                "expansion_prompt": "split it"}
+        return {
+            "complexity_score": 9.0,
+            "recommended_subtasks": 5,
+            "expansion_prompt": "split it",
+        }
 
     report = mgr.analyze_complexity("f", scorer=fake_scorer)
     assert report["complexity_analysis"][0]["complexity_score"] == 9.0
@@ -169,8 +183,10 @@ def test_scope_down_preserves_done_subtasks(tmp_path):
 def test_scope_up_increases_recommendation(tmp_path):
     mgr = SDDManager(tmp_path)
     mgr.save(
-        Tasks(feature_id="f", tasks=[Task(id="1", recommended_subtasks=2,
-                                          complexity_score=3.0)]),
+        Tasks(
+            feature_id="f",
+            tasks=[Task(id="1", recommended_subtasks=2, complexity_score=3.0)],
+        ),
         "f",
     )
     result = mgr.scope_task("f", "1", "up", strength="heavy")

@@ -153,7 +153,9 @@ def test_open_state_connection_sqlite(tmp_path):
 def test_open_state_connection_postgres_adapts_placeholders(pg_mode):
     pool = pg_mode
     conn = state_store.open_state_connection(
-        "test", lambda: "/nonexistent", postgres_ddl="CREATE TABLE IF NOT EXISTS t (id TEXT)"
+        "test",
+        lambda: "/nonexistent",
+        postgres_ddl="CREATE TABLE IF NOT EXISTS t (id TEXT)",
     )
     assert conn.dialect == "postgres"
     pool.conn.script([("a", 1)], columns=["id", "n"])

@@ -252,9 +252,9 @@ class RegulatoryFiling(RegistryNode):
         description="Filing type: annual_report, tax_return, eeo1, osha_log, etc."
     )
     filing_deadline: str = Field(description="ISO date deadline (YYYY-MM-DD)")
-    filing_status: Literal[
-        "pending", "filed", "overdue", "accepted", "rejected"
-    ] = Field(default="pending", description="Current status")
+    filing_status: Literal["pending", "filed", "overdue", "accepted", "rejected"] = (
+        Field(default="pending", description="Current status")
+    )
 
 
 class IntellectualPropertyAsset(RegistryNode):

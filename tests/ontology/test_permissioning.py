@@ -239,9 +239,7 @@ def test_explicit_acl_still_checked_when_enforced(monkeypatch):
 
     build_acl("hr:doc", DataClassification.CONFIDENTIAL, read_roles=["hr"])
     denied = _low_actor()
-    granted = ActorContext(
-        actor_id="hr:1", actor_type=ActorType.HUMAN, roles=("hr",)
-    )
+    granted = ActorContext(actor_id="hr:1", actor_type=ActorType.HUMAN, roles=("hr",))
     assert pm._acl_permits("hr:doc", denied) is False
     assert pm._acl_permits("hr:doc", granted) is True
 
@@ -308,9 +306,7 @@ def test_propagated_markings_are_persisted():
     pm.set_marking_store(store)
     apply_marking("parent", Marking("pii"))
     propagate_markings("parent", "child")
-    assert set(
-        _json.loads(store.rows["marking::child"]["markings"])
-    ) == {"pii"}
+    assert set(_json.loads(store.rows["marking::child"]["markings"])) == {"pii"}
 
 
 def test_marking_store_unavailable_keeps_cache_authoritative():

@@ -30,7 +30,12 @@ class FakeTraceEngine:
             ]
         if "[:MADE_TOOL_CALL]->(tc:ToolCall)" in cypher:
             return [
-                {"tool_name": "graph_search", "status": "ok", "error": "", "sequence": 0},
+                {
+                    "tool_name": "graph_search",
+                    "status": "ok",
+                    "error": "",
+                    "sequence": 0,
+                },
                 {
                     "tool_name": "graph_query",
                     "status": "error",
@@ -111,6 +116,10 @@ def test_troubleshoot_registered_in_context_plane():
     # Reachable via graph_analyze action=explain target="troubleshoot:..."
     assert "troubleshoot" in context_plane._BUILTIN_PROVIDERS
     res = context_plane.synthesize_context(
-        FakeTraceEngine(), domain="troubleshoot", query="x", intent="run", node_id="run-42"
+        FakeTraceEngine(),
+        domain="troubleshoot",
+        query="x",
+        intent="run",
+        node_id="run-42",
     )
     assert res["domain"] == "troubleshoot" and res["status"] == "ok"

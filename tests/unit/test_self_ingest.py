@@ -200,9 +200,7 @@ class TestDelivery:
 
     def test_queue_overflow_drops_without_blocking(self):
         transport = _CapturingTransport()
-        sink = SelfIngestSink(
-            _enabled_config(queue_max=2), transport=transport
-        )
+        sink = SelfIngestSink(_enabled_config(queue_max=2), transport=transport)
         for i in range(5):
             sink.emit_log(body=f"m{i}")
         assert sink.dropped == 3

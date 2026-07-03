@@ -46,7 +46,7 @@ def _make_gateway() -> GatewayClient:
         if path == "/stream":
             lines = (
                 'data: {"type": "thought", "thought": "thinking"}\n\n'
-                'data: not-json\n\n'
+                "data: not-json\n\n"
                 'data: {"type": "final_output", "content": "done"}\n\n'
             )
             return httpx.Response(200, text=lines)

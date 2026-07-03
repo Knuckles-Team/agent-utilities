@@ -207,7 +207,9 @@ async def test_async_cursor_pagination():
             return {"items": [_record(1)], "next_cursor": "c2"}, {}
         return {"items": [_record(2)], "next_cursor": None}, {}
 
-    iterator = AsyncPaginationIterator(fetch, "/widgets", mode="cursor", items_path="items")
+    iterator = AsyncPaginationIterator(
+        fetch, "/widgets", mode="cursor", items_path="items"
+    )
     assert [r["id"] async for r in iterator] == [1, 2]
     assert iterator.pages_fetched == 2
 

@@ -49,7 +49,7 @@ def test_single_conn_rolls_back_and_reraises_on_exception() -> None:
     with pytest.raises(ValueError):
         with PostgreSQLBackend._conn(stub) as c:
             assert c is conn
-            raise ValueError("relation \"EvictedBlock\" does not exist")
+            raise ValueError('relation "EvictedBlock" does not exist')
     # rolled back (so the NEXT write runs clean), and NOT committed
     assert conn.calls == ["rollback"]
 

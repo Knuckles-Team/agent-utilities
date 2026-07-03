@@ -364,7 +364,9 @@ def analyze(root: Path) -> dict:
     # MALFORMED_VALUE — a whitespace-padded substitution like "${ VAR:-True }".
     for path, env in mcp_blocks:
         for var, value in env.items():
-            if any(m.group(1) != m.group(1).strip() for m in _SUBST.finditer(str(value))):
+            if any(
+                m.group(1) != m.group(1).strip() for m in _SUBST.finditer(str(value))
+            ):
                 findings.append(
                     {
                         "type": "MALFORMED_VALUE",
@@ -388,7 +390,11 @@ def analyze(root: Path) -> dict:
                 )
 
     # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
-    allowed = {name for name, _ in example_env_pairs(root)} | {"TRANSPORT", "HOST", "PORT"}
+    allowed = {name for name, _ in example_env_pairs(root)} | {
+        "TRANSPORT",
+        "HOST",
+        "PORT",
+    }
     for env in _readme_example_env_blocks(root):
         if "MCP_TOOL_MODE" not in env:
             findings.append(

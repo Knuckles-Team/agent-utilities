@@ -36,7 +36,18 @@ def test_discovers_all_languages_and_skips_vendor(tmp_path):
 
 
 def test_source_extensions_cover_the_major_languages():
-    for ext in (".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java", ".c", ".cpp", ".cs"):
+    for ext in (
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".cs",
+    ):
         assert ext in SOURCE_EXTENSIONS
 
 

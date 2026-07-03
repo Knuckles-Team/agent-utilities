@@ -41,7 +41,9 @@ class RatchetEngine:
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
 
-    def add_node(self, node_id: str, node_type: str, properties: dict | None = None) -> None:
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict | None = None
+    ) -> None:
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
 
     def by_type(self, t: str) -> list[dict]:
@@ -77,7 +79,9 @@ def _ratchet(engine, scores: dict[str, float]) -> CapabilityRatchet:
 class TestRatchet:
     def test_bootstrap_establishes_baseline_without_blocking(self, tmp_path):
         engine = RatchetEngine()
-        verdict = _ratchet(engine, {"cap": 0.8}).evaluate(str(tmp_path), proposal_id="p:1")
+        verdict = _ratchet(engine, {"cap": 0.8}).evaluate(
+            str(tmp_path), proposal_id="p:1"
+        )
         assert verdict.passed and verdict.recommendation == "bootstrap"
         assert engine.by_type("CapabilityScoreVector")  # baseline persisted
 
@@ -90,7 +94,11 @@ class TestRatchet:
         assert not verdict.passed
         assert verdict.regressions == ["cap"]
         assert verdict.recommendation == "full_revert"  # ManifestVerifier: delta < 0
-        holds = [n for n in engine.by_type("CapabilityRatchetResult") if n["result"] == "hold"]
+        holds = [
+            n
+            for n in engine.by_type("CapabilityRatchetResult")
+            if n["result"] == "hold"
+        ]
         assert holds
 
     def test_improvement_passes_and_advances_baseline(self, tmp_path):
@@ -128,7 +136,9 @@ class TestGovernancePredicate:
         _ratchet(engine, {"cap": 0.9}).evaluate(str(tmp_path), proposal_id="p:base")
         _ratchet(engine, {"cap": 0.4}).evaluate(str(tmp_path), proposal_id="prop:1")
         assert latest_ratchet_result(engine, "prop:1") == "hold"
-        check = PromotionGovernanceValidator(engine)._check_capability_ratchet({}, "prop:1")
+        check = PromotionGovernanceValidator(engine)._check_capability_ratchet(
+            {}, "prop:1"
+        )
         assert not check.passed
 
     def test_no_record_defers(self):
@@ -156,7 +166,9 @@ def target_repo(tmp_path: Path) -> Path:
     _git("init", "-q", "-b", "main", ".", cwd=r)
     (r / "README.md").write_text("seed\n", encoding="utf-8")
     _git("add", "-A", cwd=r)
-    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=r)
+    _git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=r
+    )
     return r
 
 
@@ -175,7 +187,12 @@ def _auto_engine() -> FakeEngine:
     engine.add_node(
         "rule:promo-auto",
         "governance_rule",
-        properties={"scope": "action_policy", "kind": "merge_promotion", "target": "*", "tier": "auto"},
+        properties={
+            "scope": "action_policy",
+            "kind": "merge_promotion",
+            "target": "*",
+            "tier": "auto",
+        },
     )
     return engine
 
@@ -185,12 +202,21 @@ class TestVerifiedRollback:
     def test_capability_regression_abandons_the_branch(self, target_repo, tmp_path):
         engine = _auto_engine()
         ratchet = _StubRatchet(
-            RatchetVerdict(passed=False, recommendation="full_revert", reason="cap dropped")
+            RatchetVerdict(
+                passed=False, recommendation="full_revert", reason="cap dropped"
+            )
         )
-        publisher = LocalBranchPublisher(engine, repo_path=target_repo, worktree_root=tmp_path / "wt")
+        publisher = LocalBranchPublisher(
+            engine, repo_path=target_repo, worktree_root=tmp_path / "wt"
+        )
         report = governed_publish(
             engine,
-            {"id": "proposal:bad", "name": "Bad", "goal": "g", "files": [{"path": "pkg/x.py", "content": "X = 1\n"}]},
+            {
+                "id": "proposal:bad",
+                "name": "Bad",
+                "goal": "g",
+                "files": [{"path": "pkg/x.py", "content": "X = 1\n"}],
+            },
             publisher=publisher,
             capability_ratchet=ratchet,
         )
@@ -205,10 +231,17 @@ class TestVerifiedRollback:
         ratchet = _StubRatchet(
             RatchetVerdict(passed=True, recommendation="confirm", reason="ok")
         )
-        publisher = LocalBranchPublisher(engine, repo_path=target_repo, worktree_root=tmp_path / "wt")
+        publisher = LocalBranchPublisher(
+            engine, repo_path=target_repo, worktree_root=tmp_path / "wt"
+        )
         report = governed_publish(
             engine,
-            {"id": "proposal:good", "name": "Good", "goal": "g", "files": [{"path": "pkg/x.py", "content": "X = 1\n"}]},
+            {
+                "id": "proposal:good",
+                "name": "Good",
+                "goal": "g",
+                "files": [{"path": "pkg/x.py", "content": "X = 1\n"}],
+            },
             publisher=publisher,
             capability_ratchet=ratchet,
         )

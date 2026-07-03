@@ -160,9 +160,7 @@ class _FakeBridge:
         requests = list(requests)
         self.batch_sizes.append(len(requests))
         if len(requests) > self.cap:
-            raise RuntimeError(
-                f"Too many requests. Maximum allowed: {self.cap}"
-            )
+            raise RuntimeError(f"Too many requests. Maximum allowed: {self.cap}")
         return [
             schemas.CheckResponse(allowed=(r.resource.uri in self.allowed_uris))
             for r in requests

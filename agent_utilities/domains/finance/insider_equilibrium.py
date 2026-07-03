@@ -106,7 +106,9 @@ class PolicyAnalysis:
     d_intensity_d_criminal: float  # ∂β*/∂C — criminal sensitivity (should be < 0)
     d_intensity_d_civil: float  # ∂β*/∂r_civ — civil sensitivity (≈0 when e→0)
     criminal_intensity_floor: float  # criminal cost that fully suppresses (β*→0)
-    civil_only_min_intensity: float  # inf over r_civ of β* with C=0 (the floor fines hit)
+    civil_only_min_intensity: (
+        float  # inf over r_civ of β* with C=0 (the floor fines hit)
+    )
     enforcement_gated: bool  # True ⇒ civil lever is throttled by weak enforcement
     verdict: str
 

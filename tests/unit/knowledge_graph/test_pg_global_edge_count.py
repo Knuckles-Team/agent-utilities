@@ -69,9 +69,7 @@ def test_global_edge_count_served_from_kg_edges(backend):
 
 
 def test_named_label_free_endpoints_also_served(backend):
-    handled, rows = backend._try_global_edge_count(
-        "MATCH (a)-[r]->(b) RETURN count(r)"
-    )
+    handled, rows = backend._try_global_edge_count("MATCH (a)-[r]->(b) RETURN count(r)")
     assert handled is True
     assert rows == [{"count": 42}]
 

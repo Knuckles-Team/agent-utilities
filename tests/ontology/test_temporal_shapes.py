@@ -38,12 +38,12 @@ def _conforms(data_ttl: str) -> bool:
 
 
 def test_malformed_validity_window_is_flagged():
-    bad = ':f a :TemporalFact ; :validFrom 300 ; :validUntil 100 .'
+    bad = ":f a :TemporalFact ; :validFrom 300 ; :validUntil 100 ."
     assert _conforms(bad) is False  # validUntil precedes validFrom
 
 
 def test_well_formed_validity_window_conforms():
-    good = ':f a :TemporalFact ; :validFrom 100 ; :validUntil 300 .'
+    good = ":f a :TemporalFact ; :validFrom 100 ; :validUntil 300 ."
     assert _conforms(good) is True
 
 

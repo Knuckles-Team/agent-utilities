@@ -72,7 +72,8 @@ def test_case2_github_reply_renders() -> None:
     assert "<b>Open issues — Knuckles-Team</b>" in out  # header → bold
     assert "<b>agent-utilities</b> (2 open):" in out
     assert (
-        '<a href="https://github.com/Knuckles-Team/agent-utilities/issues/42">#42</a>' in out
+        '<a href="https://github.com/Knuckles-Team/agent-utilities/issues/42">#42</a>'
+        in out
     )
     assert "• #43 add tests" in out
     assert "##" not in out and "](" not in out

@@ -278,9 +278,7 @@ def test_distinct_dedupes_rows(kinds):
 
 def test_group_by_counts_per_key_not_one_total(kinds):
     # The implicit-GROUP-BY bug collapsed ``n.server, count(*)`` to a single total.
-    rows = kinds.execute(
-        "MATCH (n:Tool) RETURN n.server AS server, count(*) AS cnt"
-    )
+    rows = kinds.execute("MATCH (n:Tool) RETURN n.server AS server, count(*) AS cnt")
     by_server = {r["server"]: r["cnt"] for r in rows}
     assert by_server == {"egeria": 2, "gitlab": 1}
 

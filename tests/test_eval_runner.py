@@ -313,9 +313,11 @@ class TestThreshold:
 # ── live-LLM judge wiring (CONCEPT:AHE-3.1 fix) — the judge wraps the model in an
 # Agent (a pydantic-ai Model has no run_sync); mock _run_llm to assert parsing. ──
 
+
 def test_llm_judge_uses_run_llm_and_parses(runner, monkeypatch):
     monkeypatch.setattr(
-        EvalRunner, "_run_llm",
+        EvalRunner,
+        "_run_llm",
         staticmethod(lambda prompt: '{"score": 0.9, "reasoning": "close match"}'),
     )
     res = runner.run_eval(
@@ -328,7 +330,8 @@ def test_llm_judge_uses_run_llm_and_parses(runner, monkeypatch):
 
 def test_assertion_judge_uses_run_llm(runner, monkeypatch):
     monkeypatch.setattr(
-        EvalRunner, "_run_llm",
+        EvalRunner,
+        "_run_llm",
         staticmethod(lambda prompt: '{"pass": true, "reasoning": "states 4"}'),
     )
     res = runner.run_eval(

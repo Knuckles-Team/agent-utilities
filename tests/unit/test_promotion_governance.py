@@ -162,7 +162,12 @@ class TestConstitutionRule:
     def test_matching_forbid_rule_blocks(self):
         eng = _Engine(
             rule_rows=[
-                {"id": "rule:1", "kind": "forbid", "target": "retrieval", "active": True}
+                {
+                    "id": "rule:1",
+                    "kind": "forbid",
+                    "target": "retrieval",
+                    "active": True,
+                }
             ]
         )
         v = PromotionGovernanceValidator(eng, policy=_policy())
@@ -257,7 +262,12 @@ class TestVerdictAndMergerIntegration:
     def test_constitution_forbid_blocks_governed_merge(self):
         eng = _Engine(
             rule_rows=[
-                {"id": "rule:ban", "kind": "forbid", "target": "retrieval", "active": True}
+                {
+                    "id": "rule:ban",
+                    "kind": "forbid",
+                    "target": "retrieval",
+                    "active": True,
+                }
             ]
         )
         merger = GovernedAutoMerger(

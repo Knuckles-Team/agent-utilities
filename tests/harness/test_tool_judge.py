@@ -12,8 +12,12 @@ def _entry(output: str, n_spans: int = 0):
     for i in range(n_spans):
         be.record_event(trace_id="x", span_id=f"x:s{i}", name=f"step{i}", is_root=False)
     be.record_event(
-        trace_id="x", span_id="x:r", name="run", is_root=True,
-        input_text="q", output_text=output,
+        trace_id="x",
+        span_id="x:r",
+        name="run",
+        is_root=True,
+        input_text="q",
+        output_text=output,
     )
     return be, be.get_trace("x")
 

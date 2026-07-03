@@ -87,7 +87,9 @@ class TestRepoClassifier:
 
         # Skill dir recognised; its nested reference/*.md is CLAIMED (not a Document).
         assert mixed_repo / "skills" / "myskill" in skill_dirs
-        assert (mixed_repo / "skills" / "myskill" / "reference" / "ref.md") not in doc_paths
+        assert (
+            mixed_repo / "skills" / "myskill" / "reference" / "ref.md"
+        ) not in doc_paths
         assert (mixed_repo / "skills" / "myskill" / "SKILL.md") not in doc_paths
 
         # Markdown → Document, including the .md INSIDE a code dir (edge case).
@@ -242,16 +244,18 @@ class TestCodebaseArtifactRouting:
         # Prompt JSON routed to PROMPT adaptor.
         assert (mixed_repo / "prompts" / "greeting.json") in by_type["prompt"]
         # Skills/prompts do NOT take the document path.
-        assert not doc_seen or all(p.suffix in {".md", ".markdown", ".txt", ".rst"} for p in doc_seen)
+        assert not doc_seen or all(
+            p.suffix in {".md", ".markdown", ".txt", ".rst"} for p in doc_seen
+        )
         # Each markdown routed to the DOCUMENT unit (incl. the one in a code dir).
         assert (mixed_repo / "README.md") in documents
         assert (mixed_repo / "src" / "notes.md") in documents
         # The skill's nested ref.md was claimed → never routed as a Document.
-        assert (mixed_repo / "skills" / "myskill" / "reference" / "ref.md") not in documents
+        assert (
+            mixed_repo / "skills" / "myskill" / "reference" / "ref.md"
+        ) not in documents
         # Documents' enrichable bubbled up to the PARENT result for one central pass.
-        assert any(
-            e.get("source_type") == "document" for e in result.enrichable
-        )
+        assert any(e.get("source_type") == "document" for e in result.enrichable)
 
         # Specs written inline as Spec nodes (no SPEC adaptor).
         spec_nodes = [n for n in backend.nodes if n[1].get("type") == "Spec"]

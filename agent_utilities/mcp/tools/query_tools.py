@@ -550,7 +550,9 @@ def register_query_tools(mcp):
         tags=["graph-os", "query", "nl", "data-analysis"],
     )
     def ask_data(
-        question: str = Field(description="The natural-language DATA question to answer."),
+        question: str = Field(
+            description="The natural-language DATA question to answer."
+        ),
         dialect: str = Field(
             default="auto",
             description="'auto' (planner chooses, prefers uql) or 'uql'|'cypher'|'sql'|'sparql'.",

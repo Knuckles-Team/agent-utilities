@@ -64,7 +64,8 @@ class _Engine:
             return [
                 {"id": s}
                 for s, _t, r in self.edges
-                if r == "EVIDENCES" and s in self.nodes
+                if r == "EVIDENCES"
+                and s in self.nodes
                 and self.nodes[s]["type"] == "PerformanceAnomaly"
             ]
         return []
@@ -133,9 +134,7 @@ class TestConsumeAnomalies:
         engine = _Engine()
         # A failure_analyzer-born anomaly already EVIDENCES its gap.
         _seed_anomaly(engine, "pa:fa")
-        engine.add_node(
-            "failure_gap:x", "Concept", properties={"kind": "failure_gap"}
-        )
+        engine.add_node("failure_gap:x", "Concept", properties={"kind": "failure_gap"})
         engine.link_nodes("pa:fa", "failure_gap:x", "EVIDENCES")
         before = len(_gaps(engine))
         report = consume_anomalies(engine)

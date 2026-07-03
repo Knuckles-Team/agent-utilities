@@ -115,7 +115,9 @@ def test_conflict_skip_leaves_conflicted_node():
     checkout_props = {"type": "Doc", "status": "open"}
     baseline = {"a": CheckedOutSubgraph._version_of(checkout_props)}
     durable = FakeDurable(versions={"a": {"type": "Doc", "status": "CHANGED_REMOTELY"}})
-    sub = _checked_out(preload={"a": checkout_props}, durable=durable, baseline=baseline)
+    sub = _checked_out(
+        preload={"a": checkout_props}, durable=durable, baseline=baseline
+    )
     sub.add_node("a", {"type": "Doc", "status": "mine"})
     summary = sub.flush_deltas_to_durable(on_conflict="skip")
     assert summary["conflicts"] == 1 and summary["skipped_conflicts"] == 1
@@ -126,7 +128,9 @@ def test_conflict_error_raises():
     checkout_props = {"type": "Doc", "status": "open"}
     baseline = {"a": CheckedOutSubgraph._version_of(checkout_props)}
     durable = FakeDurable(versions={"a": {"type": "Doc", "status": "CHANGED"}})
-    sub = _checked_out(preload={"a": checkout_props}, durable=durable, baseline=baseline)
+    sub = _checked_out(
+        preload={"a": checkout_props}, durable=durable, baseline=baseline
+    )
     sub.add_node("a", {"type": "Doc", "status": "mine"})
     import pytest
 

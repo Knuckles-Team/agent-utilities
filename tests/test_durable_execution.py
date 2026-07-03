@@ -53,7 +53,9 @@ def test_idempotency_exactly_once(db):
 
     first = manager.run_durable_action("place_order", critical, idempotency_key="ORD-1")
     # A retry / replay with the same key must NOT re-run the side effect.
-    second = manager.run_durable_action("place_order", critical, idempotency_key="ORD-1")
+    second = manager.run_durable_action(
+        "place_order", critical, idempotency_key="ORD-1"
+    )
 
     assert calls["n"] == 1
     assert first == {"order_id": "abc"}

@@ -30,9 +30,7 @@ def _pool(capacity, **kw):
         evicted.append(graph)
         engine.close()
 
-    pool = TenantEnginePool(
-        capacity=capacity, factory=factory, on_evict=on_evict, **kw
-    )
+    pool = TenantEnginePool(capacity=capacity, factory=factory, on_evict=on_evict, **kw)
     return pool, made, evicted
 
 

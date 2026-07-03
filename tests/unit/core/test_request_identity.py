@@ -177,9 +177,7 @@ class TestActorIdentityMiddleware:
     @pytest.mark.concept("CONCEPT:OS-5.14")
     @pytest.mark.asyncio
     async def test_auth_required_rejects_missing_token(self):
-        cfg = _make_config(
-            kg_auth_required=True, auth_jwt_jwks_uri="https://idp/jwks"
-        )
+        cfg = _make_config(kg_auth_required=True, auth_jwt_jwks_uri="https://idp/jwks")
         mw = ActorIdentityMiddleware(_make_inner_app({}))
         with mock.patch("agent_utilities.core.config.config", cfg):
             sent = await _call(mw)
@@ -243,9 +241,7 @@ class TestKgServerIdentityResolution:
         from agent_utilities.mcp.kg_server import _actor_from_kwargs
 
         cfg = _make_config()
-        minted = ActorContext(
-            actor_id="user:jwt", roles=("hr",), authenticated=True
-        )
+        minted = ActorContext(actor_id="user:jwt", roles=("hr",), authenticated=True)
         kwargs = {"_actor": "spoofed:admin", "_roles": "admin"}
         with (
             mock.patch("agent_utilities.core.config.config", cfg),

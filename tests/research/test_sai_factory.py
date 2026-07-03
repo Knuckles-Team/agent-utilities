@@ -45,7 +45,9 @@ def _task() -> SpecializationTask:
 
 def test_scaffold_arm_selects_best_variant_and_promotes():
     task = _task()
-    ctrl = SaiFactoryController(task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"])
+    ctrl = SaiFactoryController(
+        task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"]
+    )
     result = ctrl.run(rounds=1)
     # "rich" → 4/5 = 0.8 beats "poor" → 0.2
     assert result.specialist.scaffold == "rich"
@@ -56,7 +58,9 @@ def test_scaffold_arm_selects_best_variant_and_promotes():
 
 def test_curve_reaches_target_and_metrics_populated():
     task = _task()
-    ctrl = SaiFactoryController(task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"])
+    ctrl = SaiFactoryController(
+        task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"]
+    )
     result = ctrl.run(rounds=2)
     assert result.curve.reached(task.target_tau) is True
     m = result.metrics()
@@ -89,9 +93,13 @@ def test_weight_arm_overtakes_scaffolding_and_is_attributed():
 
 def test_ratchet_blocks_a_regressing_challenger():
     task = _task()
-    ctrl = SaiFactoryController(task, _gen_from({"poor": 1, "rich": 2}), scaffolds=["poor", "rich"])
+    ctrl = SaiFactoryController(
+        task, _gen_from({"poor": 1, "rich": 2}), scaffolds=["poor", "rich"]
+    )
     # Force a high incumbent the scaffold arm (max 0.4) cannot match.
-    ctrl.specialist = Specialist(scaffold="rich", generator=ctrl.specialist.generator, reward=0.9)
+    ctrl.specialist = Specialist(
+        scaffold="rich", generator=ctrl.specialist.generator, reward=0.9
+    )
     rr = ctrl.run_round(0)
     assert rr.promoted is False
     assert rr.arm == "none"
@@ -100,7 +108,9 @@ def test_ratchet_blocks_a_regressing_challenger():
 
 def test_weight_arm_absent_is_pure_scaffolding():
     task = _task()
-    ctrl = SaiFactoryController(task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"])
+    ctrl = SaiFactoryController(
+        task, _gen_from({"poor": 1, "rich": 4}), scaffolds=["poor", "rich"]
+    )
     result = ctrl.run(rounds=2)
     assert all(r.arm in ("scaffold", "none") for r in result.rounds)
     assert all(r.weight_gain == 0.0 for r in result.rounds)

@@ -27,7 +27,9 @@ def test_cycle_with_task_runs_self_play():
     # No skill detector so only the self-play branch exercises task_text.
     eng._skill_detector = None
 
-    report = eng.run_evolution_cycle("base1", task_text="optimize a sorting routine", top_k=1)
+    report = eng.run_evolution_cycle(
+        "base1", task_text="optimize a sorting routine", top_k=1
+    )
     assert "self_play" in report
     sp = report["self_play"]
     assert 0.0 <= sp["accept_rate"] <= 1.0

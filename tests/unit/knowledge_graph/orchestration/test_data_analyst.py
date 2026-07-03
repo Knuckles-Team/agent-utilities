@@ -114,7 +114,10 @@ def test_kg_2_308_self_correction_on_query_error_then_success(monkeypatch):
     assert "execution failed" in out["attempts"][0]["error"]
     assert "error" not in out["attempts"][1]
     # both queries were actually issued to the engine
-    assert eng.sql_calls == ["SELECT WRONGCOL FROM nodes", "SELECT customer, orders FROM nodes"]
+    assert eng.sql_calls == [
+        "SELECT WRONGCOL FROM nodes",
+        "SELECT customer, orders FROM nodes",
+    ]
 
 
 def test_kg_2_308_correction_exhausted_returns_clean_error(monkeypatch):
@@ -243,7 +246,9 @@ def test_kg_2_308_ask_data_mcp_tool_registered():
         nl_planner.is_llm_configured = lambda: True
         orig_planner = nl_planner.AuNlPlanner
         nl_planner.AuNlPlanner = lambda **k: orig_planner(
-            run=lambda prompt, system: '{"dialect": "sql", "query": "SELECT customer FROM nodes"}'
+            run=lambda prompt, system: (
+                '{"dialect": "sql", "query": "SELECT customer FROM nodes"}'
+            )
         )
         try:
             res = json.loads(

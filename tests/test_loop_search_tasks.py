@@ -41,9 +41,7 @@ class _FakeEngine:
 
 def test_loop_search_task_stage(tmp_path):
     engine = _FakeEngine()
-    controller = LoopController(
-        engine, codebase_root=str(tmp_path), propose_only=True
-    )
+    controller = LoopController(engine, codebase_root=str(tmp_path), propose_only=True)
     report = controller.run_one_cycle(
         synthesize_search=True,
         synthesize=False,

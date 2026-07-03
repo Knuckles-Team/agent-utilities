@@ -63,7 +63,9 @@ def test_envelope_includes_headers_when_opted_in():
 def test_non_json_and_empty_bodies():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/text":
-            return httpx.Response(200, text="plain words", headers={"Content-Type": "text/plain"})
+            return httpx.Response(
+                200, text="plain words", headers={"Content-Type": "text/plain"}
+            )
         return httpx.Response(204)
 
     with _client(handler) as client:
@@ -194,7 +196,11 @@ def test_429_exhaustion_raises_api_error_with_rate_context(monkeypatch):
     monkeypatch.setattr("agent_utilities.http.client.time.sleep", lambda s: None)
     handler = lambda request: httpx.Response(  # noqa: E731
         429,
-        headers={"Retry-After": "1", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "30"},
+        headers={
+            "Retry-After": "1",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "30",
+        },
     )
     with _client(handler, max_retries_429=2) as client:
         with pytest.raises(ApiError, match="rate limited after 2 retries"):
@@ -224,7 +230,13 @@ def test_retry_after_cap_bounds_each_sleep(monkeypatch):
 
 @pytest.mark.parametrize(
     ("status", "exc"),
-    [(400, ParameterError), (401, AuthError), (403, UnauthorizedError), (404, ParameterError), (500, ApiError)],
+    [
+        (400, ParameterError),
+        (401, AuthError),
+        (403, UnauthorizedError),
+        (404, ParameterError),
+        (500, ApiError),
+    ],
 )
 def test_default_error_map(status, exc):
     handler = lambda request: httpx.Response(status, json={"message": "boom"})  # noqa: E731
@@ -317,7 +329,9 @@ def test_per_call_timeout_reaches_transport():
 
 
 def test_verify_defaults_true():
-    with BaseApiClient(BASE, transport=httpx.MockTransport(lambda r: httpx.Response(200))) as client:
+    with BaseApiClient(
+        BASE, transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    ) as client:
         assert client.verify is True
 
 
@@ -329,9 +343,13 @@ def test_verify_defaults_true():
 async def test_async_envelope_and_auth():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "SSWS ok-tok"
-        return httpx.Response(200, json={"hello": "async"}, headers={"X-Rate-Limit-Remaining": "5"})
+        return httpx.Response(
+            200, json={"hello": "async"}, headers={"X-Rate-Limit-Remaining": "5"}
+        )
 
-    async with _async_client(handler, auth=TokenAuth("ok-tok", prefix="SSWS")) as client:
+    async with _async_client(
+        handler, auth=TokenAuth("ok-tok", prefix="SSWS")
+    ) as client:
         envelope = await client.get("/me")
     assert envelope["status_code"] == 200
     assert envelope["data"] == {"hello": "async"}

@@ -138,7 +138,9 @@ def test_discover_concepts_reads_registry_then_falls_back_to_markers(tmp_path):
     # repo B: no registry → CONCEPT: markers in source are scanned
     b = tmp_path / "repo-b"
     b.mkdir()
-    (b / "engine.rs").write_text("// CONCEPT:EG-009 native reasoner\n", encoding="utf-8")
+    (b / "engine.rs").write_text(
+        "// CONCEPT:EG-009 native reasoner\n", encoding="utf-8"
+    )
 
     out = {c["id"].upper(): c for c in discover_concepts([str(a.parent), str(b)])}
     assert out["KG-2.7"]["name"] == "Research Assimilation"  # from registry
@@ -161,7 +163,9 @@ def test_run_breadth_ingest_bridges_concepts(tmp_path):
         concept_ingest=lambda e, cs: (captured.extend(cs), len(cs))[1],
     )
     assert report.concepts >= 1
-    assert any(c["id"] == "KG-2.7" for c in captured)  # breadth drives the concept bridge
+    assert any(
+        c["id"] == "KG-2.7" for c in captured
+    )  # breadth drives the concept bridge
 
 
 def test_workspace_project_roots_returns_existing_local_paths(tmp_path):

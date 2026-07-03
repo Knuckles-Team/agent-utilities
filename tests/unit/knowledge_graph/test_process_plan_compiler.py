@@ -259,9 +259,7 @@ class TestCompileAndStore:
         assert workflow_id in engine.graph.nodes
         assert engine.graph.nodes[workflow_id]["type"] == "WorkflowDefinition"
         realizes = [
-            (s, t)
-            for s, t, p in engine.graph._edges
-            if p.get("type") == "REALIZES"
+            (s, t) for s, t, p in engine.graph._edges if p.get("type") == "REALIZES"
         ]
         assert (workflow_id, PROC) in realizes
 

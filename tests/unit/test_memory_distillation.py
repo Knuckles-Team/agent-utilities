@@ -126,7 +126,9 @@ def _recurring_and_noise() -> list[dict[str, Any]]:
     return recurring + rare + wrong_tier + retired
 
 
-def _distiller(engine: _MockEngine, flywheel: Any = None, **cfg: Any) -> MemoryDistiller:
+def _distiller(
+    engine: _MockEngine, flywheel: Any = None, **cfg: Any
+) -> MemoryDistiller:
     config = MemoryDistillerConfig(enabled=True, min_recurrence=3, **cfg)
     return MemoryDistiller(engine, config=config, llm=_mock_llm, flywheel=flywheel)
 
@@ -280,7 +282,9 @@ def test_kg_2_309_run_distillation_safe_when_store_unavailable() -> None:
     assert res["distilled"] == 0  # nothing recorded, but the cycle is safe
 
 
-def test_kg_2_309_run_memory_distillation_entrypoint_respects_disabled_default() -> None:
+def test_kg_2_309_run_memory_distillation_entrypoint_respects_disabled_default() -> (
+    None
+):
     engine = _MockEngine(_recurring_and_noise())
     # No config → from_env(), disabled unless the env var is set.
     assert run_memory_distillation(engine) == {"status": "disabled"}

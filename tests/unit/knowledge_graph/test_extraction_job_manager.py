@@ -57,12 +57,21 @@ def _canned_facts(monkeypatch):
                 "type": "fact",
                 "round": 1,
                 "fact": ExtractedFact(
-                    subject=subj, predicate="rel", object=obj, confidence=90, source_file=source
+                    subject=subj,
+                    predicate="rel",
+                    object=obj,
+                    confidence=90,
+                    source_file=source,
                 ).model_dump(),
                 "is_duplicate": False,
                 "max_similarity": 0.0,
             }
-        yield {"type": "done", "total_facts": 2, "duplicate_facts": 0, "unique_facts": 2}
+        yield {
+            "type": "done",
+            "total_facts": 2,
+            "duplicate_facts": 0,
+            "unique_facts": 2,
+        }
 
     monkeypatch.setattr(jm, "extract_facts", _fake_extract)
 
@@ -121,7 +130,9 @@ def test_graph_checkpoint_store_roundtrip() -> None:
     store = GraphCheckpointStore(engine)
     from agent_utilities.knowledge_graph.ingestion.gpu_slot_scheduler import Job
 
-    store.save(Job(job_id="x", state=JobState.RUNNING, checkpoint={"done_files": ["a"]}))
+    store.save(
+        Job(job_id="x", state=JobState.RUNNING, checkpoint={"done_files": ["a"]})
+    )
     loaded = store.load_all()
     assert len(loaded) == 1
     assert loaded[0].job_id == "x"

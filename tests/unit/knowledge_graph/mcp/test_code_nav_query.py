@@ -48,7 +48,9 @@ def test_trace_call_graph_is_downstream_and_depth_bounded():
 
 
 def test_impact_of_change_is_upstream():
-    cypher, _ = build_code_nav_query(action="impact_of_change", symbol="shared", depth=2)
+    cypher, _ = build_code_nav_query(
+        action="impact_of_change", symbol="shared", depth=2
+    )
     assert "(caller:Code)-[:calls*1..2]->(t:Code)" in cypher
     assert "t.name = $symbol" in cypher
 
