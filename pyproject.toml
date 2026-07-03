@@ -66,6 +66,33 @@ sandbox = [
 engine = [
     "epistemic-graph>=2.0.0"
 ]
+# CONCEPT:KG-2.317 — the PRIMARY numeric backend (Analytics Program P5). The
+# `agent_utilities.numeric` `xp` shim prefers the compiled `eg-numeric` faer/ndarray
+# kernel (BLAS/LAPACK-free, parity-proven `np.allclose` vs numpy — engine CONCEPT:EG-346,
+# gated by the `numeric-parity` CI job) and only falls back to numpy when the kernel is
+# absent. Installing this extra ships the kernel with the engine wheel, so the shim goes
+# kernel-LIVE (`HAVE_KERNEL == True`) with ZERO call-site changes. This is the intended
+# numeric backend; `numeric-fallback` below is the degraded path.
+#   Honest status: the `eg-numeric` Surface-A wheel is folded into the `epistemic-graph`
+#   engine wheel behind its `numeric` maturin feature, but that build is NOT yet published
+#   to a package index. So this extra pins `epistemic-graph` (mirroring `engine`) as the
+#   carrier; the shim stays kernel-live only where the numeric-featured engine wheel is
+#   actually installed. The ONE remaining step to make the kernel a hard, index-resolvable
+#   dependency (and let numpy be dropped entirely) is to publish that wheel — see
+#   docs/guides/numeric-kernel.md.
+numeric-kernel = [
+    "epistemic-graph>=2.0.0"
+]
+# CONCEPT:KG-2.317 — the numpy/scipy FALLBACK path, demoted to an explicit extra. The `xp`
+# shim transparently falls back to numpy when the kernel is absent, so this keeps the
+# abstraction working everywhere the kernel wheel is not (yet) installed. numpy/scipy are
+# intentionally NOT in base `dependencies`; the leaf-numeric consumers (`finance`,
+# `embeddings`, `ann`) still pin them for their own array work. This extra makes the
+# fallback story explicit for anyone installing agent-utilities without the kernel.
+numeric-fallback = [
+    "numpy>=2.4.6",
+    "scipy>=1.17.1"
+]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
 feeds = [
