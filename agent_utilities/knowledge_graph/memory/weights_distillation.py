@@ -39,9 +39,15 @@ Pipeline (one ``export`` cycle):
     :meth:`MemoryWeightsDistiller.submit`, returning a typed
     :class:`DistillationJob`. Default submit is durable + torch-free (writes the
     JSONL + a job manifest and, best-effort, registers a job node the fleet can
-    pick up); the **live LoRA train is the integration point** — a consumer runs
-    :data:`DATA_SCIENCE_MCP_CONTRACT` (the ``train_model`` workflow /
-    ``build_training_dataset`` + ``train_sft`` tools) on the GB10.
+    pick up) **and now dispatches the train LIVE** (CONCEPT:KG-2.318): it runs the
+    ``train_model`` workflow on ``data-science-mcp`` through the
+    ``graph_orchestrate execute_workflow`` seam (:data:`DATA_SCIENCE_MCP_CONTRACT`),
+    marking the job ``running`` with the remote run handle. The dispatch is bounded
+    + robust: when the orchestration engine / data-science-mcp is unreachable it
+    degrades to a durable ``enqueued`` job (materialized + a job node the fleet
+    picks up) and never raises. The heavy LoRA/SFT train still executes **in
+    data-science-mcp** (GPU-gated, GB10) — core only orchestrates it over MCP and
+    polls the ``TrainingJob`` / checkpoint state back.
 
 Design notes (mirror KG-2.307 / KG-2.309):
 
@@ -133,6 +139,67 @@ def _as_str_list(val: Any) -> list[str]:
     if isinstance(val, str) and val.strip():
         return [p.strip() for p in val.split(",") if p.strip()]
     return []
+
+
+# Hard wall-clock bound on the live data-science-mcp dispatch (CONCEPT:KG-2.318).
+# A named constant, not a flag (Configuration discipline): a single correct upper
+# bound so an unreachable/slow train hand-off fails fast into the durable
+# ``enqueued`` degrade rather than blocking the export path.
+_DISPATCH_TIMEOUT: float = 45.0
+
+
+def _run_coro_sync(make_coro: Callable[[], Any], timeout: float) -> Any:
+    """Run an async coroutine to completion from a synchronous caller (KG-2.318).
+
+    ``submit`` is a sync call reached from inside the already-async ``graph_analyze``
+    MCP tool, so we cannot ``await`` the orchestration hand-off directly. When no
+    event loop is running we ``asyncio.run`` it; when one IS running (the live MCP
+    path) we run it on a dedicated worker thread with its own loop. ``make_coro`` is
+    a zero-arg factory so the coroutine is created inside the loop that will await
+    it. Bounded by ``timeout`` so a stuck dispatch can never hang the export.
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+        loop_running = True
+    except RuntimeError:
+        loop_running = False
+
+    if not loop_running:
+        return asyncio.run(asyncio.wait_for(make_coro(), timeout))
+
+    import concurrent.futures
+
+    def _worker() -> Any:
+        return asyncio.run(asyncio.wait_for(make_coro(), timeout))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_worker).result(timeout=timeout + 10)
+
+
+def _dispatch_train_workflow(
+    engine: Any, name: str, task: dict[str, Any], timeout: float = _DISPATCH_TIMEOUT
+) -> dict[str, Any]:
+    """Run the data-science-mcp ``train_model`` workflow via graph_orchestrate (KG-2.318).
+
+    This is the concrete LIVE hand-off: it drives the same
+    ``graph_orchestrate action=execute_workflow`` seam an operator would call —
+    :class:`~agent_utilities.orchestration.manager.Orchestrator` ``execute_workflow`` —
+    so the exported corpus + :class:`DistillationTargetSpec` (carried in ``task``)
+    reach ``data-science-mcp`` for the GPU LoRA/SFT train. Returns the workflow
+    result dict (carrying a ``run_id`` handle); raises on any failure so the caller
+    can degrade to a durable ``enqueued`` job.
+    """
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    orchestrator = Orchestrator(engine)
+
+    def _make() -> Any:
+        return orchestrator.execute_workflow(name, task=json.dumps(task, default=str))
+
+    result = _run_coro_sync(_make, timeout)
+    return result if isinstance(result, dict) else {"result": result}
 
 
 @dataclass
@@ -290,10 +357,14 @@ class MemoryWeightsDistiller:
 
     Instantiate with the same ``engine`` the scheduler hands maintenance handlers
     (it exposes ``.backend`` for the bounded reader and, optionally, a job surface
-    for :meth:`submit`). ``submitter`` is an injectable
-    ``(corpus, spec) -> DistillationJob`` seam for the data-science-mcp hand-off
-    (defaults to :meth:`_default_submit`, which is durable + torch-free); tests
-    inject a stub.
+    for :meth:`submit`). Two injectable seams:
+
+    * ``submitter`` — ``(corpus, spec) -> DistillationJob``, overrides the WHOLE
+      submit step (defaults to :meth:`_default_submit`, durable + torch-free).
+    * ``dispatcher`` — ``(handoff, corpus, spec) -> dict``, the LIVE data-science-mcp
+      hand-off within the default submit (CONCEPT:KG-2.318). Defaults to
+      :meth:`_default_dispatch`, which runs the ``train_model`` workflow over
+      ``graph_orchestrate execute_workflow``; tests inject a mock MCP client here.
     """
 
     def __init__(
@@ -304,11 +375,17 @@ class MemoryWeightsDistiller:
             [DistillationCorpus, DistillationTargetSpec], DistillationJob
         ]
         | None = None,
+        dispatcher: Callable[
+            [dict[str, Any], DistillationCorpus, DistillationTargetSpec],
+            dict[str, Any],
+        ]
+        | None = None,
         max_working_set: int = 2000,
     ) -> None:
         self.engine = engine
         self.spec = spec or DistillationTargetSpec()
         self._submitter = submitter
+        self._dispatcher = dispatcher
         # Reuse the KG-2.307 lifecycle purely for its BOUNDED working-set reader.
         self._lifecycle = MemoryLifecycle(
             engine,
@@ -522,14 +599,81 @@ class MemoryWeightsDistiller:
             ),
         }
 
+    # CONCEPT:KG-2.318 — LIVE data-science-mcp train dispatch + TrainingJob status poll
+    def _default_dispatch(
+        self, handoff: dict[str, Any], corpus: DistillationCorpus
+    ) -> dict[str, Any]:
+        """LIVE data-science-mcp hand-off — run ``train_model`` (CONCEPT:KG-2.318).
+
+        Drives the contract's ``workflow`` entry (``graph_orchestrate
+        execute_workflow name=train_model``) so the exported corpus + spec reach
+        ``data-science-mcp`` for the GPU LoRA/SFT train. Bounded + robust: only
+        attempted when the engine is an orchestration-capable
+        :class:`IntelligenceGraphEngine`; any unreachable/failed dispatch returns
+        ``dispatched=False`` so the caller keeps a durable ``enqueued`` job the
+        fleet can still pick up. Never raises.
+        """
+        workflow = (handoff or {}).get("workflow") or {}
+        name = str(workflow.get("name") or "train_model")
+        task = dict(workflow.get("task") or {})
+        try:
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
+
+            if not isinstance(self.engine, IntelligenceGraphEngine):
+                return {
+                    "dispatched": False,
+                    "status": "enqueued",
+                    "detail": (
+                        "no orchestration engine; job enqueued for "
+                        "data-science-mcp pickup"
+                    ),
+                }
+            result = _dispatch_train_workflow(self.engine, name, task)
+            run_id = str(result.get("run_id") or result.get("session_id") or "")
+            return {
+                "dispatched": True,
+                "status": "running",
+                "run_id": run_id,
+                "via": "execute_workflow",
+                "workflow": name,
+                "detail": f"dispatched {name} to data-science-mcp (run {run_id})",
+            }
+        except Exception as e:  # noqa: BLE001 — degrade to durable enqueue
+            logger.warning("[KG-2.318] live train dispatch failed: %s", e)
+            return {
+                "dispatched": False,
+                "status": "enqueued",
+                "detail": (
+                    f"data-science-mcp dispatch unreachable ({e}); "
+                    "job enqueued for pickup"
+                ),
+            }
+
+    def _run_dispatch(
+        self, handoff: dict[str, Any], corpus: DistillationCorpus
+    ) -> dict[str, Any]:
+        """Invoke the dispatcher seam (injected or default); never raises."""
+        try:
+            if self._dispatcher is not None:
+                return self._dispatcher(handoff, corpus, self.spec)
+            return self._default_dispatch(handoff, corpus)
+        except Exception as e:  # noqa: BLE001 — a bad dispatcher can't abort submit
+            logger.warning("[KG-2.318] dispatcher raised: %s", e)
+            return {"dispatched": False, "status": "enqueued", "detail": str(e)}
+
     def _default_submit(self, corpus: DistillationCorpus) -> DistillationJob:
-        """Durable, torch-free hand-off: materialize corpus + register a job node.
+        """Durable, torch-free hand-off: materialize + LIVE-dispatch + register.
 
         Writes the JSONL + a job manifest under the memory dir, builds the
-        data-science-mcp hand-off payload, and — best-effort — registers a durable
-        job node the fleet can pick up (status ``enqueued``). With no writable dir
-        or engine job surface it degrades to an in-memory ``exported`` job; never
-        raises.
+        data-science-mcp hand-off payload, **dispatches the train live** through the
+        dispatcher seam (CONCEPT:KG-2.318 — the ``train_model`` workflow over
+        ``graph_orchestrate``), and registers a durable ``TrainingJob`` node the
+        fleet + poll can read back. A live dispatch marks the job ``running`` with
+        the remote run handle; an unreachable data-science-mcp degrades to a durable
+        ``enqueued`` job; with no writable dir or engine job surface it degrades to
+        an in-memory ``exported`` job. Never raises.
         """
         job_id = f"distill-lora-{uuid.uuid4().hex[:10]}"
         submitted_at = datetime.now(UTC).isoformat()
@@ -546,25 +690,20 @@ class MemoryWeightsDistiller:
             corpus_path = out_dir / f"{job_id}.jsonl"
             corpus_path.write_text(corpus.to_jsonl(), encoding="utf-8")
             corpus_ref = str(corpus_path)
-            handoff = self._build_handoff(corpus_ref)
-            manifest = {
-                "job_id": job_id,
-                "status": status,
-                "spec": self.spec.to_dict(),
-                "checksum": corpus.checksum,
-                "example_count": len(corpus.examples),
-                "corpus_ref": corpus_ref,
-                "handoff": handoff,
-                "submitted_at": submitted_at,
-            }
-            (out_dir / f"{job_id}.json").write_text(
-                json.dumps(manifest, indent=2), encoding="utf-8"
-            )
         except Exception as e:  # noqa: BLE001 — degrade, never abort the export
             logger.warning("[KG-2.316] corpus materialization failed: %s", e)
-            handoff = self._build_handoff(corpus_ref)
 
-        # 2. Best-effort: register a durable job node the fleet can pick up.
+        handoff = self._build_handoff(corpus_ref)
+
+        # 2. LIVE hand-off: dispatch the train to data-science-mcp (KG-2.318).
+        dispatch = self._run_dispatch(handoff, corpus)
+        handoff["dispatch"] = dispatch
+        run_id = str(dispatch.get("run_id") or "")
+        # The status the durable job should carry: ``running`` when the train was
+        # dispatched live, else ``enqueued`` (awaiting a data-science-mcp worker).
+        intended_status = "running" if dispatch.get("dispatched") else "enqueued"
+
+        # 3. Best-effort: register a durable job node the fleet + poll can read back.
         add_node = getattr(self.engine, "add_node", None)
         if callable(add_node):
             try:
@@ -572,8 +711,8 @@ class MemoryWeightsDistiller:
                     job_id,
                     "TrainingJob",
                     properties={
-                        "concept": "KG-2.316",
-                        "status": "enqueued",
+                        "concept": "KG-2.318",
+                        "status": intended_status,
                         "kind": "memory_to_weights_lora",
                         "base_model": self.spec.base_model,
                         "method": self.spec.method,
@@ -581,16 +720,47 @@ class MemoryWeightsDistiller:
                         "checksum": corpus.checksum,
                         "example_count": len(corpus.examples),
                         "server": DATA_SCIENCE_MCP_CONTRACT["server"],
+                        "dispatched": bool(dispatch.get("dispatched")),
+                        "run_id": run_id,
                         "submitted_at": submitted_at,
                     },
                 )
-                status = "enqueued"
-                detail = "registered TrainingJob node; awaiting data-science-mcp"
+                status = intended_status
+                detail = str(
+                    dispatch.get("detail")
+                    or "registered TrainingJob node; awaiting data-science-mcp"
+                )
             except Exception as e:  # noqa: BLE001 — enqueue is best-effort
-                logger.warning("[KG-2.316] job-node registration failed: %s", e)
+                logger.warning("[KG-2.318] job-node registration failed: %s", e)
                 detail = f"materialized only (enqueue failed: {e})"
         else:
             detail = "materialized only (engine has no job surface)"
+
+        # 4. Persist the final manifest (status + dispatch outcome) for poll.
+        try:
+            from .memory_engine import memory_dir
+
+            manifest_path = memory_dir() / "distillation" / f"{job_id}.json"
+            if manifest_path.parent.exists():
+                manifest_path.write_text(
+                    json.dumps(
+                        {
+                            "job_id": job_id,
+                            "status": status,
+                            "spec": self.spec.to_dict(),
+                            "checksum": corpus.checksum,
+                            "example_count": len(corpus.examples),
+                            "corpus_ref": corpus_ref,
+                            "handoff": handoff,
+                            "run_id": run_id,
+                            "submitted_at": submitted_at,
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+        except Exception as e:  # noqa: BLE001 — manifest is best-effort
+            logger.warning("[KG-2.318] manifest persist failed: %s", e)
 
         return DistillationJob(
             job_id=job_id,
@@ -611,11 +781,13 @@ class MemoryWeightsDistiller:
         return self._default_submit(corpus)
 
     def poll(self, job_id: str) -> dict[str, Any]:
-        """Poll a submitted job's status (CONCEPT:KG-2.316).
+        """Poll a submitted job's status, reading train state back (CONCEPT:KG-2.318).
 
-        Reads the durable job manifest / node written at submit time. The
-        ``running``→``succeeded`` transitions are owned by data-science-mcp (the
-        integration point); core reports the last durable state it can see.
+        Prefers the live ``TrainingJob`` engine node — which data-science-mcp
+        updates as the LoRA/SFT train advances ``running``→``succeeded``/``failed``
+        and links the produced ``register_checkpoint`` node — and surfaces that
+        checkpoint when present, so the poll reflects the REAL remote train state,
+        not just the last state core wrote. Falls back to the on-disk manifest.
         """
         # Prefer a live engine job node when available.
         get_node = getattr(self.engine, "get_node", None)
@@ -623,14 +795,26 @@ class MemoryWeightsDistiller:
             try:
                 node = get_node(job_id)
                 if isinstance(node, dict) and node:
-                    return {
+                    result: dict[str, Any] = {
                         "job_id": job_id,
                         "status": node.get("status", "unknown"),
                         "source": "engine",
                         "node": node,
                     }
+                    if node.get("run_id"):
+                        result["run_id"] = node["run_id"]
+                    # KG-2.318: surface the checkpoint the train registered back.
+                    ckpt_ref = node.get("checkpoint_ref") or node.get("checkpoint")
+                    if ckpt_ref:
+                        try:
+                            ckpt = get_node(str(ckpt_ref))
+                            if isinstance(ckpt, dict) and ckpt:
+                                result["checkpoint"] = ckpt
+                        except Exception as e:  # noqa: BLE001 — checkpoint optional
+                            logger.debug("[KG-2.318] checkpoint lookup failed: %s", e)
+                    return result
             except Exception as e:  # noqa: BLE001 — fall through to the manifest
-                logger.debug("[KG-2.316] job node lookup failed: %s", e)
+                logger.debug("[KG-2.318] job node lookup failed: %s", e)
         # Fall back to the on-disk manifest.
         try:
             from .memory_engine import memory_dir
@@ -657,13 +841,24 @@ def distill_memory_to_weights(
     nodes: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Action-core for ``graph_analyze action=distill_memory`` (CONCEPT:KG-2.316).
+    """Action-core for ``graph_analyze action=distill_memory`` (CONCEPT:KG-2.316/2.318).
 
     The single method BOTH surfaces (the ``graph_analyze`` MCP tool and its
     ``POST /graph/analyze`` REST twin) dispatch into. Reads consolidated/procedural
-    memory, exports a LoRA/SFT corpus + spec, and — when ``submit`` — hands it to
-    data-science-mcp, returning a JSON-safe summary (corpus stats + spec + job).
+    memory, exports a LoRA/SFT corpus + spec, and — when ``submit`` — LIVE-dispatches
+    it to data-science-mcp (CONCEPT:KG-2.318), returning a JSON-safe summary (corpus
+    stats + spec + job). A ``poll_job_id`` param instead reads a submitted job's live
+    ``TrainingJob``/checkpoint state back (the status-poll surface).
     """
+    params = dict(params or {})
+    # KG-2.318 — poll a submitted job's live train state (both surfaces).
+    poll_job_id = str(params.pop("poll_job_id", "") or "").strip()
+    if poll_job_id:
+        return {
+            "status": "ok",
+            "concept": "KG-2.318",
+            "poll": MemoryWeightsDistiller(engine).poll(poll_job_id),
+        }
     spec = DistillationTargetSpec.from_params(params)
     distiller = MemoryWeightsDistiller(engine, spec=spec)
     corpus = distiller.export(nodes=nodes, now=now)
