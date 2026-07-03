@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 601
+total_concepts: 602
 total_pillars: 28
 pillars:
 - AHE-3
@@ -6631,6 +6631,18 @@ concepts:
   dotted: KG-2.318
   aliases:
   - KG-2.318
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.319
+  name: the full numpy drop
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: the full numpy drop
+  dotted: KG-2.319
+  aliases:
+  - KG-2.319
   canonical_pillar: KG-2
   needs_curation: false
 - id: LGC-1.0

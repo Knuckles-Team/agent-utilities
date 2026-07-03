@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "1.2.0"
+version = "1.3.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -63,32 +63,42 @@ sandbox = [
 # `epistemic-graph-server` binary (next to `sys.executable`) so the test fixture
 # resolves it with NO cargo build. The supervised reference-counted
 # `--idle-shutdown-secs` autostart contract (CONCEPT:OS-5.63) is in this wheel.
+# Floor bumped to 2.6.0 — the engine release that ships the abi3 `eg-numeric`
+# kernel wheel (cp39-abi3) folded in behind its `numeric` maturin feature. Still a
+# floor (`>=`), never an exact pin: published deps express minimums; dev overlays
+# live source via source-mounts + PYTHONPATH.
 engine = [
-    "epistemic-graph>=2.0.0"
+    "epistemic-graph>=2.6.0"
 ]
-# CONCEPT:KG-2.317 — the PRIMARY numeric backend (Analytics Program P5). The
-# `agent_utilities.numeric` `xp` shim prefers the compiled `eg-numeric` faer/ndarray
-# kernel (BLAS/LAPACK-free, parity-proven `np.allclose` vs numpy — engine CONCEPT:EG-346,
-# gated by the `numeric-parity` CI job) and only falls back to numpy when the kernel is
-# absent. Installing this extra ships the kernel with the engine wheel, so the shim goes
-# kernel-LIVE (`HAVE_KERNEL == True`) with ZERO call-site changes. This is the intended
-# numeric backend; `numeric-fallback` below is the degraded path.
-#   Honest status: the `eg-numeric` Surface-A wheel is folded into the `epistemic-graph`
-#   engine wheel behind its `numeric` maturin feature, but that build is NOT yet published
-#   to a package index. So this extra pins `epistemic-graph` (mirroring `engine`) as the
-#   carrier; the shim stays kernel-live only where the numeric-featured engine wheel is
-#   actually installed. The ONE remaining step to make the kernel a hard, index-resolvable
-#   dependency (and let numpy be dropped entirely) is to publish that wheel — see
-#   docs/guides/numeric-kernel.md.
+# CONCEPT:KG-2.319 — the PRIMARY numeric backend (Analytics Program P5, the full
+# numpy drop). The `agent_utilities.numeric` `xp` shim prefers the compiled
+# `eg-numeric` faer/ndarray kernel (BLAS/LAPACK-free, parity-proven `np.allclose` vs
+# numpy — engine CONCEPT:EG-346, gated by the `numeric-parity` CI job) and only falls
+# back to numpy when the kernel is absent. Installing this extra pulls the kernel as a
+# HARD, index-resolvable dependency, so the shim goes kernel-LIVE (`HAVE_KERNEL == True`)
+# with ZERO call-site changes. This is the intended numeric backend; `numeric-fallback`
+# below is the degraded path.
+#   The `eg-numeric` Surface-A wheel is now PUBLISHED (cp39-abi3, shipped alongside the
+#   `epistemic-graph` 2.6.0 engine release), so we can declare it directly here as a
+#   loose floor (`>=0.1.0`) — a real dependency, not just the engine carrier. The
+#   `epistemic-graph>=2.6.0` floor pins the engine release that carries the same kernel
+#   folded behind its `numeric` maturin feature. Both are FLOORS, never exact pins.
+#   DEV (non-publishing) builds the kernel from source instead: source-mounts +
+#   `PYTHONPATH=/au:/eg` (services/graph-os/compose.dev.yml) plus an editable install via
+#   `maturin develop -m crates/eg-numeric/Cargo.toml --features python`
+#   (`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`). Dev never depends on the published wheel.
+#   See docs/guides/numeric-kernel.md.
 numeric-kernel = [
-    "epistemic-graph>=2.0.0"
+    "eg-numeric>=0.1.0",
+    "epistemic-graph>=2.6.0"
 ]
-# CONCEPT:KG-2.317 — the numpy/scipy FALLBACK path, demoted to an explicit extra. The `xp`
+# CONCEPT:KG-2.319 — the numpy/scipy FALLBACK path, demoted to an explicit extra. The `xp`
 # shim transparently falls back to numpy when the kernel is absent, so this keeps the
-# abstraction working everywhere the kernel wheel is not (yet) installed. numpy/scipy are
-# intentionally NOT in base `dependencies`; the leaf-numeric consumers (`finance`,
-# `embeddings`, `ann`) still pin them for their own array work. This extra makes the
-# fallback story explicit for anyone installing agent-utilities without the kernel.
+# abstraction working everywhere the kernel wheel is not installed (e.g. a minimal env
+# with no engine). numpy/scipy are intentionally NOT in base `dependencies`; the
+# leaf-numeric consumers (`finance`, `embeddings`, `ann`) still pin them for their own
+# scipy.stats/scipy.sparse array work. This extra makes the fallback story explicit for
+# anyone installing agent-utilities without the kernel.
 numeric-fallback = [
     "numpy>=2.4.6",
     "scipy>=1.17.1"
