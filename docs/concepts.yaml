@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 588
+total_concepts: 589
 total_pillars: 25
 pillars:
 - AHE-3
@@ -4370,6 +4370,7 @@ concepts:
   code_paths:
   - agent_utilities/kvcache/__init__.py
   - agent_utilities/kvcache/config.py
+  - agent_utilities/kvcache/policy.py
   - agent_utilities/kvcache/remote_backend.py
   doc: the Python LMCache/vLLM connector reads its endpoint and
 - id: KG-2.307
@@ -5416,6 +5417,14 @@ concepts:
   - agent_utilities/orchestration/session_continuity.py
   - agent_utilities/server/routers/agent_ui.py
   doc: Unified Agent Entrypoint
+- id: ORCH-1.105
+  name: Dynamic context-aware per-execution KV-cache-layering cache-worthiness policy
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/agent/sampling_profile.py
+  - agent_utilities/kvcache/policy.py
+  doc: Dynamic context-aware per-execution KV-cache-layering cache-worthiness policy
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

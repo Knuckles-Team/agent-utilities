@@ -268,7 +268,9 @@ def resolve_sampling_profile(
         return DEFAULT_PROFILE
 
 
-def attach_profile_resolver(agent: Any, base_settings: Any) -> None:
+def attach_profile_resolver(
+    agent: Any, base_settings: Any, *, system_prompt: str | None = None
+) -> None:
     """Wrap an agent's run methods to thread a per-call task-aware profile.
 
     CONCEPT:ORCH-1.58 — the live seam. Each ``run``/``run_sync``/``run_stream``
@@ -278,6 +280,18 @@ def attach_profile_resolver(agent: Any, base_settings: Any) -> None:
     static ``base_settings`` so unset knobs keep the agent's defaults (pydantic-ai
     replaces per-call settings rather than deep-merging). Idempotent and best-effort:
     a resolution failure leaves the call untouched (the agent-level settings apply).
+
+    CONCEPT:ORCH-1.105 — Dynamic KV-cache-layering policy: per-execution
+    cache-worthiness. The same wrapper folds the dynamic KV-cache-layering hint
+    into the per-call ``model_settings.extra_body`` on EVERY chat call (native,
+    default-on). The :class:`~agent_utilities.kvcache.policy.KVCacheLayeringPolicy`
+    scores this execution's cache-worthiness from the agent's stable
+    ``system_prompt`` (the shared prefix) plus the per-call ``user_prompt`` and
+    ``message_history`` (multi-turn / large-context signals), and sets
+    ``kv_transfer_params={"lmcache.skip_save": <bool>}`` so one-off short prompts
+    don't pollute the LMCache tiers while reuse-heavy contexts are stored. Unlike
+    the sampling profile, the KV hint is folded even when the caller passes explicit
+    ``model_settings`` (it only adds the ``extra_body`` key, disturbing nothing).
     """
     import functools
 
@@ -286,12 +300,28 @@ def attach_profile_resolver(agent: Any, base_settings: Any) -> None:
     def _make_wrapper(orig: Any) -> Any:
         @functools.wraps(orig)
         def wrapper(user_prompt: Any = None, *args: Any, **kwargs: Any) -> Any:
-            if kwargs.get("model_settings") is None:
+            settings = kwargs.get("model_settings")
+            if settings is None:
                 try:
                     profile = resolve_sampling_profile(_prompt_text(user_prompt))
-                    kwargs["model_settings"] = profile.to_model_settings(base)
+                    settings = profile.to_model_settings(base)
                 except Exception:  # noqa: BLE001 - never break the run
-                    pass
+                    settings = None
+            # CONCEPT:ORCH-1.105 — fold the per-execution KV-cache-layering hint on
+            # every call (even under caller-supplied settings), best-effort.
+            try:
+                from agent_utilities.kvcache.policy import fold_kv_hint
+
+                settings = fold_kv_hint(
+                    settings if settings is not None else base,
+                    system_prompt=system_prompt,
+                    user_prompt=_prompt_text(user_prompt),
+                    message_history=kwargs.get("message_history"),
+                )
+            except Exception:  # noqa: BLE001 - KV hint is best-effort
+                pass
+            if settings is not None:
+                kwargs["model_settings"] = settings
             return orig(user_prompt, *args, **kwargs)
 
         wrapper._au_profile_wrapped = True  # type: ignore[attr-defined]
