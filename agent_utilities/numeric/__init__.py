@@ -42,6 +42,20 @@ unchanged). The wheel is built with
 then exercises the KERNEL path ``np.allclose`` vs numpy — not just the fallback — and the
 engine's ``numeric-parity`` CI job gates the kernel against numpy so it can never diverge.
 
+CONCEPT:KG-2.317 — the kernel is the **PRIMARY** numeric backend; numpy is **demoted to
+fallback-only** (Analytics Program P5). The discovery loop below is kernel-FIRST: it prefers
+``epistemic_graph.numeric`` / ``numeric`` and only binds numpy when no kernel is importable.
+Packaging mirrors this: ``pyproject.toml`` declares a ``numeric-kernel`` extra (pins the
+``epistemic-graph`` engine wheel that carries the ``eg-numeric`` kernel) as the *intended*
+backend, and a separate ``numeric-fallback`` extra (numpy/scipy) as the *degraded* path;
+numpy/scipy are NOT in base ``dependencies`` (they live only in the leaf-numeric extras
+``finance``/``embeddings``/``ann``). The numpy fallback code is deliberately KEPT so the
+abstraction still works where the kernel wheel is absent. **Honest P5 status:** kernel is
+primary + numpy is fallback-demoted + parity-gated; the ONE step left to fully drop numpy is
+to publish the ``eg-numeric`` wheel to a package index so it can become a hard dependency
+(today it is folded into the engine wheel behind a maturin feature, not yet index-published).
+See ``docs/guides/numeric-kernel.md``.
+
 Any attribute not explicitly overridden below is delegated straight to numpy, so
 ``xp`` is a drop-in for ``import numpy as np`` (``xp.array``, ``xp.zeros``,
 ``xp.newaxis``, ``xp.float64``, ``xp.linalg.eig`` … all resolve to numpy).
