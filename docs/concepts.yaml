@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 599
+total_concepts: 600
 total_pillars: 28
 pillars:
 - AHE-3
@@ -6594,6 +6594,18 @@ concepts:
   dotted: KG-2.315
   aliases:
   - KG-2.315
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.316
+  name: Memory→weights distillation EXPORT path
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/weights_distillation.py
+  doc: Memory→weights distillation EXPORT path
+  dotted: KG-2.316
+  aliases:
+  - KG-2.316
   canonical_pillar: KG-2
   needs_curation: false
 - id: KG-2.317
