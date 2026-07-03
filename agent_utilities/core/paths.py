@@ -137,6 +137,24 @@ def prompts_dir() -> Path:
     return config_dir() / "prompts"
 
 
+def unified_prompts_dir() -> Path:
+    """Return the XDG *data* directory for materialized prompt-provider blueprints.
+
+    Default: ``~/.local/share/agent-utilities/prompts/``
+
+    CONCEPT:OS-5.77 — one leg of the unified install tree. The
+    ``agent-utilities install`` command materializes every ``prompt_providers``
+    contribution (plus the hub's own base prompts) here as
+    ``prompts/<provider>/*.json``, and the prompt ``registry_builder`` reads it
+    first (falling back to live entry-point discovery when unpopulated).
+
+    Distinct from :func:`prompts_dir` (the *config*-dir operator override layer):
+    this is the runtime materialization sink under the *data* dir, alongside
+    :func:`skills_dir` and :func:`ontology_dir`.
+    """
+    return data_dir() / "prompts"
+
+
 def kg_db_path(workspace: Path | str | None = None) -> Path:
     """Resolve the Knowledge Graph database path with priority chain.
 

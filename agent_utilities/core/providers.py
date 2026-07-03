@@ -44,6 +44,37 @@ PROMPT_PROVIDER_GROUP = "agent_utilities.prompt_providers"
 ONTOLOGY_PROVIDER_GROUP = "agent_utilities.ontology_providers"
 
 
+def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
+    """XDG-first prompt-provider resolution (CONCEPT:OS-5.78).
+
+    Prefer the materialized unified tree (``$XDG.../prompts/<provider>/``, written by
+    ``agent-utilities install``); fall back to live entry-point discovery
+    (``iter_provider_dirs(PROMPT_PROVIDER_GROUP)``) when it is unpopulated (dev/editable
+    or pre-install). This lets the prompt ``registry_builder`` read contributed prompts
+    from one place instead of walking each provider's ``site-packages``.
+
+    The ``agent-utilities`` provider dir is **excluded**: the hub's base prompts are
+    already loaded directly by ``registry_builder`` (bare ``prompt:<name>`` ids), and
+    re-reading its mirror here would re-introduce the double-ingest the missing
+    ``prompt_providers`` self-entry-point deliberately avoids.
+    """
+    try:
+        from agent_utilities.core.unified_install import unified_prompts_dir
+
+        root = unified_prompts_dir()
+    except Exception:  # noqa: BLE001 — resolver must never break prompt ingestion
+        root = None
+    if root is not None and root.is_dir():
+        providers = [
+            d
+            for d in sorted(root.iterdir())
+            if d.is_dir() and d.name != "agent-utilities"
+        ]
+        if providers:
+            return [(d.name, d) for d in providers]
+    return iter_provider_dirs(PROMPT_PROVIDER_GROUP)
+
+
 def iter_provider_dirs(group: str) -> list[tuple[str, Path]]:
     """Resolve every entry-point in ``group`` to ``(provider_name, asset_dir)``.
 
