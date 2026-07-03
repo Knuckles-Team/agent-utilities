@@ -13,9 +13,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-import numpy as np
-
 from agent_utilities.domains.finance.debate_engine import DebateContext, DebateEngine
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

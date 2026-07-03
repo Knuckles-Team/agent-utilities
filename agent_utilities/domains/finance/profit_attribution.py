@@ -10,7 +10,7 @@ Source: Qlib Profit Attribution Module
 import logging
 from dataclasses import dataclass
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 
