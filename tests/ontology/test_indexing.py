@@ -11,7 +11,7 @@ that drift, and tombstone compaction physically evicting deletes.
 Self-contained against existing stable code (CapabilityIndex) only.
 """
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.knowledge_graph.ontology.indexing import (

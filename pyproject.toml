@@ -36,6 +36,17 @@ dependencies = [
     # Tiny pure-Python safe-XML parser used on the hydration path; kept in base so the
     # XML path is never unguarded.
     "defusedxml>=0.7.1",
+    # CONCEPT:KG-2.324 — the numeric kernel is a HARD base dependency (Analytics Program
+    # P5 final, the numpy/scipy drop). `agent_utilities.numeric` is the SOLE numeric
+    # backend and raises ImportError without the compiled `epistemic_graph.numeric`
+    # kernel, so it must be present in every install. There is ONE published package —
+    # the `eg-numeric` kernel `.so` is folded into the `epistemic-graph` wheel behind its
+    # `numeric` extra (engine CONCEPT:EG-346); `[numeric]` also pulls the numpy the kernel
+    # uses INTERNALLY (rust-numpy zero-copy interop). agent-utilities itself imports numpy
+    # nowhere. Loose floor (`>=2.7.0`, the release with the full Surface-A op set incl. the
+    # array constructors + axis/keepdims reductions + eigsh/spearmanr/ks_2samp/norm ops),
+    # never an exact pin. See docs/guides/numeric-kernel.md.
+    "epistemic-graph[numeric]>=2.7.0",
 ]
 
 [[project.authors]]
@@ -68,40 +79,25 @@ sandbox = [
 # floor (`>=`), never an exact pin: published deps express minimums; dev overlays
 # live source via source-mounts + PYTHONPATH.
 engine = [
-    "epistemic-graph>=2.6.0"
+    "epistemic-graph[numeric]>=2.7.0"
 ]
-# CONCEPT:KG-2.319 — the PRIMARY numeric backend (Analytics Program P5, the full
-# numpy drop). The `agent_utilities.numeric` `xp` shim prefers the compiled
-# `eg-numeric` faer/ndarray kernel (BLAS/LAPACK-free, parity-proven `np.allclose` vs
-# numpy — engine CONCEPT:EG-346, gated by the `numeric-parity` CI job) and only falls
-# back to numpy when the kernel is absent. Installing this extra pulls the kernel as a
-# HARD, index-resolvable dependency, so the shim goes kernel-LIVE (`HAVE_KERNEL == True`)
-# with ZERO call-site changes. This is the intended numeric backend; `numeric-fallback`
-# below is the degraded path.
-#   There is ONE published package: the kernel is FOLDED INTO the `epistemic-graph`
-#   wheel as `epistemic_graph.numeric` (engine CONCEPT:EG-346) — there is no separate
-#   `eg-numeric` package on PyPI. So this extra pulls `epistemic-graph[numeric]` (the
-#   engine wheel that carries the kernel `.so` + numpy for interop) at a LOOSE FLOOR
-#   (`>=2.6.0`, never an exact pin). `HAVE_KERNEL` flips True because the shim probes
-#   `epistemic_graph.numeric`, which the `[numeric]` build ships.
+# CONCEPT:KG-2.324 — the SOLE numeric backend (Analytics Program P5 final, the numpy/scipy
+# drop). The numeric kernel is already a HARD BASE dependency (see base `dependencies`
+# above: `epistemic-graph[numeric]>=2.7.0`), so `agent_utilities.numeric` is kernel-LIVE in
+# every install and raises ImportError if the compiled `epistemic_graph.numeric` kernel is
+# absent — there is NO numpy fallback. This extra is kept as an explicit, named alias for
+# operators who want to pull the kernel deliberately; it resolves the SAME single published
+# package (the `eg-numeric` `.so` folded into the `epistemic-graph` wheel behind its
+# `numeric` extra, engine CONCEPT:EG-346 — no separate `eg-numeric` on PyPI), at a LOOSE
+# FLOOR (`>=2.7.0`, never an exact pin). `[numeric]` also brings the numpy the kernel uses
+# INTERNALLY (rust-numpy interop); agent-utilities imports numpy nowhere.
 #   DEV (non-publishing) builds the kernel from source instead: source-mounts +
 #   `PYTHONPATH=/au:/eg` (services/graph-os/compose.dev.yml) plus an editable install via
 #   `maturin develop -m crates/eg-numeric/Cargo.toml --features python`
 #   (`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`) on the epistemic-graph project. Dev never
 #   depends on the published wheel. See docs/guides/numeric-kernel.md.
 numeric-kernel = [
-    "epistemic-graph[numeric]>=2.6.0"
-]
-# CONCEPT:KG-2.319 — the numpy/scipy FALLBACK path, demoted to an explicit extra. The `xp`
-# shim transparently falls back to numpy when the kernel is absent, so this keeps the
-# abstraction working everywhere the kernel wheel is not installed (e.g. a minimal env
-# with no engine). numpy/scipy are intentionally NOT in base `dependencies`; the
-# leaf-numeric consumers (`finance`, `embeddings`, `ann`) still pin them for their own
-# scipy.stats/scipy.sparse array work. This extra makes the fallback story explicit for
-# anyone installing agent-utilities without the kernel.
-numeric-fallback = [
-    "numpy>=2.4.6",
-    "scipy>=1.17.1"
+    "epistemic-graph[numeric]>=2.7.0"
 ]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
@@ -193,9 +189,7 @@ documents = [
     "pymupdf>=1.27.2.3"
 ]
 embeddings = [
-    "llama-index-core>=0.14.22",
-    "numpy>=2.4.6",
-    "scipy>=1.17.1"]
+    "llama-index-core>=0.14.22"]
 embeddings-openai = [
     "agent-utilities[embeddings]>=1.0.0",
     "llama-index-embeddings-openai>=0.6.0",
@@ -216,9 +210,7 @@ graph = [
     "ladybug>=0.17.1"
 ]
 ann = [
-    "hnswlib>=0.8.0",
-    "numpy>=2.4.6",
-    "scipy>=1.17.1"
+    "hnswlib>=0.8.0"
 ]
 neo4j = [
     "neo4j>=6.2.0"
@@ -300,14 +292,15 @@ finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
     # trainer (the only sklearn user in finance) was re-homed to
     # data-science-mcp[training]. See AGENTS.md "Dependency discipline".
+    # numpy/scipy are NOT declared here (CONCEPT:KG-2.324 — the hard drop): the finance
+    # domain code computes through the `agent_utilities.numeric` kernel shim, and
+    # statsmodels / hmmlearn / pandas pull numpy/scipy transitively for their own use.
     "statsmodels>=0.14.6",
     "yfinance>=1.4.1",
     "pandas>=2.0.0,<3",
     "httpx>=0.28.1",
     "websockets>=16.0",
-    "hmmlearn>=0.3.3",
-    "numpy>=2.4.6",
-    "scipy>=1.17.1"
+    "hmmlearn>=0.3.3"
 ]
 finance-kronos = [
     "agent-utilities[finance]",
@@ -358,6 +351,12 @@ test = [
     "opentelemetry-instrumentation-starlette",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
+    # CONCEPT:KG-2.324 — numpy is a DEV/TEST-ONLY dependency (never runtime): it is the
+    # GROUND-TRUTH reference in tests/test_numeric_parity.py that proves the compiled
+    # `epistemic_graph.numeric` kernel matches numpy. The runtime path imports numpy
+    # nowhere (the `xp` shim is kernel-or-raise). scipy is NOT needed — the four scipy ops
+    # are native kernel exports (`xp.eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`).
+    "numpy>=2.4.6",
     # `agent` already implies mcp+engine+sandbox+dspy; add `feeds` (rss ingestion tests)
     # and the explicit backend extras the suite exercises.
     "agent-utilities[agent,engine,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
