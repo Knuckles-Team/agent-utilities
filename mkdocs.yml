@@ -108,6 +108,7 @@ nav:
       - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
       - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
       - Chunked Async Drain (full re-ingest, non-blocking): architecture/chunked-async-drain.md
+      - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
