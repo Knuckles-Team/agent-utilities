@@ -1,4 +1,4 @@
-"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:KG-2.311).
+"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:KG-2.312).
 
 Every ``xp`` op is asserted ``np.allclose`` vs numpy on randomized inputs, with
 mandatory edge cases (nan/inf, singular matrices, empty arrays). The test runs in

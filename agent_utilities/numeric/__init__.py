@@ -1,6 +1,6 @@
 """``xp`` — a numpy-compatible numeric namespace backed by the epistemic-graph kernel.
 
-CONCEPT:KG-2.311 — Surface A of the Analytics Program's "one kernel, two surfaces"
+CONCEPT:KG-2.312 — Surface A of the Analytics Program's "one kernel, two surfaces"
 (engine side: CONCEPT:EG-321). ``xp`` mirrors the subset of the numpy API that
 agent-utilities actually uses (the 598-site audit: reductions/stats, element-wise,
 the linalg-6 + ``LinAlgError``, random) and routes those ops through the compiled

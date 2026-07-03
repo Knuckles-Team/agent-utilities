@@ -4411,7 +4411,7 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: federated search fanned across registered external
-- id: KG-2.311
+- id: KG-2.312
   name: Surface A of the Analytics Program
   pillar: KG-2
   status: live
