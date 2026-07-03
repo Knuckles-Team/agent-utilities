@@ -60,6 +60,11 @@ def _truthy(val: str | None) -> bool:
     return str(val or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    return _truthy(val) if val is not None else default
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, "") or default)
@@ -119,7 +124,7 @@ class MemoryLifecycleConfig:
     def from_env(cls) -> MemoryLifecycleConfig:
         """Build a config from ``AGENT_UTILITIES_MEMORY_LIFECYCLE*`` env vars."""
         return cls(
-            enabled=_truthy(os.getenv("AGENT_UTILITIES_MEMORY_LIFECYCLE")),
+            enabled=_env_bool("AGENT_UTILITIES_MEMORY_LIFECYCLE"),
             max_working_set=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_WORKING_SET", 500),
             min_cluster_size=_env_int("AGENT_UTILITIES_MEMORY_LIFECYCLE_MIN_CLUSTER", 3),
             min_cluster_age_hours=_env_float(
