@@ -40,7 +40,13 @@ def should_sync(config_path: Path) -> bool:
     if not config_path.exists():
         return False
 
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    except ImportError:
+        # The KG engine's numeric stack (numpy/scipy) isn't installed in this
+        # runtime — e.g. a slim ``[mcp]``/``[agent]`` install without the engine
+        # numerics. There is no local graph to sync MCP tools into, so skip.
+        return False
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:

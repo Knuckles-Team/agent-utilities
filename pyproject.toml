@@ -144,8 +144,7 @@ browser = [
 computer-use = [
     "container-manager-mcp>=1.43.0"]
 acp = [
-    "pydantic-acp>=0.9.6",
-    "acpkit[pydantic]>=0.9.6"
+    "pydantic-acp>=0.9.6"
 ]
 documents = [
     "llama-index-core>=0.14.22",
@@ -156,7 +155,9 @@ documents = [
     "pymupdf>=1.27.2.3"
 ]
 embeddings = [
-    "llama-index-core>=0.14.22"]
+    "llama-index-core>=0.14.22",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1"]
 embeddings-openai = [
     "agent-utilities[embeddings]>=1.0.0",
     "llama-index-embeddings-openai>=0.6.0",
@@ -177,7 +178,9 @@ graph = [
     "ladybug>=0.17.1"
 ]
 ann = [
-    "hnswlib>=0.8.0"
+    "hnswlib>=0.8.0",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1"
 ]
 neo4j = [
     "neo4j>=6.2.0"
@@ -191,8 +194,7 @@ owl = [
     "pyshacl>=0.31.0"
 ]
 stardog = [
-    "agent-utilities[owl]",
-    "pystardog>=0.20.0"
+    "agent-utilities[owl]"
 ]
 fuseki = [
     "httpx>=0.28.1",
@@ -213,7 +215,6 @@ vault = [
     "hvac>=2.4.0"
 ]
 auth = [
-    "authlib>=1.7.2",
     "joserfc>=1.7.1"
 ]
 serving = [
@@ -265,7 +266,9 @@ finance = [
     "pandas>=2.0.0,<3",
     "httpx>=0.28.1",
     "websockets>=16.0",
-    "hmmlearn>=0.3.3"
+    "hmmlearn>=0.3.3",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1"
 ]
 finance-kronos = [
     "agent-utilities[finance]",
@@ -279,8 +282,7 @@ law = []
 government = []
 postgresql = [
     "psycopg[binary]>=3.3.4",
-    "psycopg-pool>=3.3.1",
-    "pgvector>=0.4.2"
+    "psycopg-pool>=3.3.1"
 ]
 # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
 messaging-discord = ["discord.py>=2.7.1"]
