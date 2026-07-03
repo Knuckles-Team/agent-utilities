@@ -18,6 +18,11 @@ backend with vLLM / LMCache.
 from __future__ import annotations
 
 from agent_utilities.kvcache.config import KvCacheConfig
+from agent_utilities.kvcache.policy import (
+    KVCacheDecision,
+    KVCacheLayeringPolicy,
+    fold_kv_hint,
+)
 from agent_utilities.kvcache.remote_backend import (
     EpistemicGraphKVBackend,
     KvCacheStats,
@@ -25,6 +30,9 @@ from agent_utilities.kvcache.remote_backend import (
 
 __all__ = [
     "EpistemicGraphKVBackend",
+    "KVCacheDecision",
+    "KVCacheLayeringPolicy",
     "KvCacheConfig",
     "KvCacheStats",
+    "fold_kv_hint",
 ]

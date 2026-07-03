@@ -703,6 +703,6 @@ def create_agent(
     # per-call model_settings override, unless a caller passes one explicitly.
     from agent_utilities.agent.sampling_profile import attach_profile_resolver
 
-    attach_profile_resolver(agent, settings)
+    attach_profile_resolver(agent, settings, system_prompt=system_prompt_str)
 
     return agent, initialized_mcp_toolsets
