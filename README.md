@@ -247,6 +247,17 @@ data ACLs + tenant scoping, human-correction→rule→eval feedback).
 (ORCH-1.45), and **[gateway scaling + Prometheus `/metrics`](docs/architecture/gateway_scaling.md)**
 (OS-5.23, per-tenant rate limits, circuit breakers, `GATEWAY_WORKERS`).
 
+**⚡ Inference & numeric acceleration (all opt-in)** — reuse compute instead of recomputing it.
+**[KV-cache layering (vLLM → LMCache → epistemic-graph)](docs/guides/kvcache-vllm-lmcache.md)** — pool
+and dedup vLLM's KV cache into the engine so inference workers share prefill by token-hash: the
+**universal `LMCacheMPConnector`** (dense **and** hybrid Mamba/GDN) over an **L1 CPU + L2 engine** tier
+stack (`EpistemicGraphL2Connector` KG-2.311 / `EpistemicGraphKVBackend` KG-2.306 → engine EG-185/186/187),
+steered per-execution by a **[dynamic KV-layering policy](docs/architecture/kv-cache-layering-policy.md)**
+(ORCH-1.105: cache-worthiness scoring). Plus the numeric **`xp` numpy-shim** (`agent_utilities/numeric/`, KG-2.312) — a numpy-compatible namespace
+that routes reductions/linalg/random through the BLAS/LAPACK-free epistemic-graph numeric kernel (Surface A
+of the engine's [Analytics Program](https://knuckles-team.github.io/epistemic-graph/architecture/numeric-kernel/),
+EG-321) when the compiled kernel is present and **transparently falls back to numpy** when it is not.
+
 **🛡 Autonomy & governance** — how it acts safely.
 A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (OS-5.15,
 5.24–27, 5.29: `POST /api/fleet/events` → fail-closed **ActionPolicy** gate → reconciler,
