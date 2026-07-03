@@ -43,16 +43,21 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Canonical marker grammar — the ONE definition. ``scripts/build_concepts_yaml.py``
 # and ``scripts/check_concepts.py`` import this so the three scanners can never
-# drift. A concept id is ``<PILLAR>-<n>`` optionally followed by ``.<sub>`` where
-# the sub-index is numeric or a placeholder letter (``KG-2.20g``).
+# drift. A concept id is ``<PILLAR>-<n>`` followed by ZERO OR MORE ``.<sub>``
+# segments where each sub-index is numeric or a placeholder letter — so the flat
+# ``EG-321``, the 2-level ``KG-2.312`` / ``KG-2.20g``, AND the 3-level
+# ``EG-3.31.20`` (CONCEPT:OS-5.76 / B5) all match. The trailing ``*`` (was ``?``)
+# is the ONE non-breaking change that teaches every scanner the dotted grammar.
 # ---------------------------------------------------------------------------
-MARKER_RE = re.compile(r"CONCEPT:(?P<id>[A-Z]+-\d+(?:\.[0-9A-Za-z]+)?)")
+MARKER_RE = re.compile(r"CONCEPT:(?P<id>[A-Z]+-\d+(?:\.[0-9A-Za-z]+)*)")
 
 # A pillar namespace carries the major number (``KG-2``, ``OS-5``) and mints
 # dotted sub-indices. A package namespace is letters only (``KEY``, ``GL``) and
-# mints zero-padded 3-digit indices.
+# mints zero-padded 3-digit indices. A concept namespace (``KG-2.312``,
+# CONCEPT:OS-5.76 / B5) carries pillar+concept and mints the 3rd-level segment.
 _PILLAR_NS_RE = re.compile(r"^[A-Z]+-\d+$")
 _PACKAGE_NS_RE = re.compile(r"^[A-Z]+$")
+_CONCEPT_NS_RE = re.compile(r"^[A-Z]+-\d+\.[0-9A-Za-z]+$")
 
 LEDGER_FILENAME = "concept_reservations.yaml"
 DEFAULT_TTL_SECONDS = 86_400  # 24h — a reservation older than this is reclaimable.
@@ -186,14 +191,17 @@ def _sort_key(cid: str):
 
 def _max_subindex(namespace: str, taken: set[str]) -> int:
     """Largest numeric sub-index already used in *namespace* across *taken*."""
-    if _PILLAR_NS_RE.match(namespace):
+    if _CONCEPT_NS_RE.match(namespace):
+        # 3rd-level segment under a concept, e.g. 'KG-2.312' → KG-2.312.<seg>.
+        pat = re.compile(rf"^{re.escape(namespace)}\.(\d+)")
+    elif _PILLAR_NS_RE.match(namespace):
         pat = re.compile(rf"^{re.escape(namespace)}\.(\d+)")
     elif _PACKAGE_NS_RE.match(namespace):
         pat = re.compile(rf"^{re.escape(namespace)}-(\d+)$")
     else:
         raise ValueError(
-            f"unrecognized namespace {namespace!r}: expected a pillar like 'KG-2' "
-            "or a package prefix like 'KEY'"
+            f"unrecognized namespace {namespace!r}: expected a pillar like 'KG-2', "
+            "a concept like 'KG-2.312', or a package prefix like 'KEY'"
         )
     best = 0
     for cid in taken:
@@ -204,7 +212,9 @@ def _max_subindex(namespace: str, taken: set[str]) -> int:
 
 
 def format_id(namespace: str, index: int) -> str:
-    if _PILLAR_NS_RE.match(namespace):
+    # Concept- and pillar-scoped namespaces both mint a dotted sub-index; the
+    # concept case (KG-2.312.<seg>) is the 3rd level (CONCEPT:OS-5.76 / B5).
+    if _CONCEPT_NS_RE.match(namespace) or _PILLAR_NS_RE.match(namespace):
         return f"{namespace}.{index}"
     if _PACKAGE_NS_RE.match(namespace):
         return f"{namespace}-{index:03d}"

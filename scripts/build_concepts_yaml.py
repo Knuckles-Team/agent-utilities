@@ -32,6 +32,10 @@ OUT_PATH = ROOT / "docs" / "concepts.yaml"
 # Adding ROOT lets this resolve to the local source even without an install.
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
+    observed_project_namespaces,
+    parse_concept_id,
+)
 
 # Pillar is the leading "<LETTERS>-<digits>" segment of the id.
 PILLAR_RE = re.compile(r"^([A-Z]+-\d+)")
@@ -89,12 +93,30 @@ def collect() -> dict[str, dict]:
             # Prefer the longest, most descriptive doc string seen.
             if len(doc) > len(entry["doc"]):
                 entry["doc"] = doc
-    # Finalize: derive name from doc (or id), sort code_paths.
+    # Finalize: derive name from doc (or id), sort code_paths, and project the
+    # 3-level hierarchy (CONCEPT:OS-5.76 / B5). The dotted/alias/canonical_pillar
+    # keys are ADDITIVE — existing consumers that read only ``id`` are unaffected.
+    observed = observed_project_namespaces(list(concepts))
     for cid, entry in concepts.items():
         entry["code_paths"] = sorted(entry["code_paths"])
         entry["name"] = entry["doc"] if entry["doc"] else cid
         if not entry["doc"]:
             entry["doc"] = cid
+        try:
+            parsed = parse_concept_id(cid, observed_project_ns=observed)
+            entry["dotted"] = parsed.canonical
+            entry["aliases"] = list(parsed.aliases)
+            entry["canonical_pillar"] = (
+                f"{parsed.namespace}-{parsed.pillar}"
+                if parsed.is_project
+                else parsed.namespace
+            )
+            entry["needs_curation"] = parsed.needs_curation
+        except ValueError:
+            entry["dotted"] = cid
+            entry["aliases"] = [cid]
+            entry["canonical_pillar"] = entry["pillar"]
+            entry["needs_curation"] = False
     return concepts
 
 

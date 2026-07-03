@@ -159,7 +159,8 @@ def build_parser() -> argparse.ArgumentParser:
     # CONCEPT:OS-5.42 — atomic concept-ID reservation (offline/worktree entry point).
     cp = sub.add_parser("concept", help="reserve/list/release/reconcile concept ids")
     cp.add_argument(
-        "concept_action", choices=["reserve", "release", "list", "reconcile"]
+        "concept_action",
+        choices=["reserve", "release", "list", "reconcile", "resolve"],
     )
     cp.add_argument(
         "--ns", default="", help="pillar (e.g. KG-2) or package prefix (e.g. KEY)"
@@ -299,6 +300,27 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
         }
     if action == "reconcile":
         return ca.reconcile(repo_root=repo_root)
+    if action == "resolve":
+        # CONCEPT:OS-5.76 — canonicalize a flat/dotted id → its 3-level form + aliases.
+        from agent_utilities.governance import concept_hierarchy as ch
+
+        if not args.concept_id:
+            return {"error": "resolve requires --id (a flat or dotted concept id)"}
+        try:
+            parsed = ch.parse_concept_id(args.concept_id)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {
+            "raw": parsed.raw,
+            "canonical": parsed.canonical,
+            "namespace": parsed.namespace,
+            "pillar": parsed.pillar,
+            "concept": parsed.concept,
+            "segment": parsed.segment,
+            "is_project": parsed.is_project,
+            "aliases": list(parsed.aliases),
+            "flags": list(parsed.flags),
+        }
     if action == "release":
         if not args.concept_id:
             return {"error": "release requires --id"}
