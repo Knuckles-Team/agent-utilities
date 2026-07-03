@@ -977,6 +977,21 @@ async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONResponse:
+    """REST twin of ``graph_ontology action='sync_packages'`` (CONCEPT:KG-2.321).
+
+    Federation: load every ontology ``.ttl`` contributed by installed fleet
+    packages (``agent_utilities.ontology_providers``) through the shared ontology
+    load path. Mirrors the generic ``POST /graph/ontology`` action twin as an
+    explicit convenience route.
+    """
+    try:
+        res = await _execute_tool("graph_ontology", action="sync_packages")
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2514,6 +2529,26 @@ def _build_server(bootstrap: bool = True):
                 ):
                     engine.start_task_workers()
                 _ingest_capabilities(engine)
+                # CONCEPT:KG-2.321 — federation: load every ontology contributed by
+                # installed fleet packages into the live reasoner at boot, alongside
+                # the bundled TBox distribution. Failure-isolated so a bad or absent
+                # provider never blocks engine bootstrap.
+                try:
+                    from agent_utilities.knowledge_graph.ontology.lifecycle import (
+                        OntologyLifecycle,
+                    )
+                    from agent_utilities.mcp.tools.ontology_tools import (
+                        _sync_package_ontologies,
+                    )
+
+                    report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
+                    if report.get("providers_loaded"):
+                        logger.info(
+                            "Ontology federation: loaded %d package ontolog(ies) at boot",
+                            report["providers_loaded"],
+                        )
+                except Exception:
+                    logger.exception("Ontology federation sync at boot failed")
             except Exception:
                 logger.exception("KG engine background bootstrap failed")
 
@@ -3005,6 +3040,12 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/write/bulk", graph_write_bulk_endpoint, ["POST"])
     route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
     route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
+    # CONCEPT:KG-2.321 — federation: explicit twin for ontology package-sync.
+    route(
+        "/graph/ontology/sync-packages",
+        graph_ontology_sync_packages_endpoint,
+        ["POST"],
+    )
     route("/graph/write/chat", graph_write_chat_endpoint, ["POST"])
     route("/graph/write/sdd", graph_write_sdd_endpoint, ["POST"])
     route("/graph/write/execution", graph_write_execution_endpoint, ["POST"])

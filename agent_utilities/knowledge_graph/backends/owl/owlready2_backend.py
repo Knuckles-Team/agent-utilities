@@ -333,7 +333,24 @@ class Owlready2Backend(OWLBackend):
             return
 
         parent = ontology_path.parent
-        for ttl_file in sorted(parent.glob("ontology*.ttl")):
+        preload: list[Path] = [
+            f for f in sorted(parent.glob("ontology*.ttl")) if f != ontology_path
+        ]
+        # CONCEPT:KG-2.320 — federation: also pre-load ontology modules contributed
+        # by installed fleet packages (via the ``agent_utilities.ontology_providers``
+        # entry-point) so ``owl:imports`` targeting a moved module (e.g. the
+        # canonical ontology's import of <http://knuckles.team/kg/servicenow>, now
+        # living in the servicenow-api wheel) still resolves in the live reasoner.
+        try:
+            from ...core.ontology_federation import discover_provider_ontologies
+
+            for _provider, ttl_file in discover_provider_ontologies():
+                if ttl_file != ontology_path and ttl_file not in preload:
+                    preload.append(ttl_file)
+        except Exception as e:  # noqa: BLE001 — federation is additive, never fatal
+            logger.debug("Ontology federation discovery unavailable: %s", e)
+
+        for ttl_file in preload:
             if ttl_file == ontology_path:
                 continue
             try:

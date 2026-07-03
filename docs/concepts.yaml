@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 602
+total_concepts: 606
 total_pillars: 28
 pillars:
 - AHE-3
@@ -6643,6 +6643,59 @@ concepts:
   dotted: KG-2.319
   aliases:
   - KG-2.319
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.320
+  name: federation resolution when the file isn
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/providers.py
+  - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
+  - agent_utilities/knowledge_graph/core/ontology_federation.py
+  - agent_utilities/knowledge_graph/core/ontology_loader.py
+  - agent_utilities/knowledge_graph/core/ontology_publisher.py
+  doc: federation resolution when the file isn
+  dotted: KG-2.320
+  aliases:
+  - KG-2.320
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.321
+  name: federation runtime
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: federation runtime
+  dotted: KG-2.321
+  aliases:
+  - KG-2.321
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.322
+  name: the unified memory-CRUD core. graph_memory
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: the unified memory-CRUD core. graph_memory
+  dotted: KG-2.322
+  aliases:
+  - KG-2.322
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.323
+  name: warm-fork fan-out over the ORCH-1.86..93 warm-fork
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: warm-fork fan-out over the ORCH-1.86..93 warm-fork
+  dotted: KG-2.323
+  aliases:
+  - KG-2.323
   canonical_pillar: KG-2
   needs_curation: false
 - id: LGC-1.0
