@@ -85,6 +85,11 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    return _truthy(val) if val is not None else default
+
+
 # The LLM is asked for a strict JSON procedural artifact. Terse, no invented steps
 # beyond what the episodes support; the artifact must be reusable across contexts.
 _DISTILL_SYSTEM_PROMPT = (
@@ -171,7 +176,7 @@ class MemoryDistillerConfig:
     def from_env(cls) -> MemoryDistillerConfig:
         """Build a config from ``AGENT_UTILITIES_MEMORY_DISTILL*`` env vars."""
         return cls(
-            enabled=_truthy(os.getenv("AGENT_UTILITIES_MEMORY_DISTILL")),
+            enabled=_env_bool("AGENT_UTILITIES_MEMORY_DISTILL"),
             max_working_set=_env_int(
                 "AGENT_UTILITIES_MEMORY_DISTILL_WORKING_SET", 500
             ),
@@ -184,9 +189,7 @@ class MemoryDistillerConfig:
             max_clusters_per_cycle=_env_int(
                 "AGENT_UTILITIES_MEMORY_DISTILL_MAX_CLUSTERS", 4
             ),
-            register_flywheel=_truthy(
-                os.getenv("AGENT_UTILITIES_MEMORY_DISTILL_FLYWHEEL", "1")
-            ),
+            register_flywheel=_env_bool("AGENT_UTILITIES_MEMORY_DISTILL_FLYWHEEL", True),
             seed_reward=_env_float(
                 "AGENT_UTILITIES_MEMORY_DISTILL_SEED_REWARD", 0.5
             ),
