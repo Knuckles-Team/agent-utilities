@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 588
-total_pillars: 25
+total_concepts: 590
+total_pillars: 26
 pillars:
 - AHE-3
 - CE-038
@@ -20,6 +20,7 @@ pillars:
 - EG-160
 - EG-186
 - EG-187
+- EG-321
 - KG-1
 - KG-2
 - LGC-1
@@ -1668,6 +1669,13 @@ concepts:
   - agent_utilities/kvcache/config.py
   - agent_utilities/kvcache/remote_backend.py
   doc: is configured with, so a co-located deploy shares one source of
+- id: EG-321
+  name: EG-321
+  pillar: EG-321
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: EG-321
 - id: KG-1.0
   name: Centralized KG Coordination Protocol
   pillar: KG-1
@@ -4403,6 +4411,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: federated search fanned across registered external
+- id: KG-2.311
+  name: Surface A of the Analytics Program
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: Surface A of the Analytics Program
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
