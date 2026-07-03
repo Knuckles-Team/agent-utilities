@@ -41,6 +41,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Ensure the in-repo ``agent_utilities`` is importable even when the package isn't
+# pip-installed, so the KG-2.320 federation discoverer/registry can be reached.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 KG_DIR = ROOT / "agent_utilities" / "knowledge_graph"
 SHAPES_DIR = KG_DIR / "shapes"
 CANONICAL = KG_DIR / "ontology.ttl"
@@ -58,18 +62,73 @@ def _fail(violations: list[str], msg: str) -> None:
     violations.append(msg)
 
 
-def _domain_modules() -> list[Path]:
-    """Bundled domain modules — the set the loader/publisher glob over.
+def _rel(p: Path) -> Path | str:
+    """``p`` relative to the repo root when possible, else the absolute path.
 
-    Matches ``ontology_*.ttl`` directly in ``knowledge_graph/`` (the same glob the
-    owlready2 backend and ``collect_bundled_ontology_graph`` use), excluding the
-    canonical ``ontology.ttl`` itself.
+    Contributed (federated) ontology TTLs live inside another package's wheel /
+    editable checkout — outside this repo — so ``relative_to(ROOT)`` would raise.
     """
-    return sorted(p for p in KG_DIR.glob("ontology_*.ttl"))
+    try:
+        return p.relative_to(ROOT)
+    except ValueError:
+        return p
+
+
+def _provider_ttls() -> list[Path]:
+    """Contributed ontology TTLs from installed fleet packages (CONCEPT:KG-2.320).
+
+    Reuses the federation discoverer so the gate sweeps package-contributed
+    ontologies identically to bundled ones. Failure-isolated: if the discoverer
+    (or its package) can't be imported, federation is simply an empty superset.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.ontology_federation import (
+            discover_provider_ontologies,
+        )
+
+        return [p for _provider, p in discover_provider_ontologies()]
+    except Exception:  # noqa: BLE001 — federation is additive; base gate must not break
+        return []
+
+
+def _federated_iris() -> set[str]:
+    """Known package-owned ontology IRIs (CONCEPT:KG-2.320).
+
+    The canonical bundle may keep an ``owl:imports`` edge to one of these even when
+    the owning package is not installed; such an import is a superset no-op, not a
+    dangling reference. Failure-isolated (empty when the registry is unavailable).
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.ontology_federation import (
+            registered_federated_iris,
+        )
+
+        return registered_federated_iris()
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _is_shape(p: Path) -> bool:
+    return p.parent.name == "shapes"
+
+
+def _domain_modules() -> list[Path]:
+    """Domain modules — the set the loader/publisher glob over, plus federated ones.
+
+    Bundled: ``ontology_*.ttl`` directly in ``knowledge_graph/`` (the same glob the
+    owlready2 backend and ``collect_bundled_ontology_graph`` use), excluding the
+    canonical ``ontology.ttl`` itself. Federated (CONCEPT:KG-2.320): every
+    contributed non-shape ``*.ttl`` from installed ontology-provider packages, so a
+    moved module (e.g. servicenow now living in the servicenow-api wheel) is
+    connectivity/closure-checked exactly like a bundled one.
+    """
+    bundled = [p for p in KG_DIR.glob("ontology_*.ttl")]
+    federated = [p for p in _provider_ttls() if not _is_shape(p)]
+    return sorted(set(bundled + federated))
 
 
 def _all_ttls() -> list[Path]:
-    return sorted(KG_DIR.rglob("*.ttl"))
+    return sorted(set(list(KG_DIR.rglob("*.ttl")) + _provider_ttls()))
 
 
 def _parse(path: Path):
@@ -119,7 +178,7 @@ def check(verbose: bool = False) -> int:
         try:
             parsed[t] = _parse(t)
         except Exception as exc:  # noqa: BLE001
-            _fail(violations, f"[syntax] {t.relative_to(ROOT)} does not parse: {exc}")
+            _fail(violations, f"[syntax] {_rel(t)} does not parse: {exc}")
     notes.append(f"parsed {len(parsed)}/{len(all_ttls)} TTL files")
 
     # ── 2. No duplicate ontology IRIs (drift / duplicate guard) ─────────────
@@ -129,7 +188,7 @@ def check(verbose: bool = False) -> int:
             iri_to_files.setdefault(iri, []).append(t)
     for iri, files in iri_to_files.items():
         if len(files) > 1:
-            rels = ", ".join(str(f.relative_to(ROOT)) for f in files)
+            rels = ", ".join(str(_rel(f)) for f in files)
             _fail(
                 violations,
                 f"[duplicate-iri] ontology IRI <{iri}> declared by multiple files: {rels}",
@@ -163,13 +222,17 @@ def check(verbose: bool = False) -> int:
             )
 
     # ── 6. No dangling imports in our own namespace ─────────────────────────
-    declared = set(iri_to_files)
+    # CONCEPT:KG-2.320 — a package-owned (federated) IRI is allowed to be imported
+    # even when its provider package isn't installed here (a superset no-op), so the
+    # canonical bundle can keep its ``owl:imports`` edge to a moved module without
+    # the base install going red.
+    declared = set(iri_to_files) | _federated_iris()
     for t, g in parsed.items():
         for imp in _imports(g):
             if imp.startswith(_OWN_PREFIXES) and imp not in declared:
                 _fail(
                     violations,
-                    f"[dangling-import] {t.relative_to(ROOT)} imports <{imp}> which "
+                    f"[dangling-import] {_rel(t)} imports <{imp}> which "
                     f"resolves to no local ontology file.",
                 )
 
