@@ -804,6 +804,55 @@ translation→original, dataset→raw_source, etc.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
+# ── Concept-hierarchy governance model (CONCEPT:OS-5.76 / B5) ──────────────
+# First-class KG nodes for the concept-id registry: every CONCEPT:<id> marker
+# is a :GovernedConcept, grouped under a :Pillar, interwoven across projects via
+# :partOf / :extends / :dependsOn. Flat ids stay valid forever as :flatId aliases
+# of their canonical dotted :dottedId. See docs/architecture/concept-hierarchy.md.
+:Pillar a owl:Class ;
+    rdfs:label "Pillar" ;
+    rdfs:comment """A coarse grouping of governed concepts within a namespace
+(e.g. KG-2, EG-3, ORCH-1). A pillar is itself a concept and is :partOf its
+namespace; concepts are :partOf their pillar.""" ;
+    rdfs:subClassOf :Concept .
+
+:GovernedConcept a owl:Class ;
+    rdfs:label "Governed Concept" ;
+    rdfs:comment """A first-class concept-id node (e.g. KG-2.312 / EG-3.31.20)
+minted from a CONCEPT:<id> marker and tracked in the concept registry/ledger.
+Typed as a :Concept so it federates with the SKOS taxonomy; :partOf its
+:Pillar, and may :extend or :dependOn concepts in other projects.""" ;
+    rdfs:subClassOf :Concept .
+
+:extends a owl:ObjectProperty ;
+    rdfs:label "extends" ;
+    rdfs:comment """One concept refines/builds on another, possibly across
+projects (EG↔KG↔ECO↔OS↔AHE↔ORCH). A specialization of :dependsOn — an extension
+necessarily depends on what it extends.""" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept ;
+    rdfs:subPropertyOf :dependsOn .
+
+:aliasOf a owl:ObjectProperty ;
+    rdfs:label "alias of" ;
+    rdfs:comment """Links a legacy/alternate concept-id node to its canonical
+concept, so the flat id (EG-321) and the dotted id (EG-0.321) resolve to the
+same node without breakage.""" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept .
+
+:flatId a owl:DatatypeProperty ;
+    rdfs:label "flat id" ;
+    rdfs:comment "The permanently-valid flat alias of a governed concept (e.g. EG-321)." ;
+    rdfs:domain :Concept ;
+    rdfs:range xsd:string .
+
+:dottedId a owl:DatatypeProperty ;
+    rdfs:label "dotted id" ;
+    rdfs:comment "The canonical 3-level id of a governed concept (NS-pillar.concept.segment)." ;
+    rdfs:domain :Concept ;
+    rdfs:range xsd:string .
+
 :Incident a owl:Class ;
     rdfs:label "Incident" ;
     rdfs:comment "A production incident. Subtype of Event." ;
