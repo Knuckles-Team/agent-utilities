@@ -232,7 +232,7 @@ class FinanceEngineMixin(_Base):
             ID of the created MarkovTransitionMatrixNode.
         """
 
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         from ..core.markov_regime import AssetClass, MarkovRegimeModel
 
@@ -334,7 +334,7 @@ class FinanceEngineMixin(_Base):
         """
         import json
 
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         from ..core.markov_regime import MarkovRegimeModel
 

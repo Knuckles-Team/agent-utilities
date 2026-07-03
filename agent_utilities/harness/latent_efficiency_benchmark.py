@@ -31,8 +31,6 @@ code paths of the two modules), so :func:`run_all` is bit-for-bit reproducible. 
 sibling assimilation-parity suite so the gateway/MCP reporting block is identical.
 """
 
-import numpy as np
-
 from agent_utilities.harness.assimilation_benchmark import (
     BenchmarkResult,
     _make_result,
@@ -40,6 +38,7 @@ from agent_utilities.harness.assimilation_benchmark import (
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.numeric import xp as np
 
 __all__ = [
     "BenchmarkResult",

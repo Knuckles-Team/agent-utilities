@@ -1,4 +1,4 @@
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 try:
     from scipy.stats import ks_2samp

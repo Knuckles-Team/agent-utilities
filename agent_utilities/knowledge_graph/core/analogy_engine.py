@@ -9,12 +9,11 @@ and structural pattern matching within the Knowledge Graph.
 
 from typing import Any
 
-import numpy as np
-
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 from agent_utilities.models.knowledge_graph import (
     AnalogyMatchNode,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TopologicalAnalogyEngine:
