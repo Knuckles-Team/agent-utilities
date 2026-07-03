@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 try:
     import pandas as pd

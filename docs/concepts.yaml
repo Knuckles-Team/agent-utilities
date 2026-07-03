@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 593
+total_concepts: 594
 total_pillars: 27
 pillars:
 - AHE-3
@@ -4437,6 +4437,13 @@ concepts:
   code_paths:
   - agent_utilities/numeric/__init__.py
   doc: Surface A of the Analytics Program
+- id: KG-2.313
+  name: the executed P2/P3 rollout
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: the executed P2/P3 rollout
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

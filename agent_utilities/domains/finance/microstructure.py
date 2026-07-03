@@ -7,7 +7,7 @@ and consensus logic (Convergence Filter, Brier Score Validator).
 
 import logging
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 

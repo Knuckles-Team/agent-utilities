@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from .formal_reasoning_core import MarkovTransitionModel
 

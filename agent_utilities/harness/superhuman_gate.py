@@ -74,7 +74,7 @@ class SuperhumanCertifier:
 
     def _bootstrap_ci(self, rewards: list[float]) -> tuple[float, float, float]:
         """Deterministic bootstrap CI of the mean reward (seeded; reproducible)."""
-        import numpy as np
+        from agent_utilities.numeric import xp as np
 
         arr = np.asarray(rewards, dtype=np.float64)
         mean = float(arr.mean())
