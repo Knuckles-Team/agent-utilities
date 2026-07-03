@@ -20,47 +20,71 @@ live. Packaging now states the same intent explicitly:
 
 | Extra | Contents | Role |
 |-------|----------|------|
-| `numeric-kernel` | `epistemic-graph>=2.0.0` (carries the `eg-numeric` kernel behind its maturin `numeric` feature) | **Primary** numeric backend. Installing it makes the shim kernel-LIVE (`HAVE_KERNEL == True`). |
-| `numeric-fallback` | `numpy>=2.4.6`, `scipy>=1.17.1` | **Fallback** path. Kept so the abstraction works wherever the kernel wheel is absent. |
+| `numeric-kernel` | `eg-numeric>=0.1.0`, `epistemic-graph>=2.6.0` (both **loose floors**) | **Primary** numeric backend. Installing it pulls the published `eg-numeric` kernel wheel as a HARD dependency, so the shim is kernel-LIVE (`HAVE_KERNEL == True`). |
+| `numeric-fallback` | `numpy>=2.4.6`, `scipy>=1.17.1` | **Fallback** path. Kept so the abstraction works wherever the kernel wheel is absent (e.g. a minimal env with no engine). |
 
-- numpy/scipy are **NOT** in base `dependencies`. They live only in the leaf-numeric
-  consumer extras (`finance`, `embeddings`, `ann`) that do their own array work, plus the
-  explicit `numeric-fallback` extra above.
+- numpy/scipy are **NOT** in base `dependencies` and are **not** a primary dep of any kind.
+  They live only in the leaf-numeric consumer extras (`finance`, `embeddings`, `ann`) that do
+  genuinely numpy/scipy-specific array work, plus the explicit `numeric-fallback` extra above.
 - The numpy fallback code in the shim is **deliberately kept** — dropping it would break
   every environment that does not ship the kernel wheel.
+- All floors are **loose** (`>=`), never exact pins: published deps express minimums; dev
+  overlays live source (see the editable dev path below).
 - Parity is enforced: `tests/test_numeric_parity.py` asserts `np.allclose(kernel, numpy)`
   on randomized inputs (incl. nan/inf/singular matrices), and the engine's `numeric-parity`
   CI job (engine CONCEPT:EG-346) gates the kernel against numpy so the two can never diverge.
 
-### Making the shim kernel-live locally
+## Dev vs prod: two different install paths
 
-The wheel is built from the epistemic-graph repo:
+**Prod / published installs** pull the kernel as a resolvable wheel:
 
 ```bash
-# in the epistemic-graph checkout
-maturin build --release -m crates/eg-numeric/Cargo.toml --features python
-# on Python > 3.13 also export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-pip install target/wheels/eg_numeric-*.whl   # or the numeric-featured epistemic-graph wheel
-python -c "from agent_utilities.numeric import HAVE_KERNEL; print(HAVE_KERNEL)"  # -> True
+pip install 'agent-utilities[numeric-kernel]'   # -> eg-numeric>=0.1.0 + epistemic-graph>=2.6.0
+python -c "from agent_utilities.numeric import xp; print(xp.HAVE_KERNEL)"  # -> True
 ```
 
-With the kernel installed, `test_numeric_parity.py` exercises the KERNEL path (not just the
-fallback). Without it, the same test validates the numpy fallback path.
+The `eg-numeric` Surface-A wheel is now **published** (cp39-abi3), shipped alongside the
+`epistemic-graph` 2.6.0 engine release, so `numeric-kernel` resolves it directly.
 
-## Honest status and the ONE remaining step to fully drop numpy
+**Dev is editable and non-publishing.** The fleet dev deploy already source-mounts the repos
+(`PYTHONPATH=/au:/eg`, `services/graph-os/compose.dev.yml`), so dev builds the kernel **from
+source**, NOT from the published wheel. Install an editable `eg-numeric` into your venv with:
 
-What P5 delivered:
-- Kernel is the declared **primary** backend (`numeric-kernel` extra, kernel-first discovery).
-- numpy/scipy are **demoted** to an explicit `numeric-fallback` extra (out of base deps).
-- Both paths are **parity-gated** (`test_numeric_parity.py` + engine `numeric-parity` CI).
+```bash
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
+  maturin develop \
+  -m /home/apps/workspace/agent-packages/epistemic-graph/crates/eg-numeric/Cargo.toml \
+  --features python
+python -c "from agent_utilities.numeric import xp; print(xp.HAVE_KERNEL)"  # -> True
+```
 
-What P5 did **not** do (and why): numpy is **not** removed. The `eg-numeric` Surface-A wheel
-is currently folded into the `epistemic-graph` engine wheel behind a maturin `numeric`
-feature and is **not yet published to a package index**. Until it is, agent-utilities cannot
-hard-depend on `pip install eg-numeric` in every environment, so the numpy fallback must
-stay.
+`maturin develop` compiles the pyo3 extension and installs it editable into the active venv
+as `epistemic_graph.numeric` — so the shim goes kernel-LIVE against your **local source**.
+Dev never depends on any published artifact. (Prefer `maturin develop` for dev;
+`maturin build --release … && pip install target/wheels/eg_numeric-*.whl` produces the same
+wheel prod ships if you want to test the packaged artifact.)
 
-**Remaining step:** publish the `eg-numeric` wheel (or the numeric-featured `epistemic-graph`
-wheel) to a resolvable package index. Once it is a hard, index-resolvable dependency, the
-`numeric-fallback` extra and the shim's numpy fallback branch can be retired and numpy
-dropped entirely — a mechanical change, since every call site already uses `xp`.
+With the kernel installed either way, `test_numeric_parity.py` exercises the KERNEL path (not
+just the fallback). Uninstall it (`pip uninstall eg-numeric`) and the same test validates the
+numpy fallback path.
+
+## Honest status — the full numpy drop (CONCEPT:KG-2.319)
+
+What the drop delivered:
+- Kernel is the declared **primary** backend and now a **hard dependency**: `numeric-kernel`
+  declares `eg-numeric>=0.1.0` directly (loose floor) — the wheel is published, so this is
+  index-resolvable, not just an engine carrier.
+- numpy is **no longer a base/primary dependency** of any kind. It survives only as the
+  `numeric-fallback` extra and inside the leaf `finance`/`embeddings`/`ann` extras.
+- Both paths remain **parity-gated** (`test_numeric_parity.py` + engine `numeric-parity` CI).
+
+Honest caveat — numpy is **not** 100% gone, and that is correct:
+- The `xp` shim keeps its numpy fallback branch on purpose, so kernel-absent (minimal)
+  environments still work.
+- Some leaf extras legitimately need numpy/scipy for ops with **no kernel equivalent** —
+  `scipy.stats` (`norm`/`spearmanr`/`ks_2samp`) in `finance`, and `scipy.sparse.linalg.eigsh`
+  in the spectral navigator (which degrades to the `xp`/numpy dense path when scipy is
+  absent). Those stay declared only in the specific extras that use them.
+
+The "drop" is complete in the sense that matters: numpy is no longer a base or primary
+dependency — only a fallback / leaf-extra concern.
