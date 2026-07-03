@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 588
-total_pillars: 25
+total_concepts: 590
+total_pillars: 26
 pillars:
 - AHE-3
 - CE-038
@@ -18,6 +18,7 @@ pillars:
 - EG-010
 - EG-037
 - EG-160
+- EG-185
 - EG-186
 - EG-187
 - KG-1
@@ -1652,11 +1653,19 @@ concepts:
   code_paths:
   - agent_utilities/observability/self_ingest.py
   doc: EG-160
+- id: EG-185
+  name: so the wrapper logs that L2 delete is
+  pillar: EG-185
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/l2_native_connector.py
+  doc: so the wrapper logs that L2 delete is
 - id: EG-186
   name: over a small HTTP surface
   pillar: EG-186
   status: live
   code_paths:
+  - agent_utilities/kvcache/l2_native_connector.py
   - agent_utilities/kvcache/remote_backend.py
   doc: over a small HTTP surface
 - id: EG-187
@@ -1666,6 +1675,7 @@ concepts:
   code_paths:
   - agent_utilities/kvcache/__init__.py
   - agent_utilities/kvcache/config.py
+  - agent_utilities/kvcache/l2_native_connector.py
   - agent_utilities/kvcache/remote_backend.py
   doc: is configured with, so a co-located deploy shares one source of
 - id: KG-1.0
@@ -4370,6 +4380,7 @@ concepts:
   code_paths:
   - agent_utilities/kvcache/__init__.py
   - agent_utilities/kvcache/config.py
+  - agent_utilities/kvcache/l2_native_connector.py
   - agent_utilities/kvcache/remote_backend.py
   doc: the Python LMCache/vLLM connector reads its endpoint and
 - id: KG-2.307
@@ -4403,6 +4414,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: federated search fanned across registered external
+- id: KG-2.311
+  name: the LMCache-side *native connector* half of the EG-187
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/l2_native_connector.py
+  doc: the LMCache-side *native connector* half of the EG-187
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
