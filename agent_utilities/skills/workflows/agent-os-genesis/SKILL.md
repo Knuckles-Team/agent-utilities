@@ -609,13 +609,17 @@ server (`CONCEPT:EG-187`) is a small HTTP surface (`GET|PUT|HEAD /kv/<hash>`,
 addressed shared dedup (`CONCEPT:EG-186`); the Python connector is
 `EpistemicGraphKVBackend` (`CONCEPT:KG-2.306`). Full runbook + the two wiring paths:
 agent-utilities `docs/guides/kvcache-vllm-lmcache.md` (the single source of truth —
-do not duplicate the config here).
+do not duplicate the config here). (The same engine also hosts the BLAS-free numeric
+kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine `CONCEPT:EG-321`
+/ `CONCEPT:KG-2.312` — a separate, unrelated capability, not part of this KV-cache step.)
 
 - **Co-locate on the GPU/inference host (e.g. GB10).** LMCache offload/fetch is on the
-  inference hot path, so the kvcache-server runs on the **same box** as vLLM, reached
+  inference hot path, so the kvcache tier runs on the **same box** as vLLM, reached
   over loopback (host network), NOT across the overlay. Like vLLM on GB10 it runs as a
   **standalone compose** (`services/vllm/compose.kvcache.yml`), OUTSIDE Swarm (SBSA
-  watchdog reset). The deployment-planner constraint is `node.labels.name == <vLLM host>`.
+  watchdog reset). That one compose now **folds both services**: the `epistemic-kvcache`
+  engine (the L2 tier) AND the decoupled `lmcache-server` (the L1 CPU tier) — no manual
+  sidecar wiring. The deployment-planner constraint is `node.labels.name == <vLLM host>`.
 - **Two pre-compiled images in the private registry (built by GitLab CI, arm64/GB10):**
   (1) the **KV-enabled engine image** `registry.arpa/epistemic-graph:kvcache` — the default
   fleet `epistemic-graph` image does NOT compile the KV features, so it is built with
@@ -636,14 +640,16 @@ do not duplicate the config here).
   `lmcache server --chunk-size` to the model's **Mamba block size** (vLLM derives it, e.g.
   1568 for Qwen3.6-27B) — required so each prefill step snapshots one Mamba block (costs cold
   prefill throughput; dense pays nothing).
-- **Decoupled `lmcache server` = the cross-restart + engine tier.** The MP connector is a
-  client to a standalone `lmcache server` (ZMQ :5555, does NOT auto-spawn; run it as a
-  sidecar with `network:host`+`ipc:host`+`--gpus all` for CUDA-IPC transfer). Its **L1** is
-  CPU RAM (survives vLLM restarts); its **L2** is the epistemic-graph engine via
-  `--l2-adapter '{"type":"resp","host":"localhost","port":6379}'` → the engine Redis wire
-  (`CONCEPT:EG-174`/`EG-307`, content-addressed dedup EG-186, durable EG-185) — survives
-  server restarts + dedups. This is what gives cross-restart / cross-instance KV reuse on ANY
-  model (native vLLM APC is GPU-only and lost on restart).
+- **Decoupled `lmcache-server` = the cross-restart + engine tier.** The MP connector is a
+  client to a standalone `lmcache-server` (ZMQ :5555, does NOT auto-spawn — the folded
+  compose service runs it with `network:host`+`ipc:host`+`--gpus all` for CUDA-IPC transfer).
+  Its **L1** is CPU RAM (`--l1-size-gb`, survives vLLM restarts); its **L2** is the
+  epistemic-graph engine via `--l2-adapter`. Two adapter choices: **(default) the engine-native
+  `native_plugin`** → `EpistemicGraphL2Connector` (`CONCEPT:KG-2.311`), the EG-187 HTTP KV
+  surface with content-addressed dedup (EG-186) + live `/kv/stats` counters; **(fallback,
+  zero-code) `resp`** → the engine Redis wire (`CONCEPT:EG-174`/`EG-307`). Both hit the same
+  durable EG-185 store and survive server restarts. This is what gives cross-restart /
+  cross-instance KV reuse on ANY model (native vLLM APC is GPU-only and lost on restart).
 - **Enable is a WINDOWED, opt-in restart of vLLM** — the LMCache wiring lives in an
   OVERRIDE (`services/vllm/compose.lmcache.yml`, adds `--kv-transfer-config
   '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'` + `LMCACHE_CONFIG_FILE`);
