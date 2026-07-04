@@ -1,0 +1,26 @@
+---
+name: kg-gis
+description: >-
+  Thin verb over the engine's geospatial (GIS) surface — routing, tiles, nearest-
+  neighbour, and named geo-tasks. Use for geospatial ops — "route between these points",
+  "nearest to this coordinate", "fetch a tile".
+license: MIT
+tags: [graph-os, engine, gis, geospatial]
+tier: core
+metadata:
+  author: Genius
+  version: '0.1.0'
+---
+
+# kg-gis
+
+`graph_gis` (CONCEPT:KG-2.310) is action-routed 1:1 over the engine geo methods: `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` (a named geospatial job). All structured args go via `params_json`. Degrades cleanly when the engine build has no GIS surface.
+
+## Invoke
+- **MCP:** `load_tools(tools=["graph_gis"])`, then `graph_gis(action="route", params_json='{"from":[51.5,-0.1],"to":[48.8,2.3]}')`.
+- **REST twin:** `POST /graph/gis` with `{"action": "nearest", "params_json": "{\"lat\":51.5,\"lon\":-0.1,\"limit\":5}"}`.
+
+## Example
+```
+graph_gis(action="tile", params_json='{"z":10,"x":511,"y":340}')
+```
