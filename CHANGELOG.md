@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-04
+
+### Added — warm-fork cross-modal fan-out (CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout, ORCH-1.106)
+- **Warm-fork fan-out over an engine cross-modal candidate set.** A new
+  `agent_utilities/runtime/crossmodal_fork.py` runtime fans a query's cross-modal candidate
+  set (graph / vector / text / timeseries) out across warm-forked sandboxes, evaluated in
+  parallel off a warm parent, and wires it through `mcp/tools/engine_surface_tools.py`. Ships
+  the `AU-ORCH.sandbox.crossmodal-fork-fanout` ontology concept, design doc, and unit tests.
+  Pairs with the epistemic-graph 2.11.0 handoff-1 cross-modal seam.
+
 ## [1.4.0] - 2026-07-03
 
 ### Added — per-package ontology federation (CONCEPT:KG-2.320..323)
