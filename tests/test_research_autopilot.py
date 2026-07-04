@@ -1,7 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Research Autopilot."""
 
-from agent_utilities.numeric import xp as np
-
 from agent_utilities.domains.finance.research_autopilot import (
     AutopilotConfig,
     Hypothesis,
@@ -9,6 +7,7 @@ from agent_utilities.domains.finance.research_autopilot import (
     ResearchAutopilot,
     SimpleBacktester,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestSimpleBacktester:

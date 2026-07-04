@@ -1,8 +1,7 @@
 """CONCEPT:KG-2.4"""
 
-from agent_utilities.numeric import xp as np
-
 from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractionEncoder
+from agent_utilities.numeric import xp as np
 
 
 def test_positional_interaction_encoder_initialization():

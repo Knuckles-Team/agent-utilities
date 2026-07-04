@@ -9,8 +9,6 @@ small in-test facade, and the graceful degradation + caching/invalidation
 contract. No backend services required.
 """
 
-from agent_utilities.numeric import xp as np
-
 from agent_utilities.knowledge_graph.ontology.derived_properties import (
     DEFAULT_DERIVED_ENGINE,
     DEFAULT_DERIVED_REGISTRY,
@@ -22,6 +20,7 @@ from agent_utilities.knowledge_graph.ontology.derived_properties import (
     compute_derived,
 )
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.numeric import xp as np
 
 
 # ---------------------------------------------------------------------------

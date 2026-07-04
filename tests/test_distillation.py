@@ -11,8 +11,6 @@ Covers:
   - Pydantic model enum integration
 """
 
-from agent_utilities.numeric import xp as np
-
 from agent_utilities.knowledge_graph.distillation.deduplicator import (
     KnowledgeDeduplicator,
 )
@@ -28,6 +26,7 @@ from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNodeType,
 )
+from agent_utilities.numeric import xp as np
 
 # ── Fixtures ──
 

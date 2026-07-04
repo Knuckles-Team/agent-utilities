@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Visual Technical Analysis Engine."""
 
-from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.domains.finance.visual_ta import (
@@ -10,6 +9,7 @@ from agent_utilities.domains.finance.visual_ta import (
     TrendDirection,
     VisualTAEngine,
 )
+from agent_utilities.numeric import xp as np
 
 
 @pytest.fixture
