@@ -975,6 +975,18 @@ class SkillGraphPipeline:
             source_url=source_url,
         )
 
+        # OKF conformance (CONCEPT:AU-KG.research.okf-bundle-conformance): make the
+        # skill-graph a valid Open Knowledge Format bundle — per-file frontmatter +
+        # index.md/log.md — alongside the machine index.json/sources.json twins.
+        from datetime import UTC, datetime
+
+        from .okf_bundle import write_okf_conformance
+
+        okf = write_okf_conformance(
+            skill_dir, ftype="Reference",
+            timestamp=datetime.now(UTC).isoformat(), resource=source_url,
+        )
+
         errors = validate_skill_graph(skill_dir)
         if errors:
             logger.warning("skill-graph %s validation: %s", name, errors)
@@ -982,6 +994,7 @@ class SkillGraphPipeline:
             "skill_dir": str(skill_dir),
             "name": name,
             "version": version,
+            "okf": okf,
             "file_count": len(md_files),
             "source_count": len(bundles),
             "kg_ingested": bool(kg_result.get("kg_ingested")),

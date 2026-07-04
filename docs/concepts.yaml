@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 910
+total_concepts: 911
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -7247,6 +7247,19 @@ concepts:
   dotted: AU-KG.research.explicit-node-node-contradiction
   aliases:
   - AU-KG.research.explicit-node-node-contradiction
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.research.okf-bundle-conformance
+  name: make the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_pipeline.py
+  doc: make the
+  dotted: AU-KG.research.okf-bundle-conformance
+  aliases:
+  - AU-KG.research.okf-bundle-conformance
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.research.peer-review-self-critique
