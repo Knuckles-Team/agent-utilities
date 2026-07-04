@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Microstructure methodlogies."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.microstructure import (
@@ -9,6 +8,7 @@ from agent_utilities.domains.finance.microstructure import (
     MicroPriceCalculator,
     OrderBookImbalance,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestOrderBookImbalance:

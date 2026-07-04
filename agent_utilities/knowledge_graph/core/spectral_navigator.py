@@ -9,9 +9,11 @@ Provides tuning-free spectral clustering using the normalized Laplacian
 eigengap heuristic for automatic k-selection. Adapted from contextplus's
 clustering.ts with OWL ontology integration and financial regime detection.
 
-Uses ``numpy`` + ``scipy.sparse.linalg.eigsh`` for eigendecomposition
-(both existing dependencies). Clusters auto-map to ``skos:Concept``
-nodes with ``broader``/``narrower`` edges for OWL-transitive hierarchies.
+Eigendecomposition runs on the ``agent_utilities.numeric`` kernel shim
+(``xp.eigsh`` — ``scipy.sparse.linalg.eigsh`` smallest-magnitude eigenpairs,
+now a native ``epistemic_graph.numeric`` export; no numpy/scipy dependency).
+Clusters auto-map to ``skos:Concept`` nodes with ``broader``/``narrower`` edges
+for OWL-transitive hierarchies.
 """
 
 
@@ -186,9 +188,7 @@ class SpectralClusterNavigator:
         # 3. Eigendecomposition (smallest eigenvalues)
         num_eigs = min(max_k + 1, n)
         try:
-            from scipy.sparse.linalg import eigsh
-
-            eigenvalues, eigenvectors = eigsh(laplacian, k=num_eigs, which="SM")
+            eigenvalues, eigenvectors = np.eigsh(laplacian, num_eigs, which="SM")
         except Exception:
             # Fallback to dense eigendecomposition
             eigenvalues, eigenvectors = np.linalg.eigh(laplacian)

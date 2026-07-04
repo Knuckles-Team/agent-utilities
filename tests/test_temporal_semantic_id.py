@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
+from agent_utilities.numeric import xp as np
 
 _SECONDS_PER_DAY = 86400.0
 

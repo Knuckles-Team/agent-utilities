@@ -6,7 +6,6 @@ All tests use synthetic embedding vectors — no embedding model, no network.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
@@ -14,6 +13,7 @@ from agent_utilities.knowledge_graph.retrieval.capability_index import (
     CapabilityIndex,
     Designation,
 )
+from agent_utilities.numeric import xp as np
 
 DIM = 16
 

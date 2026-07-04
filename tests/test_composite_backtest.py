@@ -5,13 +5,12 @@ no-look-ahead test (a signal on the *final* bar must never affect P&L), and a
 shared-capital-pool scaling test.
 """
 
-import numpy as np
-
 from agent_utilities.domains.finance.composite_backtest import (
     CompositeBacktester,
     MarketSpec,
     run_composite_backtest,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestSingleMarketCompounding:

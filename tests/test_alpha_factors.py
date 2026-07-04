@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Alpha Factor Library."""
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -18,6 +17,7 @@ from agent_utilities.domains.finance.alpha_factors import (
     volatility_ratio,
     volume_zscore,
 )
+from agent_utilities.numeric import xp as np
 
 
 @pytest.fixture

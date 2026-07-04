@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 1.3.0*
+*Version: 1.4.0*
 
 > **New here?** Read **[docs/start-here.md](docs/start-here.md)** — one page: what
 > this is, the three ways to use it, and the zero-infra knowledge graph. For AIs,
@@ -256,7 +256,9 @@ steered per-execution by a **[dynamic KV-layering policy](docs/architecture/kv-c
 (ORCH-1.105: cache-worthiness scoring). Plus the numeric **`xp` numpy-shim** (`agent_utilities/numeric/`, KG-2.312) — a numpy-compatible namespace
 that routes reductions/linalg/random through the BLAS/LAPACK-free epistemic-graph numeric kernel (Surface A
 of the engine's [Analytics Program](https://knuckles-team.github.io/epistemic-graph/architecture/numeric-kernel/),
-EG-321) when the compiled kernel is present and **transparently falls back to numpy** when it is not.
+EG-321). The kernel is the **sole numeric backend** (KG-2.324): the shim is **kernel-or-raise** — numpy is
+removed from agent-utilities entirely (imported/declared nowhere) and survives only as the kernel's internal
+rust-numpy dependency.
 
 **🛡 Autonomy & governance** — how it acts safely.
 A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (OS-5.15,
@@ -308,15 +310,15 @@ Synthesized from concept markers in the codebase into **607 canonical concepts**
 | **EG-186** EG-186 | EG-186 | 1 | over a small HTTP surface |
 | **EG-187** EG-187 | EG-187 | 1 | is configured with, so a co-located deploy shares one source of |
 | **EG-321** EG-321 | EG-321 | 1 | EG-321 |
-| **EG-346** EG-346 | EG-346 | 1 | is installed, the kernel-discovery loop below finds |
+| **EG-356** EG-356 | EG-356 | 1 | / KG-2.324 |
 | **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.323 | 261 | / KG-2.106 — code AST parsing delegated to the epistemic-graph engine, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Lazy symbol loading. The finance domain pulls heavy optional, / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.324 | 259 | / KG-2.106 — code AST parsing delegated to the epistemic-graph engine, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Lazy symbol loading. The finance domain pulls heavy optional, / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis |
 | **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
 | **ML-011** ML-011 | ML-011 | 1 | join inference |
 | **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.105 | 94 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | Durable session and autonomous goal persistence with iterative background goal loops |
-| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.77 | 68 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
+| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.79 | 70 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
 | **SAFE-1** Safety & Guardrails | SAFE-1.0 – SAFE-1.8 | 9 | Tool-Agnostic File Safety Hooks, non-saturating superhuman progress tracking via relative scorers and a saturation detector that keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable from metric saturation, a multi-agent scaling-law harness that sweeps collective size over a fixed task and fits capability ~ N^alpha so the platform can measure whether adding agents helps super- or sub-linearly instead of assuming it does, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate, objective-level safety primitives for rising autonomy, Unattended-session stop-on-ask containment |
 | **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
 

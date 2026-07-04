@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Portfolio Optimization Suite."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.portfolio_optimizer import (
@@ -8,6 +7,7 @@ from agent_utilities.domains.finance.portfolio_optimizer import (
     MeanVarianceOptimizer,
     RiskParityOptimizer,
 )
+from agent_utilities.numeric import xp as np
 
 
 @pytest.fixture

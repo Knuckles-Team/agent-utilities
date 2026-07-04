@@ -1,11 +1,11 @@
 """Tests for CONCEPT:KG-2.6 — Latent Space Anti-Collapse Regularizer."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.memory import (
     MemoryOptimizationEngine as LatentSpaceRegularizer,
 )
+from agent_utilities.numeric import xp as np
 
 
 @pytest.fixture

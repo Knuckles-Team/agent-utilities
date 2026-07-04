@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.core.world_model import (
@@ -19,6 +18,7 @@ from agent_utilities.knowledge_graph.core.world_model import (
     WorldModel,
 )
 from agent_utilities.mcp import kg_server
+from agent_utilities.numeric import xp as np
 
 pytestmark = pytest.mark.concept("KG-2.73b")
 

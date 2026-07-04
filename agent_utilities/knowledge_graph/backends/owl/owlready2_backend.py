@@ -342,9 +342,9 @@ class Owlready2Backend(OWLBackend):
         # canonical ontology's import of <http://knuckles.team/kg/servicenow>, now
         # living in the servicenow-api wheel) still resolves in the live reasoner.
         try:
-            from ...core.ontology_federation import discover_provider_ontologies
+            from ...core.ontology_federation import resolve_provider_ontologies
 
-            for _provider, ttl_file in discover_provider_ontologies():
+            for _provider, ttl_file in resolve_provider_ontologies():
                 if ttl_file != ontology_path and ttl_file not in preload:
                     preload.append(ttl_file)
         except Exception as e:  # noqa: BLE001 — federation is additive, never fatal
