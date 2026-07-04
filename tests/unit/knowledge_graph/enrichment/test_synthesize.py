@@ -24,9 +24,9 @@ def fake_capability_search(query, k):
         {"id": "tool:graph-query", "type": "Tool", "name": "graph_query"},
         {"id": "tool:embed", "type": "Tool", "name": "embed"},
         {
-            "id": "skill:knowledge-graph-ingest",
+            "id": "skill:kg-ingest",
             "type": "Skill",
-            "name": "knowledge-graph-ingest",
+            "name": "kg-ingest",
         },
         {"id": "prompt:retriever", "type": "Prompt", "name": "retriever"},
     ]
@@ -36,13 +36,13 @@ def fake_capability_search(query, k):
 def test_synthesize_agent_grounds_in_candidates():
     def fake_llm(prompt):
         # candidate tools/skills must be listed for grounding to be meaningful
-        assert "graph_query" in prompt and "knowledge-graph-ingest" in prompt
+        assert "graph_query" in prompt and "kg-ingest" in prompt
         return json.dumps(
             {
                 "name": "Retriever Bot",
                 "system_prompt": "You retrieve answers from the KG.",
                 "tools": ["graph_query", "embed"],
-                "skills": ["knowledge-graph-ingest"],
+                "skills": ["kg-ingest"],
                 "description": "Answers questions from the knowledge graph.",
             }
         )
@@ -54,7 +54,7 @@ def test_synthesize_agent_grounds_in_candidates():
     assert spec.name == "Retriever Bot"
     assert spec.goal == "answer questions from the KG"
     assert spec.tools == ["graph_query", "embed"]
-    assert spec.skills == ["knowledge-graph-ingest"]
+    assert spec.skills == ["kg-ingest"]
 
 
 def test_synthesize_agent_lenient_parse_and_defaults():
@@ -160,7 +160,7 @@ def test_persist_synthesis_writes_nodes_and_edges():
         name="Retriever Bot",
         goal="answer from KG",
         tools=["graph_query"],
-        skills=["knowledge-graph-ingest"],
+        skills=["kg-ingest"],
     )
     team = TeamSpec(
         name="KG Squad",

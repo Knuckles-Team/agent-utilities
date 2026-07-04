@@ -597,7 +597,7 @@ agent-utilities is both the **hub** that discovers fleet-contributed skills/prom
   shipped through package-data `skills/**`, so `install-skills` (and the quick
   `agent-utilities install-skills` command) drops them into the XDG skills dir exactly like any
   other package. **Add a new AU-specific skill here**, not in universal-skills; generic/standalone
-  skills (and the authoring builders + `kg-delegation-router`) stay in universal-skills.
+  skills (and the authoring builders + `kg-delegate`) stay in universal-skills.
 - The hub deliberately does **NOT** declare a `prompt_providers` entry-point for itself: its
   `prompts/*.json` are already the packaged BASE layer (`registry_builder._iter_prompt_sources`
   ingests them with bare `prompt:<name>` ids and `source: agent-utilities:base`). A self-pointing

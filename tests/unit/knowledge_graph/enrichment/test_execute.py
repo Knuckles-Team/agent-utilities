@@ -26,7 +26,7 @@ class FakeFacade:
     def designate(self, vec, k=8, required_caps=None):
         return [
             FakeDesignation("tool:graph_query", 0.91, {"query"}),
-            FakeDesignation("skill:knowledge-graph-ingest", 0.84, {"ingest"}),
+            FakeDesignation("skill:kg-ingest", 0.84, {"ingest"}),
         ]
 
 
@@ -47,7 +47,7 @@ def test_make_capability_search_uses_designate():
         "score": 0.91,
         "capabilities": ["query"],
     }
-    assert res[1]["type"] == "Skill" and res[1]["name"] == "knowledge-graph-ingest"
+    assert res[1]["type"] == "Skill" and res[1]["name"] == "kg-ingest"
 
 
 def test_persist_as_runnable_writes_callable_resource():

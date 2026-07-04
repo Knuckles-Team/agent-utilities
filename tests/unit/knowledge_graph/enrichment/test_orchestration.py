@@ -22,7 +22,7 @@ def test_agent_spec_to_graph():
         goal="answer from KG",
         prompt_id="prompt:retriever",
         tools=["graph_query", "embed"],
-        skills=["knowledge-graph-ingest"],
+        skills=["kg-ingest"],
     )
     b = agent_to_batch(a)
     backend = FakeBackend()
@@ -30,7 +30,7 @@ def test_agent_spec_to_graph():
     assert backend.nodes["agent:retriever-bot"]["type"] == "Agent"
     rels = {(s.split(":")[0], t, r) for s, t, r in backend.edges}
     assert ("agent", "tool:graph-query", "USES_TOOL") in rels
-    assert ("agent", "skill:knowledge-graph-ingest", "HAS_SKILL") in rels
+    assert ("agent", "skill:kg-ingest", "HAS_SKILL") in rels
     assert ("agent", "prompt:retriever", "HAS_PROMPT") in rels
     assert any(r == "SOLVES" for _, _, r in backend.edges)
 

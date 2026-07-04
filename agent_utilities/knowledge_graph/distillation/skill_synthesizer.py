@@ -889,7 +889,7 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     lines.append("")
     lines.append(
         "If graph-os is reachable, offload the whole DAG via `graph_orchestrate "
-        "action=execute_workflow` (or the kg-delegation-router skill); otherwise "
+        "action=execute_workflow` (or the kg-delegate skill); otherwise "
         "execute steps natively in dependency order."
     )
     lines.append("")
