@@ -9,13 +9,16 @@ description: >-
   "ingest conversations", "backup the kg", or "wipe the kg".
   Automatically handles finding all workspace paths natively via the repository-manager MCP,
   cloning parallel git URLs if requested, and firing off the ingestion pipeline across all sources/lanes.
+  Also documents the fleet's NATIVE package-side push (every agents/* connector ingests its own data
+  into epistemic-graph in three modalities — typed OWL nodes, documents, and raw BLOBS/attachments —
+  via the shared native_ingest primitive), so the KG stores the data itself, not just metadata.
 license: MIT
-tags: [knowledge-graph, ingestion, workspace, bulk, git, conversations, backup, rss, freshrss, connectors, fleet]
+tags: [knowledge-graph, ingestion, workspace, bulk, git, conversations, backup, rss, freshrss, connectors, fleet, native, blob]
 tier: core
 wraps: [graph_ingest, source_sync, source_drain, source_connector, document_process]
 metadata:
   author: Genius
-  version: '2.1.0'
+  version: '2.2.0'
 ---
 
 # Knowledge Graph Ingestion
@@ -223,7 +226,8 @@ This is the **authoritative map of every configured connector**: its `source_syn
 source key, the entities it ingests, and the OWL ontology classes they map to. The KG
 is OWL-native — a connector's records are not generic Documents but **typed entities**
 whose `type` is promoted to its OWL class (`core/owl_bridge.py` `PROMOTABLE_NODE_TYPES`
-→ a class declared in the canonical ontology library). Two ingestion shapes:
+→ a class declared in the canonical ontology library). **Three ingestion shapes** (a
+"maximum-ingestion" connector uses every one that applies — see §8c):
 
 - **Typed entity rebuild** (`_DELTA_HANDLERS` in `core/source_sync.py`): the handler
   drains records and rebuilds `ingest_external_batch` entities with `type=<owl-class>`
@@ -231,6 +235,10 @@ whose `type` is promoted to its OWL class (`core/owl_bridge.py` `PROMOTABLE_NODE
 - **Document** (`PACKAGE_PRESETS` via `fleet_connectors`, or `MCP_TOOL_PRESETS`): the
   record becomes a `:Document`+`:Chunk` (with `doc_type`), searchable but not a domain
   class. Most `agents/*` connectors land here through the fleet sweep.
+- **Blob (raw bytes)** (`memory/media_store.py` `MediaStore` / `memory/native_ingest.py`
+  `media_store`): the raw file/attachment/scan/media → a content-addressed `:Blob` +
+  `:MediaAsset` node (deduped), with extracted text/OCR/transcript flowing into the
+  Document shape above. This is how the KG stores the data *itself*, not just metadata.
 
 | `source` key | Connector / server | Entities ingested | OWL classes (`ontology*.ttl`) | Path |
 |---|---|---|---|---|
@@ -273,6 +281,57 @@ typed domain classes.
 > Still declarative: adding a typed connector = a `_DELTA_HANDLER` + its `MCP_TOOL_PRESET`
 > + the `PROMOTABLE_NODE_TYPES` entries + the OWL class in the canonical ontology — then the
 > next `source="all"` sweep picks it up. Keep this table in lockstep with `_DELTA_HANDLERS`.
+
+## 8c. Native connector push — package-side ingestion (nodes + documents + blobs)
+
+Complementing the hub-side **pull** above (`source_sync` drains a connector from the hub),
+every `agents/*` connector also ships **native push**: its OWN code writes its data into the
+ONE engine as it works, via the shared primitive
+`agent_utilities/knowledge_graph/memory/native_ingest.py`
+(CONCEPT:AU-KG.ingest.enterprise-source-extractor). This is the "maximum ingestion" bar — a
+connector pushes in **every modality that applies**, not just one:
+
+| Primitive | Modality | Produces | Package module |
+|---|---|---|---|
+| `native_ingest.ingest_entities(entities, rels, source, domain)` | typed nodes | OWL `:Class` nodes + links | `<pkg>/kg_ingest.py` (thin mapper) |
+| `native_ingest.ingest_documents(docs, source, domain)` | documents | `:Document` (text + `source_uri`; hub chunks/embeds) | `<pkg>/kg_ingest.py` |
+| `native_ingest.media_store().store_media(bytes, …)` | blob | `:Blob` + `:MediaAsset` (content-addressed, deduped) | `<pkg>/kg_media.py` |
+
+All three ride the **lightweight** `GraphComputeEngine()._client` (the heavy
+`IntelligenceGraphEngine` is not constructible in a connector). Every entry point is
+dependency-/engine-guarded — it **no-ops** with no reachable engine, so a connector runs with
+zero KG infra. Wired default-on into the package's fetch/download flow + surfaced on an MCP
+tool (Wire-First). Node ids: `<domain>:<class>:<externalId>`; `type` matches the package's
+`ontology_providers` `.ttl`. Reach the engine via `GRAPH_SERVICE_ENDPOINTS=tcp://<host>:9100`.
+
+**Reference implementations (LIVE-verified):** `media-downloader/kg_media.py` (a downloaded
+video → `:MediaAsset` blob, fetch-back byte-identical) and `gitlab-api/kg_ingest.py` (projects
+→ `:Project`/`:GitLabGroup` typed nodes).
+
+### Per-package native ingestion — the "maximum ingestion" matrix
+
+The fleet enrichment gives each connector native push in every applicable modality. Enterprise
+record-sources do **all three** (typed nodes + KB/notes documents + attachment blobs); file/media
+packages are document+blob heavy:
+
+| Connector | Typed nodes | Documents | Blobs |
+|---|---|---|---|
+| `servicenow-api` | `:Incident`/`:Change`/`:ConfigurationItem`/`:Person` | KB articles | ticket attachments |
+| `erpnext-agent` | `:Customer`/`:SalesOrder`/`:Item`/`:Invoice`/`:Supplier`/`:Employee` | notes/descriptions | print-format PDFs |
+| `atlassian-agent` (jira) | `:Issue`/`:Epic`/`:Sprint`/`:Person` | Confluence pages | issue attachments |
+| `nextcloud-agent` | share/folder structure | file text (pdf/office via `read_any`), image OCR | the files themselves |
+| `paperless-ngx-mcp` | `:Correspondent`/`:Tag` | OCR text | scanned PDFs |
+| `mattermost-mcp` | `:Channel`/`:Person`/`:Team` | messages | attachments |
+| `gitlab-api` / `github-agent` | `:Project`/`:MergeRequest`/`:Issue` | — | (release/CI artifacts) |
+| `salesforce-agent` / `twenty-mcp` | `:Account`/`:Contact`/`:Opportunity` | — | — |
+| `media-downloader` | — | subtitles/metadata | **video/audio** (proven) |
+| `jellyfin-mcp` / `audiobookshelf-mcp` | `:MediaAsset`/`:Book`/`:Author` | — | posters, audio→transcript |
+| `gramps-mcp` | `:Person`/`:Family`/`:Event` | — | photos/records (OCR) |
+| `langfuse-agent` / `lgtm-mcp` | `:Trace`/`:Dashboard` | — | — (+ time-series) |
+
+> Declarative contract holds: the shared `native_ingest` primitive is the ONE write path;
+> a connector adds only its mapper (`kg_ingest.py`/`kg_media.py`). Keep this matrix in step
+> with the packages' `kg_ingest`/`kg_media` modules as the fleet enrichment fans out.
 
 ## 9. Skill-graph packages — distill OUT / import back (KG-2.7 / AHE-3.9)
 
