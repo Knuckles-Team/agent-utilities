@@ -95,6 +95,55 @@ def discover_provider_ontologies() -> list[tuple[str, Path]]:
     return out
 
 
+def resolve_provider_ontologies() -> list[tuple[str, Path]]:
+    """XDG-first provider-ontology resolution (CONCEPT:OS-5.78).
+
+    Prefer the materialized unified tree (``$XDG.../ontologies/<provider>/*.ttl``,
+    written by ``agent-utilities install``); fall back to live entry-point discovery
+    (:func:`discover_provider_ontologies`) when that tree is unpopulated (dev/editable
+    or pre-install). This is the read-path every ontology federation glob-point uses,
+    so the runtime reads contributed ontologies from one place instead of walking each
+    provider's ``site-packages``.
+
+    The ``agent-utilities`` provider dir is **excluded**: it mirrors the bundled core
+    TBox, which every consumer already loads directly via its own ``ontology*.ttl``
+    glob — including it here would double-load and trip the duplicate-IRI gate.
+    """
+    root = unified_ontologies_dir()
+    if not root.is_dir():
+        return discover_provider_ontologies()
+    providers = [
+        d for d in sorted(root.iterdir()) if d.is_dir() and d.name != "agent-utilities"
+    ]
+    if not providers:
+        # Tree exists but ships no fleet provider (only the hub's own mirror, or
+        # loose user TTLs) — defer to live discovery so entry-point providers still load.
+        return discover_provider_ontologies()
+    out: list[tuple[str, Path]] = []
+    for pdir in providers:
+        ttls = sorted(pdir.glob("*.ttl"))
+        shapes = pdir / "shapes"
+        if shapes.is_dir():
+            ttls.extend(sorted(shapes.glob("*.ttl")))
+        for ttl in ttls:
+            out.append((pdir.name, ttl))
+    return out
+
+
+def unified_ontologies_dir() -> Path:
+    """The XDG unified-tree ontologies root (``$XDG.../ontologies/``).
+
+    Thin re-export of :func:`agent_utilities.core.unified_install.unified_ontologies_dir`
+    (imported lazily to avoid an import cycle) so this module — the ontology
+    federation home — owns the read-path lookup its consumers call.
+    """
+    from agent_utilities.core.unified_install import (
+        unified_ontologies_dir as _root,
+    )
+
+    return _root()
+
+
 def discover_provider_ontology_dirs() -> list[tuple[str, Path]]:
     """Return each installed ontology provider's ``(provider_name, asset_dir)``.
 
