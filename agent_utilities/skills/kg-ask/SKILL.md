@@ -7,6 +7,7 @@ description: >-
 license: MIT
 tags: [graph-os, query, nl]
 tier: core
+wraps: [graph_ask, ask_data]
 metadata:
   author: Genius
   version: '0.1.0'

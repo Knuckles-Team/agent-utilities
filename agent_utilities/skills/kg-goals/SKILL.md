@@ -7,6 +7,7 @@ description: >-
 license: MIT
 tags: [graph-os, goals]
 tier: core
+wraps: [graph_goals, spec_ticket]
 metadata:
   author: Genius
   version: '0.1.0'

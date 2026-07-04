@@ -7,6 +7,7 @@ description: >-
 license: MIT
 tags: [graph-os, query, cypher]
 tier: core
+wraps: [graph_query, nl_query]
 metadata:
   author: Genius
   version: '0.1.0'
