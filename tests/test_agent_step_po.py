@@ -6,7 +6,6 @@ write-back, and the live router path (SubagentLifecyclePolicy branches on a
 high-entropy step).
 """
 
-from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.graph.agent_step_po import (
@@ -17,6 +16,7 @@ from agent_utilities.graph.agent_step_po import (
 from agent_utilities.graph.reward_decomposition import RewardDecomposer
 from agent_utilities.graph.routing.strategies.policy import SubagentLifecyclePolicy
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.numeric import xp as np
 
 pytestmark = pytest.mark.concept("AHE-3.15")
 

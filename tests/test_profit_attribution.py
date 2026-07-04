@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Profit Attribution Engine."""
 
-from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.domains.finance.profit_attribution import (
@@ -9,6 +8,7 @@ from agent_utilities.domains.finance.profit_attribution import (
     compare_to_benchmark,
     compute_performance_report,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestProfitAttributor:

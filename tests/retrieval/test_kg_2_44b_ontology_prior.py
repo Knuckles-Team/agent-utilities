@@ -10,10 +10,10 @@ pure cosine (parity).
 
 from __future__ import annotations
 
-from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.numeric import xp as np
 
 pytestmark = pytest.mark.concept("KG-2.44b")
 

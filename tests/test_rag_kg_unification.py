@@ -14,8 +14,6 @@ import asyncio
 import time
 import uuid
 
-from agent_utilities.numeric import xp as np
-
 from agent_utilities.models.knowledge_graph import (
     AgentRAGConfigNode,
     DistillationIndexNode,
@@ -25,6 +23,7 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNodeType,
     SimilarityEdgeNode,
 )
+from agent_utilities.numeric import xp as np
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

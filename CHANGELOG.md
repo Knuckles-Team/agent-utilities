@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-03
+
+### Added — per-package ontology federation (CONCEPT:KG-2.320..323)
+- **Per-package ontology federation foundation + runtime verbs.** Every fleet package can now
+  contribute its own ontology fragment, federated into the canonical library at load time;
+  `sync_packages` reconciles contributed fragments, `graph_fork` forks a working ontology/graph
+  view, and `graph_memory` is unified onto the one memory path. The federation binds
+  package-declared `.ttl` fragments into the live facade (store / `owl_bridge` / retrieval).
+
+### Added — unified XDG install (CONCEPT:OS-5.77/78/79)
+- **One XDG tree for skills + prompts + ontologies.** `agent_utilities/core/unified_install.py`
+  materializes all three provider types (skills, prompts, ontologies) into a single `$XDG`
+  install tree with the matching runtime read-paths, so `install` drops everything an agent
+  auto-loads in one place. Added a `doctor` check for the unified install and wired the read
+  paths through `core/paths.py` / `core/providers.py`.
+
 ### Changed — the HARD numpy/scipy drop (CONCEPT:KG-2.324, Analytics P5 final)
 - **`agent_utilities.numeric` is kernel-or-raise.** The `xp` shim now imports the compiled
   `epistemic_graph.numeric` kernel and **raises `ImportError` when it is absent** — the old

@@ -1,11 +1,11 @@
 """Tests for CONCEPT:KG-2.6 — Embedding Alignment Diagnostics."""
 
-from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.knowledge_graph.memory import (
     MemoryOptimizationEngine as EmbeddingDiagnostics,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestCKA:

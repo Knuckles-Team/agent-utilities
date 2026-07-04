@@ -6,9 +6,10 @@ data-science-mcp (``tests/test_trading_lstm.py``) so core stays torch-free —
 see AGENTS.md "Dependency discipline".
 """
 
-from agent_utilities.numeric import xp as np
 import pandas as pd
 import pytest
+
+from agent_utilities.numeric import xp as np
 
 try:
     from agent_utilities.domains.finance.execution import (
