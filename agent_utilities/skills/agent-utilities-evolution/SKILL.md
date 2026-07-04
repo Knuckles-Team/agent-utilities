@@ -2,7 +2,7 @@
 name: agent-utilities-evolution
 description: >-
   Evolve the agent-utilities repository by implementing the latest research concepts
-  against it. Orchestrates research-scanner → knowledge-graph-ingest → comparative-analysis
+  against it. Orchestrates research-scanner → kg-ingest → comparative-analysis
   → SDD implementer into a unified pipeline. Queries the KG for hot topics, finds
   relevant papers, ingests them, runs comparative analysis, and generates SDD plans
   with constitution-mandated artifact requirements baked in. Can run as a background
@@ -71,7 +71,7 @@ flowchart TD
     F --> D
     E -->|Yes| D
     D --> G[research-scanner: Find Papers]
-    G --> H[knowledge-graph-ingest: Ingest Papers]
+    G --> H[kg-ingest: Ingest Papers]
     H --> I[comparative-analysis: Analyze vs agent-utilities]
     I --> J[Generate SDD Plan Items]
     J --> K[Mark Topics in KG with SDD Plan ID]
@@ -418,5 +418,5 @@ As part of each evolution cycle, verify:
 
 - [research-scanner](../research-scanner/SKILL.md) — Paper discovery and scoring
 - [comparative-analysis](../comparative-analysis/SKILL.md) — Feature extraction
-- [knowledge-graph-ingest](../../automation/knowledge-graph-ingest/SKILL.md) — Bulk ingestion
+- [kg-ingest](../../automation/kg-ingest/SKILL.md) — Bulk ingestion
 - [sdd-implementer](../../development/sdd-implementer/SKILL.md) — Task execution

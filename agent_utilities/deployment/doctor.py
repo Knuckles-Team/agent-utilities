@@ -472,7 +472,7 @@ def _check_ingestion_coverage() -> dict[str, Any]:
                 "`source_sync source=all mode=delta` (or `graph_ingest "
                 "action=ingest target_path=<repo>`) to ingest/refresh the gaps"
             ),
-            skill="knowledge-graph-ingest",
+            skill="kg-ingest",
             data=rep,
         )
     return _result("ingestion_coverage", "ok", detail, data=rep)
@@ -520,7 +520,7 @@ def _check_connector_coverage() -> dict[str, Any]:
             "warn",
             detail + (f"; dark: {miss}" if rep["missing"] else ""),
             remediation="`source_sync source=all mode=delta` to refresh; check the connector's creds/preset",
-            skill="knowledge-graph-ingest",
+            skill="kg-ingest",
             data=rep,
         )
     return _result("connector_coverage", "ok", detail, data=rep)

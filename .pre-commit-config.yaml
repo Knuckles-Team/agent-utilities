@@ -195,6 +195,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-kg-skill-coverage
+    name: Guardrail — every graph-os verb has a kg-* skill
+    # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: the operator-facing kg-* skill suite must
+    # stay 1:1 with the graph-os verb surface (no verb without a skill, no skill
+    # pointing at a dead verb). Same core as tests/unit/test_gateway_mcp_parity.py,
+    # run standalone for a fast crisp signal.
+    entry: python3 -m agent_utilities.mcp.skill_coverage
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-no-pyo3
     name: Guardrail — PyO3 fully excised
     entry: bash /home/apps/workspace/agent-packages/epistemic-graph/scripts/check_no_pyo3.sh

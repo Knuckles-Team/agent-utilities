@@ -5,7 +5,7 @@
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
-> **Skills (universal-skills):** `skill-graph-builder` (`generate_skill.py --from-kg`), `web-crawler` (`crawl.py --ingest-kg`), `knowledge-graph-ingest`
+> **Skills (universal-skills):** `skill-graph-builder` (`generate_skill.py --from-kg`), `web-crawler` (`crawl.py --ingest-kg`), `kg-ingest`
 
 ## Why
 
@@ -196,7 +196,7 @@ a Claude-executable `## Execution` section (run independent steps in parallel,
 dependents after), and a standard delegation footer:
 
 > If graph-os is reachable, offload the whole DAG via `graph_orchestrate
-> action=execute_workflow` (or the kg-delegation-router skill); otherwise execute
+> action=execute_workflow` (or the kg-delegate skill); otherwise execute
 > steps natively in dependency order.
 
 **Wiring (default-ON, propose-only).** The distiller runs as the `distill_skills`

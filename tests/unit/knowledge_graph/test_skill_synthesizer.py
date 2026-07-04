@@ -292,7 +292,7 @@ def test_dual_mode_artifact_has_dag_and_execution_and_footer():
     assert "Run every step with NO `depends_on` in parallel" in md
     # standard graph-os delegation footer
     assert "graph_orchestrate action=execute_workflow" in md
-    assert "kg-delegation-router" in md
+    assert "kg-delegate" in md
     assert "otherwise execute steps natively in dependency order" in md
 
 
