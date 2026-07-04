@@ -9,7 +9,7 @@ small in-test facade, and the graceful degradation + caching/invalidation
 contract. No backend services required.
 """
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from agent_utilities.knowledge_graph.ontology.derived_properties import (
     DEFAULT_DERIVED_ENGINE,

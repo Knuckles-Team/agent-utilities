@@ -1,6 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Research Autopilot."""
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from agent_utilities.domains.finance.research_autopilot import (
     AutopilotConfig,

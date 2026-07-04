@@ -1,6 +1,6 @@
 """CONCEPT:KG-2.4"""
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractionEncoder
 

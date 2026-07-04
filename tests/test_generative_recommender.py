@@ -9,7 +9,7 @@ embeddings is encoded into semantic IDs via a real (seeded)
 end to end.
 """
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.generative_recommender import (

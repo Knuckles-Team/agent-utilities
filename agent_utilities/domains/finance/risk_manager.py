@@ -13,13 +13,6 @@ from typing import Any
 
 from agent_utilities.numeric import xp as np
 
-try:
-    from scipy.stats import norm
-except ImportError as e:
-    raise ImportError(
-        "Finance extra dependencies missing. Please install agent-utilities[finance]"
-    ) from e
-
 logger = logging.getLogger(__name__)
 
 # Lazy, cached epistemic-graph client for Rust-backed VaR/CVaR. Probed once;
@@ -43,11 +36,14 @@ def _risk_engine() -> Any:
 
         # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
-        # path degrades to the local numpy kernel when the engine is unreachable.
+        # path degrades to the local numeric-kernel shim when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
         logger.info("epistemic-graph engine connected for VaR/CVaR")
-    except Exception as exc:  # noqa: BLE001 — degrade to numpy
-        logger.debug("epistemic-graph engine unavailable for VaR, using numpy: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — degrade to local kernel shim
+        logger.debug(
+            "epistemic-graph engine unavailable for VaR, using local kernel shim: %s",
+            exc,
+        )
         _ENGINE_CLIENT = None
     return _ENGINE_CLIENT
 
@@ -174,7 +170,7 @@ class VaRCalculator:
 
         Routes to the Rust epistemic-graph engine when reachable (one batched
         `risk_metrics` round-trip yields var_95/var_99/cvar_95); otherwise uses
-        the local numpy path below.
+        the local numeric-kernel shim path below.
         """
         if len(returns) < 10:
             return VaRResult(method="historical", n_observations=len(returns))
@@ -192,8 +188,8 @@ class VaRCalculator:
                         method="historical",
                         n_observations=len(returns),
                     )
-                except Exception as exc:  # noqa: BLE001 — degrade to numpy
-                    logger.debug("engine VaR failed, using numpy: %s", exc)
+                except Exception as exc:  # noqa: BLE001 — degrade to local kernel shim
+                    logger.debug("engine VaR failed, using local kernel shim: %s", exc)
 
         sorted_returns = np.sort(returns)
         var_95 = -np.percentile(sorted_returns, confidence_95 * 100)
@@ -219,11 +215,11 @@ class VaRCalculator:
         mu = np.mean(returns)
         sigma = np.std(returns)
 
-        var_95 = -(mu + norm.ppf(0.05) * sigma)
-        var_99 = -(mu + norm.ppf(0.01) * sigma)
+        var_95 = -(mu + np.norm_ppf(0.05) * sigma)
+        var_99 = -(mu + np.norm_ppf(0.01) * sigma)
 
         # Analytical CVaR for normal distribution
-        cvar_95 = -(mu - sigma * norm.pdf(norm.ppf(0.05)) / 0.05)
+        cvar_95 = -(mu - sigma * np.norm_pdf(np.norm_ppf(0.05)) / 0.05)
 
         return VaRResult(
             var_95=float(var_95),

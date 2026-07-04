@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (

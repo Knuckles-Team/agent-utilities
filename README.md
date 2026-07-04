@@ -256,7 +256,9 @@ steered per-execution by a **[dynamic KV-layering policy](docs/architecture/kv-c
 (ORCH-1.105: cache-worthiness scoring). Plus the numeric **`xp` numpy-shim** (`agent_utilities/numeric/`, KG-2.312) — a numpy-compatible namespace
 that routes reductions/linalg/random through the BLAS/LAPACK-free epistemic-graph numeric kernel (Surface A
 of the engine's [Analytics Program](https://knuckles-team.github.io/epistemic-graph/architecture/numeric-kernel/),
-EG-321) when the compiled kernel is present and **transparently falls back to numpy** when it is not.
+EG-321). The kernel is the **sole numeric backend** (KG-2.324): the shim is **kernel-or-raise** — numpy is
+removed from agent-utilities entirely (imported/declared nowhere) and survives only as the kernel's internal
+rust-numpy dependency.
 
 **🛡 Autonomy & governance** — how it acts safely.
 A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (OS-5.15,
