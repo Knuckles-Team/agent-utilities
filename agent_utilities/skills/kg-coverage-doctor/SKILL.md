@@ -18,7 +18,7 @@ metadata:
 # kg-coverage-doctor
 
 Keeps the operator-facing **kg-\* skill suite** in lockstep with the **graph-os verb
-surface**. This is the *third parity leg* (CONCEPT:OS-5.80), complementing the two
+surface**. This is the *third parity leg* (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage), complementing the two
 tool⇄REST-route legs already enforced by `tests/unit/test_gateway_mcp_parity.py`:
 
 1. **Coverage** — every verb in `kg_server.REGISTERED_TOOLS` (minus a tiny, justified

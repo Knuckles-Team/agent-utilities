@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:OS-5.80 — kg-* skill ↔ graph-os verb coverage doctor.
+"""CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — kg-* skill ↔ graph-os verb coverage doctor.
 
 The graph-os MCP surface — every tool in :data:`kg_server.REGISTERED_TOOLS` — must
 be mirrored by a discoverable ``kg-*`` skill, so a new verb cannot ship without a
