@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 606
+total_concepts: 607
 total_pillars: 28
 pillars:
 - AHE-3
@@ -9303,6 +9303,18 @@ concepts:
   dotted: OS-5.76
   aliases:
   - OS-5.76
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.77
+  name: OKF-CIS
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_hierarchy.py
+  doc: OKF-CIS
+  dotted: OS-5.77
+  aliases:
+  - OS-5.77
   canonical_pillar: OS-5
   needs_curation: false
 - id: SAFE-1.0
