@@ -14,7 +14,7 @@ metadata:
 
 # kg-gis
 
-`graph_gis` (CONCEPT:KG-2.310) is action-routed 1:1 over the engine geo methods: `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` (a named geospatial job). All structured args go via `params_json`. Degrades cleanly when the engine build has no GIS surface.
+`graph_gis` (CONCEPT:AU-KG.coordination.engine-message-broker) is action-routed 1:1 over the engine geo methods: `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` (a named geospatial job). All structured args go via `params_json`. Degrades cleanly when the engine build has no GIS surface.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_gis"])`, then `graph_gis(action="route", params_json='{"from":[51.5,-0.1],"to":[48.8,2.3]}')`.

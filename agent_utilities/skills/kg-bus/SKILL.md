@@ -15,7 +15,7 @@ metadata:
 
 # kg-bus
 
-`graph_bus` (CONCEPT:ECO-4.85) is the durable, cross-host agent bus (state lives in the KG). Actions: `register`/`heartbeat`/`leave`/`status`, `roster` (discover peers + presence), `send` (`sender`+`payload`+`to|topic`), `receive` (+`since` cursor), `subscribe`/`unsubscribe`, `ack`, `dispatch` (hand an objective to the fleet as a Loop). Mesh/federation: `register_hub`/`list_hubs`/`federate`/`federate_in`. Store-and-forward + auto-presence: any action keeps you online and rosterable.
+`graph_bus` (CONCEPT:AU-ECO.bus.agent-to-agent-bus) is the durable, cross-host agent bus (state lives in the KG). Actions: `register`/`heartbeat`/`leave`/`status`, `roster` (discover peers + presence), `send` (`sender`+`payload`+`to|topic`), `receive` (+`since` cursor), `subscribe`/`unsubscribe`, `ack`, `dispatch` (hand an objective to the fleet as a Loop). Mesh/federation: `register_hub`/`list_hubs`/`federate`/`federate_in`. Store-and-forward + auto-presence: any action keeps you online and rosterable.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_bus"])`, then `graph_bus(action="roster", online_only=true)`.

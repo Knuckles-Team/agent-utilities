@@ -32,11 +32,11 @@ no single verb.
 2. **MCP verb + REST route (agent-utilities).** agent-utilities is the native
    API/MCP layer for the engine.
    - **Low-level:** a new engine method is auto-discovered by
-     `engine_tools._discover_domains()` (client introspection, CONCEPT:KG-2.278),
+     `engine_tools._discover_domains()` (client introspection, CONCEPT:AU-KG.compute.engine-surface-manifest),
      so it appears under the domain's `engine_<domain>` action-routed tool with
      no hand-edit. A brand-new *domain* needs an entry in `_DOMAIN_CLASSES` +
      `_DOMAIN_BLURB`. Its REST twin `/engine/<domain>` is registered in lockstep
-     (`ACTION_TOOL_ROUTES`, CONCEPT:ECO-4.99).
+     (`ACTION_TOOL_ROUTES`, CONCEPT:AU-ECO.mcp.full-api-mcp-surface).
    - **High-level:** for a synthesized, agent-facing operation, add a curated
      `graph_*` / `ontology_*` / `object_*` tool and register its
      `ACTION_TOOL_ROUTES` REST route in the same call so the surface-parity gate

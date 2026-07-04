@@ -15,7 +15,7 @@ metadata:
 
 # kg-etl
 
-`graph_etl` (CONCEPT:KG-2.98) composes ingestion + write-back + graph-store machinery. `action='run'`: pull `source` into the KG (any registered ingestion source; `mode` delta|full|reconcile) and/or load `sink` from the KG — sink is a write-back SoR (dry-run + approval, pass `ops_json`), a graph store (`stardog/neo4j/age/jena_fuseki` or a registered connection), or the native engine SQL table (`sink='table'`). `action='list'` shows sources/sinks/backends; `action='lineage'` shows recorded runs (KG-2.99).
+`graph_etl` (CONCEPT:AU-KG.ontology.one-source) composes ingestion + write-back + graph-store machinery. `action='run'`: pull `source` into the KG (any registered ingestion source; `mode` delta|full|reconcile) and/or load `sink` from the KG — sink is a write-back SoR (dry-run + approval, pass `ops_json`), a graph store (`stardog/neo4j/age/jena_fuseki` or a registered connection), or the native engine SQL table (`sink='table'`). `action='list'` shows sources/sinks/backends; `action='lineage'` shows recorded runs (AU-KG.ontology.kg-3).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_etl"])`, then `graph_etl(action="list")`.

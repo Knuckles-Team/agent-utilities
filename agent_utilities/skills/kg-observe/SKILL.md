@@ -15,7 +15,7 @@ metadata:
 
 # kg-observe
 
-`graph_observe` (CONCEPT:KG-2.257) queries the trace/score subgraph. Actions: `trace_rootcause` (failed assertions + low scores joined to their trace's agent, grouped; `query`=agent/capability filter), `prompt_regression` (mean score per prompt version — which regressed), `failure_cluster` (failing traces clustered by the failed assertion — systemic breaks across agents).
+`graph_observe` (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot) queries the trace/score subgraph. Actions: `trace_rootcause` (failed assertions + low scores joined to their trace's agent, grouped; `query`=agent/capability filter), `prompt_regression` (mean score per prompt version — which regressed), `failure_cluster` (failing traces clustered by the failed assertion — systemic breaks across agents).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_observe"])`, then `graph_observe(action="trace_rootcause", query="chat-agent")`.

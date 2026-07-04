@@ -14,7 +14,7 @@ metadata:
 
 # kg-hydrate
 
-`graph_hydrate` re-mirrors an external source into the KG at `mode=full`. `source` is any registered connector (e.g. `leanix`, `servicenow`, `gitlab`), or `all` to fan out to the fleet-wide sweep (CONCEPT:KG-2.9). It delegates to the same unified `source_sync` core, so there is no divergent hydration logic — use `kg-etl`/`source_sync` for delta/reconcile modes.
+`graph_hydrate` re-mirrors an external source into the KG at `mode=full`. `source` is any registered connector (e.g. `leanix`, `servicenow`, `gitlab`), or `all` to fan out to the fleet-wide sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor). It delegates to the same unified `source_sync` core, so there is no divergent hydration logic — use `kg-etl`/`source_sync` for delta/reconcile modes.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_hydrate"])`, then `graph_hydrate(source="leanix")`.

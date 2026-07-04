@@ -15,7 +15,7 @@ metadata:
 
 # kg-share
 
-`graph_share` (CONCEPT:KG-2.60) is the explicit promotion path for data that is private-to-its-owner by default. Actions: `org` (share with the owner's org in-place), `commons` (promote a copy into the shared cross-org commons graph), `mark` (attach a mandatory `marking`), `private` (restrict back). Actor/owner is the ambient identity — never caller-supplied.
+`graph_share` (CONCEPT:AU-KG.compute.data-is-private-its) is the explicit promotion path for data that is private-to-its-owner by default. Actions: `org` (share with the owner's org in-place), `commons` (promote a copy into the shared cross-org commons graph), `mark` (attach a mandatory `marking`), `private` (restrict back). Actor/owner is the ambient identity — never caller-supplied.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_share"])`, then `graph_share(action="org", node_id="doc:42")`.

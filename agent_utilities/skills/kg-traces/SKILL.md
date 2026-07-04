@@ -14,7 +14,7 @@ metadata:
 
 # kg-traces
 
-`graph_traces` (CONCEPT:KG-2.310) searches or fetches distributed traces. `action='search'` (filter by `service`/`operation`/free-form `query`, capped by `limit`) or `action='get'` (a single `trace_id`). Extra engine kwargs via `params_json`. Degrades cleanly when the engine build has no trace surface.
+`graph_traces` (CONCEPT:AU-KG.coordination.engine-message-broker) searches or fetches distributed traces. `action='search'` (filter by `service`/`operation`/free-form `query`, capped by `limit`) or `action='get'` (a single `trace_id`). Extra engine kwargs via `params_json`. Degrades cleanly when the engine build has no trace surface.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_traces"])`, then `graph_traces(action="search", service="graph-os", limit=20)`.

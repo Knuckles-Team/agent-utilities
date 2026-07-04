@@ -15,7 +15,7 @@ metadata:
 
 # kg-writeback
 
-`graph_writeback` (CONCEPT:KG-2.8/2.9) pushes KG intelligence back to a `target` system-of-record (`leanix|servicenow|erpnext|process|capability|…`). Ops: `inferences_json` `[{source,rel_type,target}]`, `enrichments_json` `[{node,patches,tag}]`, `creations_json` `[{type,name}]`, `retirements_json` `[{node}]`. **Fail-closed:** `dry_run=true` (default) previews the exact proposed writes; live writes need the target's enable flag (e.g. `LEANIX_ENABLE_WRITE`). `action`: `write` | `proposals` (list queued high-stakes) | `approve` (apply a `proposal_id`).
+`graph_writeback` (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9) pushes KG intelligence back to a `target` system-of-record (`leanix|servicenow|erpnext|process|capability|…`). Ops: `inferences_json` `[{source,rel_type,target}]`, `enrichments_json` `[{node,patches,tag}]`, `creations_json` `[{type,name}]`, `retirements_json` `[{node}]`. **Fail-closed:** `dry_run=true` (default) previews the exact proposed writes; live writes need the target's enable flag (e.g. `LEANIX_ENABLE_WRITE`). `action`: `write` | `proposals` (list queued high-stakes) | `approve` (apply a `proposal_id`).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_writeback"])`, then `graph_writeback(target="leanix", dry_run=true, inferences_json="[...]")`.

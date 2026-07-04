@@ -14,7 +14,7 @@ metadata:
 
 # kg-feeds
 
-`graph_feeds` (CONCEPT:KG-2.121/2.122) manages `:FeedSource` nodes (native RSS, FreshRSS, ScholarX arXiv) ingested through one world-model gate. Actions: `list`, `add` (one `url=` or bulk `urls=` a JSON array / comma-or-newline list), `remove` (by url/urls), `sync` (run the feed sweep now — native RSS + ScholarX through the gate, concurrent; `mode=delta|full`).
+`graph_feeds` (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122) manages `:FeedSource` nodes (native RSS, FreshRSS, ScholarX arXiv) ingested through one world-model gate. Actions: `list`, `add` (one `url=` or bulk `urls=` a JSON array / comma-or-newline list), `remove` (by url/urls), `sync` (run the feed sweep now — native RSS + ScholarX through the gate, concurrent; `mode=delta|full`).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_feeds"])`, then `graph_feeds(action="sync", mode="delta")`.

@@ -15,7 +15,7 @@ metadata:
 
 # kg-reach
 
-`graph_reach` (CONCEPT:ECO-4.50) sends outbound messages to the user. Actions: `reach_user` (`text` [+`user_id`] → the user's LAST-ACTIVE channel, else the configured default), `send` (explicit `platform`+`channel_id`+`text`), `list_channels` (`platform`), `last_channel` ([`user_id`]→resolved channel), `status`. Every send is governed by the ActionPolicy gate and mirrored into conversational memory.
+`graph_reach` (CONCEPT:AU-ECO.mcp.graph-reach-mcp-tool) sends outbound messages to the user. Actions: `reach_user` (`text` [+`user_id`] → the user's LAST-ACTIVE channel, else the configured default), `send` (explicit `platform`+`channel_id`+`text`), `list_channels` (`platform`), `last_channel` ([`user_id`]→resolved channel), `status`. Every send is governed by the ActionPolicy gate and mirrored into conversational memory.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_reach"])`, then `graph_reach(action="reach_user", text="Deploy finished")`.
