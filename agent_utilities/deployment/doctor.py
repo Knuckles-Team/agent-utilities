@@ -661,6 +661,74 @@ def _check_skills() -> dict[str, Any]:
     )
 
 
+def _check_unified_install() -> dict[str, Any]:
+    """Assert the unified XDG tree exists and matches installed providers (CONCEPT:OS-5.79).
+
+    ``agent-utilities install`` materializes every provider contribution (skills +
+    prompts + ontologies, incl. the hub's OWN under ``agent-utilities``) into one XDG
+    data tree the runtime reads from. This flags providers that are installed but NOT
+    materialized (a stale/absent tree the ``install`` command fixes).
+    """
+    try:
+        from agent_utilities.core.paths import ontology_dir, skills_dir
+        from agent_utilities.core.providers import (
+            ONTOLOGY_PROVIDER_GROUP,
+            PROMPT_PROVIDER_GROUP,
+            SKILL_PROVIDER_GROUP,
+            iter_provider_dirs,
+        )
+        from agent_utilities.core.unified_install import (
+            OWN_PROVIDER,
+            unified_prompts_dir,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "unified_install", "skip", f"unified-install probe unavailable: {exc}"
+        )
+
+    legs = {
+        "skills": (SKILL_PROVIDER_GROUP, skills_dir()),
+        "prompts": (PROMPT_PROVIDER_GROUP, unified_prompts_dir()),
+        "ontologies": (ONTOLOGY_PROVIDER_GROUP, ontology_dir()),
+    }
+    # Expected providers per leg = live entry-point providers + the hub's own mirror.
+    expected: dict[str, set[str]] = {}
+    missing: list[str] = []
+    materialized = 0
+    for leg, (group, root) in legs.items():
+        names = {name for name, _src in iter_provider_dirs(group)}
+        names.add(OWN_PROVIDER)
+        expected[leg] = names
+        for name in sorted(names):
+            if (root / name).is_dir():
+                materialized += 1
+            else:
+                missing.append(f"{leg}:{name}")
+
+    data = {
+        "roots": {leg: str(root) for leg, (_g, root) in legs.items()},
+        "expected": {leg: sorted(n) for leg, n in expected.items()},
+        "missing": missing,
+        "materialized": materialized,
+    }
+    if missing:
+        return _result(
+            "unified_install",
+            "warn",
+            f"{len(missing)} provider contribution(s) installed but not materialized "
+            f"in the unified XDG tree: {', '.join(missing)}",
+            remediation="`agent-utilities install` (materializes skills+prompts+ontologies into the XDG tree)",
+            skill="agent-utilities",
+            data=data,
+        )
+    return _result(
+        "unified_install",
+        "ok",
+        f"unified XDG tree complete — {materialized} provider contribution(s) materialized",
+        data=data,
+    )
+
+
 def _check_warm_fork() -> dict[str, Any]:
     """Report which warm-fork sandbox rungs are available on this host (CONCEPT:OS-5.59).
 
@@ -736,6 +804,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "observability": _check_observability,
     "bus": _check_bus,
     "skills": _check_skills,
+    "unified_install": _check_unified_install,
     "warm_fork": _check_warm_fork,
 }
 

@@ -290,9 +290,9 @@ def collect_bundled_ontology_graph() -> Any:
     # so a moved module (e.g. servicenow now living in the servicenow-api wheel) is
     # indistinguishable from a bundled one. Failure-isolated per file.
     try:
-        from .ontology_federation import discover_provider_ontologies
+        from .ontology_federation import resolve_provider_ontologies
 
-        for provider, ttl_path in discover_provider_ontologies():
+        for provider, ttl_path in resolve_provider_ontologies():
             try:
                 graph.parse(str(ttl_path), format="turtle")
             except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
