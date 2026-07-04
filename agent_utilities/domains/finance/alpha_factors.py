@@ -14,7 +14,6 @@ from agent_utilities.numeric import xp as np
 
 try:
     import pandas as pd
-    from scipy.stats import spearmanr
 except ImportError as e:
     raise ImportError(
         "Finance extra dependencies missing. Please install agent-utilities[finance]"
@@ -191,7 +190,7 @@ def compute_factor_ic(factor_values: pd.Series, forward_returns: pd.Series) -> f
     ).dropna()
     if len(combined) < 10:
         return 0.0
-    corr, _ = spearmanr(combined["factor"], combined["returns"])
+    corr, _ = np.spearmanr(combined["factor"], combined["returns"])
     return float(corr) if not np.isnan(corr) else 0.0
 
 

@@ -1,6 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Risk Management Engine."""
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 import pytest
 
 from agent_utilities.domains.finance.risk_manager import (

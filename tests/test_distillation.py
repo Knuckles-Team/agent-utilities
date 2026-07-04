@@ -11,7 +11,7 @@ Covers:
   - Pydantic model enum integration
 """
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from agent_utilities.knowledge_graph.distillation.deduplicator import (
     KnowledgeDeduplicator,

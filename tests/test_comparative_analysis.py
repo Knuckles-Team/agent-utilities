@@ -13,7 +13,7 @@ Tests for CONCEPT:KG-2.6 through KG-2.37 and OS-5.18:
 import time
 import uuid
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 # ── KG-2.34: Spectral Cluster Navigator ──────────────────────────────
 

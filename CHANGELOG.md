@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — the HARD numpy/scipy drop (CONCEPT:KG-2.324, Analytics P5 final)
+- **`agent_utilities.numeric` is kernel-or-raise.** The `xp` shim now imports the compiled
+  `epistemic_graph.numeric` kernel and **raises `ImportError` when it is absent** — the old
+  `HAVE_KERNEL`-false path and the `import numpy as _np` binding are removed. There is **no
+  numpy fallback**; the kernel is the **sole numeric backend**. `std`/`var` are called with
+  the kernel's `ddof=` **keyword** (its signature is `(a, axis=None, ddof=0, keepdims=False)`).
+- **numpy/scipy removed from agent-utilities entirely.** They are gone from
+  `requirements.txt`, base `dependencies`, and every extra (`embeddings`/`ann`/`finance`);
+  the `numeric-fallback` extra is **deleted**. Base now declares
+  `epistemic-graph[numeric]>=2.7.0` (the kernel is a hard base dependency). numpy survives
+  ONLY as a **dev/test-only** ground-truth reference in the `[test]` extra
+  (`tests/test_numeric_parity.py`, `pytest.importorskip`-gated). Grep for `import numpy` /
+  `import scipy` across `agent_utilities/` + `scripts/` is **zero**.
+- **The four scipy ops are native kernel exports** (engine CONCEPT:EG-356): `xp.eigsh`,
+  `xp.spearmanr`, `xp.ks_2samp`, `xp.norm_ppf` / `xp.norm_pdf`. Migrated off direct scipy:
+  `spectral_navigator` (eigsh), finance `alpha_factors` (spearmanr) / `execution` (ks_2samp)
+  / `risk_manager` (norm.ppf/pdf), and the `check_designation_eval` / `check_retrieval_quality`
+  scripts (numpy → `xp`).
+- numpy remains an **internal detail of the kernel** (rust-numpy), reached through the kernel
+  — never imported or declared by agent-utilities — for the long-tail array ops the compiled
+  kernel does not yet expose (the `random` Generator API, `cov`/`corrcoef`, `save`/`load`,
+  axis norms, N-D element-wise, pandas-wrapped inputs). The shim restricts the kernel
+  fast-path to raw `ndarray`/`list`/`tuple` so pandas `Series`/`DataFrame` wrappers are
+  preserved. See `docs/guides/numeric-kernel.md`.
+
 ## [1.3.0] - 2026-07-03
 
 ### Summary — the full numpy drop (Analytics P5 final)

@@ -1,6 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Signal Fusion and Alpha Combination Engine."""
 
-import numpy as np
+from agent_utilities.numeric import xp as np
 
 from agent_utilities.domains.finance.signal_fusion import (
     AlphaCombinationEngine,
