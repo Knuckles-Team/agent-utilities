@@ -145,9 +145,9 @@ preflight:
 engine:
   version: epistemic-graph>=1.0.0
   extra: pip install 'agent-utilities[engine]'  (bumps to the published wheel)
-  authority: redb-authoritative durable by default (CONCEPT:KG-2.195)
-  resolver: CONCEPT:OS-5.63 — remote -> share-running-local -> autostart the pi-tier binary; refcounted
-    (auto-stops idle) or persistent lifecycle
+  authority: redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)
+  resolver: CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local ->
+    autostart the pi-tier binary; refcounted (auto-stops idle) or persistent lifecycle
   wheels: prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64, windows) — the Pi tiers never
     compile
   docker_image: engine-as-a-DB multi-arch image (linux/amd64+arm64) for container/remote shapes (single-node-prod,
@@ -220,7 +220,7 @@ servers:
   - technitium-dns-mcp
   - vector-mcp
 private_repos:
-  concept: OS-5.74
+  concept: AU-OS.deployment.standard-repo-templates
   purpose: Standard operator-owned PRIVATE repos genesis provisions per profile — abstract/templated;
     operator env lives only in XDG config + these repos, never in the public repo.
   repos:
@@ -277,7 +277,7 @@ private_repos:
     tiny: 0
     single-node-prod: 1
     enterprise: 2
-  step: agent-os-genesis Step 9b (CONCEPT:OS-5.75)
+  step: agent-os-genesis Step 9b (CONCEPT:AU-OS.deployment.concept-2)
   tokens:
   - GIT_NAMESPACE
   - DEFAULT_BRANCH
