@@ -7666,6 +7666,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
     skos:broader <http://knuckles.team/kg/concept/AU/ORCH/sandbox> ;
     :partOf <http://knuckles.team/kg/concept/AU/ORCH/sandbox> .
+<http://knuckles.team/kg/concept/AU/ORCH/sandbox/crossmodal-fork-fanout> a :GovernedConcept ;
+    :dottedId "AU-ORCH.sandbox.crossmodal-fork-fanout" ;
+    :flatId "ORCH-1.106" ;
+    skos:prefLabel "cross-modal warm-fork fan-out" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
+    skos:broader <http://knuckles.team/kg/concept/AU/ORCH/sandbox> ;
+    :partOf <http://knuckles.team/kg/concept/AU/ORCH/sandbox> .
 <http://knuckles.team/kg/concept/AU/ORCH/sandbox/wasm-backend> a :GovernedConcept ;
     :dottedId "AU-ORCH.sandbox.wasm-backend" ;
     :flatId "ORCH-1.88" ;
