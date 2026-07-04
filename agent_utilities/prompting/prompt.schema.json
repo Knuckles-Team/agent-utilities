@@ -2,7 +2,7 @@
   "$defs": {
     "EngineeringRulesSection": {
       "additionalProperties": true,
-      "description": "Task-scoped engineering rules from agent-rules-books.\n\nCONCEPT:KG-2.2 — Engineering Rules Engine\n\nDefines which engineering rules are injected into the agent's prompt\nbased on task context. Supports three loading patterns:\n  - ``always_on``: Rule IDs always included (nano tier recommended)\n  - ``on_demand``: task_type → rule IDs mapping\n  - ``trigger_rules``: Conditional rules activated by context",
+      "description": "Task-scoped engineering rules from agent-rules-books.\n\nCONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine\n\nDefines which engineering rules are injected into the agent's prompt\nbased on task context. Supports three loading patterns:\n  - ``always_on``: Rule IDs always included (nano tier recommended)\n  - ``on_demand``: task_type → rule IDs mapping\n  - ``trigger_rules``: Conditional rules activated by context",
       "properties": {
         "always_on": {
           "description": "Rule set IDs always included (e.g., 'clean-code.nano')",
