@@ -393,6 +393,72 @@ def _fork_fanout(branches: list[Any], seed_vars: dict[str, Any], preferred: str)
     )
 
 
+def _crossmodal_fork_fanout(
+    branches: list[Any],
+    seed_vars: dict[str, Any],
+    preferred: str,
+    context_query: str,
+    candidate_var: str,
+) -> str:
+    """Retrieve an engine cross-modal candidate set ONCE, then warm-fork ``branches`` over it.
+
+    The agent-utilities side of the epistemic-graph cross-modal seam
+    (CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout): a vector+graph+text candidate set is
+    retrieved once for ``context_query`` and forked into every branch as ``candidate_var`` —
+    branches reuse that one context with no recompute. Falls back to the structured degraded
+    payload when no warm-fork rung is available or the engine retriever is unreachable.
+    """
+    try:
+        from agent_utilities.runtime.crossmodal_fork import CrossModalForkFanout
+    except Exception as exc:  # noqa: BLE001 — capability unimportable ⇒ degrade cleanly
+        return json.dumps(
+            {"surface": "fork", "context_query": context_query, "error": str(exc)}
+        )
+
+    fanout = CrossModalForkFanout()
+
+    async def _run() -> Any:
+        return await fanout.fan_out(
+            context_query,
+            [str(b) for b in branches],
+            preferred=preferred,
+            candidate_var=candidate_var,
+            extra_vars=seed_vars or None,
+        )
+
+    try:
+        res = _run_coro(_run())
+    except Exception as exc:  # noqa: BLE001 — engine/infra death → structured error, no crash
+        return json.dumps(
+            {"surface": "fork", "context_query": context_query, "error": str(exc)}
+        )
+    return json.dumps(
+        {
+            "surface": "fork",
+            "context_query": context_query,
+            "candidate_var": candidate_var,
+            "candidate_count": res.candidate_count,
+            "retrieval_calls": res.retrieval_calls,
+            "reused_without_recompute": res.reused_without_recompute,
+            "degraded": res.degraded,
+            "error": res.error,
+            "sandbox": res.sandbox,
+            "branch_count": len(res.branches),
+            "branches": [
+                {
+                    "index": b.index,
+                    "ok": b.ok,
+                    "stdout": b.stdout,
+                    "error": b.error,
+                    "output": b.output,
+                }
+                for b in res.branches
+            ],
+        },
+        default=_json_default,
+    )
+
+
 def register_engine_surface_tools(mcp) -> None:
     """Register the KG-2.310 engine-surface tools + their REST twins.
 
@@ -909,8 +975,11 @@ def register_engine_surface_tools(mcp) -> None:
             "(run the same snippet across n branches); 'vars_json' seeds the shared "
             "namespace forked into every branch; 'sandbox' optionally pins a rung "
             "(forkserver | container_fork | firecracker), else the cheapest available "
-            "warm-fork rung is used. Degrades cleanly (structured 'unavailable') when no "
-            "warm-fork rung is available on this host."
+            "warm-fork rung is used. Set 'context_query' to retrieve an engine cross-modal "
+            "candidate set (vector+graph+text fusion) ONCE and fork it into every branch as "
+            "'candidate_var' (default 'candidates') — the branches reuse that one context with "
+            "no recompute (CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout). Degrades cleanly "
+            "(structured 'unavailable') when no warm-fork rung is available on this host."
         ),
         tags=["graph-os", "engine", "fork", "warm-fork", "fanout"],
     )
@@ -934,6 +1003,16 @@ def register_engine_surface_tools(mcp) -> None:
         sandbox: str = Field(
             default="",
             description="Preferred warm-fork rung name (empty ⇒ cheapest available).",
+        ),
+        context_query: str = Field(
+            default="",
+            description="Optional: retrieve an engine cross-modal candidate set (vector+graph"
+            "+text) for this query ONCE and fork it into every branch (reused, no recompute).",
+        ),
+        candidate_var: str = Field(
+            default="candidates",
+            description="Namespace name the cross-modal candidate set is bound to in each branch "
+            "(only used when context_query is set).",
         ),
     ) -> str:
         """Thin verb over the warm-fork primitive (CONCEPT:AU-KG.coordination.warm-fork-fanout)."""
@@ -964,6 +1043,14 @@ def register_engine_surface_tools(mcp) -> None:
         if not isinstance(seed_vars, dict):
             return json.dumps(
                 {"surface": "fork", "error": "vars_json must decode to an object"}
+            )
+        if context_query.strip():
+            return _crossmodal_fork_fanout(
+                branches,
+                seed_vars,
+                sandbox.strip(),
+                context_query.strip(),
+                candidate_var.strip() or "candidates",
             )
         return _fork_fanout(branches, seed_vars, sandbox.strip())
 
