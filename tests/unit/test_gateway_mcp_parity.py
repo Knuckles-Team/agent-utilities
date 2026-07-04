@@ -70,7 +70,7 @@ def test_prefix_is_applied_to_mounted_routes():
         assert ("/api" + path) in paths
 
 
-# ── Third leg: MCP verb ⇄ kg-* skill coverage (CONCEPT:OS-5.80) ──────────────
+# ── Third leg: MCP verb ⇄ kg-* skill coverage (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage) ──────────────
 # Beyond REST⇄MCP parity, every graph-os verb must also be wrapped by a
 # discoverable ``kg-*`` skill (and no skill may reference a dead verb), so the
 # operator-facing skill suite can never silently drift from the tool surface. The

@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # installed; the ``check_ontology`` gate consults this set so such an import is NOT
 # flagged dangling in a base (provider-less) install. The ~20-package migration
 # fan-out appends one line here per package it moves out.
-# CONCEPT:KG-2.325 — the ~14-package migration fan-out: each domain ontology below
+# CONCEPT:AU-KG.ontology.package-federation-migration — the ~14-package migration fan-out: each domain ontology below
 # now lives in its owning agents/* package (see docs/architecture/ontology_library.md),
 # federated back in by IRI. ``ontology_company.ttl`` (which stays in core) imports the
 # banking + legal IRIs, so both must be listed here for its import to resolve in a
