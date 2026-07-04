@@ -1,4 +1,4 @@
-"""Harness-evolution SHACL gate (CONCEPT:AHE-3.53) — the surpass over HarnessX.
+"""Harness-evolution SHACL gate (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard) — the surpass over HarnessX.
 
 These tests reproduce HarnessX's τ³-Bench Telecom failure (5 same-dimension edits
 accumulating sub-threshold coupling) and show our SHACL gate **blocks** it — a
@@ -71,7 +71,7 @@ def test_reward_hacking_pathology_blocks():
     assert any("reward-hacking" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
-# ── Substitution-algebra type safety (CONCEPT:KG-2.109) ──────────────────────
+# ── Substitution-algebra type safety (CONCEPT:AU-KG.ontology.harness-gate) ──────────────────────
 def test_hook_contract_blocks_modifying_read_only_hook():
     # An edit that modifies a field at a read-only hook (task_end) violates the
     # hook contract the paper enforces at runtime — here a reasoned SHACL check.

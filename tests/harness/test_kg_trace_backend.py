@@ -1,4 +1,4 @@
-"""KG-native trace backend (CONCEPT:OS-5.68).
+"""KG-native trace backend (CONCEPT:AU-OS.config.model-factory-passthrough).
 
 Every trace persists as a TraceNode → SpanNode/GenerationNode subgraph so traces are
 graph-queryable (the moat over an opaque trace store), with per-generation cost from

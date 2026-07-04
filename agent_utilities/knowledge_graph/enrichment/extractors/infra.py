@@ -1,4 +1,4 @@
-"""Infrastructure source extractor (CONCEPT:KG-2.9).
+"""Infrastructure source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering enterprise source that maps the physical/runtime substrate into
 the knowledge graph: tunnel-manager ``inventory.yaml`` hosts become ``Server``
@@ -132,7 +132,7 @@ def _as_list(value: Any) -> list[str]:
 def extract(config: Any) -> ExtractionBatch:
     """Build an :class:`ExtractionBatch` of Servers, Services and RUNS_ON edges.
 
-    Pure/deterministic: no network access, no daemon connection (CONCEPT:KG-2.9).
+    Pure/deterministic: no network access, no daemon connection (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
     """
     inventory = _load_inventory(_get(config, "inventory"))
     services = _get(config, "services") or []

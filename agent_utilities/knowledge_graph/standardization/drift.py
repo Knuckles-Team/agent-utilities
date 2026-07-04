@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Per-asset / per-org / per-domain conformance drift (CONCEPT:KG-2.49).
+"""Per-asset / per-org / per-domain conformance drift (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 Scores every governed asset against its enterprise standard via
 :func:`standards.drift_score`, writes an idempotent
@@ -137,7 +137,7 @@ def score_conformance(
                         "auto": True,
                         "drift_score": drift,
                         "gaps": gaps[:20],
-                        "concept": "KG-2.49",
+                        "concept": "AU-KG.ontology.populated-at-import-real-3",
                     },
                 )
                 report.edges_written += 1
@@ -196,7 +196,7 @@ def _persist_rollups(engine: Any, report: DriftReport) -> None:
                     "asset_count": dd.asset_count,
                     "conformant": dd.conformant,
                     "mean_drift": dd.mean_drift,
-                    "concept": "KG-2.49",
+                    "concept": "AU-KG.ontology.populated-at-import-real-3",
                 },
             )
         except Exception:  # noqa: BLE001
@@ -211,7 +211,7 @@ def _persist_rollups(engine: Any, report: DriftReport) -> None:
                     "organization": org,
                     "asset_count": od.asset_count,
                     "mean_drift": od.mean_drift,
-                    "concept": "KG-2.49",
+                    "concept": "AU-KG.ontology.populated-at-import-real-3",
                 },
             )
         except Exception:  # noqa: BLE001

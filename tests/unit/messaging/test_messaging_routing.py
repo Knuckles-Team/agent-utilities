@@ -1,4 +1,4 @@
-"""Tests for the universal-path messaging reply flow (CONCEPT:ECO-4.78).
+"""Tests for the universal-path messaging reply flow (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
 Messaging is thin transport: an inbound chat turn runs the ONE universal graph agent
 (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per channel. These tests
@@ -58,7 +58,7 @@ def test_claude_address_falls_back_to_local_without_key(
     assert provider == ""  # local fallback
 
 
-# ── The reply IS the universal graph agent (CONCEPT:ECO-4.78) ─────────
+# ── The reply IS the universal graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent) ─────────
 
 
 def test_channel_session_is_stable_per_channel() -> None:
@@ -102,7 +102,7 @@ async def test_reply_routes_through_universal_execute_agent(
 
 @pytest.mark.asyncio
 async def test_reply_unwraps_channel_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CONCEPT:ORCH-1.40 — when the run opened a native message channel, run_agent returns a
+    """CONCEPT:AU-ORCH.session.session-anchored-collections-native — when the run opened a native message channel, run_agent returns a
     JSON envelope {"output", "channel_id"} (not the bare reply). The messaging layer must
     deliver the ``output`` text, not the raw JSON (which rendered as literal JSON in Telegram)."""
     import json
@@ -159,7 +159,7 @@ async def test_reply_does_not_unwrap_a_genuine_json_answer(
 async def test_reply_timeout_does_not_double_call_the_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A backend TIMEOUT must NOT trigger a second full LLM call (CONCEPT:ORCH-1.62).
+    """A backend TIMEOUT must NOT trigger a second full LLM call (CONCEPT:AU-ORCH.execution.chat-profile-timeouts).
 
     The measured >90 s came from a stalled first round + a 45 s wall + ANOTHER slow plain-chat
     call to the same degraded endpoint. When the universal run hits the reply-timeout wall we
@@ -226,7 +226,7 @@ async def test_reply_error_falls_back_to_plain_chat(
 
 @pytest.mark.asyncio
 async def test_plain_chat_reply_tags_responder(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The plain-chat fallback tags the reply with who answered (CONCEPT:ECO-4.55).
+    # The plain-chat fallback tags the reply with who answered (CONCEPT:AU-ECO.messaging.model-routed-inbound-responder).
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
     reply = await _plain_chat_reply("hello there")
     assert reply.startswith("[local] ")
@@ -430,7 +430,7 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
 
 
 def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:
-    # CONCEPT:ECO-4.75 — if MCP_CLIENT_AUTH is already in the env (deploy/OpenBao path),
+    # CONCEPT:AU-ECO.messaging.make-fleet-credentials-present — if MCP_CLIENT_AUTH is already in the env (deploy/OpenBao path),
     # the bootstrap is a no-op (doesn't overwrite or read other sources).
     import os
 
@@ -446,7 +446,7 @@ def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:
 async def test_image_turn_routes_to_vision_responder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CONCEPT:ECO-4.67 — a turn with image attachments goes straight to the vision-capable
+    """CONCEPT:AU-ECO.messaging.image-attachment-fallback — a turn with image attachments goes straight to the vision-capable
     responder, NOT the universal graph (which drops images and would answer text-only)."""
     from agent_utilities.messaging import router as rt
     from agent_utilities.orchestration import manager as mgr
@@ -480,7 +480,7 @@ async def test_image_turn_routes_to_vision_responder(
 async def test_varied_ack_lite_llm_with_static_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CONCEPT:ECO-4.67 — the deferred-turn ack is LLM-varied (not a fixed template), with a
+    """CONCEPT:AU-ECO.messaging.image-attachment-fallback — the deferred-turn ack is LLM-varied (not a fixed template), with a
     varied static fallback when the lite model is unavailable."""
     from types import SimpleNamespace
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 """Unit tests for the ``synthesis.py`` minimum-viable skeleton.
 

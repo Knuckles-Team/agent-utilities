@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unified Service Registry (CONCEPT:ORCH-1.4).
+"""Unified Service Registry (CONCEPT:AU-ORCH.adapter.unified-service-discovery).
 
 Central nervous system wiring all concept modules into the KG-driven
 orchestration pipeline via lazy-load registration. Each module registers
@@ -564,7 +564,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
 class ServiceRegistry:
     """Central service registry for KG-driven orchestration.
 
-    CONCEPT:ORCH-1.4 — Unified Service Discovery
+    CONCEPT:AU-ORCH.adapter.unified-service-discovery — Unified Service Discovery
 
     Lazily loads and registers all concept modules, making them
     discoverable by the TopologyEngine and KGTeamComposer at runtime.
@@ -636,15 +636,15 @@ class ServiceRegistry:
             for plugin_desc in external_plugins:
                 self._services[plugin_desc.capability] = plugin_desc
                 logger.info(
-                    "[CONCEPT:ORCH-1.4] Registered external plugin: %s",
+                    "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Registered external plugin: %s",
                     plugin_desc.capability,
                 )
         except Exception as e:
-            logger.warning("[CONCEPT:ORCH-1.4] Failed to load external plugins: %s", e)
+            logger.warning("[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Failed to load external plugins: %s", e)
 
         self._initialized = True
         logger.info(
-            "[CONCEPT:ORCH-1.4] Service registry initialized with %d services",
+            "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Service registry initialized with %d services",
             len(self._services),
         )
         return len(self._services)
@@ -744,5 +744,5 @@ class ServiceRegistry:
             except Exception as e:
                 logger.debug("Failed to register service '%s': %s", cap, e)
 
-        logger.info("[CONCEPT:ORCH-1.4] Registered %d services with KG", count)
+        logger.info("[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Registered %d services with KG", count)
         return count

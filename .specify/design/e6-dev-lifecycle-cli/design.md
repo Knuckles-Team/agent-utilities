@@ -26,8 +26,8 @@ system — and the glossary is **CI-synced against the concept registry**, which
 |---|---|---|---|
 | OS-5.1 | Security & Auth / daemon | 0.72 | OS-5 |
 | OS-5.2 | Cognitive Scheduler | 0.71 | OS-5 |
-| OS-5.9 | Gateway Service Dashboard | 0.62 | OS-5 |
-| ECO-4.0 | Tool Interface & MCP Factory | 0.40 | ECO-4 |
+| AU-OS.config.gateway-service-dashboard | Gateway Service Dashboard | 0.62 | OS-5 |
+| ECO-4.0 | Tool Interface & MCP Factory | 0.40 | AU-ECO.connector.plane-provisioning-auth |
 | ORCH-1.0 | Core Orchestration Engine | 0.35 | ORCH-1 |
 
 > Highest 0.72 ≥ 0.70 → **MUST extend, no new concept** for the CLI/glossary. The CLI is an operational

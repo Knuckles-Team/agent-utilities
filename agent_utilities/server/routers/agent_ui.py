@@ -29,7 +29,7 @@ router = APIRouter(tags=["Agent UI"])
 async def ag_ui_endpoint(request: Request) -> Response:
     """Primary streaming endpoint for the Agent UI (FastAG-UI).
 
-    CONCEPT:ECO-4.0
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Supports sideband graph activity annotations, session resumption,
         and rich media attachments. This endpoint handles high-fidelity
@@ -132,7 +132,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
             assert graph_bundle is not None
             graph, graph_cfg = graph_bundle
 
-            # CONCEPT:ORCH-1.104 — Unified Agent Entrypoint: the streaming surface streams
+            # CONCEPT:AU-ORCH.session.session-continuity-entrypoint — Unified Agent Entrypoint: the streaming surface streams
             # the SAME graph as the run_agent seam but cannot return through it, so join the
             # shared continuity model here. Recall the per-session mementos (keyed by the
             # caller's stable session_id == run_id) and inject them as invoker_context so
@@ -184,7 +184,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
                 error_data = json.dumps({"type": "error", "error": str(e)})
                 yield f"data: {error_data}\n\n".encode()
             finally:
-                # CONCEPT:ORCH-1.104 — persist the turn (RunTrace + per-session memento)
+                # CONCEPT:AU-ORCH.session.session-continuity-entrypoint — persist the turn (RunTrace + per-session memento)
                 # off the reply path so the NEXT turn — on this surface OR any other keyed
                 # to the same session — recalls it. Best-effort; never affects the stream.
                 if _kg_engine is not None and _final_output:

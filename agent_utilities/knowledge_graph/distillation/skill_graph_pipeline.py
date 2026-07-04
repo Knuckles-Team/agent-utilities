@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """The unified skill-graph distillation pipeline — one contract, every source kind.
 
-CONCEPT:KG-2.7 — A skill-graph captures an externally-consumable corpus of knowledge
+CONCEPT:AU-KG.research.skill-graph-distillation — A skill-graph captures an externally-consumable corpus of knowledge
 as an agent skill. Previously each source type (web crawl / PDF / KG distillation /
 hand-authored) was built a different way and only the KG path recorded provenance.
 This module is the **single spine**: any source — a website, a PDF/Office file, a
@@ -626,7 +626,7 @@ class SkillGraphPipeline:
         return route(spec)
 
     def _acquire_archivebox(self, spec: SourceSpec) -> AcquiredBundle:
-        """Build a corpus from preserved ArchiveBox snapshots (CONCEPT:KG-2.7).
+        """Build a corpus from preserved ArchiveBox snapshots (CONCEPT:AU-KG.research.skill-graph-distillation).
 
         ``uri`` is an optional tag (or blank for everything archived); ``options``
         may carry connector ``params`` (e.g. a ``url`` prefix). Drains the

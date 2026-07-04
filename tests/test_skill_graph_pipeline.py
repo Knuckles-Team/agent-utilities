@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the unified skill-graph pipeline (CONCEPT:KG-2.7).
+"""Tests for the unified skill-graph pipeline (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Offline by construction: web/generated acquisition are exercised via injected
 ``crawler_fn``/``generator_fn`` and the KG-enrichment graceful-degrade path is

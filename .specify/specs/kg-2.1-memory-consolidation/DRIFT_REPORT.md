@@ -1,4 +1,4 @@
-# Drift Report: Spec: Memory Consolidation Loop (CONCEPT:KG-2.1)
+# Drift Report: Spec: Memory Consolidation Loop (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Overview
 This report summarizes potential specification, requirement, or execution discrepancies discovered during automated alignment scanning.

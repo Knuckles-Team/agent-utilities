@@ -1,9 +1,9 @@
-# Tasks: Search-Output Distillation Harvester (OS-5.34)
+# Tasks: Search-Output Distillation Harvester (AU-OS.scaling.kg-provenance-panel-data)
 
 Wire-first; extend existing modules before adding new ones.
 
-1. **Read the seams.** `graph/test_time_diversity.py` (AHE-3.16 candidate set + `mean_pairwise_distance`),
-   `harness/verifier.py` (scores), RLM `RunTrace` (ORCH-1.29), `research/preference_pairs.py` (AHE-3.17
+1. **Read the seams.** `graph/test_time_diversity.py` (AU-AHE.harness.width-diverse-best-k candidate set + `mean_pairwise_distance`),
+   `harness/verifier.py` (scores), RLM `RunTrace` (ORCH-1.29), `research/preference_pairs.py` (AU-AHE.harness.preference-corpus-reliability
    writer shape), `knowledge_graph/distillation/` (KG-2.2 deduplicator), `knowledge_graph/core/engine_tasks.py`
    (`_tick_golden_loop` pattern), `orchestration/action_policy.py` (OS-5.24 gate).
 2. **Harvester.** Add `harness/search_distillation.py::SearchDistillationHarvester.harvest(run)` →

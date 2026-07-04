@@ -1,4 +1,4 @@
-"""Integration tests for KG-Driven Graph Factory (CONCEPT:ORCH-1.4).
+"""Integration tests for KG-Driven Graph Factory (CONCEPT:AU-ORCH.adapter.kg-graph-materialization).
 
 Tests the full lifecycle from KG template ingestion → graph materialization
 → step execution → provenance tracking.

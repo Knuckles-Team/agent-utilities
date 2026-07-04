@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Document Processing → Ontology — media/text → Chunk objects linked to a Document.
 
-CONCEPT:KG-2.48 — Document Processing Pipeline.
+CONCEPT:AU-KG.ingest.chunk-overlap-stage — Document Processing Pipeline.
 
 Palantir Foundry doc matched: *ontology / document-processing* — the
 media-set → text-extraction/OCR → chunk-with-overlap → explode → embed →
@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 # Default per-chunk embedding dimensionality — driven by the unified XDG config
 # (config.kg_embedding_dim) so it tracks the configured embedding model; ties to
 # create_embedding_model() and the ontology ``embedding`` PropertyType
-# (CONCEPT:KG-2.48). 768 is only a last-resort fallback.
+# (CONCEPT:AU-KG.ingest.chunk-overlap-stage). 768 is only a last-resort fallback.
 DEFAULT_EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
 
 # Ontology object/link type names. ``Document`` already exists as a first-class
@@ -100,7 +100,7 @@ def _now() -> str:
 class ChunkingConfig(BaseModel):
     """Configuration for separator-priority text chunking with overlap.
 
-    CONCEPT:KG-2.48 — the chunk-with-overlap stage of the document pipeline.
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — the chunk-with-overlap stage of the document pipeline.
 
     Attributes:
         chunk_size: Target maximum chunk length in characters.
@@ -142,7 +142,7 @@ class ChunkingConfig(BaseModel):
 class ChunkSpan(BaseModel):
     """A raw chunk + its character span in the source text (pre-materialization).
 
-    CONCEPT:KG-2.48 — the intermediate "exploded" row before it becomes a Chunk
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — the intermediate "exploded" row before it becomes a Chunk
     object. ``char_start`` is monotonically non-decreasing across the sequence and
     successive spans overlap by (up to) the configured overlap.
     """
@@ -156,7 +156,7 @@ class ChunkSpan(BaseModel):
 def chunk_text(text: str, config: ChunkingConfig | None = None) -> list[ChunkSpan]:
     """Split ``text`` into overlapping :class:`ChunkSpan`s by separator priority.
 
-    CONCEPT:KG-2.48 — real recursive separator-priority chunking. The text is
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — real recursive separator-priority chunking. The text is
     first segmented on the highest-priority separator that produces sub-``chunk_size``
     pieces; pieces are then *packed* greedily into windows of up to ``chunk_size``
     characters, and each new window repeats the trailing ``overlap`` characters of
@@ -271,7 +271,7 @@ def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
 class DocumentChunk(BaseModel):
     """A materialized ``Chunk`` ontology object linked to its source Document.
 
-    CONCEPT:KG-2.48 — the exploded-and-embedded Chunk object. Carries position +
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — the exploded-and-embedded Chunk object. Carries position +
     provenance back to the parent document and its own embedding for semantic
     search (the ontology ``embedding`` PropertyType, 768-dim default).
     """
@@ -292,7 +292,7 @@ class DocumentChunk(BaseModel):
 class ProcessedDocument(BaseModel):
     """Result of :meth:`DocumentProcessor.process` — the materialized graph slice.
 
-    CONCEPT:KG-2.48. ``document_node`` and ``chunk_nodes`` are the node payloads
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage. ``document_node`` and ``chunk_nodes`` are the node payloads
     written through the live write path (or returned offline); ``edges`` are the
     HAS_CHUNK / CHUNK_OF link payloads. ``persisted`` records whether the live
     graph write path actually committed the slice.
@@ -317,7 +317,7 @@ class ProcessedDocument(BaseModel):
 class DocumentExtractionError(RuntimeError):
     """Raised when a document's text cannot be extracted by any available reader.
 
-    CONCEPT:KG-2.48 — the *clear, explicit* degradation path. PDFs without
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — the *clear, explicit* degradation path. PDFs without
     ``pypdf``/``pdfminer`` (and no pre-extracted text supplied) raise this with an
     actionable message rather than silently materializing an empty document.
     """
@@ -327,7 +327,7 @@ EmbedFn = Callable[[Sequence[str]], list[list[float]]]
 
 
 class DocumentProcessor:
-    """End-to-end document → Chunk-objects pipeline (CONCEPT:KG-2.48).
+    """End-to-end document → Chunk-objects pipeline (CONCEPT:AU-KG.ingest.chunk-overlap-stage).
 
     Wraps text extraction (KB parser + enrichment readers), separator-priority
     chunking with overlap, embedding, and materialization of ``Document`` +
@@ -362,7 +362,7 @@ class DocumentProcessor:
         self.chunking = chunking or ChunkingConfig()
         self.embedding_dim = embedding_dim
         self._embed_fn = embed_fn
-        # CONCEPT:KG-2.50 — contextual-retrieval enrichment. Default OFF so the
+        # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Default OFF so the
         # existing KG-2.48 pipeline is byte-identical; the connector ingestion
         # path turns it on. The enricher is lazy so importing this module never
         # requires the enrichment stack.
@@ -385,7 +385,7 @@ class DocumentProcessor:
     ) -> ProcessedDocument:
         """Run the full pipeline and materialize Document + Chunk objects.
 
-        CONCEPT:KG-2.48 — ``media → extract/OCR → chunk(overlap) → explode →
+        CONCEPT:AU-KG.ingest.chunk-overlap-stage — ``media → extract/OCR → chunk(overlap) → explode →
         embed → materialize``. Writes through the live graph write path when a
         backend is reachable and ``persist`` is True; always returns the
         ``{document_node, chunk_nodes, edges}`` structure (via
@@ -430,7 +430,7 @@ class DocumentProcessor:
 
         spans = chunk_text(raw_text, self.chunking)
 
-        # CONCEPT:KG-2.50 — contextual-retrieval enrichment. Situate each chunk
+        # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Situate each chunk
         # within the whole document and embed ``context + chunk`` (Anthropic
         # contextual retrieval) so retrieval recall improves; the context is also
         # stored on the Chunk node for display/lexical match. Computed BEFORE
@@ -608,7 +608,7 @@ class DocumentProcessor:
     ) -> list[str]:
         """Return a situating context per chunk (empty strings when disabled).
 
-        CONCEPT:KG-2.50. When ``contextual`` is off, returns ``[""] * n`` so the
+        CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment. When ``contextual`` is off, returns ``[""] * n`` so the
         embedding input and chunk nodes are unchanged. When on, lazily builds a
         :class:`ContextualEnricher` (LLM if configured, deterministic heuristic
         otherwise) and situates each chunk. Never raises — enrichment failure
@@ -750,7 +750,7 @@ class DocumentProcessor:
         }
         if chunk.embedding is not None:
             node["embedding"] = chunk.embedding
-        # CONCEPT:KG-2.50 — the situating context is stored on the Chunk node so
+        # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — the situating context is stored on the Chunk node so
         # it is available for display and lexical match (the HybridRetriever reads
         # ``content``/``summary``; ``contextual_summary`` extends that surface).
         if chunk.context:
@@ -905,7 +905,7 @@ def process_document(
 ) -> dict[str, Any]:
     """Convenience entry: process ``document`` and return the materialized mapping.
 
-    CONCEPT:KG-2.48 — the one-call form the ingestion engine / MCP wrapper invokes:
+    CONCEPT:AU-KG.ingest.chunk-overlap-stage — the one-call form the ingestion engine / MCP wrapper invokes:
     ``{document_node, chunk_nodes, edges}``. Writes through ``graph`` when given.
     """
     proc = DocumentProcessor(

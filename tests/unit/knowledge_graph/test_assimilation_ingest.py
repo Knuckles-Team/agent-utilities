@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Multi-source ingest adapters + granular idempotency (VU-6).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.assimilation import (
     ingest_documents,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:

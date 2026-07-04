@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for CONCEPT:ORCH-1.2 — Confidence-Gated Model Router."""
+"""Tests for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Confidence-Gated Model Router."""
 
 
 from agent_utilities.models.model_registry import (

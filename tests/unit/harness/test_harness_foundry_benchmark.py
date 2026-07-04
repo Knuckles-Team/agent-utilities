@@ -1,4 +1,4 @@
-"""Harness-foundry benchmark (CONCEPT:AHE-3.53) — all surpass claims reproduce."""
+"""Harness-foundry benchmark (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard) — all surpass claims reproduce."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ def test_all_surpass_claims_reproduce():
     # Cross-harness grouping recovers the cross-scaffold contrast.
     assert by_name["cross_harness_grouping"].claim_reproduced
     # Variant isolation ships a heterogeneous mixed edit the single-harness
-    # seesaw rejects (CONCEPT:AHE-3.59).
+    # seesaw rejects (CONCEPT:AU-AHE.harness.variant-pool).
     assert by_name["variant_isolation"].claim_reproduced
-    # Signature-attribution refuses to credit an unattributed edit (CONCEPT:AHE-3.58).
+    # Signature-attribution refuses to credit an unattributed edit (CONCEPT:AU-AHE.evaluation.edit-claims-fix).
     assert by_name["attribution_falsifiability"].claim_reproduced
     assert all(r.claim_reproduced for r in results)
 

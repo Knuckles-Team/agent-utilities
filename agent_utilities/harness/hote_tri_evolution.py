@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Hybrid Open-Ended Tri-Evolution — CONCEPT:AHE-3.50.
+"""Hybrid Open-Ended Tri-Evolution — CONCEPT:AU-AHE.harness.co-evolve-research.
 
 Distils **Hybrid Open-Ended Tri-Evolution Makes Better Deep Researcher** (HOTE,
 arXiv:2606.13710). The ecosystem already owns the three deep-research modules as
@@ -26,7 +26,7 @@ OntologyReasoningDriver / ARA / ConceptMatcher can drive it in production:
 * **Judge** is rewarded for calibration against a verifier; a miscalibrated judge
   feeds the solver a biased reward and slows it.
 
-Reuses the ``AdaptationCurve`` adaptation-speed instrument (CONCEPT:AHE-3.27) and
+Reuses the ``AdaptationCurve`` adaptation-speed instrument (CONCEPT:AU-AHE.harness.per-task-adaptation-speed) and
 ``marginal_speed_gain`` so co-evolution is measured the same way SAI specialization
 is. Pure Python — no model, no network.
 

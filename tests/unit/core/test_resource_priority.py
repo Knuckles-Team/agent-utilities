@@ -1,6 +1,6 @@
 """Tests for the unified resource-priority class + shared-LLM admission gate.
 
-CONCEPT:ORCH-1.98 / ORCH-1.99 / KG-2.293. Proves the edict's four guarantees:
+CONCEPT:AU-ORCH.scheduling.resource-priority-edict / ORCH-1.99 / KG-2.293. Proves the edict's four guarantees:
 
 1. an INTERACTIVE/ORCHESTRATION call is admitted AHEAD of a saturating
    BACKGROUND_INGESTION enrichment fan-out on the shared model;

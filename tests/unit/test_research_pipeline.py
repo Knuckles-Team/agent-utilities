@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Research Pipeline Runner.
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Research Pipeline Runner.
 
 Validates:
 - PipelineConfig defaults and customization
@@ -24,7 +24,7 @@ from agent_utilities.automation.research_pipeline import (
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestPipelineConfig:
     """Test PipelineConfig defaults and validation."""
 
@@ -60,7 +60,7 @@ class TestPipelineConfig:
         assert cfg.lookback_hours == 48
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestRelevanceScoring:
     """Test paper relevance scoring."""
 
@@ -118,7 +118,7 @@ class TestRelevanceScoring:
         assert "communication" in RELEVANCE_TAXONOMY
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestPaperIngestion:
     """Test paper ingestion methods."""
 
@@ -169,7 +169,7 @@ class TestPaperIngestion:
         assert not self.runner._is_paper_known("2406.99999")
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestPipelineExecution:
     """Test full pipeline execution."""
 
@@ -246,7 +246,7 @@ class TestPipelineExecution:
         assert report.papers_already_known == 1
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestDigestGeneration:
     """Test digest markdown generation."""
 
@@ -293,7 +293,7 @@ class TestDigestGeneration:
         assert isinstance(report.records, list)
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestWatchlists:
     """Test KG watchlist loading."""
 
@@ -321,7 +321,7 @@ class TestWatchlists:
 
 
 class TestMatcherDrivenTiering:
-    """Tier driven by ConceptMatcher novelty (CONCEPT:KG-2.75)."""
+    """Tier driven by ConceptMatcher novelty (CONCEPT:AU-KG.ingest.world-model-gate)."""
 
     def _runner_with_concept(self):
         class _G:
@@ -331,7 +331,7 @@ class TestMatcherDrivenTiering:
                         "concept:KG-2.7",
                         {
                             "type": "concept",
-                            "concept_id": "KG-2.7",
+                            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
                             "name": "Assimilation",
                             "embedding": [1.0, 0.0],
                         },

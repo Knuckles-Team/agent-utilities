@@ -4,7 +4,7 @@
 this platform's MCP surface: `graph-os` as a local stdio child, `graph-os` as a
 remote streamable-http child, and many children aggregated behind the
 `mcp-multiplexer` — including the per-server resilience overrides
-(CONCEPT:ECO-4.34: `max_concurrency`, `pool_size`, `call_timeout`,
+(CONCEPT:AU-ECO.mcp.profile-differences-from-client: `max_concurrency`, `pool_size`, `call_timeout`,
 `queue_timeout`, breaker overrides) and the `multiplexer_status` health tool.
 Related: [Consumption models](../guides/consumption-models.md),
 [Building MCP servers](../guides/building-mcp-servers.md).
@@ -65,7 +65,7 @@ run via `command` + `args` + `env`. SSE is used when `transport` is `sse` or
 the URL path ends in `/sse`; any other remote child speaks streamable-http.
 `env` values and `headers` values are `${VAR}`-expanded.
 
-## 3. The multiplexer with per-server resilience overrides (ECO-4.34)
+## 3. The multiplexer with per-server resilience overrides (AU-ECO.mcp.profile-differences-from-client)
 
 A complete, annotated `mcp_config.json` aggregating three children:
 
@@ -79,7 +79,7 @@ A complete, annotated `mcp_config.json` aggregating three children:
       "args": ["run", "graph-os"],
       "env": {"AGENT_ID": "multiplexer"},
 
-      // ── ECO-4.34 per-server overrides (each falls back to the global
+      // ── AU-ECO.mcp.profile-differences-from-client per-server overrides (each falls back to the global
       //    MCP_CHILD_* env default when omitted) ────────────────────────
       "max_concurrency": 4,        // in-flight call cap   (default: MCP_CHILD_MAX_CONCURRENCY=8; 0 = unlimited)
       "queue_timeout": 10,         // seconds a call may wait for a free slot
@@ -199,7 +199,7 @@ from `ChildRuntime.status()`):
 ```
 
 `state` is `starting` / `up` / `restarting` / `failed`; `breaker` is `closed` /
-`half_open` / `open`. The same health lands on the OS-5.23 metrics registry as
+`half_open` / `open`. The same health lands on the AU-OS.observability.no-op-without-metrics metrics registry as
 `agent_utilities_mcp_child_calls_total{server,outcome}`,
 `agent_utilities_mcp_child_breaker_state{server}`,
 `agent_utilities_mcp_child_restarts_total{server}` and

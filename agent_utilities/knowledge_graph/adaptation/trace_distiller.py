@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TraceDistiller:
-    """CONCEPT:KG-2.4 — Offline/Async Knowledge Compression.
+    """CONCEPT:AU-KG.maintenance.async-knowledge-compression — Offline/Async Knowledge Compression.
 
     Periodically runs Cognitive Consolidation to distill execution traces
     (episodes, decisions, trajectories) into higher-order principles and preferences.

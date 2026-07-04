@@ -1,5 +1,5 @@
 """
-x402 AI Payment Protocol — CONCEPT:KG-2.6
+x402 AI Payment Protocol — CONCEPT:AU-KG.research.research-pipeline-runner
 
 First-class module for autonomous AI agent payments using the x402
 protocol (HTTP 402 challenge-response) with budget guards and KG provenance.

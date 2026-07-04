@@ -1,4 +1,4 @@
-"""Tests for the native swarm supervisory plane (CONCEPT:OS-5.10 / OS-5.18).
+"""Tests for the native swarm supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail / OS-5.18).
 
 Exercises the gateway /fleet/* handlers against a temp sqlite session registry —
 health/topology SQL aggregation, pagination/filtering, whole-domain emergency
@@ -118,7 +118,7 @@ async def test_fleet_kill_whole_domain(session_db):
 async def test_fleet_kill_desired_state_for_remote_sessions(session_db, monkeypatch):
     # With state externalized (multi-host), a session NOT local to this
     # gateway gets a kill_requested desired-state write that the owning
-    # host's loop reconciles (CONCEPT:OS-5.18).
+    # host's loop reconciles (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
     monkeypatch.setattr(fleet, "_multi_host_state", lambda: True)
     resp = await fleet.fleet_kill(_Req({"session_ids": ["s3"]}))
     data = await _payload(resp)
@@ -156,7 +156,7 @@ async def test_fleet_pause_requires_target(session_db):
     assert resp.status_code == 400
 
 
-# ── ActionApproval entries in the shared approvals flow (CONCEPT:OS-5.24) ──
+# ── ActionApproval entries in the shared approvals flow (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) ──
 
 
 class _ApprovalEngine:

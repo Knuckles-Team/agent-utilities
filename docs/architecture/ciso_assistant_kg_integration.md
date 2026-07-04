@@ -1,6 +1,6 @@
 # CISO Assistant ↔ Knowledge Graph (bidirectional, OWL/RDF-native)
 
-**CONCEPT:KG-2.110 (extractor) · CONCEPT:KG-2.111 (writeback sink)**
+**CONCEPT:AU-KG.enrichment.ciso-assistant-extraction (extractor) · CONCEPT:AU-KG.enrichment.ciso-2 (writeback sink)**
 
 intuitem **CISO Assistant** is the homelab's open-source GRC system-of-record
 (Risk, Compliance & Audit, AppSec, TPRM, BIA, Privacy). This connector federates
@@ -78,10 +78,10 @@ skipped, not invented.
 
 | Path | Role |
 |---|---|
-| `enrichment/extractors/ciso_assistant.py` | inbound extractor (KG-2.110) |
-| `enrichment/writeback/sinks/ciso_assistant.py` | outbound sink (KG-2.111) |
+| `enrichment/extractors/ciso_assistant.py` | inbound extractor (AU-KG.enrichment.ciso-assistant-extraction) |
+| `enrichment/writeback/sinks/ciso_assistant.py` | outbound sink (AU-KG.enrichment.ciso-2) |
 | `enrichment/materialize.py` | `_CLIENT_MODULES["ciso_assistant"]="ciso_assistant_api"`, `MATERIALIZE_SOURCES` membership |
-| `agents/ciso-assistant-api` | the `ciso_assistant_api.Api` client / MCP / agent (CONCEPT:CISO-001) |
+| `agents/ciso-assistant-api` | the `ciso_assistant_api.Api` client / MCP / agent (CONCEPT:AU-ECO.connector.ciso-assistant) |
 
 ## Configuration
 

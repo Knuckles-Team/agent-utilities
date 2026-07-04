@@ -1,6 +1,6 @@
 """DuckDB usage backend — optional columnar analytics mirror.
 
-CONCEPT:ECO-4.39. Portable, fast for heavy aggregation. DuckDB speaks most
+CONCEPT:AU-OS.observability.usage-analytics-store. Portable, fast for heavy aggregation. DuckDB speaks most
 SQLite SQL but has no FTS5, so search falls back to a substring scan. Imported
 lazily: a missing ``duckdb`` package raises a clear, actionable error rather
 than failing at import time.

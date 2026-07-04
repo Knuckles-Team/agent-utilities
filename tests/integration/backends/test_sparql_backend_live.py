@@ -1,6 +1,6 @@
 """Live SPARQL parity against a throwaway Apache Jena Fuseki.
 
-CONCEPT:KG-2.7 — Optional SPARQL/RDF capability. The LPG backends correctly
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Optional SPARQL/RDF capability. The LPG backends correctly
 *refuse* SPARQL (asserted in the conformance suite); this asserts the positive
 side: the Fuseki backend actually executes SPARQL 1.1 update + query end-to-end
 against a real server, so the enterprise profile's RDF/ontology-publish path is

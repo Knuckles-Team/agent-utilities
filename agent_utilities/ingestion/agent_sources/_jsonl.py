@@ -1,4 +1,4 @@
-"""Shared helpers for JSONL-family session parsers (CONCEPT:ECO-4.38)."""
+"""Shared helpers for JSONL-family session parsers (CONCEPT:AU-ECO.connector.agent-source-ingestion)."""
 
 from __future__ import annotations
 

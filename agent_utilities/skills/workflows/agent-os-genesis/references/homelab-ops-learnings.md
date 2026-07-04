@@ -47,7 +47,7 @@ host missing the env (camunda/egeria/twenty) or the package path (erpnext). Fix:
 
 - **Two wiring styles:** `MATERIALIZE_SOURCES` (graph-os builds the connector's client in-process
   and talks to the app directly — camunda/twenty/egeria/erpnext) vs `MCP_TOOL_PRESETS` (declarative
-  server+tool+field-map, KG-2.59). Either way, entities must flow through `ingest_external_batch`
+  server+tool+field-map, AU-KG.ingest.mcp-tool-connector). Either way, entities must flow through `ingest_external_batch`
   as **typed OWL nodes** (`:Issue`, `:ContainerImage`, …) — the generic Document path makes
   everything `:Document`. New OWL classes go into the **canonical** ontology (`ontology_*.ttl` via
   `owl_bridge` + `PROMOTABLE_NODE_TYPES`), never a per-connector `.ttl`; keep the SHACL/valid/
@@ -91,7 +91,7 @@ operational adds:
 ### Multiplexer → child service-account auth (the "fleet-wide 401 that isn't the deployed mux")
 
 The multiplexer mints a Keycloak client-credentials bearer (`mcp-multiplexer`, audience
-`agent-services`) and attaches it to every jwt-protected child (CONCEPT:OS-5.32,
+`agent-services`) and attaches it to every jwt-protected child (CONCEPT:AU-OS.identity.so-jwt-protected-children,
 `mcp/client_credentials.py` `bearer_auth` → `ClientCredentialsAuth`). If the mint fails it
 **degrades to no auth** and the child returns **401** — so a single bad mint config looks like a
 fleet-wide child outage.

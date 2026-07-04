@@ -1,4 +1,4 @@
-"""Tests for the core reaction output + governance (CONCEPT:ECO-4.79/4.80).
+"""Tests for the core reaction output + governance (CONCEPT:AU-ECO.reactions.emitted-alongside-reply/4.80).
 
 Reactions are a first-class orchestrator output, not a messaging-only feature: any agent
 turn can emit an ``AgentReaction``, decided by the core ``decide_reaction`` heuristic and
@@ -19,7 +19,7 @@ from agent_utilities.orchestration.reactions import (
 )
 
 
-# ── AgentReaction (CONCEPT:ECO-4.79) ─────────────────────────────────────────
+# ── AgentReaction (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) ─────────────────────────────────────────
 def test_agent_reaction_normalizes_and_validates() -> None:
     r = AgentReaction(emote="  👍 ", target_message_id="100", intensity=2.0)
     assert r.emote == "👍"
@@ -46,7 +46,7 @@ def test_agent_reaction_dict_omits_optional_nones() -> None:
     assert AgentReaction(emote="👀").to_dict() == {"emote": "👀"}
 
 
-# ── EmoteRegistry + governance (CONCEPT:ECO-4.80) ────────────────────────────
+# ── EmoteRegistry + governance (CONCEPT:AU-ECO.reactions.one-emote-registry-governance) ────────────────────────────
 def test_registry_default_menu_and_known() -> None:
     reg = EmoteRegistry()
     assert "👍" in reg.available()
@@ -103,7 +103,7 @@ def test_registry_allows_when_policy_queues(monkeypatch: pytest.MonkeyPatch) -> 
     assert reg.allows("👍") is True
 
 
-# ── decide_reaction (CONCEPT:ECO-4.79) ───────────────────────────────────────
+# ── decide_reaction (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) ───────────────────────────────────────
 class _FakeResult:
     def __init__(self, out: str) -> None:
         self.output = out

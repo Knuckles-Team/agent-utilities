@@ -1,4 +1,4 @@
-# KG-2.37 — Research-State Domain Pack
+# AU-KG.research.research-state-domain-pack — Research-State Domain Pack
 
 **Pillar:** 2 — Epistemic Knowledge Graph · **Status:** live
 
@@ -14,10 +14,10 @@ capability at once. Two dedicated edge types — `WEAKENS` (distinct from flat
 
 ## What it wires
 
-- **Zero-LLM link inference (KG-2.33):** `supports → supports_belief`,
+- **Zero-LLM link inference (AU-KG.research.zero-llm-pack-link):** `supports → supports_belief`,
   `weakens/undermines/refutes → weakens`, `uses dataset → uses_dataset`,
   `cites → cites_source`.
-- **Relational verbs (KG-2.34):** "which papers support X", "what weakens Y",
+- **Relational verbs (AU-KG.retrieval.relational-intent-retrieval):** "which papers support X", "what weakens Y",
   "what is cited by Z".
 - **Retrieval signals (KG-2.22):** recency decay (papers ~1y half-life), source
   trust (`peer_reviewed`/`arxiv`/`preprint`/`blog`), autocut on.

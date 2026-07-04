@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.44 — optional browser tier: pluggable driver, Null floor, policy-gated."""
+"""CONCEPT:AU-ECO.toolkit.browser-agent-tier — optional browser tier: pluggable driver, Null floor, policy-gated."""
 
 from __future__ import annotations
 

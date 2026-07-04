@@ -1,4 +1,4 @@
-"""Materialize a registered source extractor INTO the graph (CONCEPT:KG-2.9).
+"""Materialize a registered source extractor INTO the graph (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The self-registering source extractors (``extractors/camunda.py``,
 ``extractors/aris.py``, ``extractors/egeria.py``, …) turn an injected vendor

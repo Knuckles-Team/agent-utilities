@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Agentic tool-judge over large traces (CONCEPT:AHE-3.66).
+"""Agentic tool-judge over large traces (CONCEPT:AU-AHE.harness.instead-context-stuffing-small).
 
 A multi-MB agent trace blows the judge's context window if stuffed in whole. Absorbed
 from Opik's agentic judge: instead of inlining the trace, give the judge TOOLS to navigate

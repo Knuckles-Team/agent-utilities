@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Breadth-ingest orchestration + pilot harness (VU-10).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.assimilation import (
     run_pilot,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 # --- classification / discovery (real temp tree) ----------------------------
@@ -108,19 +108,19 @@ def test_ingest_concepts_creates_canonical_concept_nodes():
     rep = ingest_concepts(
         eng,
         [
-            {"id": "KG-2.7", "name": "Research Assimilation", "pillar": "KG-2"},
+            {"id": "AU-KG.query.vendor-agnostic-traversal", "name": "Research Assimilation", "pillar": "EG-KG.compute.backend"},
             {"id": "orch-1.0", "name": "Routing"},  # lowercase normalizes
             {"id": "not-a-concept"},  # gated out (no letters-then-digit)
         ],
     )
     assert rep.ingested == 2
     node = eng.nodes["concept:KG-2.7"]
-    assert node["concept_id"] == "KG-2.7" and node["concept_ids"] == ["KG-2.7"]
+    assert node["concept_id"] == "AU-KG.query.vendor-agnostic-traversal" and node["concept_ids"] == ["AU-KG.query.vendor-agnostic-traversal"]
     assert "concept:ORCH-1.0" in eng.nodes  # upper-normalized
     assert not any("NOT-A-CONCEPT" in k for k in eng.nodes)  # junk skipped
     # idempotent re-run → no new nodes
     rep2 = ingest_concepts(
-        eng, [{"id": "KG-2.7", "name": "Research Assimilation", "pillar": "KG-2"}]
+        eng, [{"id": "AU-KG.query.vendor-agnostic-traversal", "name": "Research Assimilation", "pillar": "EG-KG.compute.backend"}]
     )
     assert rep2.ingested == 0 and rep2.skipped == 1
 
@@ -139,12 +139,12 @@ def test_discover_concepts_reads_registry_then_falls_back_to_markers(tmp_path):
     b = tmp_path / "repo-b"
     b.mkdir()
     (b / "engine.rs").write_text(
-        "// CONCEPT:EG-009 native reasoner\n", encoding="utf-8"
+        "// CONCEPT:AU-KG.ingest.then-by-its-node native reasoner\n", encoding="utf-8"
     )
 
     out = {c["id"].upper(): c for c in discover_concepts([str(a.parent), str(b)])}
-    assert out["KG-2.7"]["name"] == "Research Assimilation"  # from registry
-    assert "EG-009" in out  # from the raw marker fallback
+    assert out["AU-KG.query.vendor-agnostic-traversal"]["name"] == "Research Assimilation"  # from registry
+    assert "AU-KG.ingest.then-by-its-node" in out  # from the raw marker fallback
 
 
 def test_run_breadth_ingest_bridges_concepts(tmp_path):
@@ -164,7 +164,7 @@ def test_run_breadth_ingest_bridges_concepts(tmp_path):
     )
     assert report.concepts >= 1
     assert any(
-        c["id"] == "KG-2.7" for c in captured
+        c["id"] == "AU-KG.query.vendor-agnostic-traversal" for c in captured
     )  # breadth drives the concept bridge
 
 
@@ -230,7 +230,7 @@ def test_pilot_passes_when_built_features_not_reproposed():
             "open1": {
                 "type": "capability",
                 "name": "new cap",
-                "concept_ids": ["KG-2.1"],
+                "concept_ids": ["AU-KG.memory.tiered-memory-caching"],
                 "research_sources": ["p1"],
                 "status": "open",
             },

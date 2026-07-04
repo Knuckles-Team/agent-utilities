@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Finance microstructure ontology objects — CONCEPT:KG-2.81: Kyle insider/stealth surveillance signal ontology (interfaces + typed links).
+"""Finance microstructure ontology objects — CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance: Kyle insider/stealth surveillance signal ontology (interfaces + typed links).
 
 Makes the Kyle insider/stealth-trading surveillance work (engine kernel KG-2.20k,
 detector EE-042, gate EE-043 — distilling arXiv:2605.27684) *ontologically
@@ -19,7 +19,7 @@ emerald-exchange MCP keeps writing raw ``microstructure_signal`` nodes for
 robustness; this layer gives them a governed ontology schema (conformance, link
 cardinality, OWL/SHACL emission, cross-domain reasoning). DEFENSIVE: informed-flow
 surveillance + maker adverse-selection protection, not trade concealment.
-(CONCEPT:KG-2.81)
+(CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance)
 """
 
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
@@ -43,7 +43,7 @@ _FINANCE_INTERFACES = "MicrostructureSignal", "SurveillanceSignal"
 def register_finance_ontology(
     interfaces: InterfaceRegistry, links: LinkTypeRegistry
 ) -> None:
-    """Register the microstructure-signal interfaces + typed links (CONCEPT:KG-2.81).
+    """Register the microstructure-signal interfaces + typed links (CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance).
 
     Idempotent: skips an interface/link already registered (re-import safe).
     """

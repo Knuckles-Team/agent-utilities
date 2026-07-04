@@ -1,6 +1,6 @@
 """Comprehensive tests for Markov Chain Regime Detection.
 
-CONCEPT:KG-2.6 — Markov Regime Detection Tests
+CONCEPT:AU-KG.research.research-pipeline-runner — Markov Regime Detection Tests
 
 Tests cover:
 - MarketRegimeDetector state labeling

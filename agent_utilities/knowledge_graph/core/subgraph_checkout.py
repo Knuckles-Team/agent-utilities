@@ -1,4 +1,4 @@
-"""Bounded subgraph checkout with dirty-delta write-back (CONCEPT:KG-2.7 P2).
+"""Bounded subgraph checkout with dirty-delta write-back (CONCEPT:AU-KG.query.vendor-agnostic-traversal P2).
 
 The tiered store loads a *bounded* working subgraph from the durable tier into the
 fast L1 compute engine (``engine.checkout_subgraph``). This module wraps that

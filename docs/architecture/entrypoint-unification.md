@@ -24,15 +24,15 @@ receives input, (2) how it renders the orchestrator's output for its medium. Not
 
 **Reference wins already on this path:**
 - **Slash commands** — one universal command set; `agent-terminal-ui` and Telegram both feed off
-  it (CONCEPT:ECO-4.57). The model to copy.
+  it (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher). The model to copy.
 - **Messaging → universal graph** (in flight) — the messaging reply path is being collapsed onto
   `Orchestrator.execute_agent`/`run_agent`, so chat inherits memory + RLM mementos + dynamic
   capability selection instead of a bespoke messaging-only path (replaces the ECO-4.76 band-aid).
 
 ## Emotes / reactions, system-wide ✅ (core + messaging renderer done)
 
-**Status:** the core capability and the messaging renderer are **done** (CONCEPT:ECO-4.79 /
-ECO-4.80 / ECO-4.81). Reactions are no longer messaging-only — they are a first-class output
+**Status:** the core capability and the messaging renderer are **done** (CONCEPT:AU-ECO.reactions.emitted-alongside-reply /
+AU-ECO.reactions.one-emote-registry-governance / ECO-4.81). Reactions are no longer messaging-only — they are a first-class output
 of the universal orchestrator, and the Telegram/messaging layer is now a *renderer* of that
 output. The per-frontend renderers (webui / terminal-ui / geniusbot / `agent_server.py`) are
 specified as a thin contract for their separate repos. **Full design + renderer contract:
@@ -43,14 +43,14 @@ What landed:
 1. **Core output type** ✅ — `agent_utilities/orchestration/reactions.py::AgentReaction`
    (`{emote, target_message_id?, intensity?}`), emitted by any agent turn. The instinctive
    heuristic (`decide_reaction`) moved out of `messaging/router.py` into core, so every
-   entrypoint shares one decision (CONCEPT:ECO-4.79).
+   entrypoint shares one decision (CONCEPT:AU-ECO.reactions.emitted-alongside-reply).
 2. **One registry + governance** ✅ — `EmoteRegistry`: the single emote menu + an `allows()`
    gate reusing the `ActionPolicy` decision point (`reaction` kind). No per-surface emote
-   list (CONCEPT:ECO-4.80).
+   list (CONCEPT:AU-ECO.reactions.one-emote-registry-governance).
 3. **Messaging renderer** ✅ — `MessagingService.render_reaction(...)` renders a core
    `AgentReaction` via the backend `send_reaction` / Telegram `setMessageReaction`; the
    router's background reaction step calls the core decision and paints the result
-   (CONCEPT:ECO-4.81).
+   (CONCEPT:AU-ECO.messaging.messaging-as-renderer).
 4. **Renderer contract** ✅ — the thin interface each entrypoint implements is documented in
    [`reactions.md`](reactions.md): Telegram (done) plus the stubs/contract for `agent-webui`
    reaction chips, `agent-terminal-ui` emote glyph, `geniusbot`, and the `agent_server.py`

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Value-aware test-time-compute governor.
 
-CONCEPT:OS-5.37 — a value-aware test-time-compute governor that decides whether spending more reasoning compute is worth it by stopping once a result satisfices or the marginal expected quality gain per extra attempt falls below a threshold
+CONCEPT:AU-OS.scaling.value-test-time-compute — a value-aware test-time-compute governor that decides whether spending more reasoning compute is worth it by stopping once a result satisfices or the marginal expected quality gain per extra attempt falls below a threshold
 
 The paper (§5.1) notes naive brute-force search "fails in virtually all non-toy
 domains" — gains come from search *efficiency*, spending compute where marginal return

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.46 — Action dispatcher: the bidirectional bridge from a typed Action to a
+"""CONCEPT:AU-ORCH.reactive.action-dispatcher — Action dispatcher: the bidirectional bridge from a typed Action to a
 backend operation and back to a typed Observation.
 
 The dispatcher is the one place that knows *how* each action kind executes. It is deliberately

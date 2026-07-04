@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.32 — RLM long-context benchmark harness (CPU, no live LLM)."""
+"""CONCEPT:AU-AHE.rlm.long-context-benchmark — RLM long-context benchmark harness (CPU, no live LLM)."""
 
 from __future__ import annotations
 

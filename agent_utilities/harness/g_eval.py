@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Logprob-weighted G-Eval (CONCEPT:AHE-3.65).
+"""Logprob-weighted G-Eval (CONCEPT:AU-AHE.harness.ahe-2).
 
 G-Eval (Liu et al., 2023) makes an LLM-as-judge more robust two ways, both absorbed from
 Opik and improved:
@@ -100,7 +100,7 @@ def _rubric(task: str, criteria: str, model: str) -> str:
 
 
 class GEval:
-    """A reusable G-Eval scorer for one ``(task, criteria)`` (CONCEPT:AHE-3.65)."""
+    """A reusable G-Eval scorer for one ``(task, criteria)`` (CONCEPT:AU-AHE.harness.ahe-2)."""
 
     def __init__(self, task_introduction: str, evaluation_criteria: str) -> None:
         self.task = task_introduction

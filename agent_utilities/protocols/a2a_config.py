@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """A2A agent configuration loader and auto-discovery.
 
-CONCEPT:ECO-4.0 — A2A Config File Loading
+CONCEPT:AU-ECO.interop.a2a-config-loading — A2A Config File Loading
 
 Loads ``a2a_config.json``, fetches ``.well-known/agent-card.json`` for each
 declared agent, registers them in the Knowledge Graph, and optionally sets
@@ -105,7 +105,7 @@ def _resolve_auth_token(auth_token_ref: str | None) -> str | None:
     """Resolve an auth token reference using the secrets client.
 
     Supports ``secret://``, ``env://``, ``vault://`` URI schemes
-    via ``SecretsClient.resolve_ref()`` (CONCEPT:OS-5.1).
+    via ``SecretsClient.resolve_ref()`` (CONCEPT:AU-OS.config.secrets-authentication).
 
     Args:
         auth_token_ref: Token reference string or ``None``.
@@ -137,7 +137,7 @@ async def sync_a2a_agents(
 ) -> dict[str, Any]:
     """Load ``a2a_config.json`` and register all agents in the Knowledge Graph.
 
-    CONCEPT:ECO-4.0 — A2A Config File Loading
+    CONCEPT:AU-ECO.interop.a2a-config-loading — A2A Config File Loading
 
     For each agent declared in the config:
     1. Resolve ``auth_token`` via ``SecretsClient`` if present.
@@ -244,7 +244,7 @@ async def sync_a2a_agents(
             logger.error(f"A2A sync: Failed to register '{name}': {e}")
             stats["failed"] += 1
 
-    # Invalidate registry cache after bulk ingestion (CONCEPT:ORCH-1.2)
+    # Invalidate registry cache after bulk ingestion (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
     try:
         from agent_utilities.core.config import invalidate_registry_cache
 
@@ -265,7 +265,7 @@ async def periodic_a2a_refresh(
 ) -> None:
     """Background task to periodically re-fetch A2A agent cards.
 
-    CONCEPT:ECO-4.0 — A2A Config File Loading (periodic refresh)
+    CONCEPT:AU-ECO.interop.a2a-config-loading — A2A Config File Loading (periodic refresh)
 
     Runs on a configurable interval to pick up new skills/capabilities
     from remote agents. Should be started as ``asyncio.create_task()``

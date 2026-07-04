@@ -1,6 +1,6 @@
 # Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)
 
-> **Status:** Phase A **IMPLEMENTED** 2026-06-20 (`CONCEPT:KG-2.133`) — A2 (served-catalog
+> **Status:** Phase A **IMPLEMENTED** 2026-06-20 (`CONCEPT:AU-KG.ontology.capability-node-aliases-lexical`) — A2 (served-catalog
 > ingest step) + A3 (capability schema + two surfaces) landed; A4/A5 = live re-ingest + verify
 > (runbook §6). **B not started** (checkpoint here per decision 2). **Decisions:** (1) Phase-A
 > capability source of truth = the **served multiplexer / registry catalog** (not AST); (2) build
@@ -183,10 +183,10 @@ becomes meaningful.
 
 > **Status:** built + tested + round-trip-validated against a real engine; **NOT merged/deployed**
 > (branches `feat/classify-b` in epistemic-graph, `feat/classify-a` in agent-utilities).
-> Concepts `EG-010` (engine lexical gate) + `ORCH-1.73` (keyword-free cascade).
+> Concepts `EG-ORCH.routing.lexical-capability-escalation` (engine lexical gate) + `AU-ORCH.execution.execution-profile` (keyword-free cascade).
 >
 > **What shipped (matches the plan below, with refinements):**
-> - **Engine (`EG-010`).** `GraphCore::match_ontology_terms(query)` — aho-corasick over capability
+> - **Engine (`EG-ORCH.routing.lexical-capability-escalation`).** `GraphCore::match_ontology_terms(query)` — aho-corasick over capability
 >   names+synonyms (Tool/NativeTool/Skill/MCPServer/Server/BusinessCapability/Resource), **whole-word
 >   matched**, terms <3 chars dropped, deduped. **Cached** automaton on `GraphCore`, rebuilt only when
 >   the node count changes (so the "free tier" really is ~µs, not a full scan per turn — went beyond
@@ -195,7 +195,7 @@ becomes meaningful.
 >   `GraphOperationsClient.match_ontology_terms` + `graph_compute.match_ontology_terms` wrappers. 3
 >   Rust unit tests + a real Python↔engine round-trip test (portainer/github cases). eg-core/eg-types
 >   green, clippy + check_no_pyo3 clean.
-> - **Cascade (`ORCH-1.73`).** `_plan_base_shape`: `strength≥2 → full`; else **engine lexical hit →
+> - **Cascade (`AU-ORCH.execution.execution-profile`).** `_plan_base_shape`: `strength≥2 → full`; else **engine lexical hit →
 >   full** (free); else a *substantial* (`> MAX_TRIVIAL_WORDS`) lexical-miss turn → `search_hybrid`
 >   (Stage 2, kept alive); else lean. Short trivial turns never pay semantic.
 > - **`_ESCALATION_KEYWORDS` DELETED.** `fast_path` is now purely structural (slash/length/multi-
@@ -248,7 +248,7 @@ becomes meaningful.
   must match what the dispatcher's specialist routing expects (coordinate with that); aho-corasick
   per-request vs cached (start simple).
 - **Concept IDs to reserve:** `KG-2.x` (ingestion capability elevation), `EG-x`
-  (`match_ontology_terms`), `ORCH-1.x` (ontology-driven cascade, extends `ORCH-1.69`).
+  (`match_ontology_terms`), `AU-ORCH.planning.orchestration-overview` (ontology-driven cascade, extends `AU-ORCH.execution.residual-ambiguous`).
 - **No-legacy:** B3 deletes the keyword list outright (no dual path); the gate is the engine.
 - **Worktree:** `feat-classify` (branch `feat/classify-fix`) holds this doc + the Telegram fix
   (`render.py`, `telegram.py`, `tests/unit/messaging/test_render.py` incl. the two §6 case

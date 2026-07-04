@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Extracted from engine.py. Contains CRUD operations for memory nodes.
 """
-# CONCEPT:ORCH-1.2 — Memory Management
+# CONCEPT:AU-ORCH.execution.engine-memory-management — Memory Management
 
 
 import typing
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class ContextBudgetOptimizer:
     """Applies the Root Theorem of Context Engineering to memory recall.
 
-    CONCEPT:KG-2.1 — Research: 2604.20874v1
+    CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1
 
     Core insight from the paper: context_quality = f(relevance_density × coverage).
     When relevance density drops below a threshold, the context should be
@@ -70,7 +70,7 @@ class ContextBudgetOptimizer:
     ) -> dict[str, Any]:
         """Allocate context budget based on task complexity.
 
-        CONCEPT:KG-2.1 — Research: 2604.20874v1 §Root Theorem
+        CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1 §Root Theorem
 
         The Root Theorem states that optimal context size scales with
         task complexity: simple tasks need focused context, complex
@@ -104,7 +104,7 @@ class ContextBudgetOptimizer:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Compact memory results to fit within token budget.
 
-        CONCEPT:KG-2.1 — Research: 2604.20874v1
+        CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1
 
         Instead of simple truncation, this method:
         1. Estimates token count per memory item.
@@ -168,7 +168,7 @@ class ContextBudgetOptimizer:
     ) -> bool:
         """Check if context has coverage gaps warranting expansion.
 
-        CONCEPT:KG-2.1 — Research: 2604.20874v1
+        CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1
 
         Returns True if we're under-utilizing the budget AND the items
         have high relevance (suggesting more relevant items may exist).
@@ -324,7 +324,7 @@ class MemoryMixin(_Base):
         self.delete_memory(memory_id)
 
     # --- Enhanced Memory & Ingestion Tools ---
-    # CONCEPT:KG-2.1 — Research: MEMO Survey (2504.01990v2), ParamMem (2604.27707v1)
+    # CONCEPT:AU-KG.memory.parammem — Research: MEMO Survey (2504.01990v2), ParamMem (2604.27707v1)
 
     def store_memory(
         self,
@@ -341,9 +341,9 @@ class MemoryMixin(_Base):
     ) -> str:
         """Store a tiered memory with trust scoring and provenance.
 
-        CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1) §6.2
+        CONCEPT:AU-KG.memory.parammem — Research: ParamMem (2604.27707v1) §6.2
 
-        CONCEPT:KG-2.130 — Ingestion/serving plane separation: in a SERVING role (any
+        CONCEPT:AU-KG.memory.ingestion-serving-separation — Ingestion/serving plane separation: in a SERVING role (any
         process that is not the daemon ``host``), the embed+write is NOT done inline — that
         would contend with reads/replies on the shared connection pool and can stall the
         event loop. Instead the write is enqueued to the durable task queue and performed by
@@ -395,7 +395,7 @@ class MemoryMixin(_Base):
                     return memory_id
                 except Exception as e:  # noqa: BLE001 — last resort: write inline
                     logger.warning(
-                        "[CONCEPT:KG-2.130] memory ingest enqueue failed; "
+                        "[CONCEPT:AU-KG.memory.ingestion-serving-separation] memory ingest enqueue failed; "
                         "writing inline: %s",
                         e,
                     )
@@ -457,7 +457,7 @@ class MemoryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Recall memories with Ebbinghaus time-decay scoring.
 
-        CONCEPT:KG-2.1 — Research: MEMO Survey (2504.01990v2) §3.2
+        CONCEPT:AU-KG.memory.parammem — Research: MEMO Survey (2504.01990v2) §3.2
 
         Performs hybrid search for memories, then applies time-decay
         scoring based on the Ebbinghaus forgetting curve. Memories
@@ -491,7 +491,7 @@ class MemoryMixin(_Base):
                 continue
             if memory_type and r_category != memory_type.lower():
                 continue
-            # Trust filter (CONCEPT:KG-2.1 — ParamMem §6.2)
+            # Trust filter (CONCEPT:AU-KG.memory.parammem — ParamMem §6.2)
             trust = float(r.get("trust_score", 0.8))
             if not include_untrusted and trust < 0.3:
                 continue
@@ -535,7 +535,7 @@ class MemoryMixin(_Base):
         # Sort by decay-adjusted score
         memories.sort(key=lambda x: x.get("decay_adjusted_score", 0), reverse=True)
 
-        # Instruction-aware reranking (CONCEPT:KG-2.1 — MemReranker)
+        # Instruction-aware reranking (CONCEPT:AU-KG.memory.parammem — MemReranker)
         if task_context and self.hybrid_retriever.embed_model:
             try:
                 task_emb = self.hybrid_retriever.embed_model.get_text_embedding(
@@ -561,7 +561,7 @@ class MemoryMixin(_Base):
             except Exception as e:
                 logger.warning(f"Task-context reranking failed: {e}")
 
-        # Context budget compaction (CONCEPT:KG-2.1 — Research: 2604.20874v1)
+        # Context budget compaction (CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1)
         # Apply Root Theorem: compact results if they exceed budget
         budget = _context_optimizer.allocate_budget(
             task_complexity=0.5 if not task_context else 0.7,
@@ -599,7 +599,7 @@ class MemoryMixin(_Base):
     def consolidate_memories(self, dry_run: bool = False) -> dict[str, Any]:
         """Trigger memory synthesis — runs all registered rules.
 
-        CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1)
+        CONCEPT:AU-KG.memory.parammem — Research: ParamMem (2604.27707v1)
 
         Runs the SynthesisEngine with all three rules:
         1. EpisodeToPreferenceRule

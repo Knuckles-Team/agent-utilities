@@ -27,4 +27,4 @@
 ## Non-goals
 
 PARL training; Mooncake serving; reproducing the trained orchestrator; native multi-format rendering
-(SWARM-8, deferred to ECO-4).
+(SWARM-8, deferred to AU-ECO.connector.plane-provisioning-auth).

@@ -1,10 +1,10 @@
 #!/usr/bin/python
-"""Bounded node iteration (CONCEPT:KG-2.261).
+"""Bounded node iteration (CONCEPT:AU-KG.ingest.never-scan-whole-graph).
 
 A whole-graph ``graph.nodes(data=True)`` on the live multi-tenant engine materializes
 EVERY node (166K+ on ``__commons__``, with 1024-dim embeddings) into one MessagePack
 frame — a gigabyte-scale payload that overloads and resets the connection. The fix is
-to iterate by TYPE through the engine-side **bounded** label fetch (CONCEPT:KG-2.51,
+to iterate by TYPE through the engine-side **bounded** label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation,
 ``get_nodes_by_label``), which scopes the wire payload per label instead of dumping the
 whole graph.
 
@@ -40,7 +40,7 @@ def _label_casings(value: str) -> set[str]:
 
 
 def get_node_data(graph: Any, node_id: str) -> dict[str, Any] | None:
-    """Fetch ONE node's data by id (CONCEPT:KG-2.261) — a single engine round-trip via
+    """Fetch ONE node's data by id (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — a single engine round-trip via
     the facade's per-id properties fetch, NEVER a whole-graph scan to find one node.
     Returns ``None`` if missing. Degrades to the NX node view on a local/test graph.
     """

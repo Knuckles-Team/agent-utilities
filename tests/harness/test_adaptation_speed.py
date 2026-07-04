@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the adaptation-speed metric + SAI task/verifier contract.
 
-CONCEPT:AHE-3.27 / AHE-3.28
+CONCEPT:AU-AHE.harness.per-task-adaptation-speed / AHE-3.28
 """
 
 from __future__ import annotations

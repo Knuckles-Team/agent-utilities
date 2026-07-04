@@ -102,7 +102,7 @@ def render(services: list[dict]) -> str:
         "# Do not edit by hand. One entry per agents/* connector exposing a",
         "# streamable-http MCP server. Consumed by portainer-sync-agent + day0.",
         "#",
-        "# Optional per-service reactive-autoscaling block (CONCEPT:OS-5.29), read by",
+        "# Optional per-service reactive-autoscaling block (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling), read by",
         "# the leader-only fleet_autoscaler tick (FLEET_AUTOSCALER=1). Because this",
         "# file is machine-generated, declare scaling in the FLEET_DESIRED_STATE_PATH",
         "# override YAML (same per-service shape, layered on top). Example:",

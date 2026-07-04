@@ -5,7 +5,7 @@ Part of the agent-utilities-evolution skill. Provides a comprehensive
 codebase analysis for concept traceability, dead code detection,
 import graph analysis, and wiring gap identification.
 
-CONCEPT:AHE-3.1 — Continuous Evaluation Engine (code health diagnostic)
+CONCEPT:AU-AHE.evaluation.continuous-evaluation — Continuous Evaluation Engine (code health diagnostic)
 
 Usage:
     python wiring_sweep.py /path/to/agent-utilities [--json] [--markdown]

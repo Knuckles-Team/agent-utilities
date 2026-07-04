@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cross-Pillar Synergy Engine.
 
-CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
 Discovers non-obvious functional synergies between the 5 Unified Pillars
 of the agent-utilities ecosystem by analyzing concept-to-concept edges,
@@ -60,9 +60,9 @@ logger = logging.getLogger(__name__)
 # Pillar prefix → display name mapping
 PILLAR_NAMES: dict[str, str] = {
     "ORCH-1": "Orchestration & Routing",
-    "KG-2": "Knowledge Graph & Retrieval",
+    "EG-KG.compute.backend": "Knowledge Graph & Retrieval",
     "AHE-3": "Agentic Harness Engineering",
-    "ECO-4": "Ecosystem & Integration",
+    "AU-ECO.connector.plane-provisioning-auth": "Ecosystem & Integration",
     "OS-5": "Agent OS & Infrastructure",
 }
 
@@ -74,7 +74,7 @@ _CONCEPT_RE = re.compile(r"CONCEPT:((?:ORCH|KG|AHE|ECO|OS)-\d+)\.(\d+)")
 class ConceptBridge:
     """A concept that spans multiple pillars.
 
-    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+    CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
     Attributes:
         concept_id: The CONCEPT:ID (e.g., ``AHE-3.5``).
@@ -95,7 +95,7 @@ class ConceptBridge:
 class PillarCoupling:
     """Coupling metric between two pillars.
 
-    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+    CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
     Attributes:
         pillar_a: First pillar prefix (e.g., ``ORCH-1``).
@@ -116,7 +116,7 @@ class PillarCoupling:
 class SynergyInsight:
     """A discovered synergy or missing relationship.
 
-    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+    CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
     Attributes:
         source_concept: The source concept ID.
@@ -138,7 +138,7 @@ class SynergyInsight:
 class SynergyEngine:
     """Discovers functional synergies between the 5 Unified Pillars.
 
-    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+    CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
     Analyzes the existing concept registry and Knowledge Graph topology
     to find:
@@ -157,8 +157,8 @@ class SynergyEngine:
     Example::
 
         registry = {
-            "ORCH-1.1": {"name": "Wide-Search Orchestration", "pillar": "ORCH-1"},
-            "KG-2.1": {"name": "SelfModel", "pillar": "KG-2"},
+            "AU-ORCH.planning.recursion-nesting-depth": {"name": "Wide-Search Orchestration", "pillar": "ORCH-1"},
+            "AU-KG.memory.tiered-memory-caching": {"name": "SelfModel", "pillar": "EG-KG.compute.backend"},
             ...
         }
         engine = SynergyEngine(registry)
@@ -170,24 +170,24 @@ class SynergyEngine:
     # Known cross-pillar relationships (hardcoded from architecture docs)
     _KNOWN_BRIDGES: dict[str, list[str]] = {
         # ExperienceNode bridges AHE → KG
-        "AHE-3.5": ["KG-2"],
+        "AU-AHE.harness.self-evolution-narrative": ["EG-KG.compute.backend"],
         # TeamConfig bridges ORCH → AHE (reward tracking)
-        "AHE-3.3": ["ORCH-1"],
+        "AU-AHE.evaluation.interpretability-tests": ["ORCH-1"],
         # EvalRunner bridges AHE → OS (observability)
-        "AHE-3.12": ["OS-5"],
+        "AU-AHE.evaluation.longmemeval-validation-harness": ["OS-5"],
         # Prompt Scanner bridges OS → KG (risk propagation)
-        "OS-5.4": ["KG-2"],
+        "AU-OS.governance.wasm-micro-agent-sandbox": ["EG-KG.compute.backend"],
         # Context Compaction bridges KG → OS (token management)
         # Research Pipeline bridges KG → ECO (ScholarX integration)
-        "KG-2.7": ["OS-5", "ECO-4"],
+        "AU-KG.query.vendor-agnostic-traversal": ["OS-5", "AU-ECO.connector.plane-provisioning-auth"],
         # Ecosystem Topology bridges ECO → KG
-        "ECO-4.7": ["KG-2"],
+        "AU-OS.deployment.infra-orchestration": ["EG-KG.compute.backend"],
         # Confidence Router bridges ORCH → KG (SelfModel signals)
-        "ORCH-1.2": ["KG-2"],
+        "AU-ORCH.adapter.hot-cache-invalidation": ["EG-KG.compute.backend"],
         # Swarm Presets bridge ORCH → ECO (multi-agent workflows)
-        "ORCH-1.4": ["ECO-4"],
+        "AU-ORCH.adapter.kg-graph-materialization": ["AU-ECO.connector.plane-provisioning-auth"],
         # Guardrail Engine bridges OS → AHE (policy enforcement feedback)
-        "OS-5.7": ["AHE-3"],
+        "AU-OS.deployment.platform-journey": ["AHE-3"],
     }
 
     def __init__(
@@ -212,7 +212,7 @@ class SynergyEngine:
     def discover_concept_bridges(self) -> list[ConceptBridge]:
         """Find concepts that functionally span multiple pillars.
 
-        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+        CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
         Uses a combination of:
         - Hardcoded known bridges from architecture documentation
@@ -275,7 +275,7 @@ class SynergyEngine:
     def compute_pillar_coupling(self) -> list[PillarCoupling]:
         """Quantify coupling between each pillar pair.
 
-        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+        CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
         Coupling is measured by:
         - Number of shared edge types between pillar concepts
@@ -301,11 +301,11 @@ class SynergyEngine:
 
         # Known shared edge types between pillars
         _SHARED_EDGES: dict[tuple[str, str], list[str]] = {
-            ("AHE-3", "KG-2"): ["experienced_during", "was_derived_from", "part_of"],
-            ("ORCH-1", "KG-2"): ["routed_by", "reused_team", "broader"],
-            ("OS-5", "KG-2"): ["propagates_risk_to", "detected_threat"],
+            ("AHE-3", "EG-KG.compute.backend"): ["experienced_during", "was_derived_from", "part_of"],
+            ("ORCH-1", "EG-KG.compute.backend"): ["routed_by", "reused_team", "broader"],
+            ("OS-5", "EG-KG.compute.backend"): ["propagates_risk_to", "detected_threat"],
             ("ORCH-1", "AHE-3"): ["produced_outcome", "evaluated_with"],
-            ("ECO-4", "KG-2"): ["fetched_from", "falls_back_to"],
+            ("AU-ECO.connector.plane-provisioning-auth", "EG-KG.compute.backend"): ["fetched_from", "falls_back_to"],
             ("OS-5", "AHE-3"): ["triggered_guardrail", "audited_by"],
         }
 
@@ -336,7 +336,7 @@ class SynergyEngine:
     def suggest_missing_edges(self) -> list[SynergyInsight]:
         """Suggest relationships that should exist but don't.
 
-        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+        CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
         Uses structural pattern matching to identify concepts that
         are similar in structure but lack explicit connections.
@@ -354,7 +354,7 @@ class SynergyEngine:
                 suggestions.append(
                     SynergyInsight(
                         source_concept=concept_id,
-                        target_concept="KG-2.0",
+                        target_concept="AU-KG.query.object-graph-mapper",
                         suggested_relationship="persists_to",
                         confidence=0.8,
                         rationale="AHE results should persist to KG for cross-session learning",
@@ -369,7 +369,7 @@ class SynergyEngine:
                 suggestions.append(
                     SynergyInsight(
                         source_concept=concept_id,
-                        target_concept="OS-5.8",
+                        target_concept="AU-OS.scaling.epistemic-dynamic-priority-quota",
                         suggested_relationship="observed_by",
                         confidence=0.7,
                         rationale="OS infrastructure should emit telemetry events",
@@ -384,11 +384,11 @@ class SynergyEngine:
                 suggestions.append(
                     SynergyInsight(
                         source_concept=concept_id,
-                        target_concept="AHE-3.3",
+                        target_concept="AU-AHE.evaluation.interpretability-tests",
                         suggested_relationship="reward_signal_from",
                         confidence=0.75,
                         rationale="Routing decisions should feed into TeamConfig reward tracking",
-                        is_existing=concept_id == "ORCH-1.2",
+                        is_existing=concept_id == "AU-ORCH.adapter.hot-cache-invalidation",
                     )
                 )
 
@@ -397,7 +397,7 @@ class SynergyEngine:
     def generate_synergy_report(self) -> str:
         """Generate a comprehensive synergy analysis report.
 
-        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
+        CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
 
         Returns:
             Formatted markdown report of discovered synergies,

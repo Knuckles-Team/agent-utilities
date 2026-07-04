@@ -58,7 +58,7 @@ recommendations. Always confirm before writing files.
 ### Step 2 — Backend (`GRAPH_BACKEND`)
 
 The **epistemic-graph engine is the ONE authority** — it serves reads, acks
-writes, AND persists durably (redb-authoritative by default, CONCEPT:KG-2.195):
+writes, AND persists durably (redb-authoritative by default, CONCEPT:AU-KG.backend.backend-modes):
 it is a durable source of truth out of the box, not a rebuildable cache. There is
 **no L1/L2 tier vocabulary** — pick the engine alone, or the engine + optional
 mirrors:

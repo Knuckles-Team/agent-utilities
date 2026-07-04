@@ -1,4 +1,4 @@
-"""Functions runtime — typed registry, runtime I/O, Functions-on-Objects (CONCEPT:KG-2.41).
+"""Functions runtime — typed registry, runtime I/O, Functions-on-Objects (CONCEPT:AU-KG.ontology.default-runtime-bound-import).
 
 Covers Palantir ``functions/overview`` semantics: typed/versioned registration
 with release/publish + lookup, the single governed :class:`FunctionRuntime`

@@ -1,7 +1,7 @@
 # Worked Example: Publishing an Evolution Proposal as a Reviewable Branch
 
-**What this demonstrates.** CONCEPT:AHE-3.21, the evolution-to-branch bridge:
-a golden-loop proposal that cleared promotion governance (CONCEPT:AHE-3.20) is
+**What this demonstrates.** CONCEPT:AU-AHE.harness.evolution-branch-bridge, the evolution-to-branch bridge:
+a golden-loop proposal that cleared promotion governance (CONCEPT:AU-AHE.harness.promotion-governance-validator) is
 published as a **local, never-pushed git branch** through the
 `graph_orchestrate action=publish_proposal` surface — gated by the OS-5.24
 ActionPolicy's `merge_promotion` tier, which by default queues a human
@@ -29,10 +29,10 @@ KG_LOOP=1                  # 60-min golden-loop daemon tick (KG-2.7)
 KG_LOOP_INTERVAL=3600
 KG_LOOP_TOPICS=5
 KG_LOOP_DISTILL=1               # distil acquired papers into Insight nodes
-KG_GOLDEN_AUTO_MERGE=1            # AHE-3.14 governed promotion (proposal -> active)
+KG_GOLDEN_AUTO_MERGE=1            # AU-AHE.assimilation.research-auto-merge governed promotion (proposal -> active)
 KG_GOLDEN_MERGE_THRESHOLD=0.85    # conservative default quality bar
 
-KG_FAILURE_EVOLUTION=1            # AHE-3.18 Langfuse failures -> failure_gap topics
+KG_FAILURE_EVOLUTION=1            # AU-AHE.harness.failure-evolution Langfuse failures -> failure_gap topics
 KG_FAILURE_EVOLUTION_WINDOW=86400
 KG_FAILURE_REGRESSION_DATASET=1   # failures double as the regression gate dataset
 
@@ -45,7 +45,7 @@ EVOLUTION_WORKTREE_ROOT=/var/lib/agent-utilities/evolution_worktrees
 # ACTION_POLICY_PATH=/etc/agent-utilities/action-policy.yml
 ```
 
-## 2. A proposal gets promoted (AHE-3.14 + AHE-3.20)
+## 2. A proposal gets promoted (AU-AHE.assimilation.research-auto-merge + AU-AHE.harness.promotion-governance-validator)
 
 The golden loop synthesizes proposals as KG nodes. With `KG_GOLDEN_AUTO_MERGE`
 on, each cycle runs the governed auto-merge: a proposal must clear the quality
@@ -69,7 +69,7 @@ proposal:retry_backoff:demo1   (a SpecDraft: title/problem/approach, status: pro
 A proposal may also embed explicit file artifacts (`files_json` property:
 `[{"path": ..., "content": ...}, ...]`, plus optional `tests_json` pytest
 targets) — that becomes a `kind="code"` change set whose Python files are
-validated in the tiered RLM sandbox (CONCEPT:ORCH-1.38) before publication.
+validated in the tiered RLM sandbox (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox) before publication.
 Prose-only proposals (the common case) become a `kind="sdd_plan"` change set:
 an SDD plan skeleton under `.specify/specs/<topic>/`.
 
@@ -173,7 +173,7 @@ publishes through the resolved `ChangePublisher`.
 Field semantics:
 
 - `gate_result`: `pass` | `hold` | `not_run` — the injected regression gate
-  (e.g. the AHE-3.18 failure analyzer's `make_regression_check`). A `hold` does
+  (e.g. the AU-AHE.harness.failure-evolution failure analyzer's `make_regression_check`). A `hold` does
   **not** delete the branch; the branch is the review artifact either way.
 - `tests_passed`: `null` when the proposal named no pytest targets; otherwise
   the verdict of running them inside the fresh worktree (`test_report` carries

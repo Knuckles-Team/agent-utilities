@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """State Checkpoint Manager Module.
 
-CONCEPT:ORCH-1.1, CONCEPT:ORCH-1.3, CONCEPT:KG-2.6
+CONCEPT:AU-ORCH.planning.recursion-nesting-depth, CONCEPT:AU-ORCH.execution.execution-budget-caps, CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides a unified interface for persisting graph execution state.
 Supports multiple backends (File, Postgres, Redis, and KG).

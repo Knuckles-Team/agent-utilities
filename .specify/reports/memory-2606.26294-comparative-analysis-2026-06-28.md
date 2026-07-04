@@ -3,7 +3,7 @@
 **Paper:** *The Red Queen Gödel Machine: Co-Evolving Agents and Their Evaluators* (RQGM),
 Iacob, Jovanović, Shen, Burkhardt, Kurmanji, Tastan, Sani, Venanzi, Odonnat, Cao, Marino,
 Qiu, Lane — Cambridge / NVIDIA / Flower Labs / MBZUAI / Inria, 24 Jun 2026.
-**Date:** 2026-06-28 · **Reviewer concept:** CONCEPT:KG-2.276 · **Verdict:** see §6.
+**Date:** 2026-06-28 · **Reviewer concept:** CONCEPT:AU-KG.memory.generation-scoped-selective-reward · **Verdict:** see §6.
 
 ---
 
@@ -19,7 +19,7 @@ cognitive-memory sense. The honest comparison is therefore mostly a **non-match*
 our memory stack, with **one** genuinely transferable maintenance primitive (§4).
 
 Because the honesty bar is explicit, the bulk of this report documents *why* the paper's
-mechanisms are already covered by our self-improvement/eval pillar (AHE-3.x) and do **not**
+mechanisms are already covered by our self-improvement/eval pillar (AU-AHE.optimization.telemetry-optimization) and do **not**
 warrant memory-subsystem work — and isolates the single mechanism that did.
 
 ## 1. The paper's method and core innovation
@@ -59,15 +59,15 @@ up to 1.91×).
 
 | RQGM mechanism | Where it already lives in agent-utilities | Pillar | Match |
 |---|---|---|---|
-| Learned evaluator improves *with* the agents it scores | `harness/eval_corpus`, `harness/preference_pairs` (DPO export), reliability/eval corpora + gates | AHE-3.x | **Have** |
-| Reward/utility as a tunable signal driving routing | `CapabilityIndex.record_outcome` reward-EMA; `FeedbackService` (KG-2.8); model-router reward (ORCH-1.79); autonomy trust (OS-5.49) | KG-2 / ORCH-1 / OS-5 | **Have** |
-| Family/config-aware learned router that beats every fixed config | MemoryData bake-off `GraphOSRouterMethod` (AHE-3.73), router-vs-best scoreboard (AHE-3.74) | AHE-3.x | **Have** |
-| Ground-truth-anchored promotion / held-out split to prevent overfit | GEPA held-out split; eval-corpus regression cases; `check_eval_corpus`/`check_reliability_corpus` gates | AHE-3.x | **Have (partial)** — we anchor on a corpus, but do **not** gate a router/evaluator *swap* on a statistical ε-best-belief test |
-| Multi-agent workspace tree / clade-productivity Thompson search | Test-time fan-out (AHE-3.4), subagent lifecycle/ARPO branching, topology engine `record_outcome` | AHE-3.x / ORCH-1 | **Have (different shape)** — not an archive-tree GM search, by design (we are agentic, not a base-model trainer; per AGENTS.md AHE conventions) |
-| Adversarial objective to debias an over-lenient judge | preference-pair reliability filter (RAPPO), eval corpus hard cases | AHE-3.x | **Have (partial)** |
-| **Selective erasure** — forget only utility tied to a *displaced* evaluator/generation, keep the rest | **Nothing.** Maintenance forgets by **age** (`decay_rewards`, KG-2.4) or idle/max-age reapers — never by **provenance**. Full index rebuild nukes *all* reward; in-place upsert keeps *stale* reward. | KG-2 | **GAP** |
+| Learned evaluator improves *with* the agents it scores | `harness/eval_corpus`, `harness/preference_pairs` (DPO export), reliability/eval corpora + gates | AU-AHE.optimization.telemetry-optimization | **Have** |
+| Reward/utility as a tunable signal driving routing | `CapabilityIndex.record_outcome` reward-EMA; `FeedbackService` (KG-2.8); model-router reward (ORCH-1.79); autonomy trust (OS-5.49) | EG-KG.compute.backend / ORCH-1 / OS-5 | **Have** |
+| Family/config-aware learned router that beats every fixed config | MemoryData bake-off `GraphOSRouterMethod` (AU-AHE.harness.callers-feed-back-per), router-vs-best scoreboard (AU-AHE.harness.ahe-3) | AU-AHE.optimization.telemetry-optimization | **Have** |
+| Ground-truth-anchored promotion / held-out split to prevent overfit | GEPA held-out split; eval-corpus regression cases; `check_eval_corpus`/`check_reliability_corpus` gates | AU-AHE.optimization.telemetry-optimization | **Have (partial)** — we anchor on a corpus, but do **not** gate a router/evaluator *swap* on a statistical ε-best-belief test |
+| Multi-agent workspace tree / clade-productivity Thompson search | Test-time fan-out (AHE-3.4), subagent lifecycle/ARPO branching, topology engine `record_outcome` | AU-AHE.optimization.telemetry-optimization / ORCH-1 | **Have (different shape)** — not an archive-tree GM search, by design (we are agentic, not a base-model trainer; per AGENTS.md AHE conventions) |
+| Adversarial objective to debias an over-lenient judge | preference-pair reliability filter (RAPPO), eval corpus hard cases | AU-AHE.optimization.telemetry-optimization | **Have (partial)** |
+| **Selective erasure** — forget only utility tied to a *displaced* evaluator/generation, keep the rest | **Nothing.** Maintenance forgets by **age** (`decay_rewards`, KG-2.4) or idle/max-age reapers — never by **provenance**. Full index rebuild nukes *all* reward; in-place upsert keeps *stale* reward. | EG-KG.compute.backend | **GAP** |
 
-**Reading of the matrix.** Six of seven mechanisms are squarely in the AHE-3.x
+**Reading of the matrix.** Six of seven mechanisms are squarely in the AU-AHE.optimization.telemetry-optimization
 self-improvement spine and are **already implemented** (some in a deliberately different,
 agentic shape). They are *not* memory-subsystem work, and the prompt's collision note
 assigns the self-improvement/MRAgent area to a sibling. The one row that lands on the
@@ -108,7 +108,7 @@ path. It is small, principled, and self-detecting.
 
 | # | Synergy | Merit | Decision |
 |---|---|---|---|
-| 1 | **Generation-scoped selective reward erasure** on `CapabilityIndex` (auto-detected on the upsert path + explicit two-surface op) | **High** — fills a real memory-maintenance gap (provenance-scoped forgetting) on a live path | **IMPLEMENTED (KG-2.276)** |
+| 1 | **Generation-scoped selective reward erasure** on `CapabilityIndex` (auto-detected on the upsert path + explicit two-surface op) | **High** — fills a real memory-maintenance gap (provenance-scoped forgetting) on a live path | **IMPLEMENTED (AU-KG.memory.generation-scoped-selective-reward)** |
 | 2 | ε-best-belief statistical gate before a router/evaluator *swap* (Beta lower-bound, ties→incumbent) | Low–Med — improvement to the AHE eval/router pillar, **not** memory; sibling-owned area; our reward-EMA already bounds swings | **Deferred** (flag to AHE owner) |
 | 3 | Epoch/frozen-within-epoch evaluator machinery + CMP/Thompson archive search | Low for us — re-implements GM base-model search we intentionally don't do | **Rejected** |
 | 4 | Adversarial-objective judge debiasing on the eval corpus | Med — but belongs to AHE eval pillar, not memory | **Deferred** (out of scope) |
@@ -116,16 +116,16 @@ path. It is small, principled, and self-detecting.
 ## 6. Verdict
 
 **For the memory subsystem specifically, arXiv:2606.26294 is low-merit** — it is a
-co-evolving-evaluator paper, and our self-improvement/eval pillar (AHE-3.x) already covers
+co-evolving-evaluator paper, and our self-improvement/eval pillar (AU-AHE.optimization.telemetry-optimization) already covers
 the transferable parts. **Exactly one** mechanism, *selective erasure*, mapped onto a real
 gap in memory **maintenance**: forgetting learned utility by **provenance/generation**
 rather than by **age**. That one synergy is worth building and has been built as
-**CONCEPT:KG-2.276** (§4, see Implementation below). Everything else is either already in
+**CONCEPT:AU-KG.memory.generation-scoped-selective-reward** (§4, see Implementation below). Everything else is either already in
 the stack in an equivalent-or-deliberately-different form, or belongs to the AHE/eval pillar
 owned elsewhere — and was correctly *not* built here. Honest bottom line: high-quality
 paper, narrow relevance to *memory*, one clean win extracted.
 
-## 7. Implementation summary (KG-2.276)
+## 7. Implementation summary (AU-KG.memory.generation-scoped-selective-reward)
 
 - **Primitive** — `agent_utilities/knowledge_graph/retrieval/capability_index.py`:
   - `add()` auto-erases an id's stale reward EMA when a re-embed's cosine distance exceeds

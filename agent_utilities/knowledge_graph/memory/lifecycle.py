@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.307 — Agent-native memory lifecycle loop (AU-side driver).
+"""CONCEPT:AU-KG.memory.drive-one-agent-native — Agent-native memory lifecycle loop (AU-side driver).
 
 The epistemic-graph ENGINE ships the deterministic agent-native-memory *primitives*
 (called by AU): the summary-node tier ``create_summary_node`` / ``summary_children``
@@ -26,7 +26,7 @@ Design notes:
   * **Reuses the existing engine client + LLM client.** Reads the working set via
     the same ``engine.backend.execute`` Cypher-subset path as
     :class:`~agent_utilities.knowledge_graph.memory.hygiene.MemoryHygiene`
-    (CONCEPT:KG-2.17), and generates summary text via the shared
+    (CONCEPT:EG-KG.compute.compiled-semantic-reasoner), and generates summary text via the shared
     ``memento_compressor._memento_llm`` one-shot completion helper. The engine
     primitives are resolved defensively (a typed method on the engine / backend /
     compute engine, else the raw wire ``_send`` op) so the loop degrades gracefully
@@ -92,7 +92,7 @@ _SUMMARY_SYSTEM_PROMPT = (
 
 @dataclass
 class MemoryLifecycleConfig:
-    """Policy knobs for the lifecycle loop (CONCEPT:KG-2.307).
+    """Policy knobs for the lifecycle loop (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
     All fields are additive and conservative; ``enabled`` gates the whole loop off
     by default so the component is inert until an operator opts in.
@@ -173,7 +173,7 @@ def _age_hours(node: dict[str, Any], now: datetime) -> float:
 
 
 class MemoryLifecycle:
-    """AU-side driver for the engine agent-native-memory primitives (CONCEPT:KG-2.307).
+    """AU-side driver for the engine agent-native-memory primitives (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
     Instantiate with the same ``engine`` object the scheduler hands maintenance
     handlers (it exposes ``.backend`` and — directly or via the compute engine —
@@ -200,7 +200,7 @@ class MemoryLifecycle:
     def _generate_summary(self, system_prompt: str, user_content: str) -> str | None:
         if self._llm is not None:
             return self._llm(system_prompt, user_content)
-        # Reuse the shared, resilient one-shot completion helper (CONCEPT:KG-2.20).
+        # Reuse the shared, resilient one-shot completion helper (CONCEPT:AU-KG.memory.mementified-context).
         from .memento_compressor import _memento_llm
 
         return _memento_llm(system_prompt, user_content)
@@ -282,7 +282,7 @@ class MemoryLifecycle:
     def _read_working_set(self, now: datetime) -> list[dict[str, Any]]:
         """Read a BOUNDED working set of memory nodes (never a global scan).
 
-        Mirrors the hygiene scan (CONCEPT:KG-2.17): reads ``:Memory`` nodes with
+        Mirrors the hygiene scan (CONCEPT:EG-KG.compute.compiled-semantic-reasoner): reads ``:Memory`` nodes with
         content via the engine backend's Cypher-subset ``execute``, capped at
         ``config.max_working_set``.
         """
@@ -317,7 +317,7 @@ class MemoryLifecycle:
     ) -> list[dict[str, Any]]:
         """Return the single ripest cluster of episodic memories, or ``[]``.
 
-        Localized maintenance (CONCEPT:KG-2.307): groups the ACTIVE ``episodic``
+        Localized maintenance (CONCEPT:AU-KG.memory.drive-one-agent-native): groups the ACTIVE ``episodic``
         memories in the working set by ``cluster_key`` (→ ``category`` → ``general``)
         and returns the group that is ripe — at least ``min_cluster_size`` episodes
         whose oldest member is at least ``min_cluster_age_hours`` old — preferring
@@ -380,7 +380,7 @@ class MemoryLifecycle:
     def run_summarization(self, cluster: list[dict[str, Any]]) -> dict[str, Any]:
         """LLM-generate the summary TEXT for a cluster and store it as a summary node.
 
-        AU produces the text (CONCEPT:KG-2.307); the engine ``create_summary_node``
+        AU produces the text (CONCEPT:AU-KG.memory.drive-one-agent-native); the engine ``create_summary_node``
         (EG-220) stores it as the parent of the cluster's episodes.
         """
         ids = self._cluster_ids(cluster)
@@ -400,7 +400,7 @@ class MemoryLifecycle:
             "memory_type": "semantic",
             "metadata": {
                 "source": "memory_lifecycle",
-                "concept": "KG-2.307",
+                "concept": "AU-KG.memory.drive-one-agent-native",
                 **dict(self.config.extra_metadata),
             },
         }
@@ -476,7 +476,7 @@ class MemoryLifecycle:
 
     # ── The scheduled entry point ─────────────────────────────────────────────
     def tick(self, now: datetime | None = None) -> dict[str, Any]:
-        """One lifecycle cycle — the scheduled maintenance task (CONCEPT:KG-2.307).
+        """One lifecycle cycle — the scheduled maintenance task (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
         Safe + idempotent: no-op when disabled, never raises into the scheduler, and
         skips re-summarising a cluster already processed by this instance.
@@ -528,7 +528,7 @@ def run_memory_lifecycle(
     now: datetime | None = None,
     config: MemoryLifecycleConfig | None = None,
 ) -> dict[str, Any]:
-    """CLI/daemon entry point for one memory-lifecycle cycle (CONCEPT:KG-2.307).
+    """CLI/daemon entry point for one memory-lifecycle cycle (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
     The scheduler dispatches here (kind=skill, ref=``memory-lifecycle``,
     action=``maintain``). Gated off unless ``AGENT_UTILITIES_MEMORY_LIFECYCLE`` is

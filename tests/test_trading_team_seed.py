@@ -1,4 +1,4 @@
-"""Tests for the curated trading TeamConfig seed — CONCEPT:EE-039."""
+"""Tests for the curated trading TeamConfig seed — CONCEPT:AU-AHE.harness.trading-team-seed."""
 
 from agent_utilities.graph.trading_team_seed import (
     TRADING_TEAM_ID,

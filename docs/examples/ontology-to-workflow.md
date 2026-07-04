@@ -2,13 +2,13 @@
 
 **What this demonstrates.** The full descriptive-to-executable bridge: a BPMN 2.0
 process definition is lifted into the Knowledge Graph as step-level structure
-(`BusinessProcess` / `BusinessTask` / `FLOWS_TO`, CONCEPT:KG-2.53), compiled into
+(`BusinessProcess` / `BusinessTask` / `FLOWS_TO`, CONCEPT:AU-KG.ontology.descriptive-process-world-gains), compiled into
 an executable `WorkflowDefinition` with sequence-flow-derived dependencies and a
 `REALIZES` bridge edge (`graph_orchestrate action=compile_process`,
-CONCEPT:ORCH-1.41), executed through the ontology gate that SHACL-validates the
-stored definition and applies permissioning before dispatch (CONCEPT:ORCH-1.42),
+CONCEPT:AU-ORCH.planning.business-process-to-executable), executed through the ontology gate that SHACL-validates the
+stored definition and applies permissioning before dispatch (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path),
 and closed out with run-level provenance — the run's `RunTrace` gets an
-`EXECUTED_PROCESS` edge back to the `BusinessProcess` (CONCEPT:ORCH-1.43).
+`EXECUTED_PROCESS` edge back to the `BusinessProcess` (CONCEPT:AU-ORCH.execution.best-effort-provenance).
 
 **Prerequisites (ladder rung).** Single-host rung or above from
 [Deployment configurations](../guides/deployment-configurations.md): a running
@@ -34,11 +34,11 @@ start -> Validate Order (serviceTask)
       -> Ship Order (serviceTask) -> end
 ```
 
-The `startEvent`/`endEvent` elements are deliberately present: the KG-2.53 lift
+The `startEvent`/`endEvent` elements are deliberately present: the AU-KG.ontology.descriptive-process-world-gains lift
 collapses pass-through elements so `FLOWS_TO` ordering between lifted tasks
 survives them.
 
-## 2. Lift the BPMN into the KG (KG-2.53)
+## 2. Lift the BPMN into the KG (AU-KG.ontology.descriptive-process-world-gains)
 
 The extractor is `agent_utilities/knowledge_graph/enrichment/extractors/camunda.py`.
 It takes an injected, duck-typed Camunda client; when that client also exposes
@@ -150,7 +150,7 @@ Compilation semantics worth noticing:
 - The stored `WorkflowDefinition` gets a
   `(:WorkflowDefinition)-[:REALIZES]->(:BusinessProcess)` bridge edge.
 
-## 4. Execute through the ontology gate (ORCH-1.42)
+## 4. Execute through the ontology gate (AU-ORCH.execution.ontology-validation-execution-path)
 
 MCP call (also in
 [`examples/ontology_workflow/execute_workflow_call.json`](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/ontology_workflow/execute_workflow_call.json)):
@@ -176,7 +176,7 @@ Before any dispatch, `gate_workflow_execution`
    refuse execution.
 2. **Permission gate** (only when `KG_BRAIN_ENFORCE` is on): the ontology
    permissioning row gate is applied to the workflow node for the current
-   actor; a denial raises `PermissionError` (fail-closed, CONCEPT:OS-5.14 — see
+   actor; a denial raises `PermissionError` (fail-closed, CONCEPT:AU-OS.identity.authenticated-identity-enforcement — see
    [Identity JWT example](identity-jwt.md)).
 
 **Expected output** (success path):
@@ -246,7 +246,7 @@ completed_steps, failed_steps, duration_ms, timestamp}` and is best-effort.
 
 ```text
 (:BusinessProcess {id: "bpmn_process:order_fulfillment:1:demo"})
-  <-[:PART_OF]-      (:BusinessTask x5, incl. the gateway)   # KG-2.53 lift
+  <-[:PART_OF]-      (:BusinessTask x5, incl. the gateway)   # AU-KG.ontology.descriptive-process-world-gains lift
   task -[:FLOWS_TO {condition?}]-> task                      # sequence flows
   <-[:REALIZES]-     (:WorkflowDefinition {name: "process_order_fulfillment"})  # ORCH-1.41
                        -[:HAS_STEP]-> (:WorkflowStep x4)

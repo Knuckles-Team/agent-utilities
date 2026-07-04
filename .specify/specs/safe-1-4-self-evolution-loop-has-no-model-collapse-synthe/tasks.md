@@ -1,4 +1,4 @@
-# Tasks: Corpus Collapse / Synthetic-Degeneration Guard (SAFE-1.4)
+# Tasks: Corpus Collapse / Synthetic-Degeneration Guard (AU-OS.safety.model-collapse-guard-self)
 
 Wire-first: extend existing modules before adding anything new. Cited files are real and verified.
 
@@ -6,7 +6,7 @@ Wire-first: extend existing modules before adding anything new. Cited files are 
    Add `CorpusDiversityMonitor` (+ a `CorpusReading` dataclass) **beside** `PopulationDriftMonitor`,
    reusing the existing `wasserstein1` helper. Inputs: per-item embeddings + `provenance` labels;
    outputs `diversity`, `synthetic_fraction`, `drift`, `collapsed`, `low_streak`. Mirror the
-   `collapse_threshold`/`patience`/`reset()` contract. Tag the new class docstring `CONCEPT:SAFE-1.4`,
+   `collapse_threshold`/`patience`/`reset()` contract. Tag the new class docstring `CONCEPT:AU-OS.safety.model-collapse-guard-self`,
    cite paper §5.5 / §7.4(c),(d) + Shumailov 2024 (provenance in docstring, not the name). (AC1–AC3)
 
 2. **Wire the gate** in `agent_utilities/knowledge_graph/research/auto_merge.py`.
@@ -21,7 +21,7 @@ Wire-first: extend existing modules before adding anything new. Cited files are 
    `_from_correction` / `_from_preference_node`) and embeddings the monitor consumes. No bespoke store. (AC5)
 
 4. **Add the test** `tests/unit/graph/test_safe_1_4_corpus_collapse_guard.py`,
-   `@pytest.mark.concept(id="SAFE-1.4")`: (a) isolated monitor — diversity-floor streak and
+   `@pytest.mark.concept(id="AU-OS.safety.model-collapse-guard-self")`: (a) isolated monitor — diversity-floor streak and
    synthetic-cap both flip `collapsed`; (b) live path — a collapsed reading through
    `GovernedAutoMerger.evaluate` yields non-empty `.failures`, and no reading leaves behavior unchanged.
    ≤60s, no engine/LLM.

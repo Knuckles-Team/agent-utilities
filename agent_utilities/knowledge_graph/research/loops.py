@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""The Loop — a long-running objective the loop engine advances (CONCEPT:KG-2.78).
+"""The Loop — a long-running objective the loop engine advances (CONCEPT:AU-KG.research.these-properties-carry).
 
 A **Loop** is the single unit of long-running work. Goals, research topics, failure
 gaps, and skill executions all collapse into this one node — distinguished only by
@@ -41,12 +41,12 @@ TERMINAL_STATUS = frozenset({"completed", "failed", "cancelled", "rejected"})
 #: ``orphaned`` is a Loop whose previous driver crashed mid-run (the durable
 #: rehydration marks it so) — re-claimable. ``""``/missing reads as a fresh
 #: pending Loop. A ``running`` Loop is owned by a live driver and is NOT
-#: claimable. (CONCEPT:KG-2.141)
+#: claimable. (CONCEPT:AU-KG.compute.user-override-prompt-library)
 CLAIMABLE_STATUS = frozenset({"", "pending", "orphaned"})
 
 
 def _prio_bucket(value: Any, default: int = 2) -> int:
-    """Normalize a priority spec to the ONE 0..3 claim bucket (CONCEPT:KG-2.113).
+    """Normalize a priority spec to the ONE 0..3 claim bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
     Thin lazy-import wrapper over ``engine_tasks._coerce_prio_bucket`` — the
     single priority normalizer shared by tasks / dispatch / schedules / loops.
@@ -81,7 +81,7 @@ def submit_loop(
     max_iterations: int = 20,
     prio_bucket: int = 2,
 ) -> dict[str, Any] | None:
-    """Materialize a long-running objective as a Loop node (CONCEPT:KG-2.78).
+    """Materialize a long-running objective as a Loop node (CONCEPT:AU-KG.research.these-properties-carry).
 
     The single shared creation path for goals, research topics, failure gaps, and
     skill executions. Idempotent (re-submitting the same id upserts). Returns the
@@ -102,7 +102,7 @@ def submit_loop(
         # emits in ascending-bucket order so a hot loop is advanced first, and a
         # loop-spawned child task inherits this. Coerced through the ONE shared
         # normalizer so a loop bucket is the same 0..3 value as a task's.
-        # (CONCEPT:KG-2.113)
+        # (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         "prio_bucket": _prio_bucket(prio_bucket),
         "timestamp": _now_iso(),
     }
@@ -127,7 +127,7 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
         "kind": data.get("loop_kind") or "research",
         # Normalized through the ONE shared bucket normalizer (default 2); it
         # preserves bucket 0 (critical, which is falsy) and maps any legacy
-        # ``priority`` string a Concept might carry. (CONCEPT:KG-2.113)
+        # ``priority`` string a Concept might carry. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         "prio_bucket": _prio_bucket(data.get("prio_bucket")),
     }
     for k in (
@@ -153,7 +153,7 @@ def mark_loop_status(
     output: str = "",
     source: str = "loop_engine",
 ) -> bool:
-    """Advance a Loop's lifecycle state (CONCEPT:KG-2.78).
+    """Advance a Loop's lifecycle state (CONCEPT:AU-KG.research.these-properties-carry).
 
     The single shared status-transition path for every kind — the controller's
     develop/skill stages and the ``graph_loops(action="cancel")`` entrypoint all
@@ -178,7 +178,7 @@ def mark_loop_status(
 
 
 def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
-    """Set a Loop's intake/claim priority bucket (CONCEPT:KG-2.113).
+    """Set a Loop's intake/claim priority bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
     ``active_loops`` emits loops in ascending-bucket order, so bumping a loop to
     bucket 0/1 advances it ahead of background loops on the next cycle.
@@ -195,7 +195,7 @@ def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
 
 
 def claim_loop(engine: Any, loop_id: str, *, current_status: str = "") -> bool:
-    """Atomically claim a develop/skill Loop for advancement (CONCEPT:KG-2.141).
+    """Atomically claim a develop/skill Loop for advancement (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
     The single cross-host-safe Loop claim, mirroring the engine ``:Task`` claim
     (``_claim_next_task``): flip the Loop's ``status`` from a *claimable* state
@@ -252,7 +252,7 @@ def claim_loop(engine: Any, loop_id: str, *, current_status: str = "") -> bool:
 
 
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
-    """Every Loop still needing work — the LoopController's intake (CONCEPT:KG-2.78).
+    """Every Loop still needing work — the LoopController's intake (CONCEPT:AU-KG.research.these-properties-carry).
 
     Generalizes ``unresolved_topics``: a Loop is *active* when
 
@@ -300,7 +300,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         if kind in ("develop", "skill") and status == "running":
             # In-flight: a run_loop / goal driver owns it. Excluding it from intake
             # keeps the daemon cycle from double-driving the same iteration; a crash
-            # leaves it 'orphaned' (rehydrated, re-intakeable). (CONCEPT:KG-2.78)
+            # leaves it 'orphaned' (rehydrated, re-intakeable). (CONCEPT:AU-KG.research.these-properties-carry)
             continue
         if kind == "research" and cid in addressed:
             continue  # research loop already addressed → resolved

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Hardware inventory + multi-objective placement (CONCEPT:KG-2.9).
+"""Hardware inventory + multi-objective placement (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Covers: efficiency-only weights reproduce deployment-planner pinning; security
 weight moves residency violators; resilience weight spreads replicas; tier pins;
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.infra.placement_optimizer import (
 )
 from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
 
-pytestmark = pytest.mark.concept("KG-2.9")
+pytestmark = pytest.mark.concept("AU-KG.ingest.enterprise-source-extractor")
 
 
 def _host(hid, cores=16, ram=64, role="", region="", power=200, findings=0, gpu=False):

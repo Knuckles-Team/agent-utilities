@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
     """Generate embeddings via LM Studio's OpenAI-compatible endpoint.
 
-    CONCEPT:KG-2.3
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph
 
         Uses the same pattern as vector-mcp's create_embedding_model() and
         maintenance.py's generate_embedding(), connecting to the local LM Studio
@@ -60,7 +60,7 @@ def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None
         from agent_utilities.core.embedding_utilities import create_embedding_model
 
         embed_model = create_embedding_model()
-        # Batch never per-element (CONCEPT:KG-2.280): send the whole list in one
+        # Batch never per-element (CONCEPT:AU-KG.ingest.applying-agents-md-batch): send the whole list in one
         # call (the model issues one POST per embed_batch_size) instead of a serial
         # per-text loop.
         try:
@@ -124,7 +124,7 @@ async def execute_embedding(
         # across every known node table (~100 tables) per node — and so the row
         # carries the table's full columns (content_hash + embedding), letting the
         # cache actually hit and skip a redundant re-embed. Falls back to the
-        # label-less form only when the type is unknown. (CONCEPT:KG-2.7)
+        # label-less form only when the type is unknown. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         if ctx.backend:
             try:
                 label = data.get("type")
@@ -157,7 +157,7 @@ async def execute_embedding(
     # Process in batches of 32 (LM Studio handles batch well). Batches are fanned
     # out CONCURRENTLY up to the embedding model's declared parallel-call capacity
     # (parallel_instances × max_parallel_calls) via the shared concurrency
-    # controller (CONCEPT:KG-2.143). Capacity 1 (default) = sequential, identical
+    # controller (CONCEPT:AU-KG.compute.concurrency-controller-sizing). Capacity 1 (default) = sequential, identical
     # to the historical for-loop; capacity K = up to K batches in flight.
     from agent_utilities.core.model_concurrency import (
         map_concurrent,

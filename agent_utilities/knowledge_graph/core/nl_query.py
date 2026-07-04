@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Natural-language → query (CONCEPT:KG-2.266).
+"""Natural-language → query (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 An LLM→query layer: given a natural-language question plus the live KG / table schema
 context, the model emits an executable query in one of the engine's query dialects

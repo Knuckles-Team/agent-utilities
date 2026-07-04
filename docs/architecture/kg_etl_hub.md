@@ -1,7 +1,7 @@
 # Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)
 
-> **CONCEPT:KG-2.7** (SPARQL data backend) · **KG-2.9** (unified ingestion contract) ·
-> **KG-2.98** (`graph_etl` unified pipeline) · **KG-2.99** (ETL lineage)
+> **CONCEPT:AU-KG.query.vendor-agnostic-traversal** (SPARQL data backend) · **KG-2.9** (unified ingestion contract) ·
+> **AU-KG.ontology.one-source** (`graph_etl` unified pipeline) · **AU-KG.ontology.kg-3** (ETL lineage)
 > **Modules:** `knowledge_graph/etl/{pipeline,lineage}.py` ·
 > `knowledge_graph/backends/sparql/stardog_backend.py` ·
 > `knowledge_graph/enrichment/{provenance,registry,materialize,writeback}` ·
@@ -26,7 +26,7 @@ flowchart LR
         LX["LeanIX"]; SN["ServiceNow"]; EG["Egeria"]; CAM["Camunda / ARIS"]; GIT["GitLab / Jira / …"]
     end
     subgraph IN["Extract + Transform (inbound)"]
-        EXT["Extractors / hydration<br/>(KG-2.9, mcp_tool presets KG-2.59)"]
+        EXT["Extractors / hydration<br/>(KG-2.9, mcp_tool presets AU-KG.ingest.mcp-tool-connector)"]
         PROV["stamp_source()<br/>source_system + domain"]
         ONT["Ontology transform<br/>interfaces · links · OWL bridge · metamodel compile"]
     end
@@ -43,7 +43,7 @@ flowchart LR
     HUB --> WB --> SOR
     HUB --> MIR --> SD
     MIR --> N4
-    LIN["ETL lineage (KG-2.99)<br/>PROVENANCE_AGENT runs + WAS_DERIVED_FROM"]
+    LIN["ETL lineage (AU-KG.ontology.kg-3)<br/>PROVENANCE_AGENT runs + WAS_DERIVED_FROM"]
     HUB -.records.-> LIN
 ```
 
@@ -98,7 +98,7 @@ shape-coupling the fan-out backend already uses), routing each node/edge into it
 `role="mirror"` connection, every KG write replicates live; `push_to_stardog` /
 `pull_from_stardog` give on-demand control.
 
-## `graph_etl` — one pipeline run (KG-2.98)
+## `graph_etl` — one pipeline run (AU-KG.ontology.one-source)
 
 ```mermaid
 sequenceDiagram
@@ -132,7 +132,7 @@ sequenceDiagram
 (`action=run|list|lineage`) and the `/graph/etl` REST twin (auto-served from
 `ACTION_TOOL_ROUTES`).
 
-## ETL lineage (KG-2.99)
+## ETL lineage (AU-KG.ontology.kg-3)
 
 Every run records a trail in the KG itself, reusing the existing provenance ontology (no new
 node/edge types): a `PROVENANCE_AGENT` run node (`kind="etl_run"`, source/sink/direction/counts)

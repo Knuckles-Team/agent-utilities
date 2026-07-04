@@ -1,13 +1,13 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver.
+"""CONCEPT:AU-AHE.evaluation.interpretability-tests — Agent-Interpretable Model Evolver.
 
 Autoresearch loop from arXiv:2605.03808, adapted for the agent-utilities
 harness. Manages evolutionary model discovery, Pareto frontier tracking,
 and KG persistence. Actual model fitting is delegated to MCP tools.
 
-See docs/overview.md §CONCEPT:AHE-3.3
+See docs/overview.md §CONCEPT:AU-AHE.evaluation.interpretability-tests
 """
 
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 class ParetoFrontier:
     """Manages the Pareto frontier of accuracy vs interpretability.
 
-    CONCEPT:AHE-3.3 — A model is Pareto-optimal if no other model
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — A model is Pareto-optimal if no other model
     dominates it on *both* axes (lower predictive_rank AND higher
     interpretability_score).
 
@@ -114,7 +114,7 @@ class ParetoFrontier:
 class IModelEvolver:
     """Orchestrates the evolutionary model discovery loop.
 
-    CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — Agent-Interpretable Model Evolver
 
     Manages: register → rank → frontier update → KG persist → advance gen.
     Actual model fitting delegated to external ``data-science-mcp``.
@@ -214,7 +214,7 @@ class IModelEvolver:
         self,
         candidate: IModelCandidate,
     ) -> dict[str, float]:
-        """Decompose fitness into trajectory + step rewards (CONCEPT:AHE-3.1).
+        """Decompose fitness into trajectory + step rewards (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
         trajectory_reward = 1.0 - predictive_rank (accuracy)
         step_reward = interpretability_score
@@ -276,7 +276,7 @@ class IModelEvolver:
                     "str_hash": hashlib.sha256(
                         candidate.str_output.encode()
                     ).hexdigest()[:16],
-                    "concept": "AHE-3.8",
+                    "concept": "AU-AHE.harness.self-improvement-overview",
                     "paper": "arXiv:2605.03808",
                 },
             )

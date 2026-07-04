@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Provider-agnostic OIDC discovery (CONCEPT:OS-5.46).
+"""Provider-agnostic OIDC discovery (CONCEPT:AU-OS.identity.resolve-token-endpoint-from).
 
 Fleet auth is configured by **issuer URL only** — never vendor-specific endpoint
 paths. Given an OIDC issuer (a Keycloak realm ``http://keycloak.arpa/realms/homelab``,

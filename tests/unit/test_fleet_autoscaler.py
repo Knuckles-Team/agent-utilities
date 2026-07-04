@@ -1,4 +1,4 @@
-"""Reactive replica autoscaler (CONCEPT:OS-5.29).
+"""Reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
 
 Covers: the registry ``scaling:`` block parse + validation, the
 target-tracking math (up/down/clamp/step caps/scale-from-zero/per-replica
@@ -9,7 +9,7 @@ permissive policy, watch_scale_down option), the per-tick action budget,
 compact AutoscaleEvaluation recording, and the leader-only flag-gated tick
 registration.
 
-@pytest.mark.concept("OS-5.29")
+@pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from .fleet_autonomy_fakes import (
     write_policy,
 )
 
-pytestmark = pytest.mark.concept("OS-5.29")
+pytestmark = pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 
 
 REGISTRY = """
@@ -505,7 +505,7 @@ def test_quiet_tick_writes_nothing(engine, tmp_path, monkeypatch):
 
 def _enabled_maintenance_names() -> set[str]:
     """Names of ENABLED maintenance :Schedule nodes for the current config
-    (the unified-scheduler analog of a tick being registered; CONCEPT:OS-5.44)."""
+    (the unified-scheduler analog of a tick being registered; CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)."""
     from agent_utilities.core import schedule_engine as _se
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,

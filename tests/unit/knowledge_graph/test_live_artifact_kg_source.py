@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — KG-backed Live Artifact refresh resolver tests (follow-up #1).
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — KG-backed Live Artifact refresh resolver tests (follow-up #1).
 
 Verifies the resolver shapes KG query results into artifact data, raises (→ prior preserved) when the
 query is missing/fails, and that a refresh through the RefreshService re-derives from a stubbed KG.
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.live_artifacts import (
 )
 from agent_utilities.knowledge_graph.live_artifacts.kg_source import kg_source_resolver
 
-pytestmark = pytest.mark.concept(id="KG-2.24")
+pytestmark = pytest.mark.concept(id="AU-KG.memory.live-refreshable-artifact-models")
 
 
 def test_resolver_requires_source_query():

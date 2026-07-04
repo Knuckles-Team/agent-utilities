@@ -1,6 +1,6 @@
 """Standard operator-owned PRIVATE repository set + generalized CI templates.
 
-CONCEPT:OS-5.74 / CONCEPT:OS-5.75
+CONCEPT:AU-OS.deployment.standard-repo-templates / CONCEPT:AU-OS.deployment.concept-2
 
 Every genesis deployment (``tiny`` | ``single-node-prod`` | ``enterprise``) should
 end up with a *consistent, abstract* set of operator-owned **private** git repos that
@@ -202,7 +202,7 @@ _INFRA_GITKEEP = (
 )
 
 
-# ── generalized, reusable GitLab CI templates (CONCEPT:OS-5.75) ─────────────
+# ── generalized, reusable GitLab CI templates (CONCEPT:AU-OS.deployment.concept-2) ─────────────
 # Generalized from gitlab-pipelines/* — operator specifics (runner tags, the CI
 # templates project path, registry) are ${TOKEN}s resolved at deploy time, NOT baked.
 
@@ -531,9 +531,9 @@ def provision_plan(
 
 
 def manifest_summary() -> dict:
-    """Compact, generator-friendly view for genesis.yaml (CONCEPT:OS-5.74)."""
+    """Compact, generator-friendly view for genesis.yaml (CONCEPT:AU-OS.deployment.standard-repo-templates)."""
     return {
-        "concept": "OS-5.74",
+        "concept": "AU-OS.deployment.standard-repo-templates",
         "purpose": (
             "Standard operator-owned PRIVATE repos genesis provisions per profile —"
             " abstract/templated; operator env lives only in XDG config + these repos,"
@@ -547,7 +547,7 @@ def manifest_summary() -> dict:
         "git_mode": dict(_GIT_MODE),
         "ci_templates": sorted(CI_TEMPLATES),
         "runners": {p: _RUNNER_COUNT[p] for p in PROFILES},
-        "step": "agent-os-genesis Step 9b (CONCEPT:OS-5.75)",
+        "step": "agent-os-genesis Step 9b (CONCEPT:AU-OS.deployment.concept-2)",
         "tokens": list(PLACEHOLDER_TOKENS),
     }
 

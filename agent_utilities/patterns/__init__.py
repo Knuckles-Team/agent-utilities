@@ -7,11 +7,11 @@ comparative review against *Agentic Design Patterns* (Antonio Gulli).
 
 Modules
 -------
-prompt_chain : CONCEPT:ORCH-1.1
+prompt_chain : CONCEPT:AU-ORCH.planning.recursion-nesting-depth
     Declarative multi-step prompt pipelines with branching.
-prioritization : CONCEPT:ORCH-1.1
+prioritization : CONCEPT:AU-ORCH.planning.recursion-nesting-depth
     Multi-factor task prioritization with dependency tracking.
-exploration : CONCEPT:AHE-3.2
+exploration : CONCEPT:AU-AHE.harness.evolutionary-aggregation
     Autonomous exploration and discovery loop.
 """
 
@@ -38,17 +38,17 @@ from agent_utilities.patterns.prompt_chain import (
 )
 
 __all__ = [
-    # CONCEPT:ORCH-1.1
+    # CONCEPT:AU-ORCH.planning.recursion-nesting-depth
     "ChainResult",
     "PromptChain",
     "PromptChainExecutor",
     "PromptChainStep",
     "StepResult",
-    # CONCEPT:ORCH-1.1
+    # CONCEPT:AU-ORCH.planning.recursion-nesting-depth
     "PrioritizationEngine",
     "PrioritizedTask",
     "PriorityScore",
-    # CONCEPT:AHE-3.2
+    # CONCEPT:AU-AHE.harness.evolutionary-aggregation
     "Discovery",
     "Experiment",
     "ExplorationEngine",

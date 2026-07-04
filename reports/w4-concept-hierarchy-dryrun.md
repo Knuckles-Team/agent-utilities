@@ -39,75 +39,75 @@ The **Raw** column stays a permanently-valid alias either way.
 |--------|------------------|-----------|--------|---------|---------|-------|----------|
 | `AHE-3.0` | `AHE-3.0` | AHE | 3 | 0 | — | — | agent-utilities |
 | `AHE-3.1` | `AHE-3.1` | AHE | 3 | 1 | — | — | agent-utilities, agents, skills |
-| `AHE-3.11` | `AHE-3.11` | AHE | 3 | 11 | — | — | agent-utilities |
+| `AU-AHE.optimization.gitops-commit-automation` | `AU-AHE.optimization.gitops-commit-automation` | AHE | 3 | 11 | — | — | agent-utilities |
 | `AHE-3.12` | `AHE-3.12` | AHE | 3 | 12 | — | — | agent-utilities |
-| `AHE-3.13` | `AHE-3.13` | AHE | 3 | 13 | — | — | agent-utilities |
-| `AHE-3.14` | `AHE-3.14` | AHE | 3 | 14 | — | — | agent-utilities |
-| `AHE-3.15` | `AHE-3.15` | AHE | 3 | 15 | — | — | agent-utilities |
-| `AHE-3.16` | `AHE-3.16` | AHE | 3 | 16 | — | — | agent-utilities |
-| `AHE-3.17` | `AHE-3.17` | AHE | 3 | 17 | — | — | agent-utilities |
-| `AHE-3.18` | `AHE-3.18` | AHE | 3 | 18 | — | — | agent-utilities |
-| `AHE-3.19` | `AHE-3.19` | AHE | 3 | 19 | — | — | agent-utilities |
+| `AU-AHE.harness.pre-emit-quality-gate` | `AU-AHE.harness.pre-emit-quality-gate` | AHE | 3 | 13 | — | — | agent-utilities |
+| `AU-AHE.assimilation.research-auto-merge` | `AU-AHE.assimilation.research-auto-merge` | AHE | 3 | 14 | — | — | agent-utilities |
+| `AU-AHE.reward.this-is-read-back` | `AU-AHE.reward.this-is-read-back` | AHE | 3 | 15 | — | — | agent-utilities |
+| `AU-AHE.harness.width-diverse-best-k` | `AU-AHE.harness.width-diverse-best-k` | AHE | 3 | 16 | — | — | agent-utilities |
+| `AU-AHE.harness.preference-corpus-reliability` | `AU-AHE.harness.preference-corpus-reliability` | AHE | 3 | 17 | — | — | agent-utilities |
+| `AU-AHE.harness.failure-evolution` | `AU-AHE.harness.failure-evolution` | AHE | 3 | 18 | — | — | agent-utilities |
+| `AU-AHE.optimization.performance-anomaly-consumer` | `AU-AHE.optimization.performance-anomaly-consumer` | AHE | 3 | 19 | — | — | agent-utilities |
 | `AHE-3.2` | `AHE-3.2` | AHE | 3 | 2 | — | — | agent-utilities |
-| `AHE-3.20` | `AHE-3.20` | AHE | 3 | 20 | — | — | agent-utilities |
+| `AU-AHE.harness.promotion-governance-validator` | `AU-AHE.harness.promotion-governance-validator` | AHE | 3 | 20 | — | — | agent-utilities |
 | `AHE-3.21` | `AHE-3.21` | AHE | 3 | 21 | — | — | agent-utilities |
 | `AHE-3.22` | `AHE-3.22` | AHE | 3 | 22 | — | — | agent-utilities |
 | `AHE-3.23` | `AHE-3.23` | AHE | 3 | 23 | — | — | agent-utilities |
-| `AHE-3.24` | `AHE-3.24` | AHE | 3 | 24 | — | — | agent-utilities |
+| `AU-AHE.evaluation.capability-benchmark-regression-ratchet` | `AU-AHE.evaluation.capability-benchmark-regression-ratchet` | AHE | 3 | 24 | — | — | agent-utilities |
 | `AHE-3.25` | `AHE-3.25` | AHE | 3 | 25 | — | — | agent-utilities |
-| `AHE-3.26` | `AHE-3.26` | AHE | 3 | 26 | — | — | agent-utilities |
-| `AHE-3.27` | `AHE-3.27` | AHE | 3 | 27 | — | — | agent-utilities |
-| `AHE-3.28` | `AHE-3.28` | AHE | 3 | 28 | — | — | agent-utilities |
-| `AHE-3.29` | `AHE-3.29` | AHE | 3 | 29 | — | — | agent-utilities, agents |
+| `AU-AHE.sdd.recursive-improvement-instrumentation-aggregating` | `AU-AHE.sdd.recursive-improvement-instrumentation-aggregating` | AHE | 3 | 26 | — | — | agent-utilities |
+| `AU-AHE.harness.per-task-adaptation-speed` | `AU-AHE.harness.per-task-adaptation-speed` | AHE | 3 | 27 | — | — | agent-utilities |
+| `AU-AHE.harness.sai-task` | `AU-AHE.harness.sai-task` | AHE | 3 | 28 | — | — | agent-utilities |
+| `AU-AHE.harness.sai-controller` | `AU-AHE.harness.sai-controller` | AHE | 3 | 29 | — | — | agent-utilities, agents |
 | `AHE-3.3` | `AHE-3.3` | AHE | 3 | 3 | — | — | agent-utilities |
-| `AHE-3.30` | `AHE-3.30` | AHE | 3 | 30 | — | — | agent-utilities, agents |
-| `AHE-3.31` | `AHE-3.31` | AHE | 3 | 31 | — | — | agent-utilities |
+| `AU-AHE.reward.search-task-corpus` | `AU-AHE.reward.search-task-corpus` | AHE | 3 | 30 | — | — | agent-utilities, agents |
+| `AU-AHE.optimization.recursive-distillation-loop` | `AU-AHE.optimization.recursive-distillation-loop` | AHE | 3 | 31 | — | — | agent-utilities |
 | `AHE-3.32` | `AHE-3.32` | AHE | 3 | 32 | — | — | agent-utilities |
 | `AHE-3.33` | `AHE-3.33` | AHE | 3 | 33 | — | — | agent-utilities, epistemic-graph |
 | `AHE-3.34` | `AHE-3.34` | AHE | 3 | 34 | — | — | agent-utilities |
-| `AHE-3.35` | `AHE-3.35` | AHE | 3 | 35 | — | — | agent-utilities |
+| `AU-AHE.assimilation.baseline-overfit-gate` | `AU-AHE.assimilation.baseline-overfit-gate` | AHE | 3 | 35 | — | — | agent-utilities |
 | `AHE-3.36` | `AHE-3.36` | AHE | 3 | 36 | — | — | agent-utilities |
-| `AHE-3.37` | `AHE-3.37` | AHE | 3 | 37 | — | — | agent-utilities |
+| `AU-AHE.harness.when-task-is-scope` | `AU-AHE.harness.when-task-is-scope` | AHE | 3 | 37 | — | — | agent-utilities |
 | `AHE-3.38` | `AHE-3.38` | AHE | 3 | 38 | — | — | agent-utilities |
-| `AHE-3.39` | `AHE-3.39` | AHE | 3 | 39 | — | — | agent-utilities |
+| `AU-AHE.optimization.real-optimization-metric` | `AU-AHE.optimization.real-optimization-metric` | AHE | 3 | 39 | — | — | agent-utilities |
 | `AHE-3.4` | `AHE-3.4` | AHE | 3 | 4 | — | — | agent-utilities |
 | `AHE-3.40` | `AHE-3.40` | AHE | 3 | 40 | — | — | agent-utilities |
-| `AHE-3.41` | `AHE-3.41` | AHE | 3 | 41 | — | — | agent-utilities |
-| `AHE-3.42` | `AHE-3.42` | AHE | 3 | 42 | — | — | agent-utilities |
-| `AHE-3.43` | `AHE-3.43` | AHE | 3 | 43 | — | — | agent-utilities |
-| `AHE-3.44` | `AHE-3.44` | AHE | 3 | 44 | — | — | agent-utilities |
-| `AHE-3.45` | `AHE-3.45` | AHE | 3 | 45 | — | — | agent-utilities |
-| `AHE-3.46` | `AHE-3.46` | AHE | 3 | 46 | — | — | agent-utilities |
-| `AHE-3.47` | `AHE-3.47` | AHE | 3 | 47 | — | — | agent-utilities |
-| `AHE-3.48` | `AHE-3.48` | AHE | 3 | 48 | — | — | agent-utilities |
-| `AHE-3.49` | `AHE-3.49` | AHE | 3 | 49 | — | — | agent-utilities |
-| `AHE-3.50` | `AHE-3.50` | AHE | 3 | 50 | — | — | agent-utilities |
-| `AHE-3.51` | `AHE-3.51` | AHE | 3 | 51 | — | — | agent-utilities |
-| `AHE-3.52` | `AHE-3.52` | AHE | 3 | 52 | — | — | agent-utilities |
+| `AU-AHE.optimization.optimizable-tool-descriptions` | `AU-AHE.optimization.optimizable-tool-descriptions` | AHE | 3 | 41 | — | — | agent-utilities |
+| `AU-AHE.optimization.agent-skill-sop-description` | `AU-AHE.optimization.agent-skill-sop-description` | AHE | 3 | 42 | — | — | agent-utilities |
+| `AU-AHE.optimization.few-shot-demo-set` | `AU-AHE.optimization.few-shot-demo-set` | AHE | 3 | 43 | — | — | agent-utilities |
+| `AU-AHE.optimization.dspy-optimization-kg-extraction` | `AU-AHE.optimization.dspy-optimization-kg-extraction` | AHE | 3 | 44 | — | — | agent-utilities |
+| `AU-AHE.optimization.concept-matching-routing-policy` | `AU-AHE.optimization.concept-matching-routing-policy` | AHE | 3 | 45 | — | — | agent-utilities |
+| `AU-AHE.optimization.candidate-replaces-incumbent-only` | `AU-AHE.optimization.candidate-replaces-incumbent-only` | AHE | 3 | 46 | — | — | agent-utilities |
+| `AU-AHE.assimilation.empirical-parity-evidence-assimilation` | `AU-AHE.assimilation.empirical-parity-evidence-assimilation` | AHE | 3 | 47 | — | — | agent-utilities |
+| `AU-AHE.harness.empirical-evidence-that-latent` | `AU-AHE.harness.empirical-evidence-that-latent` | AHE | 3 | 48 | — | — | agent-utilities |
+| `AU-AHE.reward.cache-rollout-signals` | `AU-AHE.reward.cache-rollout-signals` | AHE | 3 | 49 | — | — | agent-utilities |
+| `AU-AHE.harness.co-evolve-research` | `AU-AHE.harness.co-evolve-research` | AHE | 3 | 50 | — | — | agent-utilities |
+| `AU-KG.ontology.owl-bridge` | `AU-KG.ontology.owl-bridge` | AHE | 3 | 51 | — | — | agent-utilities |
+| `AU-AHE.harness.run-aegis-loop-over` | `AU-AHE.harness.run-aegis-loop-over` | AHE | 3 | 52 | — | — | agent-utilities |
 | `AHE-3.53` | `AHE-3.53` | AHE | 3 | 53 | — | — | agent-utilities |
-| `AHE-3.55` | `AHE-3.55` | AHE | 3 | 55 | — | — | agent-utilities |
-| `AHE-3.56` | `AHE-3.56` | AHE | 3 | 56 | — | — | agent-utilities |
-| `AHE-3.57` | `AHE-3.57` | AHE | 3 | 57 | — | — | agent-utilities |
-| `AHE-3.58` | `AHE-3.58` | AHE | 3 | 58 | — | — | agent-utilities |
-| `AHE-3.59` | `AHE-3.59` | AHE | 3 | 59 | — | — | agent-utilities |
-| `AHE-3.60` | `AHE-3.60` | AHE | 3 | 60 | — | — | agent-utilities |
-| `AHE-3.61` | `AHE-3.61` | AHE | 3 | 61 | — | — | agent-utilities |
-| `AHE-3.62` | `AHE-3.62` | AHE | 3 | 62 | — | — | agent-utilities |
-| `AHE-3.63` | `AHE-3.63` | AHE | 3 | 63 | — | — | agent-utilities |
-| `AHE-3.64` | `AHE-3.64` | AHE | 3 | 64 | — | — | agent-utilities |
-| `AHE-3.65` | `AHE-3.65` | AHE | 3 | 65 | — | — | agent-utilities |
-| `AHE-3.66` | `AHE-3.66` | AHE | 3 | 66 | — | — | agent-utilities |
-| `AHE-3.67` | `AHE-3.67` | AHE | 3 | 67 | — | — | agent-utilities |
-| `AHE-3.68` | `AHE-3.68` | AHE | 3 | 68 | — | — | agent-utilities |
-| `AHE-3.69` | `AHE-3.69` | AHE | 3 | 69 | — | — | agent-utilities |
-| `AHE-3.70` | `AHE-3.70` | AHE | 3 | 70 | — | — | agent-utilities |
+| `AU-AHE.harness.co-evolution-loop` | `AU-AHE.harness.co-evolution-loop` | AHE | 3 | 55 | — | — | agent-utilities |
+| `AU-AHE.harness.kg-held-out-certification` | `AU-AHE.harness.kg-held-out-certification` | AHE | 3 | 56 | — | — | agent-utilities |
+| `AU-AHE.harness.per-dimension-ship-outcome` | `AU-AHE.harness.per-dimension-ship-outcome` | AHE | 3 | 57 | — | — | agent-utilities |
+| `AU-AHE.evaluation.edit-claims-fix` | `AU-AHE.evaluation.edit-claims-fix` | AHE | 3 | 58 | — | — | agent-utilities |
+| `AU-AHE.harness.variant-pool` | `AU-AHE.harness.variant-pool` | AHE | 3 | 59 | — | — | agent-utilities |
+| `AU-AHE.harness.manifest-verify` | `AU-AHE.harness.manifest-verify` | AHE | 3 | 60 | — | — | agent-utilities |
+| `AU-AHE.evaluation.reads-avoided-feedback` | `AU-AHE.evaluation.reads-avoided-feedback` | AHE | 3 | 61 | — | — | agent-utilities |
+| `AU-AHE.evaluation.action-outcome-feedback` | `AU-AHE.evaluation.action-outcome-feedback` | AHE | 3 | 62 | — | — | agent-utilities |
+| `AU-AHE.assimilation.research-source-grading` | `AU-AHE.assimilation.research-source-grading` | AHE | 3 | 63 | — | — | agent-utilities |
+| `AU-AHE.harness.receives-trace-id-must` | `AU-AHE.harness.receives-trace-id-must` | AHE | 3 | 64 | — | — | agent-utilities |
+| `AU-AHE.harness.ahe-2` | `AU-AHE.harness.ahe-2` | AHE | 3 | 65 | — | — | agent-utilities |
+| `AU-AHE.harness.instead-context-stuffing-small` | `AU-AHE.harness.instead-context-stuffing-small` | AHE | 3 | 66 | — | — | agent-utilities |
+| `AU-AHE.harness.onlinescorenode` | `AU-AHE.harness.onlinescorenode` | AHE | 3 | 67 | — | — | agent-utilities |
+| `AU-AHE.evaluation.generationnode-records` | `AU-AHE.evaluation.generationnode-records` | AHE | 3 | 68 | — | — | agent-utilities |
+| `AU-AHE.assimilation.merge-entities` | `AU-AHE.assimilation.merge-entities` | AHE | 3 | 69 | — | — | agent-utilities |
+| `AU-AHE.assimilation.transliteration-singularization-extend-ahe` | `AU-AHE.assimilation.transliteration-singularization-extend-ahe` | AHE | 3 | 70 | — | — | agent-utilities |
 | `AHE-3.71` | `AHE-3.71` | AHE | 3 | 71 | — | — | agent-utilities |
-| `AHE-3.72` | `AHE-3.72` | AHE | 3 | 72 | — | — | agent-utilities |
-| `AHE-3.73` | `AHE-3.73` | AHE | 3 | 73 | — | — | agent-utilities |
-| `AHE-3.74` | `AHE-3.74` | AHE | 3 | 74 | — | — | agent-utilities |
-| `AHE-3.8` | `AHE-3.8` | AHE | 3 | 8 | — | — | agents |
+| `AU-AHE.harness.when-outcome-names-agent` | `AU-AHE.harness.when-outcome-names-agent` | AHE | 3 | 72 | — | — | agent-utilities |
+| `AU-AHE.harness.callers-feed-back-per` | `AU-AHE.harness.callers-feed-back-per` | AHE | 3 | 73 | — | — | agent-utilities |
+| `AU-AHE.harness.ahe-3` | `AU-AHE.harness.ahe-3` | AHE | 3 | 74 | — | — | agent-utilities |
+| `AU-AHE.harness.self-improvement-overview` | `AU-AHE.harness.self-improvement-overview` | AHE | 3 | 8 | — | — | agents |
 | `AHE-3.9` | `AHE-3.9` | AHE | 3 | 9 | — | — | agent-utilities |
-| `AHE-3.x` | `AHE-3.x` | AHE | 3 | x | — | — | agent-utilities |
+| `AU-AHE.optimization.telemetry-optimization` | `AU-AHE.optimization.telemetry-optimization` | AHE | 3 | x | — | — | agent-utilities |
 | `CE-001` | `CE-0.001` | CE | 0 | 001 | — | legacy-pillar-0 | skills |
 | `CE-002` | `CE-0.002` | CE | 0 | 002 | — | legacy-pillar-0 | skills |
 | `CE-003` | `CE-0.003` | CE | 0 | 003 | — | legacy-pillar-0 | skills |
@@ -134,98 +134,98 @@ The **Raw** column stays a permanently-valid alias either way.
 | `CE-027` | `CE-0.027` | CE | 0 | 027 | — | legacy-pillar-0 | skills |
 | `CE-036` | `CE-0.036` | CE | 0 | 036 | — | legacy-pillar-0 | skills |
 | `CE-037` | `CE-0.037` | CE | 0 | 037 | — | legacy-pillar-0 | skills |
-| `CE-038` | `CE-0.038` | CE | 0 | 038 | — | legacy-pillar-0 | agent-utilities, skills |
-| `CE-039` | `CE-0.039` | CE | 0 | 039 | — | legacy-pillar-0 | agent-utilities, skills |
+| `AU-KG.maintenance.periodic-code-health` | `CE-0.038` | CE | 0 | 038 | — | legacy-pillar-0 | agent-utilities, skills |
+| `AU-KG.maintenance.baseline-vs-resolved-deltas` | `CE-0.039` | CE | 0 | 039 | — | legacy-pillar-0 | agent-utilities, skills |
 | `CE-040` | `CE-0.040` | CE | 0 | 040 | — | legacy-pillar-0 | skills |
 | `CE-041` | `CE-0.041` | CE | 0 | 041 | — | legacy-pillar-0 | skills |
 | `CE-042` | `CE-0.042` | CE | 0 | 042 | — | legacy-pillar-0 | skills |
 | `CE-043` | `CE-0.043` | CE | 0 | 043 | — | legacy-pillar-0 | skills |
-| `CTX-1.0` | `CTX-1.0` | CTX | 1 | 0 | — | — | agent-utilities |
+| `AU-OS.context.nested-instructions` | `AU-OS.context.nested-instructions` | CTX | 1 | 0 | — | — | agent-utilities |
 | `ECO-4.0` | `ECO-4.0` | ECO | 4 | 0 | — | — | agent-utilities, agent-webui, agents, scripts, skills |
-| `ECO-4.04` | `ECO-4.04` | ECO | 4 | 04 | — | — | agent-utilities |
-| `ECO-4.05` | `ECO-4.05` | ECO | 4 | 05 | — | — | agent-utilities |
+| `AU-OS.deployment.infrastructure-blueprint-library` | `AU-OS.deployment.infrastructure-blueprint-library` | ECO | 4 | 04 | — | — | agent-utilities |
+| `AU-ECO.bus.pluggable-event-queue` | `AU-ECO.bus.pluggable-event-queue` | ECO | 4 | 05 | — | — | agent-utilities |
 | `ECO-4.1` | `ECO-4.1` | ECO | 4 | 1 | — | — | agent-utilities, agents |
-| `ECO-4.10` | `ECO-4.10` | ECO | 4 | 10 | — | — | agent-utilities |
-| `ECO-4.11` | `ECO-4.11` | ECO | 4 | 11 | — | — | agent-utilities |
-| `ECO-4.12` | `ECO-4.12` | ECO | 4 | 12 | — | — | agent-utilities |
-| `ECO-4.13` | `ECO-4.13` | ECO | 4 | 13 | — | — | agent-utilities |
-| `ECO-4.17` | `ECO-4.17` | ECO | 4 | 17 | — | — | agent-utilities |
-| `ECO-4.21` | `ECO-4.21` | ECO | 4 | 21 | — | — | agent-utilities |
+| `AU-KG.memory.team-startup-context` | `AU-KG.memory.team-startup-context` | ECO | 4 | 10 | — | — | agent-utilities |
+| `AU-OS.governance.lint-enforcement-hook` | `AU-OS.governance.lint-enforcement-hook` | ECO | 4 | 11 | — | — | agent-utilities |
+| `AU-ECO.toolkit.self-documenting-plugin-bundle` | `AU-ECO.toolkit.self-documenting-plugin-bundle` | ECO | 4 | 12 | — | — | agent-utilities |
+| `AU-OS.governance.permission-policy` | `AU-OS.governance.permission-policy` | ECO | 4 | 13 | — | — | agent-utilities |
+| `AU-OS.governance.agents-md-reflector` | `AU-OS.governance.agents-md-reflector` | ECO | 4 | 17 | — | — | agent-utilities |
+| `AU-OS.audit.config-staleness-auditor` | `AU-OS.audit.config-staleness-auditor` | ECO | 4 | 21 | — | — | agent-utilities |
 | `ECO-4.22` | `ECO-4.22` | ECO | 4 | 22 | — | — | agent-utilities |
-| `ECO-4.23` | `ECO-4.23` | ECO | 4 | 23 | — | — | agent-utilities |
-| `ECO-4.24` | `ECO-4.24` | ECO | 4 | 24 | — | — | agent-utilities |
+| `AU-ECO.toolkit.codebase-map-generator` | `AU-ECO.toolkit.codebase-map-generator` | ECO | 4 | 23 | — | — | agent-utilities |
+| `AU-OS.observability.langfuse-exporter` | `AU-OS.observability.langfuse-exporter` | ECO | 4 | 24 | — | — | agent-utilities |
 | `ECO-4.25` | `ECO-4.25` | ECO | 4 | 25 | — | — | agent-utilities |
 | `ECO-4.26` | `ECO-4.26` | ECO | 4 | 26 | — | — | agent-utilities |
 | `ECO-4.27` | `ECO-4.27` | ECO | 4 | 27 | — | — | agent-utilities |
 | `ECO-4.28` | `ECO-4.28` | ECO | 4 | 28 | — | — | agent-utilities |
 | `ECO-4.29` | `ECO-4.29` | ECO | 4 | 29 | — | — | agent-utilities |
-| `ECO-4.3` | `ECO-4.3` | ECO | 4 | 3 | — | — | agent-utilities |
+| `AU-ECO.ui.company-infrastructure-orchestration` | `AU-ECO.ui.company-infrastructure-orchestration` | ECO | 4 | 3 | — | — | agent-utilities |
 | `ECO-4.30` | `ECO-4.30` | ECO | 4 | 30 | — | — | agent-utilities |
-| `ECO-4.31` | `ECO-4.31` | ECO | 4 | 31 | — | — | agent-utilities |
-| `ECO-4.32` | `ECO-4.32` | ECO | 4 | 32 | — | — | agent-utilities |
-| `ECO-4.33` | `ECO-4.33` | ECO | 4 | 33 | — | — | agent-utilities |
-| `ECO-4.34` | `ECO-4.34` | ECO | 4 | 34 | — | — | agent-utilities |
-| `ECO-4.35` | `ECO-4.35` | ECO | 4 | 35 | — | — | agent-utilities, agents |
+| `AU-ECO.toolkit.media-transcription-bridge` | `AU-ECO.toolkit.media-transcription-bridge` | ECO | 4 | 31 | — | — | agent-utilities |
+| `AU-ECO.connector.apply-any-query-analysis` | `AU-ECO.connector.apply-any-query-analysis` | ECO | 4 | 32 | — | — | agent-utilities |
+| `AU-ECO.toolkit.database-traversal-tools` | `AU-ECO.toolkit.database-traversal-tools` | ECO | 4 | 33 | — | — | agent-utilities |
+| `AU-ECO.mcp.profile-differences-from-client` | `AU-ECO.mcp.profile-differences-from-client` | ECO | 4 | 34 | — | — | agent-utilities |
+| `AU-ECO.ui.fleet-http-client-library` | `AU-ECO.ui.fleet-http-client-library` | ECO | 4 | 35 | — | — | agent-utilities, agents |
 | `ECO-4.36` | `ECO-4.36` | ECO | 4 | 36 | — | — | agent-utilities |
-| `ECO-4.37` | `ECO-4.37` | ECO | 4 | 37 | — | — | agent-utilities, geniusbot |
-| `ECO-4.38` | `ECO-4.38` | ECO | 4 | 38 | — | — | agent-utilities |
-| `ECO-4.39` | `ECO-4.39` | ECO | 4 | 39 | — | — | agent-utilities |
+| `AU-ECO.interop.gateway-client-sdk` | `AU-ECO.interop.gateway-client-sdk` | ECO | 4 | 37 | — | — | agent-utilities, geniusbot |
+| `AU-ECO.connector.agent-source-ingestion` | `AU-ECO.connector.agent-source-ingestion` | ECO | 4 | 38 | — | — | agent-utilities |
+| `AU-OS.observability.usage-analytics-store` | `AU-OS.observability.usage-analytics-store` | ECO | 4 | 39 | — | — | agent-utilities |
 | `ECO-4.40` | `ECO-4.40` | ECO | 4 | 40 | — | — | agent-utilities |
-| `ECO-4.41` | `ECO-4.41` | ECO | 4 | 41 | — | — | agent-terminal-ui, agent-utilities, geniusbot |
-| `ECO-4.42` | `ECO-4.42` | ECO | 4 | 42 | — | — | agent-utilities |
-| `ECO-4.43` | `ECO-4.43` | ECO | 4 | 43 | — | — | agent-utilities, geniusbot |
-| `ECO-4.44` | `ECO-4.44` | ECO | 4 | 44 | — | — | agent-utilities |
+| `AU-ECO.mcp.usage-cost-observability-surface` | `AU-ECO.mcp.usage-cost-observability-surface` | ECO | 4 | 41 | — | — | agent-terminal-ui, agent-utilities, geniusbot |
+| `AU-ECO.mcp.client-side-chat-session` | `AU-ECO.mcp.client-side-chat-session` | ECO | 4 | 42 | — | — | agent-utilities |
+| `AU-ECO.connector.git-task-resolver` | `AU-ECO.connector.git-task-resolver` | ECO | 4 | 43 | — | — | agent-utilities, geniusbot |
+| `AU-ECO.toolkit.browser-agent-tier` | `AU-ECO.toolkit.browser-agent-tier` | ECO | 4 | 44 | — | — | agent-utilities |
 | `ECO-4.45` | `ECO-4.45` | ECO | 4 | 45 | — | — | agent-utilities |
-| `ECO-4.46` | `ECO-4.46` | ECO | 4 | 46 | — | — | agent-utilities |
-| `ECO-4.47` | `ECO-4.47` | ECO | 4 | 47 | — | — | agent-utilities |
-| `ECO-4.48` | `ECO-4.48` | ECO | 4 | 48 | — | — | agent-utilities |
-| `ECO-4.49` | `ECO-4.49` | ECO | 4 | 49 | — | — | agent-utilities |
-| `ECO-4.50` | `ECO-4.50` | ECO | 4 | 50 | — | — | agent-utilities |
-| `ECO-4.51` | `ECO-4.51` | ECO | 4 | 51 | — | — | agent-utilities |
+| `AU-ECO.connector.mcp-tool-connector` | `AU-ECO.connector.mcp-tool-connector` | ECO | 4 | 46 | — | — | agent-utilities |
+| `AU-AHE.harness.overnight-loop-driver` | `AU-AHE.harness.overnight-loop-driver` | ECO | 4 | 47 | — | — | agent-utilities |
+| `AU-ECO.messaging.messaging-reach-service-governed` | `AU-ECO.messaging.messaging-reach-service-governed` | ECO | 4 | 48 | — | — | agent-utilities |
+| `AU-ECO.messaging.last-active-channel-routing` | `AU-ECO.messaging.last-active-channel-routing` | ECO | 4 | 49 | — | — | agent-utilities |
+| `AU-ECO.mcp.graph-reach-mcp-tool` | `AU-ECO.mcp.graph-reach-mcp-tool` | ECO | 4 | 50 | — | — | agent-utilities |
+| `AU-ECO.messaging.sending-reply-failed` | `AU-ECO.messaging.sending-reply-failed` | ECO | 4 | 51 | — | — | agent-utilities |
 | `ECO-4.52` | `ECO-4.52` | ECO | 4 | 52 | — | — | agent-utilities |
-| `ECO-4.53` | `ECO-4.53` | ECO | 4 | 53 | — | — | agent-utilities |
-| `ECO-4.54` | `ECO-4.54` | ECO | 4 | 54 | — | — | agent-utilities |
-| `ECO-4.55` | `ECO-4.55` | ECO | 4 | 55 | — | — | agent-utilities |
-| `ECO-4.56` | `ECO-4.56` | ECO | 4 | 56 | — | — | agent-utilities |
-| `ECO-4.57` | `ECO-4.57` | ECO | 4 | 57 | — | — | agent-utilities |
-| `ECO-4.60` | `ECO-4.60` | ECO | 4 | 60 | — | — | agent-utilities |
-| `ECO-4.61` | `ECO-4.61` | ECO | 4 | 61 | — | — | agent-utilities |
+| `AU-ECO.messaging.universal-agent-reach-user` | `AU-ECO.messaging.universal-agent-reach-user` | ECO | 4 | 53 | — | — | agent-utilities |
+| `AU-ECO.messaging.messaging-ontology-shape-so` | `AU-ECO.messaging.messaging-ontology-shape-so` | ECO | 4 | 54 | — | — | agent-utilities |
+| `AU-ECO.messaging.model-routed-inbound-responder` | `AU-ECO.messaging.model-routed-inbound-responder` | ECO | 4 | 55 | — | — | agent-utilities |
+| `AU-ECO.messaging.inbound-router` | `AU-ECO.messaging.inbound-router` | ECO | 4 | 56 | — | — | agent-utilities |
+| `AU-ECO.messaging.single-inbound-command-dispatcher` | `AU-ECO.messaging.single-inbound-command-dispatcher` | ECO | 4 | 57 | — | — | agent-utilities |
+| `AU-ECO.messaging.messaging-renderer-core-reaction` | `AU-ECO.messaging.messaging-renderer-core-reaction` | ECO | 4 | 60 | — | — | agent-utilities |
+| `AU-ECO.toolkit.shared-kg-layer` | `AU-ECO.toolkit.shared-kg-layer` | ECO | 4 | 61 | — | — | agent-utilities |
 | `ECO-4.63` | `ECO-4.63` | ECO | 4 | 63 | — | — | agent-utilities |
-| `ECO-4.64` | `ECO-4.64` | ECO | 4 | 64 | — | — | agent-utilities |
+| `AU-ECO.messaging.eco-2` | `AU-ECO.messaging.eco-2` | ECO | 4 | 64 | — | — | agent-utilities |
 | `ECO-4.65` | `ECO-4.65` | ECO | 4 | 65 | — | — | agent-utilities |
-| `ECO-4.66` | `ECO-4.66` | ECO | 4 | 66 | — | — | agent-utilities |
+| `AU-ECO.messaging.telegram-webhook-receiver-started` | `AU-ECO.messaging.telegram-webhook-receiver-started` | ECO | 4 | 66 | — | — | agent-utilities |
 | `ECO-4.67` | `ECO-4.67` | ECO | 4 | 67 | — | — | agent-utilities |
 | `ECO-4.68` | `ECO-4.68` | ECO | 4 | 68 | — | — | agent-utilities |
-| `ECO-4.70` | `ECO-4.70` | ECO | 4 | 70 | — | — | agent-utilities |
-| `ECO-4.71` | `ECO-4.71` | ECO | 4 | 71 | — | — | agent-terminal-ui, agent-utilities |
+| `AU-ECO.messaging.surfaced` | `AU-ECO.messaging.surfaced` | ECO | 4 | 70 | — | — | agent-utilities |
+| `AU-ECO.messaging.shared-by-every-messaging` | `AU-ECO.messaging.shared-by-every-messaging` | ECO | 4 | 71 | — | — | agent-terminal-ui, agent-utilities |
 | `ECO-4.72` | `ECO-4.72` | ECO | 4 | 72 | — | — | agent-utilities |
-| `ECO-4.73` | `ECO-4.73` | ECO | 4 | 73 | — | — | agent-utilities |
-| `ECO-4.74` | `ECO-4.74` | ECO | 4 | 74 | — | — | agent-utilities |
-| `ECO-4.75` | `ECO-4.75` | ECO | 4 | 75 | — | — | agent-utilities |
-| `ECO-4.77` | `ECO-4.77` | ECO | 4 | 77 | — | — | agent-utilities |
+| `AU-ECO.messaging.inbound-messaging-router-runs` | `AU-ECO.messaging.inbound-messaging-router-runs` | ECO | 4 | 73 | — | — | agent-utilities |
+| `AU-ECO.messaging.debounce-timer-cancel` | `AU-ECO.messaging.debounce-timer-cancel` | ECO | 4 | 74 | — | — | agent-utilities |
+| `AU-ECO.messaging.make-fleet-credentials-present` | `AU-ECO.messaging.make-fleet-credentials-present` | ECO | 4 | 75 | — | — | agent-utilities |
+| `AU-ECO.toolkit.unified-delegation-surface` | `AU-ECO.toolkit.unified-delegation-surface` | ECO | 4 | 77 | — | — | agent-utilities |
 | `ECO-4.78` | `ECO-4.78` | ECO | 4 | 78 | — | — | agent-utilities |
 | `ECO-4.79` | `ECO-4.79` | ECO | 4 | 79 | — | — | agent-utilities |
-| `ECO-4.80` | `ECO-4.80` | ECO | 4 | 80 | — | — | agent-utilities |
+| `AU-ECO.reactions.one-emote-registry-governance` | `AU-ECO.reactions.one-emote-registry-governance` | ECO | 4 | 80 | — | — | agent-utilities |
 | `ECO-4.81` | `ECO-4.81` | ECO | 4 | 81 | — | — | agent-utilities |
 | `ECO-4.82` | `ECO-4.82` | ECO | 4 | 82 | — | — | agent-utilities, agents |
 | `ECO-4.83` | `ECO-4.83` | ECO | 4 | 83 | — | — | agent-utilities |
-| `ECO-4.84` | `ECO-4.84` | ECO | 4 | 84 | — | — | agent-utilities |
+| `AU-ECO.bus.agentbus-federated-agent-agent` | `AU-ECO.bus.agentbus-federated-agent-agent` | ECO | 4 | 84 | — | — | agent-utilities |
 | `ECO-4.85` | `ECO-4.85` | ECO | 4 | 85 | — | — | agent-utilities |
-| `ECO-4.86` | `ECO-4.86` | ECO | 4 | 86 | — | — | agent-utilities |
-| `ECO-4.87` | `ECO-4.87` | ECO | 4 | 87 | — | — | agent-utilities |
+| `AU-ECO.bus.federation-relay` | `AU-ECO.bus.federation-relay` | ECO | 4 | 86 | — | — | agent-utilities |
+| `AU-ECO.bus.operator-view-agentbus` | `AU-ECO.bus.operator-view-agentbus` | ECO | 4 | 87 | — | — | agent-utilities |
 | `ECO-4.88` | `ECO-4.88` | ECO | 4 | 88 | — | — | agent-utilities |
-| `ECO-4.89` | `ECO-4.89` | ECO | 4 | 89 | — | — | agent-utilities |
+| `AU-ECO.mcp.fleet-wide-verbose-auto` | `AU-ECO.mcp.fleet-wide-verbose-auto` | ECO | 4 | 89 | — | — | agent-utilities |
 | `ECO-4.90` | `ECO-4.90` | ECO | 4 | 90 | — | — | agent-utilities |
 | `ECO-4.91` | `ECO-4.91` | ECO | 4 | 91 | — | — | agent-utilities |
-| `ECO-4.92` | `ECO-4.92` | ECO | 4 | 92 | — | — | agent-utilities |
-| `ECO-4.93` | `ECO-4.93` | ECO | 4 | 93 | — | — | agent-utilities |
+| `AU-ECO.bus.auto-register-online-presence` | `AU-ECO.bus.auto-register-online-presence` | ECO | 4 | 92 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.computer-use-tier` | `AU-ORCH.sandbox.computer-use-tier` | ECO | 4 | 93 | — | — | agent-utilities |
 | `ECO-4.94` | `ECO-4.94` | ECO | 4 | 94 | — | — | agents |
-| `ECO-4.95` | `ECO-4.95` | ECO | 4 | 95 | — | — | agent-utilities |
-| `ECO-4.96` | `ECO-4.96` | ECO | 4 | 96 | — | — | agent-utilities |
-| `ECO-4.97` | `ECO-4.97` | ECO | 4 | 97 | — | — | agent-utilities |
-| `ECO-4.98` | `ECO-4.98` | ECO | 4 | 98 | — | — | agent-utilities |
-| `ECO-4.99` | `ECO-4.99` | ECO | 4 | 99 | — | — | agent-utilities |
-| `EE-001` | `EE-0.001` | EE | 0 | 001 | — | legacy-pillar-0 | agents |
+| `AU-ECO.mcp.eco-serves-two-ard` | `AU-ECO.mcp.eco-serves-two-ard` | ECO | 4 | 95 | — | — | agent-utilities |
+| `AU-ECO.connector.ingest-external-ard-registry` | `AU-ECO.connector.ingest-external-ard-registry` | ECO | 4 | 96 | — | — | agent-utilities |
+| `AU-ECO.interop.ard-federation-relay` | `AU-ECO.interop.ard-federation-relay` | ECO | 4 | 97 | — | — | agent-utilities |
+| `AU-ECO.bus.bus-register-under-served` | `AU-ECO.bus.bus-register-under-served` | ECO | 4 | 98 | — | — | agent-utilities |
+| `AU-ECO.mcp.full-api-mcp-surface` | `AU-ECO.mcp.full-api-mcp-surface` | ECO | 4 | 99 | — | — | agent-utilities |
+| `AU-AHE.assimilation.autonomous-trading-ecosystem` | `EE-0.001` | EE | 0 | 001 | — | legacy-pillar-0 | agents |
 | `EE-002` | `EE-0.002` | EE | 0 | 002 | — | legacy-pillar-0 | agents |
 | `EE-003` | `EE-0.003` | EE | 0 | 003 | — | legacy-pillar-0 | agents |
 | `EE-004` | `EE-0.004` | EE | 0 | 004 | — | legacy-pillar-0 | agents |
@@ -235,9 +235,9 @@ The **Raw** column stays a permanently-valid alias either way.
 | `EE-008` | `EE-0.008` | EE | 0 | 008 | — | legacy-pillar-0 | agents |
 | `EE-009` | `EE-0.009` | EE | 0 | 009 | — | legacy-pillar-0 | agents |
 | `EE-010` | `EE-0.010` | EE | 0 | 010 | — | legacy-pillar-0 | agents |
-| `EE-011` | `EE-0.011` | EE | 0 | 011 | — | legacy-pillar-0 | agent-utilities, agents |
+| `AU-AHE.assimilation.skill-workflow-ingest` | `EE-0.011` | EE | 0 | 011 | — | legacy-pillar-0 | agent-utilities, agents |
 | `EE-012` | `EE-0.012` | EE | 0 | 012 | — | legacy-pillar-0 | agents |
-| `EE-013` | `EE-0.013` | EE | 0 | 013 | — | legacy-pillar-0 | agents |
+| `AU-AHE.assimilation.trading-ecosystem-spec` | `EE-0.013` | EE | 0 | 013 | — | legacy-pillar-0 | agents |
 | `EE-014` | `EE-0.014` | EE | 0 | 014 | — | legacy-pillar-0 | agents |
 | `EE-015` | `EE-0.015` | EE | 0 | 015 | — | legacy-pillar-0 | agents |
 | `EE-017` | `EE-0.017` | EE | 0 | 017 | — | legacy-pillar-0 | agents |
@@ -252,13 +252,13 @@ The **Raw** column stays a permanently-valid alias either way.
 | `EE-029` | `EE-0.029` | EE | 0 | 029 | — | legacy-pillar-0 | agents |
 | `EE-030` | `EE-0.030` | EE | 0 | 030 | — | legacy-pillar-0 | agents |
 | `EE-031` | `EE-0.031` | EE | 0 | 031 | — | legacy-pillar-0 | agents |
-| `EE-032` | `EE-0.032` | EE | 0 | 032 | — | legacy-pillar-0 | agents |
-| `EE-033` | `EE-0.033` | EE | 0 | 033 | — | legacy-pillar-0 | agent-utilities, agents |
-| `EE-034` | `EE-0.034` | EE | 0 | 034 | — | legacy-pillar-0 | agent-utilities, agents |
-| `EE-036` | `EE-0.036` | EE | 0 | 036 | — | legacy-pillar-0 | agent-utilities |
-| `EE-037` | `EE-0.037` | EE | 0 | 037 | — | legacy-pillar-0 | agent-utilities |
+| `AU-AHE.assimilation.trading-ecosystem-changelog` | `EE-0.032` | EE | 0 | 032 | — | legacy-pillar-0 | agents |
+| `AU-AHE.assimilation.microstructure-signal-fusion` | `EE-0.033` | EE | 0 | 033 | — | legacy-pillar-0 | agent-utilities, agents |
+| `AU-AHE.assimilation.decision-distillation` | `EE-0.034` | EE | 0 | 034 | — | legacy-pillar-0 | agent-utilities, agents |
+| `AU-AHE.assimilation.trading-curator` | `EE-0.036` | EE | 0 | 036 | — | legacy-pillar-0 | agent-utilities |
+| `AU-AHE.assimilation.research-pipeline` | `EE-0.037` | EE | 0 | 037 | — | legacy-pillar-0 | agent-utilities |
 | `EE-038` | `EE-0.038` | EE | 0 | 038 | — | legacy-pillar-0 | agents |
-| `EE-039` | `EE-0.039` | EE | 0 | 039 | — | legacy-pillar-0 | agent-utilities |
+| `AU-AHE.harness.trading-team-seed` | `EE-0.039` | EE | 0 | 039 | — | legacy-pillar-0 | agent-utilities |
 | `EE-042` | `EE-0.042` | EE | 0 | 042 | — | legacy-pillar-0 | agents |
 | `EE-043` | `EE-0.043` | EE | 0 | 043 | — | legacy-pillar-0 | agents |
 | `EE-044` | `EE-0.044` | EE | 0 | 044 | — | legacy-pillar-0 | agents |
@@ -270,198 +270,198 @@ The **Raw** column stays a permanently-valid alias either way.
 | `EG-006` | `EG-0.006` | EG | 0 | 006 | — | legacy-pillar-0 | agents |
 | `EG-007` | `EG-0.007` | EG | 0 | 007 | — | legacy-pillar-0 | agents |
 | `EG-008` | `EG-0.008` | EG | 0 | 008 | — | legacy-pillar-0 | agents |
-| `EG-009` | `EG-0.009` | EG | 0 | 009 | — | legacy-pillar-0 | agent-utilities, agents |
-| `EG-010` | `EG-0.010` | EG | 0 | 010 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
+| `AU-KG.ingest.then-by-its-node` | `EG-0.009` | EG | 0 | 009 | — | legacy-pillar-0 | agent-utilities, agents |
+| `EG-ORCH.routing.lexical-capability-escalation` | `EG-0.010` | EG | 0 | 010 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
 | `EG-011` | `EG-0.011` | EG | 0 | 011 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-012` | `EG-0.012` | EG | 0 | 012 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.txn.write-path-benchmarks` | `EG-0.012` | EG | 0 | 012 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-013` | `EG-0.013` | EG | 0 | 013 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-014` | `EG-0.014` | EG | 0 | 014 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.lane-chunked-dot-product` | `EG-0.014` | EG | 0 | 014 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-015` | `EG-0.015` | EG | 0 | 015 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-016` | `EG-0.016` | EG | 0 | 016 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-017` | `EG-0.017` | EG | 0 | 017 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-018` | `EG-0.018` | EG | 0 | 018 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-019` | `EG-0.019` | EG | 0 | 019 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-020` | `EG-0.020` | EG | 0 | 020 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-021` | `EG-0.021` | EG | 0 | 021 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.register-user-tables-alongside` | `EG-0.018` | EG | 0 | 018 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.mutation` | `EG-0.019` | EG | 0 | 019 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.register-each-user-table` | `EG-0.020` | EG | 0 | 020 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.eg-runtime-swrl-datalog` | `EG-0.021` | EG | 0 | 021 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-022` | `EG-0.022` | EG | 0 | 022 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-023` | `EG-0.023` | EG | 0 | 023 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.mirrors-pgwire` | `EG-0.023` | EG | 0 | 023 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-024` | `EG-0.024` | EG | 0 | 024 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-025` | `EG-0.025` | EG | 0 | 025 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-026` | `EG-0.026` | EG | 0 | 026 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-027` | `EG-0.027` | EG | 0 | 027 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-028` | `EG-0.028` | EG | 0 | 028 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-029` | `EG-0.029` | EG | 0 | 029 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.storage.embedded-store` | `EG-0.025` | EG | 0 | 025 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.backend.sharded-k-way-durable` | `EG-0.026` | EG | 0 | 026 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.storage.snapshot-read-off-writer` | `EG-0.027` | EG | 0 | 027 | — | legacy-pillar-0 | epistemic-graph |
+| `AU-KG.backend.b-auto-size` | `EG-0.028` | EG | 0 | 028 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.storage.redb-store` | `EG-0.029` | EG | 0 | 029 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-030` | `EG-0.030` | EG | 0 | 030 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-031` | `EG-0.031` | EG | 0 | 031 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-032` | `EG-0.032` | EG | 0 | 032 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-033` | `EG-0.033` | EG | 0 | 033 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-034` | `EG-0.034` | EG | 0 | 034 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.sharding.r5-feature` | `EG-0.033` | EG | 0 | 033 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.sharding.eg-r6` | `EG-0.034` | EG | 0 | 034 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-035` | `EG-0.035` | EG | 0 | 035 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-036` | `EG-0.036` | EG | 0 | 036 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.sharding.m3-r4` | `EG-0.036` | EG | 0 | 036 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-037` | `EG-0.037` | EG | 0 | 037 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
 | `EG-038` | `EG-0.038` | EG | 0 | 038 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-039` | `EG-0.039` | EG | 0 | 039 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-040` | `EG-0.040` | EG | 0 | 040 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-041` | `EG-0.041` | EG | 0 | 041 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-042` | `EG-0.042` | EG | 0 | 042 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.backend.r3-plan-execution` | `EG-0.039` | EG | 0 | 039 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.backend.r6-feature` | `EG-0.040` | EG | 0 | 040 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.backend.flush-pending-first` | `EG-0.041` | EG | 0 | 041 | — | legacy-pillar-0 | epistemic-graph |
+| `AU-KG.backend.roadmap-f-parallel-cross` | `EG-0.042` | EG | 0 | 042 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-043` | `EG-0.043` | EG | 0 | 043 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-044` | `EG-0.044` | EG | 0 | 044 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.coordination.reserved-read-lane` | `EG-0.044` | EG | 0 | 044 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-045` | `EG-0.045` | EG | 0 | 045 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-046` | `EG-0.046` | EG | 0 | 046 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.insert-into-nodes-select` | `EG-0.046` | EG | 0 | 046 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-047` | `EG-0.047` | EG | 0 | 047 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-048` | `EG-0.048` | EG | 0 | 048 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-049` | `EG-0.049` | EG | 0 | 049 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-050` | `EG-0.050` | EG | 0 | 050 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-051` | `EG-0.051` | EG | 0 | 051 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-052` | `EG-0.052` | EG | 0 | 052 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-053` | `EG-0.053` | EG | 0 | 053 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-054` | `EG-0.054` | EG | 0 | 054 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-055` | `EG-0.055` | EG | 0 | 055 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-056` | `EG-0.056` | EG | 0 | 056 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-058` | `EG-0.058` | EG | 0 | 058 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-059` | `EG-0.059` | EG | 0 | 059 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-060` | `EG-0.060` | EG | 0 | 060 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-061` | `EG-0.061` | EG | 0 | 061 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-062` | `EG-0.062` | EG | 0 | 062 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-063` | `EG-0.063` | EG | 0 | 063 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.delete-returning-sees-row` | `EG-0.048` | EG | 0 | 048 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.kg-transaction-is-pinned` | `EG-0.049` | EG | 0 | 049 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.content-negotiation-serializers` | `EG-0.050` | EG | 0 | 050 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.sub-select` | `EG-0.051` | EG | 0 | 051 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.sparql-service-federation-client` | `EG-0.052` | EG | 0 | 052 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.rich-filter` | `EG-0.053` | EG | 0 | 053 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.from-from-named` | `EG-0.054` | EG | 0 | 054 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.minus` | `EG-0.055` | EG | 0 | 055 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.negated-property-set` | `EG-0.056` | EG | 0 | 056 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.owl-reasoning` | `EG-0.058` | EG | 0 | 058 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-2` | `EG-0.059` | EG | 0 | 059 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-3` | `EG-0.060` | EG | 0 | 060 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.cypher-execution` | `EG-0.061` | EG | 0 | 061 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.eg-extend-read-side` | `EG-0.062` | EG | 0 | 062 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.concept-2` | `EG-0.063` | EG | 0 | 063 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-064` | `EG-0.064` | EG | 0 | 064 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-065` | `EG-0.065` | EG | 0 | 065 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-066` | `EG-0.066` | EG | 0 | 066 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-067` | `EG-0.067` | EG | 0 | 067 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-068` | `EG-0.068` | EG | 0 | 068 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-069` | `EG-0.069` | EG | 0 | 069 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.fragments-variables-directives` | `EG-0.065` | EG | 0 | 065 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.graphql-cursors` | `EG-0.066` | EG | 0 | 066 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.streaming-execution` | `EG-0.067` | EG | 0 | 067 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.temporal.bucket-cutoff-trim` | `EG-0.068` | EG | 0 | 068 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.retrieval.scatter-gather` | `EG-0.069` | EG | 0 | 069 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-070` | `EG-0.070` | EG | 0 | 070 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-071` | `EG-0.071` | EG | 0 | 071 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.storage.backward-manifest-read` | `EG-0.071` | EG | 0 | 071 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-072` | `EG-0.072` | EG | 0 | 072 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-073` | `EG-0.073` | EG | 0 | 073 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-074` | `EG-0.074` | EG | 0 | 074 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-075` | `EG-0.075` | EG | 0 | 075 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-076` | `EG-0.076` | EG | 0 | 076 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-077` | `EG-0.077` | EG | 0 | 077 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.subsystems-reference` | `EG-0.074` | EG | 0 | 074 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.concept-3` | `EG-0.075` | EG | 0 | 075 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.kg-2` | `EG-0.076` | EG | 0 | 076 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.hand-rolled-tds-server` | `EG-0.077` | EG | 0 | 077 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-078` | `EG-0.078` | EG | 0 | 078 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-080` | `EG-0.080` | EG | 0 | 080 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-081` | `EG-0.081` | EG | 0 | 081 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-082` | `EG-0.082` | EG | 0 | 082 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-083` | `EG-0.083` | EG | 0 | 083 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.txn.cross-shard` | `EG-0.081` | EG | 0 | 081 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.txn.harness-crash` | `EG-0.082` | EG | 0 | 082 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.singles-concept` | `EG-0.083` | EG | 0 | 083 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-084` | `EG-0.084` | EG | 0 | 084 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-085` | `EG-0.085` | EG | 0 | 085 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-086` | `EG-0.086` | EG | 0 | 086 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-087` | `EG-0.087` | EG | 0 | 087 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-088` | `EG-0.088` | EG | 0 | 088 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.pipelined-execution` | `EG-0.088` | EG | 0 | 088 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-089` | `EG-0.089` | EG | 0 | 089 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-090` | `EG-0.090` | EG | 0 | 090 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-091` | `EG-0.091` | EG | 0 | 091 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-092` | `EG-0.092` | EG | 0 | 092 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-096` | `EG-0.096` | EG | 0 | 096 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-098` | `EG-0.098` | EG | 0 | 098 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.feature` | `EG-0.092` | EG | 0 | 092 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.massive-scale-benchmark` | `EG-0.096` | EG | 0 | 096 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.multi-rate-sensor-stream` | `EG-0.098` | EG | 0 | 098 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-099` | `EG-0.099` | EG | 0 | 099 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-101` | `EG-0.101` | EG | 0 | 101 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-102` | `EG-0.102` | EG | 0 | 102 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-103` | `EG-0.103` | EG | 0 | 103 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-104` | `EG-0.104` | EG | 0 | 104 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-114` | `EG-0.114` | EG | 0 | 114 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.create-drop-extension-over` | `EG-0.102` | EG | 0 | 102 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.route-create-view-create` | `EG-0.103` | EG | 0 | 103 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.greatest-least-int4range-tsrange` | `EG-0.104` | EG | 0 | 104 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.postgres-family-extension-plan` | `EG-0.114` | EG | 0 | 114 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-115` | `EG-0.115` | EG | 0 | 115 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-116` | `EG-0.116` | EG | 0 | 116 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.real-ann-top-k` | `EG-0.116` | EG | 0 | 116 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-117` | `EG-0.117` | EG | 0 | 117 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-118` | `EG-0.118` | EG | 0 | 118 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-119` | `EG-0.119` | EG | 0 | 119 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-125` | `EG-0.125` | EG | 0 | 125 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-127` | `EG-0.127` | EG | 0 | 127 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-130` | `EG-0.130` | EG | 0 | 130 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-131` | `EG-0.131` | EG | 0 | 131 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-132` | `EG-0.132` | EG | 0 | 132 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-133` | `EG-0.133` | EG | 0 | 133 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.paradedb-bm25` | `EG-0.119` | EG | 0 | 119 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.order-by-values-exists` | `EG-0.125` | EG | 0 | 125 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-4` | `EG-0.127` | EG | 0 | 127 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-5` | `EG-0.130` | EG | 0 | 130 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.feature` | `EG-0.131` | EG | 0 | 131 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-6` | `EG-0.132` | EG | 0 | 132 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.concept-2` | `EG-0.133` | EG | 0 | 133 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-134` | `EG-0.134` | EG | 0 | 134 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-135` | `EG-0.135` | EG | 0 | 135 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-136` | `EG-0.136` | EG | 0 | 136 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-137` | `EG-0.137` | EG | 0 | 137 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-141` | `EG-0.141` | EG | 0 | 141 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-142` | `EG-0.142` | EG | 0 | 142 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-143` | `EG-0.143` | EG | 0 | 143 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.completing-eg-order-by` | `EG-0.135` | EG | 0 | 135 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.eg-concrete-syntax-matrix` | `EG-0.136` | EG | 0 | 136 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.completes-rdf-concrete-syntax` | `EG-0.137` | EG | 0 | 137 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.param-list-drives-unwind` | `EG-0.141` | EG | 0 | 141 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.cypher-planning` | `EG-0.142` | EG | 0 | 142 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.eg-2` | `EG-0.143` | EG | 0 | 143 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-144` | `EG-0.144` | EG | 0 | 144 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-146` | `EG-0.146` | EG | 0 | 146 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-155` | `EG-0.155` | EG | 0 | 155 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-159` | `EG-0.159` | EG | 0 | 159 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-160` | `EG-0.160` | EG | 0 | 160 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
-| `EG-161` | `EG-0.161` | EG | 0 | 161 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-162` | `EG-0.162` | EG | 0 | 162 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.wired-into-commit-write` | `EG-0.146` | EG | 0 | 146 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-7` | `EG-0.155` | EG | 0 | 155 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.bolt-wire-protocol` | `EG-0.159` | EG | 0 | 159 | — | legacy-pillar-0 | epistemic-graph |
+| `AU-KG.ingest.self-ingest` | `EG-0.160` | EG | 0 | 160 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
+| `EG-KG.retrieval.observability-search` | `EG-0.161` | EG | 0 | 161 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.concept-4` | `EG-0.162` | EG | 0 | 162 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-163` | `EG-0.163` | EG | 0 | 163 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-165` | `EG-0.165` | EG | 0 | 165 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-172` | `EG-0.172` | EG | 0 | 172 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-174` | `EG-0.174` | EG | 0 | 174 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-176` | `EG-0.176` | EG | 0 | 176 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.resp2-resp3-codec-round` | `EG-0.174` | EG | 0 | 174 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.object-put-get-head` | `EG-0.176` | EG | 0 | 176 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-185` | `EG-0.185` | EG | 0 | 185 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
 | `EG-186` | `EG-0.186` | EG | 0 | 186 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
-| `EG-187` | `EG-0.187` | EG | 0 | 187 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
+| `EG-KG.backend.is-configured-so-co` | `EG-0.187` | EG | 0 | 187 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
 | `EG-195` | `EG-0.195` | EG | 0 | 195 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-220` | `EG-0.220` | EG | 0 | 220 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-221` | `EG-0.221` | EG | 0 | 221 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.hierarchical-summary-tier-eg` | `EG-0.220` | EG | 0 | 220 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.consolidate-cluster` | `EG-0.221` | EG | 0 | 221 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-222` | `EG-0.222` | EG | 0 | 222 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-243` | `EG-0.243` | EG | 0 | 243 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-255` | `EG-0.255` | EG | 0 | 255 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-256` | `EG-0.256` | EG | 0 | 256 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-257` | `EG-0.257` | EG | 0 | 257 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-258` | `EG-0.258` | EG | 0 | 258 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-259` | `EG-0.259` | EG | 0 | 259 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-261` | `EG-0.261` | EG | 0 | 261 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-262` | `EG-0.262` | EG | 0 | 262 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-263` | `EG-0.263` | EG | 0 | 263 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-264` | `EG-0.264` | EG | 0 | 264 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-265` | `EG-0.265` | EG | 0 | 265 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-266` | `EG-0.266` | EG | 0 | 266 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-267` | `EG-0.267` | EG | 0 | 267 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.federation-client` | `EG-0.243` | EG | 0 | 243 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.coordinate-reference-system` | `EG-0.255` | EG | 0 | 255 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-8` | `EG-0.256` | EG | 0 | 256 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geometry-collections` | `EG-0.257` | EG | 0 | 257 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.de-9im-relations` | `EG-0.258` | EG | 0 | 258 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-9` | `EG-0.259` | EG | 0 | 259 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.concept-10` | `EG-0.261` | EG | 0 | 261 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geo-registry` | `EG-0.262` | EG | 0 | 262 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.spatial-strtree-index` | `EG-0.263` | EG | 0 | 263 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geojson-gpx-formats` | `EG-0.264` | EG | 0 | 264 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.map-tiles` | `EG-0.265` | EG | 0 | 265 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geo-routing` | `EG-0.266` | EG | 0 | 266 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geo-task` | `EG-0.267` | EG | 0 | 267 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-275` | `EG-0.275` | EG | 0 | 275 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-276` | `EG-0.276` | EG | 0 | 276 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-277` | `EG-0.277` | EG | 0 | 277 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-278` | `EG-0.278` | EG | 0 | 278 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-279` | `EG-0.279` | EG | 0 | 279 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-280` | `EG-0.280` | EG | 0 | 280 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.dead-letter-queues` | `EG-0.276` | EG | 0 | 276 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.message-ttl-expiry` | `EG-0.277` | EG | 0 | 277 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.priority-queues` | `EG-0.278` | EG | 0 | 278 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.delayed-scheduled-delivery` | `EG-0.279` | EG | 0 | 279 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.groups-qos-prefetch-honoring` | `EG-0.280` | EG | 0 | 280 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-281` | `EG-0.281` | EG | 0 | 281 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-282` | `EG-0.282` | EG | 0 | 282 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.stomp-frame-codec-unit` | `EG-0.282` | EG | 0 | 282 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-283` | `EG-0.283` | EG | 0 | 283 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-284` | `EG-0.284` | EG | 0 | 284 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.publisher-confirms-consumer-qos` | `EG-0.284` | EG | 0 | 284 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-295` | `EG-0.295` | EG | 0 | 295 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-296` | `EG-0.296` | EG | 0 | 296 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-297` | `EG-0.297` | EG | 0 | 297 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.graphql-enterprise-hardening` | `EG-0.296` | EG | 0 | 296 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.concept-5` | `EG-0.297` | EG | 0 | 297 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-298` | `EG-0.298` | EG | 0 | 298 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-299` | `EG-0.299` | EG | 0 | 299 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-300` | `EG-0.300` | EG | 0 | 300 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-301` | `EG-0.301` | EG | 0 | 301 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.protocol-types` | `EG-0.299` | EG | 0 | 299 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.ontology.rdf-update-guard` | `EG-0.300` | EG | 0 | 300 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.retrieval.hnsw-vector-index` | `EG-0.301` | EG | 0 | 301 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-302` | `EG-0.302` | EG | 0 | 302 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-303` | `EG-0.303` | EG | 0 | 303 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.durable-rbac-identity-persistence` | `EG-0.303` | EG | 0 | 303 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-304` | `EG-0.304` | EG | 0 | 304 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-305` | `EG-0.305` | EG | 0 | 305 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-306` | `EG-0.306` | EG | 0 | 306 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-307` | `EG-0.307` | EG | 0 | 307 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geo-formats` | `EG-0.306` | EG | 0 | 306 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.txn.pubsub-transactions` | `EG-0.307` | EG | 0 | 307 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-308` | `EG-0.308` | EG | 0 | 308 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-309` | `EG-0.309` | EG | 0 | 309 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-310` | `EG-0.310` | EG | 0 | 310 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.schema-typed-fusion-sql` | `EG-0.309` | EG | 0 | 309 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.rename-table-moves-catalog` | `EG-0.310` | EG | 0 | 310 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-311` | `EG-0.311` | EG | 0 | 311 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-312` | `EG-0.312` | EG | 0 | 312 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-313` | `EG-0.313` | EG | 0 | 313 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.geo-partitioning` | `EG-0.312` | EG | 0 | 312 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.query.real-pgvector-ann-top` | `EG-0.313` | EG | 0 | 313 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-314` | `EG-0.314` | EG | 0 | 314 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-315` | `EG-0.315` | EG | 0 | 315 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-316` | `EG-0.316` | EG | 0 | 316 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-317` | `EG-0.317` | EG | 0 | 317 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-318` | `EG-0.318` | EG | 0 | 318 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.storage.lsn-as-snapshot-returns` | `EG-0.317` | EG | 0 | 317 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.memory.eg-batch-decay-caller` | `EG-0.318` | EG | 0 | 318 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-319` | `EG-0.319` | EG | 0 | 319 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-320` | `EG-0.320` | EG | 0 | 320 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-321` | `EG-0.321` | EG | 0 | 321 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
+| `AU-KG.compute.numeric-kernel` | `AU-KG.ontology.concept-hierarchy` | EG | 0 | 321 | — | legacy-pillar-0 | agent-utilities, epistemic-graph |
 | `EG-322` | `EG-0.322` | EG | 0 | 322 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-323` | `EG-0.323` | EG | 0 | 323 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-324` | `EG-0.324` | EG | 0 | 324 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-325` | `EG-0.325` | EG | 0 | 325 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-326` | `EG-0.326` | EG | 0 | 326 | — | legacy-pillar-0 | epistemic-graph |
-| `EG-327` | `EG-0.327` | EG | 0 | 327 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.txn.calvin-deterministic-ordering` | `EG-0.324` | EG | 0 | 324 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.domains.robotics-gpu-distribution` | `EG-0.325` | EG | 0 | 325 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.compute.gpu-distance-seam` | `EG-0.326` | EG | 0 | 326 | — | legacy-pillar-0 | epistemic-graph |
+| `EG-KG.backend.real-cuda-tensor-backend` | `EG-0.327` | EG | 0 | 327 | — | legacy-pillar-0 | epistemic-graph |
 | `EG-328` | `EG-0.328` | EG | 0 | 328 | — | legacy-pillar-0 | epistemic-graph |
-| `GBOT-6.0` | `GBOT-6.0` | GBOT | 6 | 0 | — | — | agent-utilities, geniusbot |
-| `GBOT-6.1` | `GBOT-6.1` | GBOT | 6 | 1 | — | — | agent-utilities |
+| `AU-GBOT.cockpit.through-gbot` | `AU-GBOT.cockpit.through-gbot` | GBOT | 6 | 0 | — | — | agent-utilities, geniusbot |
+| `AU-GBOT.cockpit.pillar-overview` | `AU-GBOT.cockpit.pillar-overview` | GBOT | 6 | 1 | — | — | agent-utilities |
 | `GBOT-6.10` | `GBOT-6.10` | GBOT | 6 | 10 | — | — | geniusbot |
-| `GBOT-6.2` | `GBOT-6.2` | GBOT | 6 | 2 | — | — | agent-utilities, geniusbot |
-| `GBOT-6.3` | `GBOT-6.3` | GBOT | 6 | 3 | — | — | agent-utilities |
-| `GBOT-6.4` | `GBOT-6.4` | GBOT | 6 | 4 | — | — | agent-utilities |
-| `GBOT-6.5` | `GBOT-6.5` | GBOT | 6 | 5 | — | — | agent-utilities |
-| `GBOT-6.6` | `GBOT-6.6` | GBOT | 6 | 6 | — | — | agent-utilities, geniusbot |
+| `AU-GBOT.cockpit.concept-2` | `AU-GBOT.cockpit.concept-2` | GBOT | 6 | 2 | — | — | agent-utilities, geniusbot |
+| `AU-GBOT.cockpit.concept-3` | `AU-GBOT.cockpit.concept-3` | GBOT | 6 | 3 | — | — | agent-utilities |
+| `AU-GBOT.cockpit.concept-4` | `AU-GBOT.cockpit.concept-4` | GBOT | 6 | 4 | — | — | agent-utilities |
+| `AU-GBOT.cockpit.concept-5` | `AU-GBOT.cockpit.concept-5` | GBOT | 6 | 5 | — | — | agent-utilities |
+| `AU-GBOT.cockpit.concept-6` | `AU-GBOT.cockpit.concept-6` | GBOT | 6 | 6 | — | — | agent-utilities, geniusbot |
 | `GBOT-6.7` | `GBOT-6.7` | GBOT | 6 | 7 | — | — | geniusbot |
 | `GBOT-6.8` | `GBOT-6.8` | GBOT | 6 | 8 | — | — | geniusbot |
 | `GBOT-6.9` | `GBOT-6.9` | GBOT | 6 | 9 | — | — | geniusbot |
@@ -489,338 +489,338 @@ The **Raw** column stays a permanently-valid alias either way.
 | `KG-002` | `KG-0.002` | KG | 0 | 002 | — | legacy-pillar-0 | agent-terminal-ui, agent-webui |
 | `KG-003` | `KG-0.003` | KG | 0 | 003 | — | legacy-pillar-0 | agent-terminal-ui, agent-webui |
 | `KG-004` | `KG-0.004` | KG | 0 | 004 | — | legacy-pillar-0 | agent-webui |
-| `KG-1.0` | `KG-1.0` | KG | 1 | 0 | — | — | agent-utilities |
-| `KG-2` | `KG-0.2` | KG | 0 | 2 | — | legacy-pillar-0 | epistemic-graph |
+| `AU-KG.coordination.centralized-kg-coordination-protocol` | `AU-KG.coordination.centralized-kg-coordination-protocol` | KG | 1 | 0 | — | — | agent-utilities |
+| `EG-KG.compute.backend` | `KG-0.2` | KG | 0 | 2 | — | legacy-pillar-0 | epistemic-graph |
 | `KG-2.0` | `KG-2.0` | KG | 2 | 0 | — | — | agent-utilities, agents, epistemic-graph, scripts, skills |
 | `KG-2.1` | `KG-2.1` | KG | 2 | 1 | — | — | agent-utilities |
-| `KG-2.10` | `KG-2.10` | KG | 2 | 10 | — | — | agent-utilities |
+| `AU-KG.enrichment.a2a-capability-extraction` | `AU-KG.enrichment.a2a-capability-extraction` | KG | 2 | 10 | — | — | agent-utilities |
 | `KG-2.100` | `KG-2.100` | KG | 2 | 100 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.101` | `KG-2.101` | KG | 2 | 101 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.compute.model-free-similar-code` | `EG-KG.compute.model-free-similar-code` | KG | 2 | 101 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.102` | `KG-2.102` | KG | 2 | 102 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.103` | `KG-2.103` | KG | 2 | 103 | — | — | agent-utilities |
-| `KG-2.104` | `KG-2.104` | KG | 2 | 104 | — | — | agent-utilities |
-| `KG-2.105` | `KG-2.105` | KG | 2 | 105 | — | — | agent-utilities |
-| `KG-2.106` | `KG-2.106` | KG | 2 | 106 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.107` | `KG-2.107` | KG | 2 | 107 | — | — | agent-utilities |
-| `KG-2.108` | `KG-2.108` | KG | 2 | 108 | — | — | agent-utilities |
-| `KG-2.109` | `KG-2.109` | KG | 2 | 109 | — | — | agent-utilities |
+| `AU-KG.enrichment.read-them-here-so` | `AU-KG.enrichment.read-them-here-so` | KG | 2 | 103 | — | — | agent-utilities |
+| `AU-KG.ingest.mine-git-history-files` | `AU-KG.ingest.mine-git-history-files` | KG | 2 | 104 | — | — | agent-utilities |
+| `AU-KG.compute.adr-crud` | `AU-KG.compute.adr-crud` | KG | 2 | 105 | — | — | agent-utilities |
+| `AU-KG.compute.built-ast-extended` | `AU-KG.compute.built-ast-extended` | KG | 2 | 106 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.ontology.harness-ontology` | `AU-KG.ontology.harness-ontology` | KG | 2 | 107 | — | — | agent-utilities |
+| `AU-KG.retrieval.harness-grounding` | `AU-KG.retrieval.harness-grounding` | KG | 2 | 108 | — | — | agent-utilities |
+| `AU-KG.ontology.harness-gate` | `AU-KG.ontology.harness-gate` | KG | 2 | 109 | — | — | agent-utilities |
 | `KG-2.11` | `KG-2.11` | KG | 2 | 11 | — | — | agent-utilities |
-| `KG-2.110` | `KG-2.110` | KG | 2 | 110 | — | — | agent-utilities |
-| `KG-2.111` | `KG-2.111` | KG | 2 | 111 | — | — | agent-utilities |
+| `AU-KG.enrichment.ciso-assistant-extraction` | `AU-KG.enrichment.ciso-assistant-extraction` | KG | 2 | 110 | — | — | agent-utilities |
+| `AU-KG.enrichment.ciso-2` | `AU-KG.enrichment.ciso-2` | KG | 2 | 111 | — | — | agent-utilities |
 | `KG-2.112` | `KG-2.112` | KG | 2 | 112 | — | — | agent-utilities |
-| `KG-2.113` | `KG-2.113` | KG | 2 | 113 | — | — | agent-utilities |
-| `KG-2.114` | `KG-2.114` | KG | 2 | 114 | — | — | agent-utilities |
-| `KG-2.115` | `KG-2.115` | KG | 2 | 115 | — | — | agent-utilities |
-| `KG-2.116` | `KG-2.116` | KG | 2 | 116 | — | — | agent-utilities |
-| `KG-2.117` | `KG-2.117` | KG | 2 | 117 | — | — | agent-utilities |
+| `AU-KG.ingest.hardened-priority-scheduled-task` | `AU-KG.ingest.hardened-priority-scheduled-task` | KG | 2 | 113 | — | — | agent-utilities |
+| `AU-KG.research.scholarx-rss-research-feed` | `AU-KG.research.scholarx-rss-research-feed` | KG | 2 | 114 | — | — | agent-utilities |
+| `AU-KG.compute.homelab-rss-reader-as` | `AU-KG.compute.homelab-rss-reader-as` | KG | 2 | 115 | — | — | agent-utilities |
+| `AU-KG.ingest.news-finance-tech-sibling` | `AU-KG.ingest.news-finance-tech-sibling` | KG | 2 | 116 | — | — | agent-utilities |
+| `AU-KG.ingest.worldmodel-gated-ingestion` | `AU-KG.ingest.worldmodel-gated-ingestion` | KG | 2 | 117 | — | — | agent-utilities |
 | `KG-2.12` | `KG-2.12` | KG | 2 | 12 | — | — | agent-utilities |
 | `KG-2.121` | `KG-2.121` | KG | 2 | 121 | — | — | agent-utilities |
-| `KG-2.122` | `KG-2.122` | KG | 2 | 122 | — | — | agent-utilities |
-| `KG-2.123` | `KG-2.123` | KG | 2 | 123 | — | — | agent-utilities |
-| `KG-2.124` | `KG-2.124` | KG | 2 | 124 | — | — | agent-utilities |
-| `KG-2.125` | `KG-2.125` | KG | 2 | 125 | — | — | agent-utilities |
-| `KG-2.126` | `KG-2.126` | KG | 2 | 126 | — | — | agent-utilities |
-| `KG-2.127` | `KG-2.127` | KG | 2 | 127 | — | — | agent-utilities |
-| `KG-2.128` | `KG-2.128` | KG | 2 | 128 | — | — | agent-utilities |
-| `KG-2.129` | `KG-2.129` | KG | 2 | 129 | — | — | agent-utilities |
+| `AU-KG.compute.first-class-rss-atom` | `AU-KG.compute.first-class-rss-atom` | KG | 2 | 122 | — | — | agent-utilities |
+| `AU-KG.compute.confluence-first-class-delta` | `AU-KG.compute.confluence-first-class-delta` | KG | 2 | 123 | — | — | agent-utilities |
+| `AU-KG.compute.jira-first-class-delta` | `AU-KG.compute.jira-first-class-delta` | KG | 2 | 124 | — | — | agent-utilities |
+| `AU-KG.compute.plane-first-class-delta` | `AU-KG.compute.plane-first-class-delta` | KG | 2 | 125 | — | — | agent-utilities |
+| `AU-KG.enrichment.ticket-status-comment-writeback` | `AU-KG.enrichment.ticket-status-comment-writeback` | KG | 2 | 126 | — | — | agent-utilities |
+| `AU-KG.research.perspectival-inquiry` | `AU-KG.research.perspectival-inquiry` | KG | 2 | 127 | — | — | agent-utilities |
+| `AU-KG.research.contradiction-agreement-blind-spot` | `AU-KG.research.contradiction-agreement-blind-spot` | KG | 2 | 128 | — | — | agent-utilities |
+| `AU-KG.research.peer-review-self-critique` | `AU-KG.research.peer-review-self-critique` | KG | 2 | 129 | — | — | agent-utilities |
 | `KG-2.13` | `KG-2.13` | KG | 2 | 13 | — | — | agent-utilities |
 | `KG-2.130` | `KG-2.130` | KG | 2 | 130 | — | — | agent-utilities |
-| `KG-2.131` | `KG-2.131` | KG | 2 | 131 | — | — | agent-utilities |
-| `KG-2.133` | `KG-2.133` | KG | 2 | 133 | — | — | agent-utilities |
+| `AU-KG.memory.refresh-per-session-memento` | `AU-KG.memory.refresh-per-session-memento` | KG | 2 | 131 | — | — | agent-utilities |
+| `AU-KG.ontology.capability-node-aliases-lexical` | `AU-KG.ontology.capability-node-aliases-lexical` | KG | 2 | 133 | — | — | agent-utilities |
 | `KG-2.134` | `KG-2.134` | KG | 2 | 134 | — | — | agent-utilities |
-| `KG-2.135` | `KG-2.135` | KG | 2 | 135 | — | — | agent-utilities |
-| `KG-2.136` | `KG-2.136` | KG | 2 | 136 | — | — | agent-utilities |
-| `KG-2.137` | `KG-2.137` | KG | 2 | 137 | — | — | agent-utilities |
-| `KG-2.138` | `KG-2.138` | KG | 2 | 138 | — | — | agent-utilities |
-| `KG-2.139` | `KG-2.139` | KG | 2 | 139 | — | — | agent-utilities |
-| `KG-2.14` | `KG-2.14` | KG | 2 | 14 | — | — | agent-utilities |
-| `KG-2.140` | `KG-2.140` | KG | 2 | 140 | — | — | agent-utilities |
+| `AU-KG.retrieval.every-usage-published-symbol` | `AU-KG.retrieval.every-usage-published-symbol` | KG | 2 | 135 | — | — | agent-utilities |
+| `AU-KG.retrieval.route-question-its-domain` | `AU-KG.retrieval.route-question-its-domain` | KG | 2 | 136 | — | — | agent-utilities |
+| `AU-KG.retrieval.ops-context` | `AU-KG.retrieval.ops-context` | KG | 2 | 137 | — | — | agent-utilities |
+| `AU-KG.retrieval.kg-2` | `AU-KG.retrieval.kg-2` | KG | 2 | 138 | — | — | agent-utilities |
+| `AU-KG.retrieval.kg-3` | `AU-KG.retrieval.kg-3` | KG | 2 | 139 | — | — | agent-utilities |
+| `AU-KG.memory.ground-truth-preamble-declaring` | `AU-KG.memory.ground-truth-preamble-declaring` | KG | 2 | 14 | — | — | agent-utilities |
+| `AU-KG.ingest.gotcha-feedback-capture` | `AU-KG.ingest.gotcha-feedback-capture` | KG | 2 | 140 | — | — | agent-utilities |
 | `KG-2.141` | `KG-2.141` | KG | 2 | 141 | — | — | agent-utilities |
-| `KG-2.142` | `KG-2.142` | KG | 2 | 142 | — | — | agent-utilities |
+| `AU-KG.ontology.optimistic-concurrency-object-property` | `AU-KG.ontology.optimistic-concurrency-object-property` | KG | 2 | 142 | — | — | agent-utilities |
 | `KG-2.143` | `KG-2.143` | KG | 2 | 143 | — | — | agent-utilities |
-| `KG-2.144` | `KG-2.144` | KG | 2 | 144 | — | — | agent-utilities |
-| `KG-2.145` | `KG-2.145` | KG | 2 | 145 | — | — | agent-utilities |
-| `KG-2.146` | `KG-2.146` | KG | 2 | 146 | — | — | agent-utilities |
-| `KG-2.147` | `KG-2.147` | KG | 2 | 147 | — | — | agent-utilities |
+| `AU-KG.compute.per-channel-embedding-backfill` | `AU-KG.compute.per-channel-embedding-backfill` | KG | 2 | 144 | — | — | agent-utilities |
+| `AU-KG.compute.surfaces-universal-latency-signal` | `AU-KG.compute.surfaces-universal-latency-signal` | KG | 2 | 145 | — | — | agent-utilities |
+| `AU-KG.compute.pure-config-enumeration-fail` | `AU-KG.compute.pure-config-enumeration-fail` | KG | 2 | 146 | — | — | agent-utilities |
+| `AU-KG.ingest.instead` | `AU-KG.ingest.instead` | KG | 2 | 147 | — | — | agent-utilities |
 | `KG-2.148` | `KG-2.148` | KG | 2 | 148 | — | — | agent-utilities |
 | `KG-2.15` | `KG-2.15` | KG | 2 | 15 | — | — | agent-utilities |
-| `KG-2.150` | `KG-2.150` | KG | 2 | 150 | — | — | agent-utilities |
-| `KG-2.151` | `KG-2.151` | KG | 2 | 151 | — | — | agent-utilities |
+| `AU-KG.ingest.agent-utilities-checkout` | `AU-KG.ingest.agent-utilities-checkout` | KG | 2 | 150 | — | — | agent-utilities |
+| `AU-KG.compute.gitlab-api-gitlab-atlassian` | `AU-KG.compute.gitlab-api-gitlab-atlassian` | KG | 2 | 151 | — | — | agent-utilities |
 | `KG-2.152` | `KG-2.152` | KG | 2 | 152 | — | — | agent-utilities |
 | `KG-2.153` | `KG-2.153` | KG | 2 | 153 | — | — | agent-utilities |
-| `KG-2.154` | `KG-2.154` | KG | 2 | 154 | — | — | agent-utilities |
-| `KG-2.155` | `KG-2.155` | KG | 2 | 155 | — | — | agent-utilities |
-| `KG-2.156` | `KG-2.156` | KG | 2 | 156 | — | — | agent-utilities |
-| `KG-2.157` | `KG-2.157` | KG | 2 | 157 | — | — | agent-utilities |
-| `KG-2.158` | `KG-2.158` | KG | 2 | 158 | — | — | agent-utilities |
-| `KG-2.159` | `KG-2.159` | KG | 2 | 159 | — | — | agent-utilities |
+| `AU-KG.compute.mcp-backed-dedicated-trackers` | `AU-KG.compute.mcp-backed-dedicated-trackers` | KG | 2 | 154 | — | — | agent-utilities |
+| `AU-KG.compute.dockerhub-repositories` | `AU-KG.compute.dockerhub-repositories` | KG | 2 | 155 | — | — | agent-utilities |
+| `AU-KG.compute.langfuse-traces-observations` | `AU-KG.compute.langfuse-traces-observations` | KG | 2 | 156 | — | — | agent-utilities |
+| `AU-KG.compute.technitium-dns-zones-records` | `AU-KG.compute.technitium-dns-zones-records` | KG | 2 | 157 | — | — | agent-utilities |
+| `AU-KG.compute.tunnel-manager-hosts` | `AU-KG.compute.tunnel-manager-hosts` | KG | 2 | 158 | — | — | agent-utilities |
+| `AU-KG.compute.uptime-kuma-monitors` | `AU-KG.compute.uptime-kuma-monitors` | KG | 2 | 159 | — | — | agent-utilities |
 | `KG-2.16` | `KG-2.16` | KG | 2 | 16 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.160` | `KG-2.160` | KG | 2 | 160 | — | — | agent-utilities |
-| `KG-2.161` | `KG-2.161` | KG | 2 | 161 | — | — | agent-utilities |
-| `KG-2.163` | `KG-2.163` | KG | 2 | 163 | — | — | agent-utilities |
-| `KG-2.164` | `KG-2.164` | KG | 2 | 164 | — | — | agent-utilities |
-| `KG-2.165` | `KG-2.165` | KG | 2 | 165 | — | — | agent-utilities |
-| `KG-2.166` | `KG-2.166` | KG | 2 | 166 | — | — | agent-utilities |
+| `AU-KG.compute.home-assistant-states` | `AU-KG.compute.home-assistant-states` | KG | 2 | 160 | — | — | agent-utilities |
+| `AU-KG.compute.twenty-crm-people-companies` | `AU-KG.compute.twenty-crm-people-companies` | KG | 2 | 161 | — | — | agent-utilities |
+| `AU-KG.compute.audiobookshelf-libraries-books-authors` | `AU-KG.compute.audiobookshelf-libraries-books-authors` | KG | 2 | 163 | — | — | agent-utilities |
+| `AU-KG.compute.firefly-iii-accounts-transactions` | `AU-KG.compute.firefly-iii-accounts-transactions` | KG | 2 | 164 | — | — | agent-utilities |
+| `AU-KG.compute.paperless-ngx-documents-correspondents` | `AU-KG.compute.paperless-ngx-documents-correspondents` | KG | 2 | 165 | — | — | agent-utilities |
+| `AU-KG.compute.gramps-web-people-families` | `AU-KG.compute.gramps-web-people-families` | KG | 2 | 166 | — | — | agent-utilities |
 | `KG-2.17` | `KG-2.17` | KG | 2 | 17 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.171` | `KG-2.171` | KG | 2 | 171 | — | — | epistemic-graph |
+| `EG-KG.query.cross-graph-union` | `EG-KG.query.cross-graph-union` | KG | 2 | 171 | — | — | epistemic-graph |
 | `KG-2.172` | `KG-2.172` | KG | 2 | 172 | — | — | agent-utilities |
-| `KG-2.173` | `KG-2.173` | KG | 2 | 173 | — | — | agent-utilities |
-| `KG-2.174` | `KG-2.174` | KG | 2 | 174 | — | — | agent-utilities |
-| `KG-2.176` | `KG-2.176` | KG | 2 | 176 | — | — | epistemic-graph |
-| `KG-2.177` | `KG-2.177` | KG | 2 | 177 | — | — | epistemic-graph |
-| `KG-2.178` | `KG-2.178` | KG | 2 | 178 | — | — | epistemic-graph |
-| `KG-2.179` | `KG-2.179` | KG | 2 | 179 | — | — | epistemic-graph |
+| `AU-KG.research.default-so-every-cycle` | `AU-KG.research.default-so-every-cycle` | KG | 2 | 173 | — | — | agent-utilities |
+| `AU-KG.ingest.generalized-cross-lane-parallelization` | `AU-KG.ingest.generalized-cross-lane-parallelization` | KG | 2 | 174 | — | — | agent-utilities |
+| `EG-KG.compute.consult-lazy` | `EG-KG.compute.consult-lazy` | KG | 2 | 176 | — | — | epistemic-graph |
+| `EG-KG.storage.kg-kg` | `EG-KG.storage.kg-kg` | KG | 2 | 177 | — | — | epistemic-graph |
+| `EG-KG.query.read-only-sql-query` | `EG-KG.query.read-only-sql-query` | KG | 2 | 178 | — | — | epistemic-graph |
+| `EG-KG.query.dep-free-behind` | `EG-KG.query.dep-free-behind` | KG | 2 | 179 | — | — | epistemic-graph |
 | `KG-2.18` | `KG-2.18` | KG | 2 | 18 | — | — | agent-utilities, agent-webui, epistemic-graph |
 | `KG-2.180` | `KG-2.180` | KG | 2 | 180 | — | — | epistemic-graph |
 | `KG-2.181` | `KG-2.181` | KG | 2 | 181 | — | — | epistemic-graph |
-| `KG-2.182` | `KG-2.182` | KG | 2 | 182 | — | — | epistemic-graph |
-| `KG-2.183` | `KG-2.183` | KG | 2 | 183 | — | — | epistemic-graph |
-| `KG-2.184` | `KG-2.184` | KG | 2 | 184 | — | — | epistemic-graph |
-| `KG-2.185` | `KG-2.185` | KG | 2 | 185 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.sharding.per-graph-write-coalescer` | `EG-KG.sharding.per-graph-write-coalescer` | KG | 2 | 182 | — | — | epistemic-graph |
+| `EG-KG.txn.serializable-zero-cost` | `EG-KG.txn.serializable-zero-cost` | KG | 2 | 183 | — | — | epistemic-graph |
+| `EG-KG.query.version-keyed-cache` | `EG-KG.query.version-keyed-cache` | KG | 2 | 184 | — | — | epistemic-graph |
+| `AU-KG.ontology.owl-screen-bridge` | `AU-KG.ontology.owl-screen-bridge` | KG | 2 | 185 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.187` | `KG-2.187` | KG | 2 | 187 | — | — | epistemic-graph |
-| `KG-2.188` | `KG-2.188` | KG | 2 | 188 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.189` | `KG-2.189` | KG | 2 | 189 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.ingest.source-sync-canonical` | `AU-KG.ingest.source-sync-canonical` | KG | 2 | 188 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.query.raw-python` | `AU-KG.query.raw-python` | KG | 2 | 189 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.19` | `KG-2.19` | KG | 2 | 19 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.190` | `KG-2.190` | KG | 2 | 190 | — | — | epistemic-graph |
-| `KG-2.191` | `KG-2.191` | KG | 2 | 191 | — | — | epistemic-graph |
-| `KG-2.192` | `KG-2.192` | KG | 2 | 192 | — | — | agent-utilities |
-| `KG-2.193` | `KG-2.193` | KG | 2 | 193 | — | — | agent-utilities |
-| `KG-2.194` | `KG-2.194` | KG | 2 | 194 | — | — | agent-utilities |
-| `KG-2.195` | `KG-2.195` | KG | 2 | 195 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.196` | `KG-2.196` | KG | 2 | 196 | — | — | epistemic-graph |
-| `KG-2.197` | `KG-2.197` | KG | 2 | 197 | — | — | epistemic-graph |
-| `KG-2.198` | `KG-2.198` | KG | 2 | 198 | — | — | epistemic-graph |
-| `KG-2.199` | `KG-2.199` | KG | 2 | 199 | — | — | epistemic-graph |
+| `EG-KG.query.concept-10` | `EG-KG.query.concept-10` | KG | 2 | 190 | — | — | epistemic-graph |
+| `EG-KG.storage.read-through-seam-exercised` | `EG-KG.storage.read-through-seam-exercised` | KG | 2 | 191 | — | — | epistemic-graph |
+| `AU-KG.research.provenance` | `AU-KG.research.provenance` | KG | 2 | 192 | — | — | agent-utilities |
+| `AU-KG.ingest.fetch-only-requested-ids` | `AU-KG.ingest.fetch-only-requested-ids` | KG | 2 | 193 | — | — | agent-utilities |
+| `AU-KG.research.so-cohort` | `AU-KG.research.so-cohort` | KG | 2 | 194 | — | — | agent-utilities |
+| `AU-KG.backend.backend-modes` | `AU-KG.backend.backend-modes` | KG | 2 | 195 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.query.concept-11` | `EG-KG.query.concept-11` | KG | 2 | 196 | — | — | epistemic-graph |
+| `EG-KG.query.describe` | `EG-KG.query.describe` | KG | 2 | 197 | — | — | epistemic-graph |
+| `EG-KG.query.follow-up` | `EG-KG.query.follow-up` | KG | 2 | 198 | — | — | epistemic-graph |
+| `EG-KG.query.concept-12` | `EG-KG.query.concept-12` | KG | 2 | 199 | — | — | epistemic-graph |
 | `KG-2.2` | `KG-2.2` | KG | 2 | 2 | — | — | agent-utilities |
 | `KG-2.20` | `KG-2.20` | KG | 2 | 20 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.200` | `KG-2.200` | KG | 2 | 200 | — | — | epistemic-graph |
-| `KG-2.201` | `KG-2.201` | KG | 2 | 201 | — | — | epistemic-graph |
-| `KG-2.202` | `KG-2.202` | KG | 2 | 202 | — | — | epistemic-graph |
+| `EG-KG.storage.authoritative-flip` | `EG-KG.storage.authoritative-flip` | KG | 2 | 200 | — | — | epistemic-graph |
+| `EG-KG.query.datafusion` | `EG-KG.query.datafusion` | KG | 2 | 201 | — | — | epistemic-graph |
+| `EG-KG.query.concept-13` | `EG-KG.query.concept-13` | KG | 2 | 202 | — | — | epistemic-graph |
 | `KG-2.203` | `KG-2.203` | KG | 2 | 203 | — | — | agent-utilities |
-| `KG-2.204` | `KG-2.204` | KG | 2 | 204 | — | — | epistemic-graph |
-| `KG-2.205` | `KG-2.205` | KG | 2 | 205 | — | — | epistemic-graph |
+| `EG-KG.storage.one-fsync-covers-raft` | `EG-KG.storage.one-fsync-covers-raft` | KG | 2 | 204 | — | — | epistemic-graph |
+| `EG-KG.sharding.raft-resharding` | `EG-KG.sharding.raft-resharding` | KG | 2 | 205 | — | — | epistemic-graph |
 | `KG-2.206` | `KG-2.206` | KG | 2 | 206 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.207` | `KG-2.207` | KG | 2 | 207 | — | — | epistemic-graph |
-| `KG-2.208` | `KG-2.208` | KG | 2 | 208 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.209` | `KG-2.209` | KG | 2 | 209 | — | — | epistemic-graph |
-| `KG-2.20a` | `KG-2.20a` | KG | 2 | 20a | — | — | epistemic-graph |
-| `KG-2.20b` | `KG-2.20b` | KG | 2 | 20b | — | — | epistemic-graph |
-| `KG-2.20c` | `KG-2.20c` | KG | 2 | 20c | — | — | epistemic-graph |
-| `KG-2.20d` | `KG-2.20d` | KG | 2 | 20d | — | — | epistemic-graph |
-| `KG-2.20e` | `KG-2.20e` | KG | 2 | 20e | — | — | epistemic-graph |
-| `KG-2.20f` | `KG-2.20f` | KG | 2 | 20f | — | — | agents, epistemic-graph |
-| `KG-2.20g` | `KG-2.20g` | KG | 2 | 20g | — | — | agent-utilities, agents, epistemic-graph |
-| `KG-2.20h` | `KG-2.20h` | KG | 2 | 20h | — | — | agents, epistemic-graph |
-| `KG-2.20i` | `KG-2.20i` | KG | 2 | 20i | — | — | agents, epistemic-graph |
-| `KG-2.20j` | `KG-2.20j` | KG | 2 | 20j | — | — | agents, epistemic-graph |
-| `KG-2.20k` | `KG-2.20k` | KG | 2 | 20k | — | — | epistemic-graph |
+| `EG-KG.sharding.semantic-embedding-store-backed` | `EG-KG.sharding.semantic-embedding-store-backed` | KG | 2 | 207 | — | — | epistemic-graph |
+| `AU-KG.compute.vector` | `AU-KG.compute.vector` | KG | 2 | 208 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.query.concept-14` | `EG-KG.query.concept-14` | KG | 2 | 209 | — | — | epistemic-graph |
+| `EG-KG.compute.mean-variance-optimization` | `EG-KG.compute.mean-variance-optimization` | KG | 2 | 20a | — | — | epistemic-graph |
+| `EG-KG.compute.risk-analytics` | `EG-KG.compute.risk-analytics` | KG | 2 | 20b | — | — | epistemic-graph |
+| `EG-KG.compute.hmm-regime-detection` | `EG-KG.compute.hmm-regime-detection` | KG | 2 | 20c | — | — | epistemic-graph |
+| `EG-KG.compute.signal-generation` | `EG-KG.compute.signal-generation` | KG | 2 | 20d | — | — | epistemic-graph |
+| `EG-KG.compute.exchange-execution` | `EG-KG.compute.exchange-execution` | KG | 2 | 20e | — | — | epistemic-graph |
+| `EG-KG.domains.market-microstructure-sizing-backtest` | `EG-KG.domains.market-microstructure-sizing-backtest` | KG | 2 | 20f | — | — | agents, epistemic-graph |
+| `EG-KG.domains.forensic-accounting-kernels` | `EG-KG.domains.forensic-accounting-kernels` | KG | 2 | 20g | — | — | agent-utilities, agents, epistemic-graph |
+| `EG-KG.domains.state-space-statistical-arbitrage` | `EG-KG.domains.state-space-statistical-arbitrage` | KG | 2 | 20h | — | — | agents, epistemic-graph |
+| `EG-KG.domains.quant-finance` | `EG-KG.domains.quant-finance` | KG | 2 | 20i | — | — | agents, epistemic-graph |
+| `AU-KG.domains.derivatives` | `AU-KG.domains.derivatives` | KG | 2 | 20j | — | — | agents, epistemic-graph |
+| `EG-KG.domains.concept-2` | `EG-KG.domains.concept-2` | KG | 2 | 20k | — | — | epistemic-graph |
 | `KG-2.21` | `KG-2.21` | KG | 2 | 21 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.210` | `KG-2.210` | KG | 2 | 210 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.211` | `KG-2.211` | KG | 2 | 211 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.212` | `KG-2.212` | KG | 2 | 212 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.compute.handled-outside-single-anchor` | `EG-KG.compute.handled-outside-single-anchor` | KG | 2 | 211 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.ontology.emits-database-ontology-entities` | `AU-KG.ontology.emits-database-ontology-entities` | KG | 2 | 212 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.213` | `KG-2.213` | KG | 2 | 213 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.214` | `KG-2.214` | KG | 2 | 214 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.215` | `KG-2.215` | KG | 2 | 215 | — | — | epistemic-graph |
-| `KG-2.216` | `KG-2.216` | KG | 2 | 216 | — | — | epistemic-graph |
-| `KG-2.217` | `KG-2.217` | KG | 2 | 217 | — | — | epistemic-graph |
-| `KG-2.218` | `KG-2.218` | KG | 2 | 218 | — | — | epistemic-graph |
-| `KG-2.219` | `KG-2.219` | KG | 2 | 219 | — | — | epistemic-graph |
-| `KG-2.21a` | `KG-2.21a` | KG | 2 | 21a | — | — | epistemic-graph |
+| `AU-KG.query.top-nodes-by-degree` | `AU-KG.query.top-nodes-by-degree` | KG | 2 | 214 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.query.text-spatial-time` | `AU-KG.query.text-spatial-time` | KG | 2 | 215 | — | — | epistemic-graph |
+| `EG-KG.backend.engine-modes` | `EG-KG.backend.engine-modes` | KG | 2 | 216 | — | — | epistemic-graph |
+| `EG-KG.ontology.kg-native-rdf-sparql` | `EG-KG.ontology.kg-native-rdf-sparql` | KG | 2 | 217 | — | — | epistemic-graph |
+| `EG-KG.ontology.concept-11` | `EG-KG.ontology.concept-11` | KG | 2 | 218 | — | — | epistemic-graph |
+| `EG-KG.ontology.incremental-materialization` | `EG-KG.ontology.incremental-materialization` | KG | 2 | 219 | — | — | epistemic-graph |
+| `EG-KG.compute.multi-language-ast-parser` | `EG-KG.compute.multi-language-ast-parser` | KG | 2 | 21a | — | — | epistemic-graph |
 | `KG-2.22` | `KG-2.22` | KG | 2 | 22 | — | — | agent-utilities, agents, epistemic-graph |
-| `KG-2.220` | `KG-2.220` | KG | 2 | 220 | — | — | epistemic-graph |
-| `KG-2.221` | `KG-2.221` | KG | 2 | 221 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.222` | `KG-2.222` | KG | 2 | 222 | — | — | epistemic-graph |
-| `KG-2.223` | `KG-2.223` | KG | 2 | 223 | — | — | epistemic-graph |
-| `KG-2.224` | `KG-2.224` | KG | 2 | 224 | — | — | epistemic-graph |
-| `KG-2.225` | `KG-2.225` | KG | 2 | 225 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.226` | `KG-2.226` | KG | 2 | 226 | — | — | epistemic-graph |
-| `KG-2.227` | `KG-2.227` | KG | 2 | 227 | — | — | epistemic-graph |
-| `KG-2.228` | `KG-2.228` | KG | 2 | 228 | — | — | epistemic-graph |
-| `KG-2.229` | `KG-2.229` | KG | 2 | 229 | — | — | epistemic-graph |
-| `KG-2.22a` | `KG-2.22a` | KG | 2 | 22a | — | — | epistemic-graph |
+| `EG-KG.ontology.concept-12` | `EG-KG.ontology.concept-12` | KG | 2 | 220 | — | — | epistemic-graph |
+| `EG-KG.backend.tenant-delete-recreate-same` | `EG-KG.backend.tenant-delete-recreate-same` | KG | 2 | 221 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.storage.lane-n-increment` | `EG-KG.storage.lane-n-increment` | KG | 2 | 222 | — | — | epistemic-graph |
+| `EG-KG.backend.tiny-shared` | `EG-KG.backend.tiny-shared` | KG | 2 | 223 | — | — | epistemic-graph |
+| `EG-KG.storage.100m-tenant` | `EG-KG.storage.100m-tenant` | KG | 2 | 224 | — | — | epistemic-graph |
+| `EG-KG.txn.reader-never-sees-node` | `EG-KG.txn.reader-never-sees-node` | KG | 2 | 225 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.txn.routes-cross-shard-txn` | `EG-KG.txn.routes-cross-shard-txn` | KG | 2 | 226 | — | — | epistemic-graph |
+| `EG-KG.storage.feature` | `EG-KG.storage.feature` | KG | 2 | 227 | — | — | epistemic-graph |
+| `EG-KG.query.rowset-execution` | `EG-KG.query.rowset-execution` | KG | 2 | 228 | — | — | epistemic-graph |
+| `EG-KG.query.streaming-cdc-subscriptions` | `EG-KG.query.streaming-cdc-subscriptions` | KG | 2 | 229 | — | — | epistemic-graph |
+| `EG-KG.compute.ml-primitives` | `EG-KG.compute.ml-primitives` | KG | 2 | 22a | — | — | epistemic-graph |
 | `KG-2.22b` | `KG-2.22b` | KG | 2 | 22b | — | — | epistemic-graph |
-| `KG-2.230` | `KG-2.230` | KG | 2 | 230 | — | — | epistemic-graph |
-| `KG-2.231` | `KG-2.231` | KG | 2 | 231 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.232` | `KG-2.232` | KG | 2 | 232 | — | — | epistemic-graph |
+| `EG-KG.query.wire-codec` | `EG-KG.query.wire-codec` | KG | 2 | 230 | — | — | epistemic-graph |
+| `EG-KG.sharding.row-level-security` | `EG-KG.sharding.row-level-security` | KG | 2 | 231 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.query.query-federation` | `EG-KG.query.query-federation` | KG | 2 | 232 | — | — | epistemic-graph |
 | `KG-2.233` | `KG-2.233` | KG | 2 | 233 | — | — | epistemic-graph |
-| `KG-2.234` | `KG-2.234` | KG | 2 | 234 | — | — | epistemic-graph |
+| `EG-KG.compute.lane-v` | `EG-KG.compute.lane-v` | KG | 2 | 234 | — | — | epistemic-graph |
 | `KG-2.235` | `KG-2.235` | KG | 2 | 235 | — | — | epistemic-graph |
-| `KG-2.236` | `KG-2.236` | KG | 2 | 236 | — | — | epistemic-graph |
-| `KG-2.237` | `KG-2.237` | KG | 2 | 237 | — | — | epistemic-graph |
-| `KG-2.238` | `KG-2.238` | KG | 2 | 238 | — | — | agent-utilities |
-| `KG-2.239` | `KG-2.239` | KG | 2 | 239 | — | — | epistemic-graph |
+| `EG-KG.ontology.concept-13` | `EG-KG.ontology.concept-13` | KG | 2 | 236 | — | — | epistemic-graph |
+| `EG-KG.backend.many-repeated-create-delete` | `EG-KG.backend.many-repeated-create-delete` | KG | 2 | 237 | — | — | epistemic-graph |
+| `AU-KG.memory.provides-real-ephemeral-one` | `AU-KG.memory.provides-real-ephemeral-one` | KG | 2 | 238 | — | — | agent-utilities |
+| `EG-KG.query.feature` | `EG-KG.query.feature` | KG | 2 | 239 | — | — | epistemic-graph |
 | `KG-2.24` | `KG-2.24` | KG | 2 | 24 | — | — | agent-utilities |
-| `KG-2.240` | `KG-2.240` | KG | 2 | 240 | — | — | epistemic-graph |
+| `EG-KG.ontology.lpg-rdf-projection-vocabulary` | `EG-KG.ontology.lpg-rdf-projection-vocabulary` | KG | 2 | 240 | — | — | epistemic-graph |
 | `KG-2.242` | `KG-2.242` | KG | 2 | 242 | — | — | agent-utilities |
-| `KG-2.243` | `KG-2.243` | KG | 2 | 243 | — | — | agent-utilities |
-| `KG-2.244` | `KG-2.244` | KG | 2 | 244 | — | — | agent-utilities |
-| `KG-2.245` | `KG-2.245` | KG | 2 | 245 | — | — | agent-utilities |
-| `KG-2.246` | `KG-2.246` | KG | 2 | 246 | — | — | agent-utilities |
-| `KG-2.247` | `KG-2.247` | KG | 2 | 247 | — | — | agent-utilities |
-| `KG-2.248` | `KG-2.248` | KG | 2 | 248 | — | — | agent-utilities |
-| `KG-2.249` | `KG-2.249` | KG | 2 | 249 | — | — | epistemic-graph |
+| `AU-KG.query.read-only-sql-over` | `AU-KG.query.read-only-sql-over` | KG | 2 | 243 | — | — | agent-utilities |
+| `AU-KG.backend.cache-lives-as` | `AU-KG.backend.cache-lives-as` | KG | 2 | 244 | — | — | agent-utilities |
+| `AU-KG.compute.graph-builder` | `AU-KG.compute.graph-builder` | KG | 2 | 245 | — | — | agent-utilities |
+| `AU-KG.memory.time-series-lives-one` | `AU-KG.memory.time-series-lives-one` | KG | 2 | 246 | — | — | agent-utilities |
+| `AU-KG.enrichment.proposals-live-as` | `AU-KG.enrichment.proposals-live-as` | KG | 2 | 247 | — | — | agent-utilities |
+| `AU-KG.maintenance.only-no-file-cache` | `AU-KG.maintenance.only-no-file-cache` | KG | 2 | 248 | — | — | agent-utilities |
+| `EG-KG.compute.preserved` | `EG-KG.compute.preserved` | KG | 2 | 249 | — | — | epistemic-graph |
 | `KG-2.25` | `KG-2.25` | KG | 2 | 25 | — | — | agent-utilities |
-| `KG-2.250` | `KG-2.250` | KG | 2 | 250 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.compute.kg-2` | `AU-KG.compute.kg-2` | KG | 2 | 250 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.251` | `KG-2.251` | KG | 2 | 251 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.252` | `KG-2.252` | KG | 2 | 252 | — | — | agent-utilities |
 | `KG-2.253` | `KG-2.253` | KG | 2 | 253 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.254` | `KG-2.254` | KG | 2 | 254 | — | — | epistemic-graph |
-| `KG-2.255` | `KG-2.255` | KG | 2 | 255 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.256` | `KG-2.256` | KG | 2 | 256 | — | — | agent-utilities |
-| `KG-2.257` | `KG-2.257` | KG | 2 | 257 | — | — | agent-utilities |
-| `KG-2.258` | `KG-2.258` | KG | 2 | 258 | — | — | agent-utilities |
-| `KG-2.259` | `KG-2.259` | KG | 2 | 259 | — | — | agent-utilities |
+| `EG-KG.query.uql-parser-ops` | `EG-KG.query.uql-parser-ops` | KG | 2 | 254 | — | — | epistemic-graph |
+| `AU-KG.retrieval.mmr-diversification` | `AU-KG.retrieval.mmr-diversification` | KG | 2 | 255 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.enrichment.direction-repair` | `AU-KG.enrichment.direction-repair` | KG | 2 | 256 | — | — | agent-utilities |
+| `AU-KG.ingest.observability-queries-opik-cannot` | `AU-KG.ingest.observability-queries-opik-cannot` | KG | 2 | 257 | — | — | agent-utilities |
+| `AU-KG.enrichment.community-reports` | `AU-KG.enrichment.community-reports` | KG | 2 | 258 | — | — | agent-utilities |
+| `AU-KG.ontology.do-not-auto-merge` | `AU-KG.ontology.do-not-auto-merge` | KG | 2 | 259 | — | — | agent-utilities |
 | `KG-2.26` | `KG-2.26` | KG | 2 | 26 | — | — | agent-utilities |
-| `KG-2.260` | `KG-2.260` | KG | 2 | 260 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.261` | `KG-2.261` | KG | 2 | 261 | — | — | agent-utilities |
-| `KG-2.262` | `KG-2.262` | KG | 2 | 262 | — | — | agent-utilities |
-| `KG-2.264` | `KG-2.264` | KG | 2 | 264 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.265` | `KG-2.265` | KG | 2 | 265 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.compute.when-exposes-native` | `AU-KG.compute.when-exposes-native` | KG | 2 | 260 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.ingest.never-scan-whole-graph` | `AU-KG.ingest.never-scan-whole-graph` | KG | 2 | 261 | — | — | agent-utilities |
+| `AU-KG.compute.single-dropped-connection` | `AU-KG.compute.single-dropped-connection` | KG | 2 | 262 | — | — | agent-utilities |
+| `EG-KG.ingest.resets-socket-so-assimilation` | `EG-KG.ingest.resets-socket-so-assimilation` | KG | 2 | 264 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.ontology.manage-arbitrary` | `AU-KG.ontology.manage-arbitrary` | KG | 2 | 265 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.266` | `KG-2.266` | KG | 2 | 266 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.267` | `KG-2.267` | KG | 2 | 267 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.268` | `KG-2.268` | KG | 2 | 268 | — | — | epistemic-graph |
+| `AU-KG.ingest.staged` | `AU-KG.ingest.staged` | KG | 2 | 267 | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.storage.kg-kg-2` | `EG-KG.storage.kg-kg-2` | KG | 2 | 268 | — | — | epistemic-graph |
 | `KG-2.269` | `KG-2.269` | KG | 2 | 269 | — | — | agent-utilities |
-| `KG-2.27` | `KG-2.27` | KG | 2 | 27 | — | — | agent-utilities |
-| `KG-2.270` | `KG-2.270` | KG | 2 | 270 | — | — | epistemic-graph |
-| `KG-2.271` | `KG-2.271` | KG | 2 | 271 | — | — | epistemic-graph |
+| `AU-KG.domains.agent-calibration-reputation-tracking` | `AU-KG.domains.agent-calibration-reputation-tracking` | KG | 2 | 27 | — | — | agent-utilities |
+| `EG-KG.sharding.multi-raft` | `EG-KG.sharding.multi-raft` | KG | 2 | 270 | — | — | epistemic-graph |
+| `EG-KG.storage.concept-2` | `EG-KG.storage.concept-2` | KG | 2 | 271 | — | — | epistemic-graph |
 | `KG-2.272` | `KG-2.272` | KG | 2 | 272 | — | — | agent-utilities |
-| `KG-2.273` | `KG-2.273` | KG | 2 | 273 | — | — | agent-utilities, epistemic-graph |
-| `KG-2.274` | `KG-2.274` | KG | 2 | 274 | — | — | agent-utilities |
-| `KG-2.275` | `KG-2.275` | KG | 2 | 275 | — | — | agent-utilities |
-| `KG-2.276` | `KG-2.276` | KG | 2 | 276 | — | — | agent-utilities |
+| `AU-KG.backend.authority-has-already-acked` | `AU-KG.backend.authority-has-already-acked` | KG | 2 | 273 | — | — | agent-utilities, epistemic-graph |
+| `AU-KG.compute.when-exposes` | `AU-KG.compute.when-exposes` | KG | 2 | 274 | — | — | agent-utilities |
+| `AU-KG.retrieval.assimilated-from-mragent` | `AU-KG.retrieval.assimilated-from-mragent` | KG | 2 | 275 | — | — | agent-utilities |
+| `AU-KG.memory.generation-scoped-selective-reward` | `AU-KG.memory.generation-scoped-selective-reward` | KG | 2 | 276 | — | — | agent-utilities |
 | `KG-2.277` | `KG-2.277` | KG | 2 | 277 | — | — | agent-utilities |
-| `KG-2.278` | `KG-2.278` | KG | 2 | 278 | — | — | agent-utilities |
-| `KG-2.279` | `KG-2.279` | KG | 2 | 279 | — | — | agent-utilities |
-| `KG-2.28` | `KG-2.28` | KG | 2 | 28 | — | — | agent-utilities |
-| `KG-2.280` | `KG-2.280` | KG | 2 | 280 | — | — | agent-utilities |
-| `KG-2.281` | `KG-2.281` | KG | 2 | 281 | — | — | agent-utilities |
-| `KG-2.282` | `KG-2.282` | KG | 2 | 282 | — | — | agent-utilities |
-| `KG-2.283` | `KG-2.283` | KG | 2 | 283 | — | — | agent-utilities |
-| `KG-2.284` | `KG-2.284` | KG | 2 | 284 | — | — | agent-utilities |
+| `AU-KG.compute.engine-surface-manifest` | `AU-KG.compute.engine-surface-manifest` | KG | 2 | 278 | — | — | agent-utilities |
+| `AU-KG.ingest.floor-codebase-admission-cap` | `AU-KG.ingest.floor-codebase-admission-cap` | KG | 2 | 279 | — | — | agent-utilities |
+| `AU-KG.domains.persona-decision-heuristic-enrichment` | `AU-KG.domains.persona-decision-heuristic-enrichment` | KG | 2 | 28 | — | — | agent-utilities |
+| `AU-KG.ingest.applying-agents-md-batch` | `AU-KG.ingest.applying-agents-md-batch` | KG | 2 | 280 | — | — | agent-utilities |
+| `AU-KG.compute.resolve` | `AU-KG.compute.resolve` | KG | 2 | 281 | — | — | agent-utilities |
+| `AU-KG.ingest.normal-codebase-ingest-also` | `AU-KG.ingest.normal-codebase-ingest-also` | KG | 2 | 282 | — | — | agent-utilities |
+| `AU-KG.enrichment.query-ingested-commit-history` | `AU-KG.enrichment.query-ingested-commit-history` | KG | 2 | 283 | — | — | agent-utilities |
+| `AU-KG.ingest.over-same-tree-fan` | `AU-KG.ingest.over-same-tree-fan` | KG | 2 | 284 | — | — | agent-utilities |
 | `KG-2.285` | `KG-2.285` | KG | 2 | 285 | — | — | agent-utilities |
 | `KG-2.286` | `KG-2.286` | KG | 2 | 286 | — | — | agent-utilities |
 | `KG-2.287` | `KG-2.287` | KG | 2 | 287 | — | — | agent-utilities |
 | `KG-2.288` | `KG-2.288` | KG | 2 | 288 | — | — | agent-utilities |
-| `KG-2.289` | `KG-2.289` | KG | 2 | 289 | — | — | agent-utilities |
-| `KG-2.29` | `KG-2.29` | KG | 2 | 29 | — | — | agent-utilities |
-| `KG-2.290` | `KG-2.290` | KG | 2 | 290 | — | — | agent-utilities |
-| `KG-2.291` | `KG-2.291` | KG | 2 | 291 | — | — | agent-utilities |
-| `KG-2.292` | `KG-2.292` | KG | 2 | 292 | — | — | agent-utilities |
+| `AU-KG.compute.interactive-lane-floor` | `AU-KG.compute.interactive-lane-floor` | KG | 2 | 289 | — | — | agent-utilities |
+| `AU-KG.domains.sentiment-fusion-signals` | `AU-KG.domains.sentiment-fusion-signals` | KG | 2 | 29 | — | — | agent-utilities |
+| `AU-KG.research.evolutionstate-live-surface-per` | `AU-KG.research.evolutionstate-live-surface-per` | KG | 2 | 290 | — | — | agent-utilities |
+| `AU-KG.research.saturation-gauge-aggregates-four` | `AU-KG.research.saturation-gauge-aggregates-four` | KG | 2 | 291 | — | — | agent-utilities |
+| `AU-KG.research.close-distill-develop-seam` | `AU-KG.research.close-distill-develop-seam` | KG | 2 | 292 | — | — | agent-utilities |
 | `KG-2.293` | `KG-2.293` | KG | 2 | 293 | — | — | agent-utilities |
 | `KG-2.294` | `KG-2.294` | KG | 2 | 294 | — | — | agent-utilities |
-| `KG-2.295` | `KG-2.295` | KG | 2 | 295 | — | — | agent-utilities |
+| `AU-KG.ingest.writes-go` | `AU-KG.ingest.writes-go` | KG | 2 | 295 | — | — | agent-utilities |
 | `KG-2.296` | `KG-2.296` | KG | 2 | 296 | — | — | agent-utilities |
-| `KG-2.297` | `KG-2.297` | KG | 2 | 297 | — | — | agent-utilities |
-| `KG-2.298` | `KG-2.298` | KG | 2 | 298 | — | — | agent-utilities |
-| `KG-2.299` | `KG-2.299` | KG | 2 | 299 | — | — | agent-utilities |
+| `AU-KG.retrieval.kg-4` | `AU-KG.retrieval.kg-4` | KG | 2 | 297 | — | — | agent-utilities |
+| `AU-KG.compute.same-semantics-as` | `AU-KG.compute.same-semantics-as` | KG | 2 | 298 | — | — | agent-utilities |
+| `AU-KG.enrichment.each-call-resolves-active` | `AU-KG.enrichment.each-call-resolves-active` | KG | 2 | 299 | — | — | agent-utilities |
 | `KG-2.3` | `KG-2.3` | KG | 2 | 3 | — | — | agent-utilities |
-| `KG-2.30` | `KG-2.30` | KG | 2 | 30 | — | — | agent-utilities |
-| `KG-2.300` | `KG-2.300` | KG | 2 | 300 | — | — | agent-utilities |
-| `KG-2.301` | `KG-2.301` | KG | 2 | 301 | — | — | agent-utilities |
-| `KG-2.302` | `KG-2.302` | KG | 2 | 302 | — | — | agent-utilities |
-| `KG-2.303` | `KG-2.303` | KG | 2 | 303 | — | — | epistemic-graph |
-| `KG-2.304` | `KG-2.304` | KG | 2 | 304 | — | — | agent-utilities |
+| `AU-KG.domains.geopolitical-risk-scoring` | `AU-KG.domains.geopolitical-risk-scoring` | KG | 2 | 30 | — | — | agent-utilities |
+| `AU-KG.ingest.keys-off` | `AU-KG.ingest.keys-off` | KG | 2 | 300 | — | — | agent-utilities |
+| `AU-KG.ontology.single-source-full-drain` | `AU-KG.ontology.single-source-full-drain` | KG | 2 | 301 | — | — | agent-utilities |
+| `AU-KG.compute.connector-declared-page-drainer` | `AU-KG.compute.connector-declared-page-drainer` | KG | 2 | 302 | — | — | agent-utilities |
+| `EG-KG.compute.atomically-claim-oldest-pending` | `EG-KG.compute.atomically-claim-oldest-pending` | KG | 2 | 303 | — | — | epistemic-graph |
+| `AU-KG.ingest.attaching-this-root-logger` | `AU-KG.ingest.attaching-this-root-logger` | KG | 2 | 304 | — | — | agent-utilities |
 | `KG-2.305` | `KG-2.305` | KG | 2 | 305 | — | — | agent-utilities |
 | `KG-2.306` | `KG-2.306` | KG | 2 | 306 | — | — | agent-utilities |
-| `KG-2.307` | `KG-2.307` | KG | 2 | 307 | — | — | agent-utilities |
+| `AU-KG.memory.drive-one-agent-native` | `AU-KG.memory.drive-one-agent-native` | KG | 2 | 307 | — | — | agent-utilities |
 | `KG-2.308` | `KG-2.308` | KG | 2 | 308 | — | — | agent-utilities |
-| `KG-2.309` | `KG-2.309` | KG | 2 | 309 | — | — | agent-utilities |
-| `KG-2.31` | `KG-2.31` | KG | 2 | 31 | — | — | agent-utilities |
+| `AU-KG.memory.episodic-procedural-memory-distillation` | `AU-KG.memory.episodic-procedural-memory-distillation` | KG | 2 | 309 | — | — | agent-utilities |
+| `AU-KG.domains.dividend-sustainability-credit-fixed` | `AU-KG.domains.dividend-sustainability-credit-fixed` | KG | 2 | 31 | — | — | agent-utilities |
 | `KG-2.310` | `KG-2.310` | KG | 2 | 310 | — | — | agent-utilities |
-| `KG-2.311` | `KG-2.311` | KG | 2 | 311 | — | — | agent-utilities |
-| `KG-2.312` | `KG-2.312` | KG | 2 | 312 | — | — | agent-utilities |
-| `KG-2.32` | `KG-2.32` | KG | 2 | 32 | — | — | agent-utilities |
-| `KG-2.33` | `KG-2.33` | KG | 2 | 33 | — | — | agent-utilities |
-| `KG-2.34` | `KG-2.34` | KG | 2 | 34 | — | — | agent-utilities |
-| `KG-2.35` | `KG-2.35` | KG | 2 | 35 | — | — | agent-utilities |
+| `AU-KG.backend.lmcache-native-connector` | `AU-KG.backend.lmcache-native-connector` | KG | 2 | 311 | — | — | agent-utilities |
+| `AU-KG.compute.surface-analytics-program` | `AU-KG.compute.surface-analytics-program` | KG | 2 | 312 | — | — | agent-utilities |
+| `AU-KG.domains.multi-market-composite-backtester` | `AU-KG.domains.multi-market-composite-backtester` | KG | 2 | 32 | — | — | agent-utilities |
+| `AU-KG.research.zero-llm-pack-link` | `AU-KG.research.zero-llm-pack-link` | KG | 2 | 33 | — | — | agent-utilities |
+| `AU-KG.retrieval.relational-intent-retrieval` | `AU-KG.retrieval.relational-intent-retrieval` | KG | 2 | 34 | — | — | agent-utilities |
+| `AU-KG.ontology.schema-pack-lifecycle-audit` | `AU-KG.ontology.schema-pack-lifecycle-audit` | KG | 2 | 35 | — | — | agent-utilities |
 | `KG-2.36` | `KG-2.36` | KG | 2 | 36 | — | — | agent-utilities |
-| `KG-2.37` | `KG-2.37` | KG | 2 | 37 | — | — | agent-utilities |
+| `AU-KG.research.research-state-domain-pack` | `AU-KG.research.research-state-domain-pack` | KG | 2 | 37 | — | — | agent-utilities |
 | `KG-2.38` | `KG-2.38` | KG | 2 | 38 | — | — | agent-utilities |
 | `KG-2.39` | `KG-2.39` | KG | 2 | 39 | — | — | agent-utilities |
 | `KG-2.4` | `KG-2.4` | KG | 2 | 4 | — | — | agent-utilities |
 | `KG-2.40` | `KG-2.40` | KG | 2 | 40 | — | — | agent-utilities |
-| `KG-2.41` | `KG-2.41` | KG | 2 | 41 | — | — | agent-utilities |
+| `AU-KG.ontology.default-runtime-bound-import` | `AU-KG.ontology.default-runtime-bound-import` | KG | 2 | 41 | — | — | agent-utilities |
 | `KG-2.42` | `KG-2.42` | KG | 2 | 42 | — | — | agent-utilities |
 | `KG-2.43` | `KG-2.43` | KG | 2 | 43 | — | — | agent-utilities |
-| `KG-2.44` | `KG-2.44` | KG | 2 | 44 | — | — | agent-utilities |
-| `KG-2.44b` | `KG-2.44b` | KG | 2 | 44b | — | — | agent-utilities |
+| `AU-KG.ontology.batch-incremental-sync-live` | `AU-KG.ontology.batch-incremental-sync-live` | KG | 2 | 44 | — | — | agent-utilities |
+| `AU-KG.ontology.optional-populated-from` | `AU-KG.ontology.optional-populated-from` | KG | 2 | 44b | — | — | agent-utilities |
 | `KG-2.45` | `KG-2.45` | KG | 2 | 45 | — | — | agent-utilities |
-| `KG-2.46` | `KG-2.46` | KG | 2 | 46 | — | — | agent-utilities |
+| `AU-KG.ontology.redact-object-materialize-restricted` | `AU-KG.ontology.redact-object-materialize-restricted` | KG | 2 | 46 | — | — | agent-utilities |
 | `KG-2.47` | `KG-2.47` | KG | 2 | 47 | — | — | agent-utilities |
 | `KG-2.48` | `KG-2.48` | KG | 2 | 48 | — | — | agent-utilities |
-| `KG-2.49` | `KG-2.49` | KG | 2 | 49 | — | — | agent-utilities, agents |
+| `AU-KG.ontology.populated-at-import-real-3` | `AU-KG.ontology.populated-at-import-real-3` | KG | 2 | 49 | — | — | agent-utilities, agents |
 | `KG-2.5` | `KG-2.5` | KG | 2 | 5 | — | — | agent-utilities, skills |
 | `KG-2.50` | `KG-2.50` | KG | 2 | 50 | — | — | agent-utilities |
 | `KG-2.51` | `KG-2.51` | KG | 2 | 51 | — | — | agent-utilities, epistemic-graph |
 | `KG-2.52` | `KG-2.52` | KG | 2 | 52 | — | — | agent-utilities |
-| `KG-2.53` | `KG-2.53` | KG | 2 | 53 | — | — | agent-utilities |
-| `KG-2.54` | `KG-2.54` | KG | 2 | 54 | — | — | agent-utilities |
+| `AU-KG.ontology.descriptive-process-world-gains` | `AU-KG.ontology.descriptive-process-world-gains` | KG | 2 | 53 | — | — | agent-utilities |
+| `AU-KG.ingest.cross-host-safe-kg` | `AU-KG.ingest.cross-host-safe-kg` | KG | 2 | 54 | — | — | agent-utilities |
 | `KG-2.55` | `KG-2.55` | KG | 2 | 55 | — | — | agent-utilities |
 | `KG-2.56` | `KG-2.56` | KG | 2 | 56 | — | — | agent-utilities |
-| `KG-2.57` | `KG-2.57` | KG | 2 | 57 | — | — | agent-utilities |
-| `KG-2.58` | `KG-2.58` | KG | 2 | 58 | — | — | agent-utilities |
-| `KG-2.59` | `KG-2.59` | KG | 2 | 59 | — | — | agent-utilities |
+| `AU-KG.ingest.decoupled-kg-ingest-consumer` | `AU-KG.ingest.decoupled-kg-ingest-consumer` | KG | 2 | 57 | — | — | agent-utilities |
+| `AU-KG.sharding.tenant-partitioned-sharding-hrw` | `AU-KG.sharding.tenant-partitioned-sharding-hrw` | KG | 2 | 58 | — | — | agent-utilities |
+| `AU-KG.ingest.mcp-tool-connector` | `AU-KG.ingest.mcp-tool-connector` | KG | 2 | 59 | — | — | agent-utilities |
 | `KG-2.6` | `KG-2.6` | KG | 2 | 6 | — | — | agent-utilities, agents, epistemic-graph |
-| `KG-2.60` | `KG-2.60` | KG | 2 | 60 | — | — | agent-utilities |
-| `KG-2.61` | `KG-2.61` | KG | 2 | 61 | — | — | agent-utilities |
-| `KG-2.62` | `KG-2.62` | KG | 2 | 62 | — | — | agent-utilities |
+| `AU-KG.compute.data-is-private-its` | `AU-KG.compute.data-is-private-its` | KG | 2 | 60 | — | — | agent-utilities |
+| `AU-KG.backend.concept-2` | `AU-KG.backend.concept-2` | KG | 2 | 61 | — | — | agent-utilities |
+| `AU-KG.sharding.elastic-over-kg-shard` | `AU-KG.sharding.elastic-over-kg-shard` | KG | 2 | 62 | — | — | agent-utilities |
 | `KG-2.63` | `KG-2.63` | KG | 2 | 63 | — | — | agent-utilities |
 | `KG-2.64` | `KG-2.64` | KG | 2 | 64 | — | — | agent-utilities |
 | `KG-2.65` | `KG-2.65` | KG | 2 | 65 | — | — | agent-utilities, agents |
 | `KG-2.66` | `KG-2.66` | KG | 2 | 66 | — | — | agent-utilities |
-| `KG-2.67` | `KG-2.67` | KG | 2 | 67 | — | — | agent-utilities |
-| `KG-2.68` | `KG-2.68` | KG | 2 | 68 | — | — | agent-utilities |
-| `KG-2.69` | `KG-2.69` | KG | 2 | 69 | — | — | agent-utilities |
+| `AU-KG.compute.first-class-action-conditioned` | `AU-KG.compute.first-class-action-conditioned` | KG | 2 | 67 | — | — | agent-utilities |
+| `AU-KG.compute.first-class-reasoner-paradigm` | `AU-KG.compute.first-class-reasoner-paradigm` | KG | 2 | 68 | — | — | agent-utilities |
+| `AU-KG.coordination.inductive-program-synthesis-search` | `AU-KG.coordination.inductive-program-synthesis-search` | KG | 2 | 69 | — | — | agent-utilities |
 | `KG-2.7` | `KG-2.7` | KG | 2 | 7 | — | — | agent-utilities, epistemic-graph, skills |
 | `KG-2.70` | `KG-2.70` | KG | 2 | 70 | — | — | agent-utilities, agents |
-| `KG-2.71` | `KG-2.71` | KG | 2 | 71 | — | — | agent-utilities |
-| `KG-2.72` | `KG-2.72` | KG | 2 | 72 | — | — | agent-utilities |
-| `KG-2.73` | `KG-2.73` | KG | 2 | 73 | — | — | agent-utilities |
+| `AU-KG.retrieval.formulate-adversarially-refine` | `AU-KG.retrieval.formulate-adversarially-refine` | KG | 2 | 71 | — | — | agent-utilities |
+| `AU-KG.retrieval.question-formulation-adversarial-refinement` | `AU-KG.retrieval.question-formulation-adversarial-refinement` | KG | 2 | 72 | — | — | agent-utilities |
+| `AU-KG.compute.kg-3` | `AU-KG.compute.kg-3` | KG | 2 | 73 | — | — | agent-utilities |
 | `KG-2.73b` | `KG-2.73b` | KG | 2 | 73b | — | — | agent-utilities |
 | `KG-2.74` | `KG-2.74` | KG | 2 | 74 | — | — | agent-utilities |
-| `KG-2.75` | `KG-2.75` | KG | 2 | 75 | — | — | agent-utilities |
-| `KG-2.76` | `KG-2.76` | KG | 2 | 76 | — | — | agent-utilities |
-| `KG-2.77` | `KG-2.77` | KG | 2 | 77 | — | — | agent-utilities |
-| `KG-2.78` | `KG-2.78` | KG | 2 | 78 | — | — | agent-utilities |
-| `KG-2.79` | `KG-2.79` | KG | 2 | 79 | — | — | agent-utilities |
+| `AU-KG.ingest.world-model-gate` | `AU-KG.ingest.world-model-gate` | KG | 2 | 75 | — | — | agent-utilities |
+| `AU-KG.ontology.kg-2` | `AU-KG.ontology.kg-2` | KG | 2 | 76 | — | — | agent-utilities |
+| `AU-KG.research.research-intelligence-loop` | `AU-KG.research.research-intelligence-loop` | KG | 2 | 77 | — | — | agent-utilities |
+| `AU-KG.research.these-properties-carry` | `AU-KG.research.these-properties-carry` | KG | 2 | 78 | — | — | agent-utilities |
+| `AU-KG.research.best-effort-lightweight-never` | `AU-KG.research.best-effort-lightweight-never` | KG | 2 | 79 | — | — | agent-utilities |
 | `KG-2.8` | `KG-2.8` | KG | 2 | 8 | — | — | agent-utilities, agent-webui, epistemic-graph |
-| `KG-2.80` | `KG-2.80` | KG | 2 | 80 | — | — | agent-utilities |
-| `KG-2.81` | `KG-2.81` | KG | 2 | 81 | — | — | agent-utilities |
-| `KG-2.82` | `KG-2.82` | KG | 2 | 82 | — | — | agent-utilities |
-| `KG-2.83` | `KG-2.83` | KG | 2 | 83 | — | — | agent-utilities |
-| `KG-2.84` | `KG-2.84` | KG | 2 | 84 | — | — | agent-utilities |
-| `KG-2.85` | `KG-2.85` | KG | 2 | 85 | — | — | agent-utilities |
-| `KG-2.86` | `KG-2.86` | KG | 2 | 86 | — | — | agent-utilities |
-| `KG-2.87` | `KG-2.87` | KG | 2 | 87 | — | — | agent-utilities |
+| `AU-KG.ontology.verified-by-implemented-by` | `AU-KG.ontology.verified-by-implemented-by` | KG | 2 | 80 | — | — | agent-utilities |
+| `AU-KG.ontology.kyle-insider-stealth-surveillance` | `AU-KG.ontology.kyle-insider-stealth-surveillance` | KG | 2 | 81 | — | — | agent-utilities |
+| `AU-KG.memory.ahe-record-this-base` | `AU-KG.memory.ahe-record-this-base` | KG | 2 | 82 | — | — | agent-utilities |
+| `AU-KG.research.explicit-node-node-contradiction` | `AU-KG.research.explicit-node-node-contradiction` | KG | 2 | 83 | — | — | agent-utilities |
+| `AU-KG.research.run-one-autonomous-night` | `AU-KG.research.run-one-autonomous-night` | KG | 2 | 84 | — | — | agent-utilities |
+| `AU-KG.retrieval.unset-dependency-free` | `AU-KG.retrieval.unset-dependency-free` | KG | 2 | 85 | — | — | agent-utilities |
+| `AU-KG.query.chronoid-fits-residual-quantization` | `AU-KG.query.chronoid-fits-residual-quantization` | KG | 2 | 86 | — | — | agent-utilities |
+| `AU-KG.retrieval.adaptive-stopping-iterative-retrieval` | `AU-KG.retrieval.adaptive-stopping-iterative-retrieval` | KG | 2 | 87 | — | — | agent-utilities |
 | `KG-2.88` | `KG-2.88` | KG | 2 | 88 | — | — | agent-utilities |
 | `KG-2.89` | `KG-2.89` | KG | 2 | 89 | — | — | agent-utilities |
-| `KG-2.8r` | `KG-2.8r` | KG | 2 | 8r | — | — | agent-utilities, epistemic-graph |
+| `EG-KG.compute.turn-each-project` | `EG-KG.compute.turn-each-project` | KG | 2 | 8r | — | — | agent-utilities, epistemic-graph |
 | `KG-2.9` | `KG-2.9` | KG | 2 | 9 | — | — | agent-utilities |
 | `KG-2.90` | `KG-2.90` | KG | 2 | 90 | — | — | agent-utilities |
-| `KG-2.91` | `KG-2.91` | KG | 2 | 91 | — | — | agent-utilities |
-| `KG-2.92` | `KG-2.92` | KG | 2 | 92 | — | — | agent-utilities |
-| `KG-2.93` | `KG-2.93` | KG | 2 | 93 | — | — | agent-utilities, agents |
+| `AU-KG.compute.automates` | `AU-KG.compute.automates` | KG | 2 | 91 | — | — | agent-utilities |
+| `AU-KG.retrieval.monte-carlo-graph-search` | `AU-KG.retrieval.monte-carlo-graph-search` | KG | 2 | 92 | — | — | agent-utilities |
+| `AU-KG.retrieval.pauserec-implicit-reasoning-generative` | `AU-KG.retrieval.pauserec-implicit-reasoning-generative` | KG | 2 | 93 | — | — | agent-utilities, agents |
 | `KG-2.94` | `KG-2.94` | KG | 2 | 94 | — | — | agent-utilities |
 | `KG-2.95` | `KG-2.95` | KG | 2 | 95 | — | — | agent-utilities |
-| `KG-2.96` | `KG-2.96` | KG | 2 | 96 | — | — | agent-utilities |
+| `AU-KG.ontology.typed-ontology-links-binding` | `AU-KG.ontology.typed-ontology-links-binding` | KG | 2 | 96 | — | — | agent-utilities |
 | `KG-2.97` | `KG-2.97` | KG | 2 | 97 | — | — | agent-utilities |
-| `KG-2.98` | `KG-2.98` | KG | 2 | 98 | — | — | agent-utilities |
-| `KG-2.99` | `KG-2.99` | KG | 2 | 99 | — | — | agent-utilities |
-| `KG-2.9g` | `KG-2.9g` | KG | 2 | 9g | — | — | agent-utilities, agent-webui, agents, skills |
-| `KG-2.9h` | `KG-2.9h` | KG | 2 | 9h | — | — | agent-utilities |
-| `LGC-1.0` | `LGC-1.0` | LGC | 1 | 0 | — | — | agent-utilities |
-| `ML-001` | `ML-0.001` | ML | 0 | 001 | — | legacy-pillar-0 | agents |
-| `ML-002` | `ML-0.002` | ML | 0 | 002 | — | legacy-pillar-0 | agents |
-| `ML-003` | `ML-0.003` | ML | 0 | 003 | — | legacy-pillar-0 | agents |
-| `ML-004` | `ML-0.004` | ML | 0 | 004 | — | legacy-pillar-0 | agents |
-| `ML-005` | `ML-0.005` | ML | 0 | 005 | — | legacy-pillar-0 | agents |
-| `ML-006` | `ML-0.006` | ML | 0 | 006 | — | legacy-pillar-0 | agents |
-| `ML-008` | `ML-0.008` | ML | 0 | 008 | — | legacy-pillar-0 | agents |
-| `ML-009` | `ML-0.009` | ML | 0 | 009 | — | legacy-pillar-0 | agents |
-| `ML-010` | `ML-0.010` | ML | 0 | 010 | — | legacy-pillar-0 | agents |
-| `ML-011` | `ML-0.011` | ML | 0 | 011 | — | legacy-pillar-0 | agent-utilities, agents |
-| `ML-012` | `ML-0.012` | ML | 0 | 012 | — | legacy-pillar-0 | agents |
-| `ML-013` | `ML-0.013` | ML | 0 | 013 | — | legacy-pillar-0 | agents |
+| `AU-KG.ontology.one-source` | `AU-KG.ontology.one-source` | KG | 2 | 98 | — | — | agent-utilities |
+| `AU-KG.ontology.kg-3` | `AU-KG.ontology.kg-3` | KG | 2 | 99 | — | — | agent-utilities |
+| `AU-KG.backend.declared-columns-so-schema` | `AU-KG.backend.declared-columns-so-schema` | KG | 2 | 9g | — | — | agent-utilities, agent-webui, agents, skills |
+| `AU-KG.backend.where-clause-carrying` | `AU-KG.backend.where-clause-carrying` | KG | 2 | 9h | — | — | agent-utilities |
+| `AU-KG.ontology.owl-rdf-bridge` | `AU-KG.ontology.owl-rdf-bridge` | LGC | 1 | 0 | — | — | agent-utilities |
+| `AU-AHE.trainer.high-caliber-llm-trainer` | `ML-0.001` | ML | 0 | 001 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.data-engine` | `ML-0.002` | ML | 0 | 002 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.concept-2` | `ML-0.003` | ML | 0 | 003 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.concept-3` | `ML-0.004` | ML | 0 | 004 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.concept-4` | `ML-0.005` | ML | 0 | 005 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.concept-5` | `ML-0.006` | ML | 0 | 006 | — | legacy-pillar-0 | agents |
+| `DS-AHE.reward.one-sequence-level-score` | `ML-0.008` | ML | 0 | 008 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.per-token-value` | `ML-0.009` | ML | 0 | 009 | — | legacy-pillar-0 | agents |
+| `DS-AHE.trainer.data-transformation` | `ML-0.010` | ML | 0 | 010 | — | legacy-pillar-0 | agents |
+| `AU-AHE.trainer.join-inference` | `ML-0.011` | ML | 0 | 011 | — | legacy-pillar-0 | agent-utilities, agents |
+| `DS-AHE.trainer.chat-format` | `ML-0.012` | ML | 0 | 012 | — | legacy-pillar-0 | agents |
+| `DS-AHE.optimization.cache-agent-loop` | `ML-0.013` | ML | 0 | 013 | — | legacy-pillar-0 | agents |
 | `OBJ-1` | `OBJ-0.1` | OBJ | 0 | 1 | — | legacy-pillar-0 | agents |
 | `OBJ-1.0` | `OBJ-1.0` | OBJ | 1 | 0 | — | — | agents |
 | `OBJ-1.1` | `OBJ-1.1` | OBJ | 1 | 1 | — | — | agents |
@@ -840,19 +840,19 @@ The **Raw** column stays a permanently-valid alias either way.
 | `ORCH-1.100` | `ORCH-1.100` | ORCH | 1 | 100 | — | — | agent-utilities |
 | `ORCH-1.101` | `ORCH-1.101` | ORCH | 1 | 101 | — | — | agent-utilities |
 | `ORCH-1.102` | `ORCH-1.102` | ORCH | 1 | 102 | — | — | agent-utilities |
-| `ORCH-1.103` | `ORCH-1.103` | ORCH | 1 | 103 | — | — | agent-utilities |
+| `AU-ORCH.routing.load-shedding-backoff` | `AU-ORCH.routing.load-shedding-backoff` | ORCH | 1 | 103 | — | — | agent-utilities |
 | `ORCH-1.104` | `ORCH-1.104` | ORCH | 1 | 104 | — | — | agent-utilities |
 | `ORCH-1.105` | `ORCH-1.105` | ORCH | 1 | 105 | — | — | agent-utilities |
-| `ORCH-1.11` | `ORCH-1.11` | ORCH | 1 | 11 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.compiled-orchestration-kernel` | `AU-ORCH.sandbox.compiled-orchestration-kernel` | ORCH | 1 | 11 | — | — | agent-utilities |
 | `ORCH-1.12` | `ORCH-1.12` | ORCH | 1 | 12 | — | — | agent-utilities |
-| `ORCH-1.13` | `ORCH-1.13` | ORCH | 1 | 13 | — | — | agent-utilities |
+| `AU-ORCH.optimization.optimize-skill-prompt-gepa` | `AU-ORCH.optimization.optimize-skill-prompt-gepa` | ORCH | 1 | 13 | — | — | agent-utilities |
 | `ORCH-1.2` | `ORCH-1.2` | ORCH | 1 | 2 | — | — | agent-utilities, agents, scripts, skills |
-| `ORCH-1.20` | `ORCH-1.20` | ORCH | 1 | 20 | — | — | agent-utilities |
+| `AU-ORCH.execution.service-registry-initialization` | `AU-ORCH.execution.service-registry-initialization` | ORCH | 1 | 20 | — | — | agent-utilities |
 | `ORCH-1.21` | `ORCH-1.21` | ORCH | 1 | 21 | — | — | agent-utilities |
 | `ORCH-1.22` | `ORCH-1.22` | ORCH | 1 | 22 | — | — | agent-utilities |
 | `ORCH-1.23` | `ORCH-1.23` | ORCH | 1 | 23 | — | — | agent-utilities |
 | `ORCH-1.24` | `ORCH-1.24` | ORCH | 1 | 24 | — | — | agent-utilities |
-| `ORCH-1.26` | `ORCH-1.26` | ORCH | 1 | 26 | — | — | agent-utilities |
+| `AU-ORCH.execution.rlm-synthesis-failed-falling` | `AU-ORCH.execution.rlm-synthesis-failed-falling` | ORCH | 1 | 26 | — | — | agent-utilities |
 | `ORCH-1.27` | `ORCH-1.27` | ORCH | 1 | 27 | — | — | agent-utilities |
 | `ORCH-1.28` | `ORCH-1.28` | ORCH | 1 | 28 | — | — | agent-utilities |
 | `ORCH-1.29` | `ORCH-1.29` | ORCH | 1 | 29 | — | — | agent-utilities, epistemic-graph |
@@ -862,157 +862,157 @@ The **Raw** column stays a permanently-valid alias either way.
 | `ORCH-1.32` | `ORCH-1.32` | ORCH | 1 | 32 | — | — | agent-utilities |
 | `ORCH-1.33` | `ORCH-1.33` | ORCH | 1 | 33 | — | — | agent-utilities |
 | `ORCH-1.34` | `ORCH-1.34` | ORCH | 1 | 34 | — | — | agent-utilities |
-| `ORCH-1.35` | `ORCH-1.35` | ORCH | 1 | 35 | — | — | agent-utilities |
-| `ORCH-1.36` | `ORCH-1.36` | ORCH | 1 | 36 | — | — | agent-utilities, agents |
+| `AU-ORCH.execution.held-turn-registry-mid` | `AU-ORCH.execution.held-turn-registry-mid` | ORCH | 1 | 35 | — | — | agent-utilities |
+| `AU-ORCH.execution.retry-predicate-raised-treating` | `AU-ORCH.execution.retry-predicate-raised-treating` | ORCH | 1 | 36 | — | — | agent-utilities, agents |
 | `ORCH-1.37` | `ORCH-1.37` | ORCH | 1 | 37 | — | — | agent-utilities |
 | `ORCH-1.38` | `ORCH-1.38` | ORCH | 1 | 38 | — | — | agent-utilities |
 | `ORCH-1.39` | `ORCH-1.39` | ORCH | 1 | 39 | — | — | agent-utilities |
-| `ORCH-1.3b` | `ORCH-1.3b` | ORCH | 1 | 3b | — | — | agent-utilities |
+| `AU-ORCH.execution.subagent-pattern-variant` | `AU-ORCH.execution.subagent-pattern-variant` | ORCH | 1 | 3b | — | — | agent-utilities |
 | `ORCH-1.4` | `ORCH-1.4` | ORCH | 1 | 4 | — | — | agent-utilities, agents |
-| `ORCH-1.40` | `ORCH-1.40` | ORCH | 1 | 40 | — | — | agent-utilities |
+| `AU-ORCH.session.session-anchored-collections-native` | `AU-ORCH.session.session-anchored-collections-native` | ORCH | 1 | 40 | — | — | agent-utilities |
 | `ORCH-1.41` | `ORCH-1.41` | ORCH | 1 | 41 | — | — | agent-utilities |
-| `ORCH-1.42` | `ORCH-1.42` | ORCH | 1 | 42 | — | — | agent-utilities |
+| `AU-ORCH.execution.ontology-validation-execution-path` | `AU-ORCH.execution.ontology-validation-execution-path` | ORCH | 1 | 42 | — | — | agent-utilities |
 | `ORCH-1.43` | `ORCH-1.43` | ORCH | 1 | 43 | — | — | agent-utilities |
-| `ORCH-1.44` | `ORCH-1.44` | ORCH | 1 | 44 | — | — | agent-utilities |
+| `AU-ORCH.session.durable-goal-registry-goals` | `AU-ORCH.session.durable-goal-registry-goals` | ORCH | 1 | 44 | — | — | agent-utilities |
 | `ORCH-1.45` | `ORCH-1.45` | ORCH | 1 | 45 | — | — | agent-utilities |
 | `ORCH-1.46` | `ORCH-1.46` | ORCH | 1 | 46 | — | — | agent-utilities |
 | `ORCH-1.47` | `ORCH-1.47` | ORCH | 1 | 47 | — | — | agent-utilities |
-| `ORCH-1.48` | `ORCH-1.48` | ORCH | 1 | 48 | — | — | agent-utilities |
-| `ORCH-1.49` | `ORCH-1.49` | ORCH | 1 | 49 | — | — | agent-utilities |
-| `ORCH-1.5` | `ORCH-1.5` | ORCH | 1 | 5 | — | — | agents |
+| `AU-ORCH.planning.repo-map-skeleton` | `AU-ORCH.planning.repo-map-skeleton` | ORCH | 1 | 48 | — | — | agent-utilities |
+| `AU-ORCH.execution.robust-multi-format-edit` | `AU-ORCH.execution.robust-multi-format-edit` | ORCH | 1 | 49 | — | — | agent-utilities |
+| `AU-ORCH.planning.legal-automation-roadmap` | `AU-ORCH.planning.legal-automation-roadmap` | ORCH | 1 | 5 | — | — | agents |
 | `ORCH-1.50` | `ORCH-1.50` | ORCH | 1 | 50 | — | — | agent-utilities |
-| `ORCH-1.51` | `ORCH-1.51` | ORCH | 1 | 51 | — | — | agent-utilities |
-| `ORCH-1.52` | `ORCH-1.52` | ORCH | 1 | 52 | — | — | agent-utilities |
-| `ORCH-1.53` | `ORCH-1.53` | ORCH | 1 | 53 | — | — | agent-utilities |
-| `ORCH-1.54` | `ORCH-1.54` | ORCH | 1 | 54 | — | — | agent-utilities |
-| `ORCH-1.55` | `ORCH-1.55` | ORCH | 1 | 55 | — | — | agent-utilities |
-| `ORCH-1.56` | `ORCH-1.56` | ORCH | 1 | 56 | — | — | agent-utilities |
-| `ORCH-1.57` | `ORCH-1.57` | ORCH | 1 | 57 | — | — | agent-utilities |
+| `AU-ORCH.routing.virtual-agent-economy-task` | `AU-ORCH.routing.virtual-agent-economy-task` | ORCH | 1 | 51 | — | — | agent-utilities |
+| `AU-ORCH.routing.emergent-specialization-discovery-pass` | `AU-ORCH.routing.emergent-specialization-discovery-pass` | ORCH | 1 | 52 | — | — | agent-utilities |
+| `AU-ORCH.dispatch.hierarchical-coordination` | `AU-ORCH.dispatch.hierarchical-coordination` | ORCH | 1 | 53 | — | — | agent-utilities |
+| `AU-ORCH.execution.drop-rlm-completion-client` | `AU-ORCH.execution.drop-rlm-completion-client` | ORCH | 1 | 54 | — | — | agent-utilities |
+| `AU-ORCH.execution.eval-set-optimization-compounding` | `AU-ORCH.execution.eval-set-optimization-compounding` | ORCH | 1 | 55 | — | — | agent-utilities |
+| `AU-ORCH.execution.feed-cycle-outcome-fast` | `AU-ORCH.execution.feed-cycle-outcome-fast` | ORCH | 1 | 56 | — | — | agent-utilities |
+| `AU-ORCH.execution.substrate-training-job-emission` | `AU-ORCH.execution.substrate-training-job-emission` | ORCH | 1 | 57 | — | — | agent-utilities |
 | `ORCH-1.58` | `ORCH-1.58` | ORCH | 1 | 58 | — | — | agent-utilities |
 | `ORCH-1.59` | `ORCH-1.59` | ORCH | 1 | 59 | — | — | agent-utilities |
-| `ORCH-1.60` | `ORCH-1.60` | ORCH | 1 | 60 | — | — | agent-utilities |
+| `AU-ORCH.scheduling.ticket-workflow-playbook` | `AU-ORCH.scheduling.ticket-workflow-playbook` | ORCH | 1 | 60 | — | — | agent-utilities |
 | `ORCH-1.62` | `ORCH-1.62` | ORCH | 1 | 62 | — | — | agent-utilities |
-| `ORCH-1.63` | `ORCH-1.63` | ORCH | 1 | 63 | — | — | agent-utilities |
+| `AU-ORCH.routing.original-rule-was-far` | `AU-ORCH.routing.original-rule-was-far` | ORCH | 1 | 63 | — | — | agent-utilities |
 | `ORCH-1.64` | `ORCH-1.64` | ORCH | 1 | 64 | — | — | agent-utilities |
 | `ORCH-1.65` | `ORCH-1.65` | ORCH | 1 | 65 | — | — | agent-utilities |
 | `ORCH-1.67` | `ORCH-1.67` | ORCH | 1 | 67 | — | — | agent-utilities |
 | `ORCH-1.68` | `ORCH-1.68` | ORCH | 1 | 68 | — | — | agent-utilities |
-| `ORCH-1.69` | `ORCH-1.69` | ORCH | 1 | 69 | — | — | agent-utilities |
-| `ORCH-1.70` | `ORCH-1.70` | ORCH | 1 | 70 | — | — | agent-utilities |
-| `ORCH-1.71` | `ORCH-1.71` | ORCH | 1 | 71 | — | — | agent-utilities |
+| `AU-ORCH.execution.residual-ambiguous` | `AU-ORCH.execution.residual-ambiguous` | ORCH | 1 | 69 | — | — | agent-utilities |
+| `AU-ORCH.execution.planner-failure-feedback` | `AU-ORCH.execution.planner-failure-feedback` | ORCH | 1 | 70 | — | — | agent-utilities |
+| `AU-ORCH.execution.shape-policy-learning` | `AU-ORCH.execution.shape-policy-learning` | ORCH | 1 | 71 | — | — | agent-utilities |
 | `ORCH-1.72` | `ORCH-1.72` | ORCH | 1 | 72 | — | — | agent-utilities |
 | `ORCH-1.74` | `ORCH-1.74` | ORCH | 1 | 74 | — | — | agent-utilities |
-| `ORCH-1.75` | `ORCH-1.75` | ORCH | 1 | 75 | — | — | agent-utilities |
+| `AU-ORCH.execution.two-level-fair-rotation` | `AU-ORCH.execution.two-level-fair-rotation` | ORCH | 1 | 75 | — | — | agent-utilities |
 | `ORCH-1.76` | `ORCH-1.76` | ORCH | 1 | 76 | — | — | agent-utilities |
 | `ORCH-1.77` | `ORCH-1.77` | ORCH | 1 | 77 | — | — | agent-utilities |
-| `ORCH-1.78` | `ORCH-1.78` | ORCH | 1 | 78 | — | — | agent-utilities |
+| `AU-ORCH.session.escalate-breached-goals` | `AU-ORCH.session.escalate-breached-goals` | ORCH | 1 | 78 | — | — | agent-utilities |
 | `ORCH-1.79` | `ORCH-1.79` | ORCH | 1 | 79 | — | — | agent-utilities |
 | `ORCH-1.8` | `ORCH-1.8` | ORCH | 1 | 8 | — | — | agent-utilities |
-| `ORCH-1.80` | `ORCH-1.80` | ORCH | 1 | 80 | — | — | agent-utilities, skills |
-| `ORCH-1.81` | `ORCH-1.81` | ORCH | 1 | 81 | — | — | agent-utilities |
-| `ORCH-1.82` | `ORCH-1.82` | ORCH | 1 | 82 | — | — | agent-utilities |
-| `ORCH-1.83` | `ORCH-1.83` | ORCH | 1 | 83 | — | — | agent-utilities |
-| `ORCH-1.84` | `ORCH-1.84` | ORCH | 1 | 84 | — | — | agent-utilities |
+| `AU-ORCH.routing.resolve-body-single-canonical` | `AU-ORCH.routing.resolve-body-single-canonical` | ORCH | 1 | 80 | — | — | agent-utilities, skills |
+| `AU-ORCH.dispatch.worker-scheduling` | `AU-ORCH.dispatch.worker-scheduling` | ORCH | 1 | 81 | — | — | agent-utilities |
+| `AU-ORCH.scheduling.low-value-high-volume` | `AU-ORCH.scheduling.low-value-high-volume` | ORCH | 1 | 82 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.warmforkfanoutcapability` | `AU-ORCH.sandbox.warmforkfanoutcapability` | ORCH | 1 | 83 | — | — | agent-utilities |
+| `AU-ORCH.reactive.runtime-events` | `AU-ORCH.reactive.runtime-events` | ORCH | 1 | 84 | — | — | agent-utilities |
 | `ORCH-1.85` | `ORCH-1.85` | ORCH | 1 | 85 | — | — | agent-utilities |
-| `ORCH-1.86` | `ORCH-1.86` | ORCH | 1 | 86 | — | — | agent-utilities |
-| `ORCH-1.87` | `ORCH-1.87` | ORCH | 1 | 87 | — | — | agent-utilities |
-| `ORCH-1.88` | `ORCH-1.88` | ORCH | 1 | 88 | — | — | agent-utilities |
-| `ORCH-1.89` | `ORCH-1.89` | ORCH | 1 | 89 | — | — | agent-utilities |
-| `ORCH-1.9` | `ORCH-1.9` | ORCH | 1 | 9 | — | — | agent-utilities |
-| `ORCH-1.90` | `ORCH-1.90` | ORCH | 1 | 90 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.shared-host-helper-bridge` | `AU-ORCH.sandbox.shared-host-helper-bridge` | ORCH | 1 | 86 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.native-warm-fork-os` | `AU-ORCH.sandbox.native-warm-fork-os` | ORCH | 1 | 87 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.wasm-backend` | `AU-ORCH.sandbox.wasm-backend` | ORCH | 1 | 88 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.container-fork-sandbox` | `AU-ORCH.sandbox.container-fork-sandbox` | ORCH | 1 | 89 | — | — | agent-utilities |
+| `AU-ORCH.execution.autonomous-department-orchestration` | `AU-ORCH.execution.autonomous-department-orchestration` | ORCH | 1 | 9 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.forkd-backed-microvm-strongest` | `AU-ORCH.sandbox.forkd-backed-microvm-strongest` | ORCH | 1 | 90 | — | — | agent-utilities |
 | `ORCH-1.91` | `ORCH-1.91` | ORCH | 1 | 91 | — | — | agent-utilities |
 | `ORCH-1.92` | `ORCH-1.92` | ORCH | 1 | 92 | — | — | agent-utilities |
-| `ORCH-1.93` | `ORCH-1.93` | ORCH | 1 | 93 | — | — | agent-utilities |
+| `AU-ORCH.sandbox.graph-sandbox-surface` | `AU-ORCH.sandbox.graph-sandbox-surface` | ORCH | 1 | 93 | — | — | agent-utilities |
 | `ORCH-1.94` | `ORCH-1.94` | ORCH | 1 | 94 | — | — | agent-utilities |
 | `ORCH-1.95` | `ORCH-1.95` | ORCH | 1 | 95 | — | — | agent-utilities |
-| `ORCH-1.96` | `ORCH-1.96` | ORCH | 1 | 96 | — | — | agent-utilities |
-| `ORCH-1.97` | `ORCH-1.97` | ORCH | 1 | 97 | — | — | agent-utilities |
-| `ORCH-1.98` | `ORCH-1.98` | ORCH | 1 | 98 | — | — | agent-utilities |
-| `ORCH-1.99` | `ORCH-1.99` | ORCH | 1 | 99 | — | — | agent-utilities |
-| `ORCH-2.0` | `ORCH-2.0` | ORCH | 2 | 0 | — | — | agent-utilities |
-| `ORCH-5.0` | `ORCH-5.0` | ORCH | 5 | 0 | — | — | agent-utilities |
+| `AU-ORCH.dispatch.dispatch-half-skill-ingestion` | `AU-ORCH.dispatch.dispatch-half-skill-ingestion` | ORCH | 1 | 96 | — | — | agent-utilities |
+| `AU-ORCH.execution.rich-result-wrapper` | `AU-ORCH.execution.rich-result-wrapper` | ORCH | 1 | 97 | — | — | agent-utilities |
+| `AU-ORCH.scheduling.resource-priority-edict` | `AU-ORCH.scheduling.resource-priority-edict` | ORCH | 1 | 98 | — | — | agent-utilities |
+| `AU-ORCH.scheduling.also-fold-vllm-scheduler` | `AU-ORCH.scheduling.also-fold-vllm-scheduler` | ORCH | 1 | 99 | — | — | agent-utilities |
+| `AU-ORCH.execution.orchestration` | `AU-ORCH.execution.orchestration` | ORCH | 2 | 0 | — | — | agent-utilities |
+| `AU-ORCH.session.durable-session-autonomous-goal` | `AU-ORCH.session.durable-session-autonomous-goal` | ORCH | 5 | 0 | — | — | agent-utilities |
 | `OS-5.0` | `OS-5.0` | OS | 5 | 0 | — | — | agent-utilities, agents |
 | `OS-5.1` | `OS-5.1` | OS | 5 | 1 | — | — | agent-utilities, agents, scripts, skills |
-| `OS-5.10` | `OS-5.10` | OS | 5 | 10 | — | — | agent-utilities, agent-webui |
+| `AU-OS.safety.ontological-guardrail` | `AU-OS.safety.ontological-guardrail` | OS | 5 | 10 | — | — | agent-utilities, agent-webui |
 | `OS-5.11` | `OS-5.11` | OS | 5 | 11 | — | — | agent-utilities |
-| `OS-5.12` | `OS-5.12` | OS | 5 | 12 | — | — | agent-utilities, agent-webui |
-| `OS-5.13` | `OS-5.13` | OS | 5 | 13 | — | — | agent-utilities |
+| `AU-OS.observability.empty-derive-from-effect` | `AU-OS.observability.empty-derive-from-effect` | OS | 5 | 12 | — | — | agent-utilities, agent-webui |
+| `AU-OS.scaling.resolve-active-channel-once` | `AU-OS.scaling.resolve-active-channel-once` | OS | 5 | 13 | — | — | agent-utilities |
 | `OS-5.14` | `OS-5.14` | OS | 5 | 14 | — | — | agent-utilities |
-| `OS-5.15` | `OS-5.15` | OS | 5 | 15 | — | — | agent-utilities |
-| `OS-5.16` | `OS-5.16` | OS | 5 | 16 | — | — | agent-utilities |
-| `OS-5.17` | `OS-5.17` | OS | 5 | 17 | — | — | agent-utilities |
-| `OS-5.18` | `OS-5.18` | OS | 5 | 18 | — | — | agent-utilities |
+| `AU-OS.config.fleet-event-ingress` | `AU-OS.config.fleet-event-ingress` | OS | 5 | 15 | — | — | agent-utilities |
+| `AU-OS.state.unified-durable-state-externalization` | `AU-OS.state.unified-durable-state-externalization` | OS | 5 | 16 | — | — | agent-utilities |
+| `AU-OS.state.cross-host-daemon-leadership` | `AU-OS.state.cross-host-daemon-leadership` | OS | 5 | 17 | — | — | agent-utilities |
+| `AU-OS.state.fleet-supervisory-plane-at` | `AU-OS.state.fleet-supervisory-plane-at` | OS | 5 | 18 | — | — | agent-utilities |
 | `OS-5.2` | `OS-5.2` | OS | 5 | 2 | — | — | agent-utilities, agents, scripts, skills |
-| `OS-5.23` | `OS-5.23` | OS | 5 | 23 | — | — | agent-utilities |
+| `AU-OS.observability.no-op-without-metrics` | `AU-OS.observability.no-op-without-metrics` | OS | 5 | 23 | — | — | agent-utilities |
 | `OS-5.24` | `OS-5.24` | OS | 5 | 24 | — | — | agent-utilities |
-| `OS-5.25` | `OS-5.25` | OS | 5 | 25 | — | — | agent-utilities |
-| `OS-5.26` | `OS-5.26` | OS | 5 | 26 | — | — | agent-utilities |
-| `OS-5.27` | `OS-5.27` | OS | 5 | 27 | — | — | agent-utilities |
-| `OS-5.28` | `OS-5.28` | OS | 5 | 28 | — | — | agent-utilities |
+| `AU-OS.config.desired-state-fleet-reconciler` | `AU-OS.config.desired-state-fleet-reconciler` | OS | 5 | 25 | — | — | agent-utilities |
+| `AU-OS.host.remediation-playbooks` | `AU-OS.host.remediation-playbooks` | OS | 5 | 26 | — | — | agent-utilities |
+| `AU-OS.config.health-gated-deploy-rollback` | `AU-OS.config.health-gated-deploy-rollback` | OS | 5 | 27 | — | — | agent-utilities |
+| `AU-OS.scaling.shard-topology-visibility-per` | `AU-OS.scaling.shard-topology-visibility-per` | OS | 5 | 28 | — | — | agent-utilities |
 | `OS-5.29` | `OS-5.29` | OS | 5 | 29 | — | — | agent-utilities |
-| `OS-5.3` | `OS-5.3` | OS | 5 | 3 | — | — | agent-utilities, agents, scripts, skills |
-| `OS-5.31` | `OS-5.31` | OS | 5 | 31 | — | — | agent-utilities |
-| `OS-5.32` | `OS-5.32` | OS | 5 | 32 | — | — | agent-utilities |
-| `OS-5.33` | `OS-5.33` | OS | 5 | 33 | — | — | agent-utilities |
-| `OS-5.34` | `OS-5.34` | OS | 5 | 34 | — | — | agent-utilities |
+| `AU-OS.governance.reactive-multi-axis-budget` | `AU-OS.governance.reactive-multi-axis-budget` | OS | 5 | 3 | — | — | agent-utilities, agents, scripts, skills |
+| `AU-OS.observability.persist-this-graph-run` | `AU-OS.observability.persist-this-graph-run` | OS | 5 | 31 | — | — | agent-utilities |
+| `AU-OS.identity.so-jwt-protected-children` | `AU-OS.identity.so-jwt-protected-children` | OS | 5 | 32 | — | — | agent-utilities |
+| `AU-OS.scaling.bridge-developer-workspace-mutating` | `AU-OS.scaling.bridge-developer-workspace-mutating` | OS | 5 | 33 | — | — | agent-utilities |
+| `AU-OS.scaling.kg-provenance-panel-data` | `AU-OS.scaling.kg-provenance-panel-data` | OS | 5 | 34 | — | — | agent-utilities |
 | `OS-5.35` | `OS-5.35` | OS | 5 | 35 | — | — | agent-utilities |
 | `OS-5.36` | `OS-5.36` | OS | 5 | 36 | — | — | agent-utilities |
-| `OS-5.37` | `OS-5.37` | OS | 5 | 37 | — | — | agent-utilities |
-| `OS-5.38` | `OS-5.38` | OS | 5 | 38 | — | — | agent-utilities |
-| `OS-5.39` | `OS-5.39` | OS | 5 | 39 | — | — | agent-utilities |
-| `OS-5.4` | `OS-5.4` | OS | 5 | 4 | — | — | agent-utilities, agents, geniusbot, scripts, skills |
-| `OS-5.40` | `OS-5.40` | OS | 5 | 40 | — | — | agent-utilities |
-| `OS-5.41` | `OS-5.41` | OS | 5 | 41 | — | — | agent-utilities |
+| `AU-OS.scaling.value-test-time-compute` | `AU-OS.scaling.value-test-time-compute` | OS | 5 | 37 | — | — | agent-utilities |
+| `AU-OS.deployment.universal-outbound-credentialprovider` | `AU-OS.deployment.universal-outbound-credentialprovider` | OS | 5 | 38 | — | — | agent-utilities |
+| `AU-OS.config.source-credential-registry` | `AU-OS.config.source-credential-registry` | OS | 5 | 39 | — | — | agent-utilities |
+| `AU-OS.governance.wasm-micro-agent-sandbox` | `AU-OS.governance.wasm-micro-agent-sandbox` | OS | 5 | 4 | — | — | agent-utilities, agents, geniusbot, scripts, skills |
+| `AU-OS.deployment.governance-derived-claude-code` | `AU-OS.deployment.governance-derived-claude-code` | OS | 5 | 40 | — | — | agent-utilities |
+| `AU-OS.deployment.dynamic-two-fail-closed` | `AU-OS.deployment.dynamic-two-fail-closed` | OS | 5 | 41 | — | — | agent-utilities |
 | `OS-5.42` | `OS-5.42` | OS | 5 | 42 | — | — | agent-utilities, scripts |
 | `OS-5.43` | `OS-5.43` | OS | 5 | 43 | — | — | agent-utilities |
-| `OS-5.44` | `OS-5.44` | OS | 5 | 44 | — | — | agent-utilities |
-| `OS-5.45` | `OS-5.45` | OS | 5 | 45 | — | — | agent-utilities |
-| `OS-5.46` | `OS-5.46` | OS | 5 | 46 | — | — | agent-utilities |
-| `OS-5.47` | `OS-5.47` | OS | 5 | 47 | — | — | agent-utilities |
-| `OS-5.48` | `OS-5.48` | OS | 5 | 48 | — | — | agent-utilities |
+| `AU-OS.state.unified-scheduling-one-intelligent` | `AU-OS.state.unified-scheduling-one-intelligent` | OS | 5 | 44 | — | — | agent-utilities |
+| `AU-OS.identity.native-multi-realm-jwt` | `AU-OS.identity.native-multi-realm-jwt` | OS | 5 | 45 | — | — | agent-utilities |
+| `AU-OS.identity.resolve-token-endpoint-from` | `AU-OS.identity.resolve-token-endpoint-from` | OS | 5 | 46 | — | — | agent-utilities |
+| `AU-OS.deployment.flagging-repos` | `AU-OS.deployment.flagging-repos` | OS | 5 | 47 | — | — | agent-utilities |
+| `AU-OS.deployment.connector-coverage-check` | `AU-OS.deployment.connector-coverage-check` | OS | 5 | 48 | — | — | agent-utilities |
 | `OS-5.49` | `OS-5.49` | OS | 5 | 49 | — | — | agent-utilities |
 | `OS-5.5` | `OS-5.5` | OS | 5 | 5 | — | — | agent-utilities, scripts |
-| `OS-5.50` | `OS-5.50` | OS | 5 | 50 | — | — | agent-utilities |
-| `OS-5.51` | `OS-5.51` | OS | 5 | 51 | — | — | agent-utilities |
+| `AU-OS.deployment.os-2` | `AU-OS.deployment.os-2` | OS | 5 | 50 | — | — | agent-utilities |
+| `AU-OS.governance.reserve-concepts-hook` | `AU-OS.governance.reserve-concepts-hook` | OS | 5 | 51 | — | — | agent-utilities |
 | `OS-5.52` | `OS-5.52` | OS | 5 | 52 | — | — | agent-utilities, skills |
-| `OS-5.53` | `OS-5.53` | OS | 5 | 53 | — | — | agent-utilities |
-| `OS-5.55` | `OS-5.55` | OS | 5 | 55 | — | — | agent-utilities |
-| `OS-5.57` | `OS-5.57` | OS | 5 | 57 | — | — | agent-utilities |
-| `OS-5.58` | `OS-5.58` | OS | 5 | 58 | — | — | agent-utilities |
-| `OS-5.59` | `OS-5.59` | OS | 5 | 59 | — | — | agent-utilities |
+| `AU-OS.state.stale-tick-collapse` | `AU-OS.state.stale-tick-collapse` | OS | 5 | 53 | — | — | agent-utilities |
+| `AU-OS.observability.per-lane-latency-metrics` | `AU-OS.observability.per-lane-latency-metrics` | OS | 5 | 55 | — | — | agent-utilities |
+| `AU-OS.governance.action-policy-rule` | `AU-OS.governance.action-policy-rule` | OS | 5 | 57 | — | — | agent-utilities |
+| `AU-OS.host.so-they-are-idle` | `AU-OS.host.so-they-are-idle` | OS | 5 | 58 | — | — | agent-utilities |
+| `AU-OS.deployment.os-3` | `AU-OS.deployment.os-3` | OS | 5 | 59 | — | — | agent-utilities |
 | `OS-5.6` | `OS-5.6` | OS | 5 | 6 | — | — | agent-utilities, scripts |
-| `OS-5.60` | `OS-5.60` | OS | 5 | 60 | — | — | agent-utilities |
-| `OS-5.61` | `OS-5.61` | OS | 5 | 61 | — | — | agent-utilities |
+| `AU-OS.identity.ard-datapoint-signing` | `AU-OS.identity.ard-datapoint-signing` | OS | 5 | 60 | — | — | agent-utilities |
+| `AU-OS.deployment.embedded-auto-provision` | `AU-OS.deployment.embedded-auto-provision` | OS | 5 | 61 | — | — | agent-utilities |
 | `OS-5.63` | `OS-5.63` | OS | 5 | 63 | — | — | agent-utilities |
-| `OS-5.64` | `OS-5.64` | OS | 5 | 64 | — | — | agent-utilities |
-| `OS-5.65` | `OS-5.65` | OS | 5 | 65 | — | — | agent-utilities |
+| `AU-OS.deployment.cross-platform-locks-plus` | `AU-OS.deployment.cross-platform-locks-plus` | OS | 5 | 64 | — | — | agent-utilities |
+| `AU-OS.deployment.doctor-minimal-mcp-config` | `AU-OS.deployment.doctor-minimal-mcp-config` | OS | 5 | 65 | — | — | agent-utilities |
 | `OS-5.66` | `OS-5.66` | OS | 5 | 66 | — | — | agent-utilities |
-| `OS-5.67` | `OS-5.67` | OS | 5 | 67 | — | — | agent-utilities |
-| `OS-5.68` | `OS-5.68` | OS | 5 | 68 | — | — | agent-utilities |
-| `OS-5.69` | `OS-5.69` | OS | 5 | 69 | — | — | agent-utilities |
-| `OS-5.7` | `OS-5.7` | OS | 5 | 7 | — | — | scripts |
-| `OS-5.70` | `OS-5.70` | OS | 5 | 70 | — | — | agent-utilities |
-| `OS-5.71` | `OS-5.71` | OS | 5 | 71 | — | — | agent-utilities |
+| `AU-OS.deployment.os-4` | `AU-OS.deployment.os-4` | OS | 5 | 67 | — | — | agent-utilities |
+| `AU-OS.config.model-factory-passthrough` | `AU-OS.config.model-factory-passthrough` | OS | 5 | 68 | — | — | agent-utilities |
+| `AU-OS.observability.ingestion-profile-report` | `AU-OS.observability.ingestion-profile-report` | OS | 5 | 69 | — | — | agent-utilities |
+| `AU-OS.deployment.platform-journey` | `AU-OS.deployment.platform-journey` | OS | 5 | 7 | — | — | scripts |
+| `AU-OS.observability.ingest-stage-breakdown` | `AU-OS.observability.ingest-stage-breakdown` | OS | 5 | 70 | — | — | agent-utilities |
+| `AU-OS.observability.embed-stage-profile` | `AU-OS.observability.embed-stage-profile` | OS | 5 | 71 | — | — | agent-utilities |
 | `OS-5.72` | `OS-5.72` | OS | 5 | 72 | — | — | agent-utilities, agents |
-| `OS-5.73` | `OS-5.73` | OS | 5 | 73 | — | — | agent-utilities |
-| `OS-5.74` | `OS-5.74` | OS | 5 | 74 | — | — | agent-utilities |
-| `OS-5.75` | `OS-5.75` | OS | 5 | 75 | — | — | agent-utilities |
+| `AU-OS.config.autonomous-spec-develop-off` | `AU-OS.config.autonomous-spec-develop-off` | OS | 5 | 73 | — | — | agent-utilities |
+| `AU-OS.deployment.standard-repo-templates` | `AU-OS.deployment.standard-repo-templates` | OS | 5 | 74 | — | — | agent-utilities |
+| `AU-OS.deployment.concept-2` | `AU-OS.deployment.concept-2` | OS | 5 | 75 | — | — | agent-utilities |
 | `OS-5.8` | `OS-5.8` | OS | 5 | 8 | — | — | agent-utilities |
-| `OS-5.9` | `OS-5.9` | OS | 5 | 9 | — | — | agent-utilities |
+| `AU-OS.config.gateway-service-dashboard` | `AU-OS.config.gateway-service-dashboard` | OS | 5 | 9 | — | — | agent-utilities |
 | `PA-1.0` | `PA-1.0` | PA | 1 | 0 | — | — | agents |
 | `PA-2.0` | `PA-2.0` | PA | 2 | 0 | — | — | agents |
 | `PA-3.0` | `PA-3.0` | PA | 3 | 0 | — | — | agents |
 | `PA-4.0` | `PA-4.0` | PA | 4 | 0 | — | — | agents |
 | `PA-5.0` | `PA-5.0` | PA | 5 | 0 | — | — | agents |
-| `SAFE-1.0` | `SAFE-1.0` | SAFE | 1 | 0 | — | — | agent-utilities |
+| `AU-OS.safety.tool-agnostic-file-safety` | `AU-OS.safety.tool-agnostic-file-safety` | SAFE | 1 | 0 | — | — | agent-utilities |
 | `SAFE-1.1` | `SAFE-1.1` | SAFE | 1 | 1 | — | — | agent-utilities |
-| `SAFE-1.2` | `SAFE-1.2` | SAFE | 1 | 2 | — | — | agent-utilities |
-| `SAFE-1.3` | `SAFE-1.3` | SAFE | 1 | 3 | — | — | agent-utilities |
-| `SAFE-1.4` | `SAFE-1.4` | SAFE | 1 | 4 | — | — | agent-utilities |
+| `AU-OS.scaling.multi-agent-scaling-law` | `AU-OS.scaling.multi-agent-scaling-law` | SAFE | 1 | 2 | — | — | agent-utilities |
+| `AU-OS.audit.recursive-improvement-velocity-tracker` | `AU-OS.audit.recursive-improvement-velocity-tracker` | SAFE | 1 | 3 | — | — | agent-utilities |
+| `AU-OS.safety.model-collapse-guard-self` | `AU-OS.safety.model-collapse-guard-self` | SAFE | 1 | 4 | — | — | agent-utilities |
 | `SAFE-1.5` | `SAFE-1.5` | SAFE | 1 | 5 | — | — | agent-utilities |
-| `SAFE-1.6` | `SAFE-1.6` | SAFE | 1 | 6 | — | — | agent-utilities |
-| `SAFE-1.7` | `SAFE-1.7` | SAFE | 1 | 7 | — | — | agent-utilities |
-| `SAFE-1.8` | `SAFE-1.8` | SAFE | 1 | 8 | — | — | agent-utilities |
+| `AU-OS.safety.superhuman-gate` | `AU-OS.safety.superhuman-gate` | SAFE | 1 | 6 | — | — | agent-utilities |
+| `AU-OS.scaling.safe-2` | `AU-OS.scaling.safe-2` | SAFE | 1 | 7 | — | — | agent-utilities |
+| `AU-OS.scaling.unattended-session-stop-ask` | `AU-OS.scaling.unattended-session-stop-ask` | SAFE | 1 | 8 | — | — | agent-utilities |
 | `SFDC-1.0` | `SFDC-1.0` | SFDC | 1 | 0 | — | — | agents |
 | `SFDC-1.1` | `SFDC-1.1` | SFDC | 1 | 1 | — | — | agents |
 | `SFDC-1.2` | `SFDC-1.2` | SFDC | 1 | 2 | — | — | agents |
@@ -1038,7 +1038,7 @@ The **Raw** column stays a permanently-valid alias either way.
 | `SYS-1.3` | `SYS-1.3` | SYS | 1 | 3 | — | — | agents |
 | `SYS-1.4` | `SYS-1.4` | SYS | 1 | 4 | — | — | agents |
 | `SYS-1.5` | `SYS-1.5` | SYS | 1 | 5 | — | — | agents |
-| `UTIL-1.0` | `UTIL-1.0` | UTIL | 1 | 0 | — | — | agent-utilities |
+| `AU-OS.config.data-type-conversion` | `AU-OS.config.data-type-conversion` | UTIL | 1 | 0 | — | — | agent-utilities |
 
 ## Needs curation — legacy pillar `0` (supply `PILLAR_MAP` before `--apply`)
 
@@ -1046,12 +1046,12 @@ These flat project ids carry no pillar and default to the reserved legacy
 pillar `0`. A reviewer populates `PILLAR_MAP[(NS, concept)] = pillar` in
 `agent_utilities/governance/concept_hierarchy.py` to assign real pillars.
 
-- **CE** (32): `CE-001`, `CE-002`, `CE-003`, `CE-004`, `CE-005`, `CE-006`, `CE-008`, `CE-009`, `CE-011`, `CE-012`, `CE-014`, `CE-015`, `CE-016`, `CE-017`, `CE-018`, `CE-019`, `CE-020`, `CE-021`, `CE-022`, `CE-023`, `CE-024`, `CE-025`, `CE-026`, `CE-027`, `CE-036`, `CE-037`, `CE-038`, `CE-039`, `CE-040`, `CE-041`, `CE-042`, `CE-043`
-- **EE** (37): `EE-001`, `EE-002`, `EE-003`, `EE-004`, `EE-005`, `EE-006`, `EE-007`, `EE-008`, `EE-009`, `EE-010`, `EE-011`, `EE-012`, `EE-013`, `EE-014`, `EE-015`, `EE-017`, `EE-021`, `EE-022`, `EE-023`, `EE-024`, `EE-025`, `EE-026`, `EE-027`, `EE-028`, `EE-029`, `EE-030`, `EE-031`, `EE-032`, `EE-033`, `EE-034`, `EE-036`, `EE-037`, `EE-038`, `EE-039`, `EE-042`, `EE-043`, `EE-044`
-- **EG** (192): `EG-001`, `EG-002`, `EG-003`, `EG-004`, `EG-005`, `EG-006`, `EG-007`, `EG-008`, `EG-009`, `EG-010`, `EG-011`, `EG-012`, `EG-013`, `EG-014`, `EG-015`, `EG-016`, `EG-017`, `EG-018`, `EG-019`, `EG-020`, `EG-021`, `EG-022`, `EG-023`, `EG-024`, `EG-025`, `EG-026`, `EG-027`, `EG-028`, `EG-029`, `EG-030`, `EG-031`, `EG-032`, `EG-033`, `EG-034`, `EG-035`, `EG-036`, `EG-037`, `EG-038`, `EG-039`, `EG-040`, `EG-041`, `EG-042`, `EG-043`, `EG-044`, `EG-045`, `EG-046`, `EG-047`, `EG-048`, `EG-049`, `EG-050`, `EG-051`, `EG-052`, `EG-053`, `EG-054`, `EG-055`, `EG-056`, `EG-058`, `EG-059`, `EG-060`, `EG-061`, `EG-062`, `EG-063`, `EG-064`, `EG-065`, `EG-066`, `EG-067`, `EG-068`, `EG-069`, `EG-070`, `EG-071`, `EG-072`, `EG-073`, `EG-074`, `EG-075`, `EG-076`, `EG-077`, `EG-078`, `EG-080`, `EG-081`, `EG-082`, `EG-083`, `EG-084`, `EG-085`, `EG-086`, `EG-087`, `EG-088`, `EG-089`, `EG-090`, `EG-091`, `EG-092`, `EG-096`, `EG-098`, `EG-099`, `EG-101`, `EG-102`, `EG-103`, `EG-104`, `EG-114`, `EG-115`, `EG-116`, `EG-117`, `EG-118`, `EG-119`, `EG-125`, `EG-127`, `EG-130`, `EG-131`, `EG-132`, `EG-133`, `EG-134`, `EG-135`, `EG-136`, `EG-137`, `EG-141`, `EG-142`, `EG-143`, `EG-144`, `EG-146`, `EG-155`, `EG-159`, `EG-160`, `EG-161`, `EG-162`, `EG-163`, `EG-165`, `EG-172`, `EG-174`, `EG-176`, `EG-185`, `EG-186`, `EG-187`, `EG-195`, `EG-220`, `EG-221`, `EG-222`, `EG-243`, `EG-255`, `EG-256`, `EG-257`, `EG-258`, `EG-259`, `EG-261`, `EG-262`, `EG-263`, `EG-264`, `EG-265`, `EG-266`, `EG-267`, `EG-275`, `EG-276`, `EG-277`, `EG-278`, `EG-279`, `EG-280`, `EG-281`, `EG-282`, `EG-283`, `EG-284`, `EG-295`, `EG-296`, `EG-297`, `EG-298`, `EG-299`, `EG-300`, `EG-301`, `EG-302`, `EG-303`, `EG-304`, `EG-305`, `EG-306`, `EG-307`, `EG-308`, `EG-309`, `EG-310`, `EG-311`, `EG-312`, `EG-313`, `EG-314`, `EG-315`, `EG-316`, `EG-317`, `EG-318`, `EG-319`, `EG-320`, `EG-321`, `EG-322`, `EG-323`, `EG-324`, `EG-325`, `EG-326`, `EG-327`, `EG-328`
+- **CE** (32): `CE-001`, `CE-002`, `CE-003`, `CE-004`, `CE-005`, `CE-006`, `CE-008`, `CE-009`, `CE-011`, `CE-012`, `CE-014`, `CE-015`, `CE-016`, `CE-017`, `CE-018`, `CE-019`, `CE-020`, `CE-021`, `CE-022`, `CE-023`, `CE-024`, `CE-025`, `CE-026`, `CE-027`, `CE-036`, `CE-037`, `AU-KG.maintenance.periodic-code-health`, `AU-KG.maintenance.baseline-vs-resolved-deltas`, `CE-040`, `CE-041`, `CE-042`, `CE-043`
+- **EE** (37): `AU-AHE.assimilation.autonomous-trading-ecosystem`, `EE-002`, `EE-003`, `EE-004`, `EE-005`, `EE-006`, `EE-007`, `EE-008`, `EE-009`, `EE-010`, `AU-AHE.assimilation.skill-workflow-ingest`, `EE-012`, `AU-AHE.assimilation.trading-ecosystem-spec`, `EE-014`, `EE-015`, `EE-017`, `EE-021`, `EE-022`, `EE-023`, `EE-024`, `EE-025`, `EE-026`, `EE-027`, `EE-028`, `EE-029`, `EE-030`, `EE-031`, `AU-AHE.assimilation.trading-ecosystem-changelog`, `AU-AHE.assimilation.microstructure-signal-fusion`, `AU-AHE.assimilation.decision-distillation`, `AU-AHE.assimilation.trading-curator`, `AU-AHE.assimilation.research-pipeline`, `EE-038`, `AU-AHE.harness.trading-team-seed`, `EE-042`, `EE-043`, `EE-044`
+- **EG** (192): `EG-001`, `EG-002`, `EG-003`, `EG-004`, `EG-005`, `EG-006`, `EG-007`, `EG-008`, `AU-KG.ingest.then-by-its-node`, `EG-ORCH.routing.lexical-capability-escalation`, `EG-011`, `EG-KG.txn.write-path-benchmarks`, `EG-013`, `EG-KG.compute.lane-chunked-dot-product`, `EG-015`, `EG-016`, `EG-017`, `EG-KG.query.register-user-tables-alongside`, `EG-KG.query.mutation`, `EG-KG.query.register-each-user-table`, `EG-KG.ontology.eg-runtime-swrl-datalog`, `EG-022`, `EG-KG.query.mirrors-pgwire`, `EG-024`, `EG-KG.storage.embedded-store`, `EG-KG.backend.sharded-k-way-durable`, `EG-KG.storage.snapshot-read-off-writer`, `AU-KG.backend.b-auto-size`, `EG-KG.storage.redb-store`, `EG-030`, `EG-031`, `EG-032`, `EG-KG.sharding.r5-feature`, `EG-KG.sharding.eg-r6`, `EG-035`, `EG-KG.sharding.m3-r4`, `EG-037`, `EG-038`, `EG-KG.backend.r3-plan-execution`, `EG-KG.backend.r6-feature`, `EG-KG.backend.flush-pending-first`, `AU-KG.backend.roadmap-f-parallel-cross`, `EG-043`, `EG-KG.coordination.reserved-read-lane`, `EG-045`, `EG-KG.query.insert-into-nodes-select`, `EG-047`, `EG-KG.query.delete-returning-sees-row`, `EG-KG.compute.kg-transaction-is-pinned`, `EG-KG.ontology.content-negotiation-serializers`, `EG-KG.ontology.sub-select`, `EG-KG.query.sparql-service-federation-client`, `EG-KG.ontology.rich-filter`, `EG-KG.ontology.from-from-named`, `EG-KG.ontology.minus`, `EG-KG.ontology.negated-property-set`, `EG-KG.ontology.owl-reasoning`, `EG-KG.ontology.concept-2`, `EG-KG.ontology.concept-3`, `EG-KG.query.cypher-execution`, `EG-KG.query.eg-extend-read-side`, `EG-KG.query.concept-2`, `EG-064`, `EG-KG.query.fragments-variables-directives`, `EG-KG.query.graphql-cursors`, `EG-KG.query.streaming-execution`, `EG-KG.temporal.bucket-cutoff-trim`, `EG-KG.retrieval.scatter-gather`, `EG-070`, `EG-KG.storage.backward-manifest-read`, `EG-072`, `EG-073`, `EG-KG.compute.subsystems-reference`, `EG-KG.query.concept-3`, `EG-KG.query.kg-2`, `EG-KG.query.hand-rolled-tds-server`, `EG-078`, `EG-080`, `EG-KG.txn.cross-shard`, `EG-KG.txn.harness-crash`, `EG-KG.ontology.singles-concept`, `EG-084`, `EG-085`, `EG-086`, `EG-087`, `EG-KG.query.pipelined-execution`, `EG-089`, `EG-090`, `EG-091`, `EG-KG.compute.feature`, `EG-KG.compute.massive-scale-benchmark`, `EG-KG.query.multi-rate-sensor-stream`, `EG-099`, `EG-101`, `EG-KG.query.create-drop-extension-over`, `EG-KG.query.route-create-view-create`, `EG-KG.query.greatest-least-int4range-tsrange`, `EG-KG.query.postgres-family-extension-plan`, `EG-115`, `EG-KG.query.real-ann-top-k`, `EG-117`, `EG-118`, `EG-KG.query.paradedb-bm25`, `EG-KG.ontology.order-by-values-exists`, `EG-KG.ontology.concept-4`, `EG-KG.ontology.concept-5`, `EG-KG.ontology.feature`, `EG-KG.ontology.concept-6`, `EG-KG.compute.concept-2`, `EG-134`, `EG-KG.ontology.completing-eg-order-by`, `EG-KG.ontology.eg-concrete-syntax-matrix`, `EG-KG.ontology.completes-rdf-concrete-syntax`, `EG-KG.query.param-list-drives-unwind`, `EG-KG.query.cypher-planning`, `EG-KG.query.eg-2`, `EG-144`, `EG-KG.ontology.wired-into-commit-write`, `EG-KG.ontology.concept-7`, `EG-KG.query.bolt-wire-protocol`, `AU-KG.ingest.self-ingest`, `EG-KG.retrieval.observability-search`, `EG-KG.query.concept-4`, `EG-163`, `EG-165`, `EG-172`, `EG-KG.ontology.resp2-resp3-codec-round`, `EG-KG.ontology.object-put-get-head`, `EG-185`, `EG-186`, `EG-KG.backend.is-configured-so-co`, `EG-195`, `EG-KG.compute.hierarchical-summary-tier-eg`, `EG-KG.compute.consolidate-cluster`, `EG-222`, `EG-KG.ontology.federation-client`, `EG-KG.domains.coordinate-reference-system`, `EG-KG.ontology.concept-8`, `EG-KG.domains.geometry-collections`, `EG-KG.ontology.de-9im-relations`, `EG-KG.ontology.concept-9`, `EG-KG.ontology.concept-10`, `EG-KG.domains.geo-registry`, `EG-KG.domains.spatial-strtree-index`, `EG-KG.domains.geojson-gpx-formats`, `EG-KG.domains.map-tiles`, `EG-KG.domains.geo-routing`, `EG-KG.domains.geo-task`, `EG-275`, `EG-KG.compute.dead-letter-queues`, `EG-KG.compute.message-ttl-expiry`, `EG-KG.compute.priority-queues`, `EG-KG.compute.delayed-scheduled-delivery`, `EG-KG.compute.groups-qos-prefetch-honoring`, `EG-281`, `EG-KG.ontology.stomp-frame-codec-unit`, `EG-283`, `EG-KG.compute.publisher-confirms-consumer-qos`, `EG-295`, `EG-KG.domains.graphql-enterprise-hardening`, `EG-KG.query.concept-5`, `EG-298`, `EG-KG.query.protocol-types`, `EG-KG.ontology.rdf-update-guard`, `EG-KG.retrieval.hnsw-vector-index`, `EG-302`, `EG-KG.compute.durable-rbac-identity-persistence`, `EG-304`, `EG-305`, `EG-KG.domains.geo-formats`, `EG-KG.txn.pubsub-transactions`, `EG-308`, `EG-KG.query.schema-typed-fusion-sql`, `EG-KG.query.rename-table-moves-catalog`, `EG-311`, `EG-KG.domains.geo-partitioning`, `EG-KG.query.real-pgvector-ann-top`, `EG-314`, `EG-315`, `EG-316`, `EG-KG.storage.lsn-as-snapshot-returns`, `EG-KG.memory.eg-batch-decay-caller`, `EG-319`, `EG-320`, `AU-KG.compute.numeric-kernel`, `EG-322`, `EG-323`, `EG-KG.txn.calvin-deterministic-ordering`, `EG-KG.domains.robotics-gpu-distribution`, `EG-KG.compute.gpu-distance-seam`, `EG-KG.backend.real-cuda-tensor-backend`, `EG-328`
 - **HUB** (1): `HUB-1`
-- **KG** (5): `KG-001`, `KG-002`, `KG-003`, `KG-004`, `KG-2`
-- **ML** (12): `ML-001`, `ML-002`, `ML-003`, `ML-004`, `ML-005`, `ML-006`, `ML-008`, `ML-009`, `ML-010`, `ML-011`, `ML-012`, `ML-013`
+- **KG** (5): `KG-001`, `KG-002`, `KG-003`, `KG-004`, `EG-KG.compute.backend`
+- **ML** (12): `AU-AHE.trainer.high-caliber-llm-trainer`, `DS-AHE.trainer.data-engine`, `DS-AHE.trainer.concept-2`, `DS-AHE.trainer.concept-3`, `DS-AHE.trainer.concept-4`, `DS-AHE.trainer.concept-5`, `DS-AHE.reward.one-sequence-level-score`, `DS-AHE.trainer.per-token-value`, `DS-AHE.trainer.data-transformation`, `AU-AHE.trainer.join-inference`, `DS-AHE.trainer.chat-format`, `DS-AHE.optimization.cache-agent-loop`
 - **OBJ** (1): `OBJ-1`
 - **SQL** (1): `SQL-1`
 
@@ -1101,57 +1101,57 @@ Total edges: **1153**. First 60 shown:
 | `AHE-3` | `AHE` |
 | `AHE-3.0` | `AHE-3` |
 | `AHE-3.1` | `AHE-3` |
-| `AHE-3.11` | `AHE-3` |
+| `AU-AHE.optimization.gitops-commit-automation` | `AHE-3` |
 | `AHE-3.12` | `AHE-3` |
-| `AHE-3.13` | `AHE-3` |
-| `AHE-3.14` | `AHE-3` |
-| `AHE-3.15` | `AHE-3` |
-| `AHE-3.16` | `AHE-3` |
-| `AHE-3.17` | `AHE-3` |
-| `AHE-3.18` | `AHE-3` |
-| `AHE-3.19` | `AHE-3` |
+| `AU-AHE.harness.pre-emit-quality-gate` | `AHE-3` |
+| `AU-AHE.assimilation.research-auto-merge` | `AHE-3` |
+| `AU-AHE.reward.this-is-read-back` | `AHE-3` |
+| `AU-AHE.harness.width-diverse-best-k` | `AHE-3` |
+| `AU-AHE.harness.preference-corpus-reliability` | `AHE-3` |
+| `AU-AHE.harness.failure-evolution` | `AHE-3` |
+| `AU-AHE.optimization.performance-anomaly-consumer` | `AHE-3` |
 | `AHE-3.2` | `AHE-3` |
-| `AHE-3.20` | `AHE-3` |
+| `AU-AHE.harness.promotion-governance-validator` | `AHE-3` |
 | `AHE-3.21` | `AHE-3` |
 | `AHE-3.22` | `AHE-3` |
 | `AHE-3.23` | `AHE-3` |
-| `AHE-3.24` | `AHE-3` |
+| `AU-AHE.evaluation.capability-benchmark-regression-ratchet` | `AHE-3` |
 | `AHE-3.25` | `AHE-3` |
-| `AHE-3.26` | `AHE-3` |
-| `AHE-3.27` | `AHE-3` |
-| `AHE-3.28` | `AHE-3` |
-| `AHE-3.29` | `AHE-3` |
+| `AU-AHE.sdd.recursive-improvement-instrumentation-aggregating` | `AHE-3` |
+| `AU-AHE.harness.per-task-adaptation-speed` | `AHE-3` |
+| `AU-AHE.harness.sai-task` | `AHE-3` |
+| `AU-AHE.harness.sai-controller` | `AHE-3` |
 | `AHE-3.3` | `AHE-3` |
-| `AHE-3.30` | `AHE-3` |
-| `AHE-3.31` | `AHE-3` |
+| `AU-AHE.reward.search-task-corpus` | `AHE-3` |
+| `AU-AHE.optimization.recursive-distillation-loop` | `AHE-3` |
 | `AHE-3.32` | `AHE-3` |
 | `AHE-3.33` | `AHE-3` |
 | `AHE-3.34` | `AHE-3` |
-| `AHE-3.35` | `AHE-3` |
+| `AU-AHE.assimilation.baseline-overfit-gate` | `AHE-3` |
 | `AHE-3.36` | `AHE-3` |
-| `AHE-3.37` | `AHE-3` |
+| `AU-AHE.harness.when-task-is-scope` | `AHE-3` |
 | `AHE-3.38` | `AHE-3` |
-| `AHE-3.39` | `AHE-3` |
+| `AU-AHE.optimization.real-optimization-metric` | `AHE-3` |
 | `AHE-3.4` | `AHE-3` |
 | `AHE-3.40` | `AHE-3` |
-| `AHE-3.41` | `AHE-3` |
-| `AHE-3.42` | `AHE-3` |
-| `AHE-3.43` | `AHE-3` |
-| `AHE-3.44` | `AHE-3` |
-| `AHE-3.45` | `AHE-3` |
-| `AHE-3.46` | `AHE-3` |
-| `AHE-3.47` | `AHE-3` |
-| `AHE-3.48` | `AHE-3` |
-| `AHE-3.49` | `AHE-3` |
-| `AHE-3.50` | `AHE-3` |
-| `AHE-3.51` | `AHE-3` |
-| `AHE-3.52` | `AHE-3` |
+| `AU-AHE.optimization.optimizable-tool-descriptions` | `AHE-3` |
+| `AU-AHE.optimization.agent-skill-sop-description` | `AHE-3` |
+| `AU-AHE.optimization.few-shot-demo-set` | `AHE-3` |
+| `AU-AHE.optimization.dspy-optimization-kg-extraction` | `AHE-3` |
+| `AU-AHE.optimization.concept-matching-routing-policy` | `AHE-3` |
+| `AU-AHE.optimization.candidate-replaces-incumbent-only` | `AHE-3` |
+| `AU-AHE.assimilation.empirical-parity-evidence-assimilation` | `AHE-3` |
+| `AU-AHE.harness.empirical-evidence-that-latent` | `AHE-3` |
+| `AU-AHE.reward.cache-rollout-signals` | `AHE-3` |
+| `AU-AHE.harness.co-evolve-research` | `AHE-3` |
+| `AU-KG.ontology.owl-bridge` | `AHE-3` |
+| `AU-AHE.harness.run-aegis-loop-over` | `AHE-3` |
 | `AHE-3.53` | `AHE-3` |
-| `AHE-3.55` | `AHE-3` |
-| `AHE-3.56` | `AHE-3` |
-| `AHE-3.57` | `AHE-3` |
-| `AHE-3.58` | `AHE-3` |
-| `AHE-3.59` | `AHE-3` |
+| `AU-AHE.harness.co-evolution-loop` | `AHE-3` |
+| `AU-AHE.harness.kg-held-out-certification` | `AHE-3` |
+| `AU-AHE.harness.per-dimension-ship-outcome` | `AHE-3` |
+| `AU-AHE.evaluation.edit-claims-fix` | `AHE-3` |
+| `AU-AHE.harness.variant-pool` | `AHE-3` |
 
 _… and 1093 more._
 

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.31 — Graph-Native Optimization State (resumable GEPA)."""
+"""CONCEPT:AU-ORCH.optimization.graph-native-optimization-state — Graph-Native Optimization State (resumable GEPA)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class _Sig(BaseModel):
     result: str = ""
 
 
-@pytest.mark.concept(id="ORCH-1.31")
+@pytest.mark.concept(id="AU-ORCH.optimization.graph-native-optimization-state")
 def test_frontier_snapshot_roundtrip():
     pool = ParetoCandidatePool(objectives=["accuracy", "efficiency"])
     pool.update(
@@ -54,7 +54,7 @@ def test_frontier_snapshot_roundtrip():
     assert restored["a"].prompt_text == "A"
 
 
-@pytest.mark.concept(id="ORCH-1.31")
+@pytest.mark.concept(id="AU-ORCH.optimization.graph-native-optimization-state")
 @pytest.mark.asyncio
 async def test_persist_and_resume_are_best_effort_without_backend():
     opt = GEPAOptimizer(signature_class=_Sig, base_prompt="p", evaluator_fn=_evaluator)

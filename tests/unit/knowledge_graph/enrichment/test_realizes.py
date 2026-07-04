@@ -1,4 +1,4 @@
-"""Code → capability REALIZES resolution tests (CONCEPT:KG-2.8).
+"""Code → capability REALIZES resolution tests (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Covers the three unified modes: match-existing, bottom-up mint, and strict
 curated-registry matching. Pure functions, no backend / no network.

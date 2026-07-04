@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Multi-agent team coordination capability with ACP integration.
 
-CONCEPT:AHE-3.3
+CONCEPT:AU-AHE.evaluation.interpretability-tests
 
 Manages team membership, shared tasks, and message routing via the
 Agent Communication Protocol (ACP). Persists state to the Knowledge Graph.
@@ -157,7 +157,7 @@ class TeamCapability(AbstractCapability[Any]):
         from ..knowledge_graph.core.bounded_read import iter_nodes_by_types
         from ..models.knowledge_graph import RegistryNodeType
 
-        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        # Bounded per-label fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never a whole-graph node pull.
         for node_id, data in iter_nodes_by_types(engine.graph, RegistryNodeType.TEAM):
             if data.get("status") == "active":
                 teams.append(

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
 
 
-"""Tool Repetition Guard (CONCEPT:OS-5.1).
+"""Tool Repetition Guard (CONCEPT:AU-OS.safety.tool-repetition-guard).
 
 Detects and prevents infinite tool call loops by tracking consecutive
 identical calls and per-tool invocation counts.  Adapted from Goose's
@@ -35,7 +35,7 @@ Key features:
 * **Per-tool call budget** — optional absolute cap on how many times
   any single tool can be called in a session (``MAX_TOOL_CALLS_PER_SESSION``).
 * **ExperienceNode distillation** — when a repetition is detected,
-  an ``ExperienceNode`` (CONCEPT:AHE-3.4) is created with the
+  an ``ExperienceNode`` (CONCEPT:AU-AHE.harness.experience-node-architecture) is created with the
   condition/action pair so the agent avoids the same loop pattern
   in future sessions.
 * **PolicyEngine adapter** — ``RepetitionPolicy`` plugs into the
@@ -85,7 +85,7 @@ class RepetitionResult(BaseModel):
 class RepetitionGuard:
     """Tracks tool call patterns and detects repetitive loops.
 
-    CONCEPT:OS-5.1 — Tool Repetition Guard
+    CONCEPT:AU-OS.safety.tool-repetition-guard — Tool Repetition Guard
 
     Adapted from Goose's ``RepetitionInspector`` (Rust) with the
     following design choices:
@@ -99,7 +99,7 @@ class RepetitionGuard:
       a WARN verdict is returned; at ``max_consecutive``, DENY.
     * **ExperienceNode integration** — on DENY, creates a KG-
       persistable ``ExperienceNode`` capturing the loop pattern
-      for future avoidance (CONCEPT:AHE-3.4).
+      for future avoidance (CONCEPT:AU-AHE.harness.experience-node-architecture).
 
     Example::
 
@@ -255,7 +255,7 @@ class RepetitionGuard:
     ) -> dict[str, Any] | None:
         """Create a KG-persistable ExperienceNode from a DENY result.
 
-        CONCEPT:AHE-3.4 — Experience Node Architecture
+        CONCEPT:AU-AHE.harness.experience-node-architecture — Experience Node Architecture
 
         Converts a detected repetition loop into a tactical rule so the
         agent avoids the same pattern in future sessions.
@@ -293,7 +293,7 @@ class RepetitionGuard:
 class RepetitionPolicy:
     """PolicyEngine-compatible adapter for the RepetitionGuard.
 
-    CONCEPT:OS-5.1 — Tool Repetition Guard
+    CONCEPT:AU-OS.safety.tool-repetition-guard — Tool Repetition Guard
 
     Plugs into the existing :class:`PolicyEngine` from ``guardrails.py``.
     Uses the ``context`` dict to extract ``tool_name`` and ``tool_arguments``
@@ -405,7 +405,7 @@ def _hash_string(s: str) -> str:
 class DoomLoopDetector:
     """Pattern-aware doom-loop detector with corrective prompt generation.
 
-    CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector
+    CONCEPT:AU-OS.safety.doom-loop-detection — Enhanced Doom-Loop Detector
 
     Complements the existing ``RepetitionGuard`` (OS-5.5) with:
 
@@ -636,7 +636,7 @@ class SuccessCheck(BaseModel):
 class RetryConfig(BaseModel):
     """Configuration for the retry manager.
 
-    CONCEPT:ORCH-1.3 — Structured Retry Manager
+    CONCEPT:AU-ORCH.execution.structured-retry-manager — Structured Retry Manager
 
     Attributes:
         max_retries: Maximum number of retry attempts (default 3).
@@ -861,7 +861,7 @@ async def execute_shell_command(
 class RetryManager:
     """Manages retry state and operations for agent execution.
 
-    CONCEPT:ORCH-1.3 — Structured Retry Manager
+    CONCEPT:AU-ORCH.execution.structured-retry-manager — Structured Retry Manager
 
     Adapted from Goose's ``RetryManager`` (Rust) with the following
     design:
@@ -1057,7 +1057,7 @@ class RetryManager:
     ) -> dict[str, Any]:
         """Create a reward signal from a retry outcome for TeamConfig integration.
 
-        CONCEPT:AHE-3.3 — TeamConfig Promotion
+        CONCEPT:AU-AHE.harness.team-config-promotion — TeamConfig Promotion
 
         Maps retry outcomes to reward values:
         * SUCCESS → +1.0

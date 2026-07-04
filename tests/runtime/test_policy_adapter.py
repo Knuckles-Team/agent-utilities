@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 — workspace mutating-action gate wired to the fleet ActionPolicy (OS-5.24)."""
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — workspace mutating-action gate wired to the fleet ActionPolicy (OS-5.24)."""
 
 from __future__ import annotations
 

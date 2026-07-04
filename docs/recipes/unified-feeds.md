@@ -1,6 +1,6 @@
 # Recipe — Unified RSS ingestion (native RSS + FreshRSS + ScholarX arXiv)
 
-Three feed sources, **one** ingestion system (CONCEPT:KG-2.121 / KG-2.122). A native
+Three feed sources, **one** ingestion system (CONCEPT:AU-KG.ingest.rss-feed-connector / AU-KG.compute.first-class-rss-atom). A native
 zero-infra RSS/Atom extractor, the FreshRSS aggregator, and the ScholarX arXiv feed
 are all first-class `:FeedSource` citizens that emit the same `SourceDocument` and flow
 through **one** world-model gate, which routes research items to the prioritized
@@ -48,7 +48,7 @@ gate (`automation/worldmodel_pipeline.py`):
 2. **classifies** research vs news (`_is_research`);
 3. **research** → `grade_and_enqueue_paper` (keyword + novelty grade → a prioritized
    `research_paper_fetch` `:Task`, best-graded fetched first; abstract-only / reject
-   otherwise) — the same KG-2.114 path for items from *any* feed;
+   otherwise) — the same AU-KG.research.scholarx-rss-research-feed path for items from *any* feed;
 4. **news** → relevance+novelty → a `:FeedItem`/Document linked `:ingestedFrom` its
    `:FeedSource`.
 

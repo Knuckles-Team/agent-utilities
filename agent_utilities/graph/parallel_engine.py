@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.8 — Parallel Engine.
+"""CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine.
 
 The single engine that handles every execution from a trivial 1-agent
 LLM call to a 300-agent enterprise swarm. The **same code path** runs
@@ -84,10 +84,10 @@ class AgentAttemptFailedError(Exception):
 class AgentTypeCircuitBreaker(CircuitBreaker):
     """The canonical OS-5.23 breaker state machine, per parallel-engine agent type.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     Subclass-parameterized exactly like the multiplexer's per-child breaker
-    (CONCEPT:ECO-4.34). Profile differences from the engine-client breaker:
+    (CONCEPT:AU-ECO.mcp.profile-differences-from-client). Profile differences from the engine-client breaker:
 
     * ``cooldown`` is infinite — once open, the agent type stays disabled for
       subsequent waves until a recorded success (the historical ORCH-1.8
@@ -109,7 +109,7 @@ class AgentTypeCircuitBreaker(CircuitBreaker):
         return None
 
 
-# ── Swarm helpers — CONCEPT:ORCH-1.32 KG-Governed Agent Swarm
+# ── Swarm helpers — CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm KG-Governed Agent Swarm
 
 
 def enforce_structured_output(output: str, schema: str | None) -> tuple[bool, str]:
@@ -172,7 +172,7 @@ def resolve_model_role(role: str) -> str:
 
 
 class ParallelEngine:
-    """CONCEPT:ORCH-1.8 — Parallel Engine.
+    """CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine.
 
     The single engine that handles every agent execution from 1 to 300+
     agents. Uses ``asyncio.Semaphore`` for concurrency backpressure and
@@ -199,11 +199,11 @@ class ParallelEngine:
         # AutoHealingEngine shell (strangler-then-delete): the per-agent
         # failure threshold survives; at threshold the failure enters the
         # LIVE propose-only remediation chain — a failure_gap Concept topic
-        # instead of never-wired skill_evolver hooks (CONCEPT:AHE-3.18).
+        # instead of never-wired skill_evolver hooks (CONCEPT:AU-AHE.harness.failure-evolution).
         self._agent_failure_counts: dict[str, int] = {}
-        # CONCEPT:ORCH-1.32 — schedule metadata (critical-path, parallelism) captured per run
+        # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — schedule metadata (critical-path, parallelism) captured per run
         self._schedule_meta: dict[str, Any] = {}
-        # CONCEPT:ORCH-1.32 — previous run's MASS latent-state distribution, for W1 drift
+        # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — previous run's MASS latent-state distribution, for W1 drift
         self._prev_social_states: list[float] = []
 
     def _agent_breaker(self, agent_id: str) -> AgentTypeCircuitBreaker:
@@ -224,7 +224,7 @@ class ParallelEngine:
     ) -> ExecutionResult:
         """Execute a manifest. This is the **only** entry point.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Args:
             manifest: The execution specification.
@@ -239,7 +239,7 @@ class ParallelEngine:
         resolved = self._resolve_manifest(manifest)
 
         logger.info(
-            "[CONCEPT:ORCH-1.8] Executing manifest '%s' — %d agents, mode=%s, "
+            "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Executing manifest '%s' — %d agents, mode=%s, "
             "synthesis=%s, source=%s",
             resolved.name or resolved.manifest_id,
             resolved.agent_count,
@@ -296,7 +296,7 @@ class ParallelEngine:
 
         for wave_idx, wave_agents in enumerate(waves):
             logger.info(
-                "[CONCEPT:ORCH-1.8] Wave %d/%d — %d agents",
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d/%d — %d agents",
                 wave_idx + 1,
                 len(waves),
                 len(wave_agents),
@@ -308,7 +308,7 @@ class ParallelEngine:
             wave_results.append(wave_result)
 
             logger.info(
-                "[CONCEPT:ORCH-1.8] Wave %d complete — success_rate=%.1f%%, "
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d complete — success_rate=%.1f%%, "
                 "duration=%.0fms",
                 wave_idx + 1,
                 wave_result.success_rate * 100,
@@ -324,19 +324,19 @@ class ParallelEngine:
             verification = await self._verify_and_redispatch(
                 resolved, wave_results, graph_deps
             )
-            logger.info("[CONCEPT:ORCH-1.32] Verification pass: %s", verification)
+            logger.info("[CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm] Verification pass: %s", verification)
 
         # 5. Synthesize outputs (RLM-native)
         all_results = [r for w in wave_results for r in w.results]
 
-        # 5a. CONCEPT:ORCH-1.2 — Global Workspace Attention: score the specialists'
+        # 5a. CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Global Workspace Attention: score the specialists'
         # outputs, select winners, and broadcast them to the KG. The broadcast is the
         # training signal `executor.get_attention_score` reads back as each
         # specialist's runtime standing. Runs only with a shared engine and ≥2
         # successful outputs (consensus is meaningless for one); non-fatal.
         self._broadcast_workspace_attention(all_results, resolved)
 
-        # 5b. CONCEPT:ORCH-1.32 — model the wave as a Multi-Agent Social System and
+        # 5b. CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — model the wave as a Multi-Agent Social System and
         # snapshot swarm health (archetype heterogeneity, topology variance,
         # co-evolution slope, W1 drift vs the previous run); non-fatal telemetry.
         social_health = self._social_swarm_health(all_results, resolved)
@@ -381,12 +381,12 @@ class ParallelEngine:
                 )
 
                 logger.info(
-                    "[CONCEPT:AHE-3.1] Running final adversarial verification pass..."
+                    "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Running final adversarial verification pass..."
                 )
                 adv_res = await run_adversarial_pass(m_state, m_deps, synthesis_output)
                 if adv_res and adv_res.vulnerabilities_found:
                     logger.warning(
-                        "[CONCEPT:AHE-3.1] Adversarial pass found vulnerabilities: %s",
+                        "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Adversarial pass found vulnerabilities: %s",
                         adv_res.findings,
                     )
                     # Attach findings to resolved metadata or final execution log
@@ -420,7 +420,7 @@ class ParallelEngine:
             "wave_count": len(wave_results),
             "max_concurrency": int(concurrency),
         }
-        # CONCEPT:ORCH-1.2 — surface GWT loop health (write/read counters +
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — surface GWT loop health (write/read counters +
         # suspected engine-instance mismatch) for observability.
         try:
             from .workspace_attention import workspace_attention_telemetry
@@ -450,7 +450,7 @@ class ParallelEngine:
         )
 
         logger.info(
-            "[CONCEPT:ORCH-1.8] Execution complete — %d agents, %d waves, "
+            "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Execution complete — %d agents, %d waves, "
             "%.0fms total, success=%s",
             result.agent_count,
             len(wave_results),
@@ -465,7 +465,7 @@ class ParallelEngine:
     def _resolve_manifest(self, manifest: ExecutionManifest) -> ExecutionManifest:
         """Resolve ``auto`` fields based on agent count and complexity.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Auto-resolution rules:
             - execution_mode: sequential (1), parallel (≤5), wave (>5)
@@ -499,7 +499,7 @@ class ParallelEngine:
     def _schedule_waves(self, manifest: ExecutionManifest) -> list[list[AgentSpec]]:
         """Build a dependency DAG and schedule agents into execution waves.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Uses topological sort on the dependency graph to determine
         execution order, then groups agents by topological level
@@ -559,7 +559,7 @@ class ParallelEngine:
             generations = list(rx.topological_generations(dag))
         except Exception:
             logger.warning(
-                "[CONCEPT:ORCH-1.8] Dependency cycle detected — falling back "
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Dependency cycle detected — falling back "
                 "to sequential execution"
             )
             self._schedule_meta = {
@@ -595,7 +595,7 @@ class ParallelEngine:
     def _expand_partitions(self, manifest: ExecutionManifest) -> list[AgentSpec]:
         """Expand fan-out partitions into individual agent specs.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         If an ``AgentSpec`` has partitions, create one copy per partition
         with ``{{partition}}`` replaced in the task template and a unique
@@ -629,7 +629,7 @@ class ParallelEngine:
     ) -> WaveResult:
         """Execute one wave of agents concurrently with semaphore backpressure.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Args:
             agents: Agents in this wave.
@@ -688,7 +688,7 @@ class ParallelEngine:
                     raise AgentAttemptFailedError(res)
                 return res
 
-            # SWARM-5 backoff, declaratively (CONCEPT:ORCH-1.36): the
+            # SWARM-5 backoff, declaratively (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating): the
             # historical 0.5s, 1s, 2s, ... delays bounded at 8s.
             retry_policy = ResiliencePolicy(
                 max_attempts=retries + 1,
@@ -745,7 +745,7 @@ class ParallelEngine:
     ) -> AgentExecutionResult:
         """Execute a single agent invocation with full capability wiring.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Args:
             agent: The agent specification.
@@ -798,7 +798,7 @@ class ParallelEngine:
         if manifest.context:
             task = f"{task}\n\nContext:\n{manifest.context}"
 
-        # CONCEPT:OS-5.8 Context Paging
+        # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Context Paging
         if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
             logger.info(
                 "Paging context from checkpoint %s for agent %s",
@@ -867,7 +867,7 @@ class ParallelEngine:
 
                 checkpoint_store = GraphCheckpointStore(engine=self.engine)
 
-            # CONCEPT:ECO-4.0 — gap-fill the workflow's declared tools against what's
+            # CONCEPT:AU-ECO.toolkit.workflow-gap-fill — gap-fill the workflow's declared tools against what's
             # available (substitute by capability, or surface a precise gap). Defensive:
             # falls back to agent.tools unchanged when availability is undeterminable.
             from .tool_resolver import resolve_agent_tools
@@ -875,7 +875,7 @@ class ParallelEngine:
             _tool_res = resolve_agent_tools(self.engine, agent.tools)
             if _tool_res.filled or _tool_res.missing:
                 logger.info(
-                    "[CONCEPT:ECO-4.0] tool gap-fill for '%s': filled=%s missing=%s",
+                    "[CONCEPT:AU-ECO.toolkit.workflow-gap-fill] tool gap-fill for '%s': filled=%s missing=%s",
                     agent.agent_id,
                     _tool_res.filled,
                     _tool_res.missing,
@@ -914,7 +914,7 @@ class ParallelEngine:
             output = result.output
 
             logger.debug(
-                "[CONCEPT:ORCH-1.8] Agent %s (%s) completed in %.0fms — "
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s (%s) completed in %.0fms — "
                 "output=%d chars",
                 agent.agent_id,
                 agent.role,
@@ -942,7 +942,7 @@ class ParallelEngine:
         except TimeoutError:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:ORCH-1.8] Agent %s timed out after %.0fms",
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s timed out after %.0fms",
                 agent.agent_id,
                 duration_ms,
             )
@@ -958,7 +958,7 @@ class ParallelEngine:
         except Exception as e:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:ORCH-1.8] Agent %s failed: %s",
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s failed: %s",
                 agent.agent_id,
                 e,
             )
@@ -986,7 +986,7 @@ class ParallelEngine:
         useful bit (threshold-counted failure registry) is kept; the dead
         skill-synthesis hooks (never wired) are gone. At the threshold the
         recurring failure enters the shared gap-topic path the golden loop
-        already remediates — propose-only, no LLM here (CONCEPT:AHE-3.18).
+        already remediates — propose-only, no LLM here (CONCEPT:AU-AHE.harness.failure-evolution).
         """
         count = self._agent_failure_counts.get(agent_id, 0) + 1
         self._agent_failure_counts[agent_id] = count
@@ -1022,7 +1022,7 @@ class ParallelEngine:
         query: str,
         graph_deps: GraphDeps | None,
     ) -> tuple[bool, str]:
-        """Judge one leaf output against its ``success_criteria`` (CONCEPT:ORCH-1.32 SWARM-2).
+        """Judge one leaf output against its ``success_criteria`` (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm SWARM-2).
 
         Returns ``(passed, feedback)``. When no model is available, degrades to *pass* so
         verification never blocks execution in model-less environments. Factored out so tests can
@@ -1063,7 +1063,7 @@ class ParallelEngine:
     ) -> dict[str, Any]:
         """Verify leaves with ``success_criteria`` and re-dispatch failures once (bounded).
 
-        CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm.
+        CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm.
         SWARM-2: the planner→execute→verify loop the articles say most "throw-more-agents" setups
         skip. Gated
         by ``metadata["verify"]``; only agents that declare ``success_criteria`` are checked. Returns
@@ -1120,7 +1120,7 @@ class ParallelEngine:
     ) -> str:
         """Synthesize agent outputs using the specified strategy.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
 
         The key insight: outputs are stored as Pydantic objects and
         processed programmatically, never dumped into context windows.
@@ -1163,7 +1163,7 @@ class ParallelEngine:
     def _flat_synthesis(self, results: list[AgentExecutionResult]) -> str:
         """Simple concatenation synthesis for small agent counts.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
         parts: list[str] = []
         for r in results:
@@ -1182,7 +1182,7 @@ class ParallelEngine:
     ) -> str:
         """Tiered synthesis: group → sub-summaries → final summary.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
 
         Groups outputs by ``spec.ratio`` (default 10), generates a
         sub-summary for each group, then synthesizes sub-summaries
@@ -1202,7 +1202,7 @@ class ParallelEngine:
             sub_summaries.append(summary)
 
         logger.info(
-            "[CONCEPT:ORCH-1.26] Hierarchical synthesis: %d results → "
+            "[CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling] Hierarchical synthesis: %d results → "
             "%d sub-summaries → final",
             len(results),
             len(sub_summaries),
@@ -1245,7 +1245,7 @@ class ParallelEngine:
     ) -> str:
         """Full RLM synthesis for massive-scale (50+ agent) output processing.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
 
         Uses the RLM environment to programmatically process outputs
         stored as Pydantic objects, not dumped into the context window.
@@ -1287,7 +1287,7 @@ class ParallelEngine:
 
         except Exception as e:
             logger.warning(
-                "[CONCEPT:ORCH-1.26] RLM synthesis failed, falling back to "
+                "[CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling] RLM synthesis failed, falling back to "
                 "hierarchical: %s",
                 e,
             )
@@ -1302,7 +1302,7 @@ class ParallelEngine:
     ) -> str:
         """Progressive synthesis: incrementally merge as results arrive.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
 
         Processes results one at a time, maintaining a running summary
         that grows as each agent's output is incorporated.
@@ -1327,7 +1327,7 @@ class ParallelEngine:
     ) -> str:
         """Synthesize a group of results using an LLM.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
         model_id = "openai:gpt-4o-mini"
         if graph_deps:
@@ -1354,7 +1354,7 @@ class ParallelEngine:
             return result.output
         except Exception as e:
             logger.warning(
-                "[CONCEPT:ORCH-1.26] Group synthesis failed, using flat: %s", e
+                "[CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling] Group synthesis failed, using flat: %s", e
             )
             return combined
 
@@ -1367,7 +1367,7 @@ class ParallelEngine:
     ) -> str:
         """Merge a new result into the running summary.
 
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+        CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
         model_id = "openai:gpt-4o-mini"
         if graph_deps:
@@ -1400,7 +1400,7 @@ class ParallelEngine:
     ) -> list[str]:
         """Score + broadcast specialist outputs through Global Workspace Attention.
 
-        CONCEPT:ORCH-1.2. Builds ``{agent_id: output}`` from the successful results
+        CONCEPT:AU-ORCH.adapter.hot-cache-invalidation. Builds ``{agent_id: output}`` from the successful results
         and runs :meth:`WorkspaceAttention.select_and_broadcast`, persisting the
         winning proposals to the shared engine so ``get_attention_score`` can read
         each specialist's standing on later runs. Best-effort: a missing engine,
@@ -1426,7 +1426,7 @@ class ParallelEngine:
             )
             if winners:
                 logger.info(
-                    "[CONCEPT:ORCH-1.2] GWT broadcast %d/%d specialist proposals "
+                    "[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] GWT broadcast %d/%d specialist proposals "
                     "(top: %s=%.3f)",
                     len(winners),
                     len(outputs),
@@ -1440,7 +1440,7 @@ class ParallelEngine:
             return []
 
     def _record_winners_to_memory(self, winners: list[Any]) -> None:
-        """Record GWT winners into the evolving memory store (CONCEPT:KG-2.1).
+        """Record GWT winners into the evolving memory store (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         The winning specialists are durable signal about *what works*; routing them
         through :class:`EvolvingMemoryStore` (INSIGHT bank, deduped per specialist so
@@ -1470,7 +1470,7 @@ class ParallelEngine:
     def _social_swarm_health(
         self, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
     ) -> dict:
-        """Snapshot Multi-Agent Social System health for the wave (CONCEPT:ORCH-1.32).
+        """Snapshot Multi-Agent Social System health for the wave (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm).
 
         Builds a MASS from the run: archetype = each agent's role, latent state = a
         success-weighted output magnitude, and the interaction graph ``G`` from the
@@ -1515,7 +1515,7 @@ class ParallelEngine:
     ) -> str:
         """Persist execution results to the Knowledge Graph with verbose hierarchy.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
         Creates a ``ParallelExecution`` node, individual ``AgentExecutionResult`` nodes
         linked via ``PART_OF_EXECUTION`` edges, and dependency edges linked via
@@ -1593,7 +1593,7 @@ class ParallelEngine:
                         )
 
             logger.info(
-                "[CONCEPT:ORCH-1.8] Persisted execution hierarchy %s to KG "
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Persisted execution hierarchy %s to KG "
                 "(%d agents, %d waves, %d topology edges)",
                 execution_id,
                 manifest.agent_count,

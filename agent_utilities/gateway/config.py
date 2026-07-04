@@ -1,6 +1,6 @@
 """Config Manager — YAML service configuration with XDG auto-discovery.
 
-CONCEPT:OS-5.9 — Gateway Service Dashboard
+CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
 Loads dashboard layout from ``~/.config/agent-utilities/services.yaml``
 and auto-discovers available services from ``mcp_config.json``.
@@ -362,7 +362,7 @@ class ConfigManager:
     def get_all_services(self) -> list[ServiceConfig]:
         """Flatten all services from the current layout.
 
-        Always re-loads from disk (CONCEPT:OS-5.23): the YAML file is the
+        Always re-loads from disk (CONCEPT:AU-OS.observability.no-op-without-metrics): the YAML file is the
         shared source of truth, so a ``save()`` from another gateway
         worker/replica is picked up on the next fetch instead of serving a
         stale in-memory copy forever.

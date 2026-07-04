@@ -1,4 +1,4 @@
-"""Tests for symbol→symbol path navigation (CONCEPT:KG-2.211, action='connects').
+"""Tests for symbol→symbol path navigation (CONCEPT:EG-KG.compute.handled-outside-single-anchor, action='connects').
 
 Exercises ``code_connects`` offline via a fake engine that resolves symbol names
 to :Code ids, runs a canned shortest path, and annotates each hop's edge.

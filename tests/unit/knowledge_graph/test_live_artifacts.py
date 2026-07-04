@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Live Refreshable Artifact tests.
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact tests.
 
 Covers injection-safe interpolation, the bounded-JSON contract, refresh re-derivation from a source,
 the "failed refresh preserves prior" rule (bi-temporal valid-time), provenance, and the live gateway
@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.live_artifacts import (
 )
 from agent_utilities.knowledge_graph.live_artifacts.models import MAX_ITEMS
 
-pytestmark = pytest.mark.concept(id="KG-2.24")
+pytestmark = pytest.mark.concept(id="AU-KG.memory.live-refreshable-artifact-models")
 
 
 # ── interpolation (injection-safe) ──────────────────────────────────

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Auto gap analysis — the "stop rediscovering built features" engine (CONCEPT:KG-2.7).
+"""Auto gap analysis — the "stop rediscovering built features" engine (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The first evolution attempt repeatedly re-proposed features we had *already built*,
 because "does this already exist?" was answered by re-reading. Here it is a graph
@@ -97,7 +97,7 @@ def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
 
 
 def _node_data_by_id(graph: Any, nid: str) -> dict[str, Any] | None:
-    """Fetch ONE node's full data by id without a whole-graph pull (CONCEPT:KG-2.193).
+    """Fetch ONE node's full data by id without a whole-graph pull (CONCEPT:AU-KG.ingest.fetch-only-requested-ids).
 
     The live ``GraphComputeEngine`` facade exposes a per-id properties fetch
     (``get_node_properties`` / ``_get_node_properties``) that does a single engine
@@ -131,7 +131,7 @@ def _collect_rich(
 ) -> dict[str, dict[str, Any]]:
     """id → full node ``data`` for the target types (case-insensitive label match).
 
-    ``restrict_to`` collects ONLY those ids via per-id fetch (CONCEPT:KG-2.193) so a
+    ``restrict_to`` collects ONLY those ids via per-id fetch (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so a
     per-cohort pass is O(cohort) not O(graph); falls back to a filtered full scan if
     the node view can't be indexed by id.
     """
@@ -158,7 +158,7 @@ def _collect_rich(
             }
         except TypeError:  # pragma: no cover - non-standard graph
             return out
-    # Unrestricted: prefer the engine-side BOUNDED label fetch (CONCEPT:KG-2.51) over a
+    # Unrestricted: prefer the engine-side BOUNDED label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation) over a
     # whole-graph GetNodes dump — on a large multi-tenant engine the full node list is a
     # huge payload that resets the socket. Try each type's label across casings (live
     # labels are inconsistently cased, e.g. "article" vs "Concept").

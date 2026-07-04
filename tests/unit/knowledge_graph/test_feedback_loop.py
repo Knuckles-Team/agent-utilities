@@ -1,4 +1,4 @@
-"""Human-correction feedback loop tests (CONCEPT:KG-2.8).
+"""Human-correction feedback loop tests (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Covers FeedbackService (outcome/rule/eval), governance-rule application at
 retrieval time, and the KG-backed eval corpus — all with fakes, no live engine.
@@ -108,7 +108,7 @@ def test_unknown_correction_type_is_rejected():
     assert not res.applied
 
 
-# ── FeedbackService: selective_erasure live path (CONCEPT:KG-2.276) ───────────
+# ── FeedbackService: selective_erasure live path (CONCEPT:AU-KG.memory.generation-scoped-selective-reward) ───────────
 def test_selective_erasure_live_path_forgets_superseded_rewards():
     """LIVE-PATH: a `selective_erasure` correction dispatched through
     `record_correction` reaches the real `CapabilityIndex` and forgets only the
@@ -139,7 +139,7 @@ def test_selective_erasure_live_path_forgets_superseded_rewards():
     assert idx.reward_of("tool:keep") > 0.5
 
 
-# ── FeedbackService: reads_avoided loop (CONCEPT:AHE-3.61) ────────────────────
+# ── FeedbackService: reads_avoided loop (CONCEPT:AU-AHE.evaluation.reads-avoided-feedback) ────────────────────
 def test_reads_avoided_full_replacement_rewards_high_and_grades():
     idx = FakeIndex()
     corpus = EvalCorpus()
@@ -185,7 +185,7 @@ def test_reads_avoided_accepts_json_string_payload():
     assert idx.rewards["cap:json"] == 1.0
 
 
-# ── FeedbackService: universal action_outcome (CONCEPT:AHE-3.62) ──────────────
+# ── FeedbackService: universal action_outcome (CONCEPT:AU-AHE.evaluation.action-outcome-feedback) ──────────────
 def test_action_outcome_success_rewards_high_and_grades():
     idx = FakeIndex()
     corpus = EvalCorpus()

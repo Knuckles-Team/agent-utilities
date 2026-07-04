@@ -1,6 +1,6 @@
 """LiteLLM pricing fetch + parse.
 
-CONCEPT:ECO-4.40 — Unified model pricing catalog.
+CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Port of agentsview ``internal/pricing/litellm.go``. Downloads the BerriAI
 LiteLLM pricing JSON and converts per-token costs to per-million-token

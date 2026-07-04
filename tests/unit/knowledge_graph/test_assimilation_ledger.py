@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Feature lifecycle ledger + assimilation close-out (VU-5).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.assimilation import (
     set_status,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:
@@ -55,7 +55,7 @@ class _Engine:
 def test_record_and_set_status():
     engine = _Engine()
     record_feature(
-        engine, feature_id="f1", name="exec-rag planner", concept_ids=["KG-2.12"]
+        engine, feature_id="f1", name="exec-rag planner", concept_ids=["AU-KG.retrieval.memory-first-retrieval"]
     )
     st = ledger_state(engine)
     assert st["total"] == 1 and st["open"] == 1 and st["by_status"]["open"] == 1
@@ -107,7 +107,7 @@ def test_promote_feature_ledger():
         {
             "id": "graph_pagerank",
             "name": "pagerank",
-            "concept": "KG-2.5",
+            "concept": "AU-KG.compute.spectral-cluster-navigator",
             "source": "graph.py:10",
             "status": "live",
         },
@@ -123,7 +123,7 @@ def test_promote_feature_ledger():
     n = promote_feature_ledger(engine, rows)
     assert n == 2  # the id-less row is skipped
     data = dict(engine.graph.nodes(data=True))
-    assert data["graph_pagerank"]["concept_ids"] == ["KG-2.5"]
+    assert data["graph_pagerank"]["concept_ids"] == ["AU-KG.compute.spectral-cluster-navigator"]
     assert data["x_unknown"]["concept_ids"] == []  # UNKNOWN dropped
 
 

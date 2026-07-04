@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """AHE Evolve Agent.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Evolution Loop)
-CONCEPT:ORCH-1.8 — Workflow Distillation Integration
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Evolution Loop)
+CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Integration
 
 The Evolve Agent reads distilled evidence, identifies component-level
 failure attribution, proposes targeted edits, and records falsifiable
@@ -78,7 +78,7 @@ class EvolveAgent:
 
         When the evidence corpus is too large for a single LLM context
         window, automatically delegates to RLM for deep analysis
-        (CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1).
+        (CONCEPT:AU-ORCH.scheduling.rlm-evolution-loop × CONCEPT:AU-ORCH.scheduling.rlm-evolution-loop).
 
         Args:
             evidence: The distilled evidence corpus for this round.
@@ -114,7 +114,7 @@ class EvolveAgent:
                 f"EvolveAgent: Analyzing {len(top_clusters)} failure clusters..."
             )
             for cluster in top_clusters:
-                # CONCEPT:AHE-3.1 - Attempt DSPy mathematical optimization first
+                # CONCEPT:AU-AHE.optimization.dspy-first-optimization - Attempt DSPy mathematical optimization first
                 edits = await self._dspy_optimize_cluster(cluster, evidence)
 
                 # Fallback to LLM heuristic edits if DSPy isn't applicable
@@ -143,7 +143,7 @@ class EvolveAgent:
     ) -> list[ComponentEdit]:
         """RLM-powered deep analysis for large evidence corpora.
 
-        CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1 — RLM for AHE Evolution Loop
+        CONCEPT:AU-ORCH.scheduling.rlm-evolution-loop × CONCEPT:AU-ORCH.scheduling.rlm-evolution-loop — RLM for AHE Evolution Loop
 
         When the serialized evidence exceeds the context threshold,
         delegates to an RLM sub-agent that programmatically loops
@@ -287,7 +287,7 @@ class EvolveAgent:
     def _build_trainset(
         self, evidence: EvidenceCorpus, cluster: FailureCluster
     ) -> list[Any]:
-        """Passing traces in this cluster as DSPy demonstrations (CONCEPT:AHE-3.40)."""
+        """Passing traces in this cluster as DSPy demonstrations (CONCEPT:AU-AHE.optimization.optimizable-target-registry)."""
         try:
             import dspy
         except ImportError:
@@ -323,7 +323,7 @@ class EvolveAgent:
     ) -> list[ComponentEdit]:
         """DSPy-optimize a failing component via the optimizable-target registry.
 
-        CONCEPT:AHE-3.1 / AHE-3.40 — generalized from the original system-prompt-only,
+        CONCEPT:AU-AHE.optimization.dspy-first-optimization / AHE-3.40 — generalized from the original system-prompt-only,
         exact-match path. Dispatches on ``cluster.component_attribution`` to a registered
         :class:`OptimizableTarget` (system prompt, MCP tool description, agent skill),
         builds a trainset of passing traces, compiles + demo-refines under the **real**
@@ -438,7 +438,7 @@ class EvolveAgent:
         dry_run: bool = True,
         auto_apply: bool | None = None,
     ) -> ChangeManifest:
-        """Apply manifest edits to the workspace (CONCEPT:AHE-3.71).
+        """Apply manifest edits to the workspace (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
         For a **system-prompt** edit carrying a DSPy-hardened candidate body
         (``edit.metadata['candidate_blueprint']``, produced by
@@ -502,7 +502,7 @@ class EvolveAgent:
         auto_apply: bool,
         dry_run: bool,
     ) -> None:
-        """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AHE-3.71)."""
+        """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AU-AHE.harness.hardening-transparency-surface)."""
         import os
 
         from agent_utilities.prompting.structured import StructuredPrompt
@@ -563,7 +563,7 @@ class EvolveAgent:
     ) -> str:
         """Persist a queryable + approvable ``ProposedPromptChange`` audit record.
 
-        CONCEPT:AHE-3.71 — the transparency surface. Every hardening decision (applied /
+        CONCEPT:AU-AHE.harness.hardening-transparency-surface — the transparency surface. Every hardening decision (applied /
         proposed / rejected) lands as a git-diffable JSON under
         ``.specify/proposals/`` AND, best-effort, a ``ProposedPromptChange`` KG node — so a
         human/Claude can review the before/after metric and the held candidate and approve
@@ -621,7 +621,7 @@ class EvolveAgent:
         return proposal_path
 
     def approve_proposed_change(self, proposal_id: str) -> dict[str, Any]:
-        """Human/Claude approval path for a shadow proposal (CONCEPT:AHE-3.71).
+        """Human/Claude approval path for a shadow proposal (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
         Applies a previously **proposed** (or rejected, if force-approved) candidate to
         source — the steerable counterpart to the auto-apply gate, so a winning prompt can
@@ -664,7 +664,7 @@ class EvolveAgent:
     ) -> Any:
         """Run ONE metric → optimize → evaluate → (gated) apply cycle for an agent's prompt.
 
-        CONCEPT:AHE-3.73 — the closed agent-hardening cycle (uses the AHE-3.71 gated apply
+        CONCEPT:AU-AHE.harness.callers-feed-back-per — the closed agent-hardening cycle (uses the AHE-3.71 gated apply
         and AHE-3.72 per-agent attribution), end-to-end for one agent:
 
         1. **Attribute** — pool the agent's ``action_outcome`` cases into a per-agent

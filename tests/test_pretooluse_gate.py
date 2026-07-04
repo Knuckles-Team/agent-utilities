@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the dynamic two-layer PreToolUse gate.
 
-CONCEPT:OS-5.41 — Dynamic PreToolUse ActionPolicy gate (fail-closed runtime fence)
+CONCEPT:AU-OS.deployment.dynamic-two-fail-closed — Dynamic PreToolUse ActionPolicy gate (fail-closed runtime fence)
 """
 
 from __future__ import annotations

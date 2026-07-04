@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unified ETL pipeline — one source→transform→sink interface (CONCEPT:KG-2.98).
+"""Unified ETL pipeline — one source→transform→sink interface (CONCEPT:AU-KG.ontology.one-source).
 
 A thin orchestrator that collapses the KG's existing bidirectional machinery into a
 single "move data between systems" entrypoint. It writes no transport of its own —
@@ -90,7 +90,7 @@ def run_etl(
 
     # ── outbound: KG → sink (writeback system-of-record, graph store, or SQL table) ──
     if sink == "table":
-        # CONCEPT:KG-2.266 — mirror the inbound `source` connector's data into a native
+        # CONCEPT:AU-KG.ingest.mirror-inbound — mirror the inbound `source` connector's data into a native
         # engine SQL table (CREATE TABLE + bulk INSERT). `ops` carries optional
         # {table, config, limit, replace}. This is the ETL→table sink.
         from ..core.table_ingest import ingest_connector_to_table

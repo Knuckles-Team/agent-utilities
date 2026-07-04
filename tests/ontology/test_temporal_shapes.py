@@ -1,4 +1,4 @@
-"""Bi-temporal SHACL invariants (CONCEPT:KG-2.252 / KG-2.251).
+"""Bi-temporal SHACL invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill / KG-2.251).
 
 Proves the temporal shapes actually FLAG violations (fails-then-passes), which is
 the moat over a plain property graph: an unresolved contradiction / malformed

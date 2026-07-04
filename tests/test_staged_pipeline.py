@@ -1,4 +1,4 @@
-"""Tests for the non-blocking staged ingestion pipeline (CONCEPT:KG-2.267).
+"""Tests for the non-blocking staged ingestion pipeline (CONCEPT:AU-KG.ingest.staged).
 
 The load-bearing test is :func:`test_slow_enrich_does_not_block_write` — it proves
 the operator principle: a slow ENRICH stage does NOT stall the WRITE of other items.

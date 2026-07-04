@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the reliability / guardrail evaluation scorers.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 import pytest
@@ -20,7 +20,7 @@ from agent_utilities.harness.reliability_scorers import (
 )
 from agent_utilities.tools.eval_harness import AggregatedEvalResult, EvalResult
 
-pytestmark = pytest.mark.concept("AHE-3.1")
+pytestmark = pytest.mark.concept("AU-AHE.evaluation.adaptive-reasoning-effort")
 
 
 # --- FaithfulnessScorer ----------------------------------------------------

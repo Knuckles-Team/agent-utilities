@@ -1,6 +1,6 @@
 """Orchestration Engine — The canonical entrypoint for all agent execution.
 
-CONCEPT:ORCH-2.0 — Orchestration Engine
+CONCEPT:AU-ORCH.execution.orchestration — Orchestration Engine
 
 This module replaces the legacy fragmented orchestrators (AgentOrchestrationEngine,
 KGDrivenExecutionEngine, run_graph, ParallelEngine, WorkflowRunner, SDDOrchestrator,
@@ -40,7 +40,7 @@ DEFAULT_PROVIDER = DEFAULT_LLM_PROVIDER
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
 # Wall-clock budget (seconds) for a single spawned agent in a workflow fan-out.
-# CONCEPT:ORCH-1.24 — ``max_steps`` bounds interaction ROUNDS, not time: a spawned
+# CONCEPT:AU-ORCH.execution.dynamic-workflows — ``max_steps`` bounds interaction ROUNDS, not time: a spawned
 # agent that awaits an unresponsive MCP tool never advances a step, so the fan-out
 # ``asyncio.gather`` would hang to the caller's 300s timeout. We bound each spawned
 # ``run_agent`` by wall-clock so a stuck child resolves to a structured timeout error
@@ -147,7 +147,7 @@ class AgentOrchestrationEngine:
     async def execute_swe(
         self, task: Any, *, deps: Any = None, workspace: Any = None, **kwargs: Any
     ) -> dict[str, Any]:
-        """Run the KG-grounded SWE agent (CONCEPT:ORCH-1.47) on ``task``.
+        """Run the KG-grounded SWE agent (CONCEPT:AU-ORCH.execution.swe-agent-system-prompt) on ``task``.
 
         Drives the edit→run→test loop inside a developer workspace (OS-5.33), grounding in the
         code ontology (KG-2.65). A ``workspace`` may be supplied (e.g. a repo already cloned by
@@ -204,7 +204,7 @@ class AgentOrchestrationEngine:
         PyO3/FFI, not scipy/sklearn), which bounds the candidate agents to the domain
         sub-graph. The agent roster and each agent's tools are then resolved from the
         graph store, and when a ``delegated_authority`` is supplied the roster is
-        restricted to agents authorised for it (CONCEPT:ORCH-1.3 governance). Replaces
+        restricted to agents authorised for it (CONCEPT:AU-ORCH.execution.execution-budget-caps governance). Replaces
         legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
@@ -366,7 +366,7 @@ class AgentOrchestrationEngine:
         if run_id is None:
             run_id = uuid4().hex
 
-        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
         # in-process runs inherit the parent's id via the contextvar.
         with contextlib.suppress(Exception):
@@ -389,15 +389,15 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
-            ),  # CONCEPT:ORCH-1.39
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
-            ),  # CONCEPT:ORCH-1.39
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         _custom_headers = config.get("custom_headers")
@@ -460,15 +460,15 @@ class AgentOrchestrationEngine:
             session_id=run_id,
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
-            ),  # CONCEPT:ORCH-1.39
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
-            ),  # CONCEPT:ORCH-1.39
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         if persist:
@@ -551,7 +551,7 @@ class AgentOrchestrationEngine:
                 f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} specialists."
             )
 
-            # --- CONCEPT:ORCH-1.20 Service Registry Initialization ---
+            # --- CONCEPT:AU-ORCH.execution.service-registry-initialization Service Registry Initialization ---
             try:
                 from ..core.registry.service_adapter import ServiceRegistry
 
@@ -639,7 +639,7 @@ class AgentOrchestrationEngine:
                     metadata={"run_id": run_id, "is_error": True},
                 ).model_dump()
 
-            # CONCEPT:ORCH-1.68 — a node may END the run directly with End[GraphResponse]
+            # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
             # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
             # so unwrap it to the GraphResponse here; otherwise the result handling below
             # falls through to ``str(result)`` and the reply becomes "End(data=GraphResponse(…))".
@@ -662,7 +662,7 @@ class AgentOrchestrationEngine:
                 f"registry_keys={list(state.results_registry.keys())}"
             )
 
-            # --- Langfuse auto-export (CONCEPT:ECO-4.24) ---
+            # --- Langfuse auto-export (CONCEPT:AU-OS.observability.langfuse-exporter) ---
             # Default-on: ships this graph run as a Langfuse trace + token-usage
             # generation when LANGFUSE_* keys are configured. No-ops cleanly when
             # the keys/dep are absent so the live path is never affected.
@@ -687,7 +687,7 @@ class AgentOrchestrationEngine:
             except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
                 logger.debug("run_graph: Langfuse export skipped: %s", _lf_exc)
 
-            # --- Self-ingest RunTrace telemetry (CONCEPT:KG-2.304) ---
+            # --- Self-ingest RunTrace telemetry (CONCEPT:AU-KG.ingest.attaching-this-root-logger) ---
             # Dogfooding: ship this graph run's RunTrace into the epistemic-graph
             # engine obs store. Opt-in (default-off); clean no-op when disabled.
             try:
@@ -703,7 +703,7 @@ class AgentOrchestrationEngine:
             except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
                 logger.debug("run_graph: self-ingest run_trace skipped: %s", _si_exc)
 
-            # CONCEPT:OS-5.31 — persist this graph run as a runtime usage row so
+            # CONCEPT:AU-OS.observability.persist-this-graph-run — persist this graph run as a runtime usage row so
             # token counts/cost feed the same /api/observability surface the
             # ingested agent logs do. Best-effort; never affects the run.
             try:
@@ -816,7 +816,7 @@ class AgentOrchestrationEngine:
         if run_id is None:
             run_id = uuid4().hex
 
-        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
         # in-process runs inherit the parent's id via the contextvar.
         with contextlib.suppress(Exception):
@@ -895,15 +895,15 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
-            ),  # CONCEPT:ORCH-1.39
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
-            ),  # CONCEPT:ORCH-1.39
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         if persist:
@@ -1058,7 +1058,7 @@ class AgentOrchestrationEngine:
             * ``"graph_complete"`` — the graph has finished executing
             * ``"error"`` — an error occurred during execution
 
-        CONCEPT:ORCH-1.0 Graph Orchestration
+        CONCEPT:AU-ORCH.execution.inject-signal-board-observations Graph Orchestration
 
         """
 
@@ -1070,7 +1070,7 @@ class AgentOrchestrationEngine:
         if run_id is None:
             run_id = uuid4().hex
 
-        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
         # in-process runs inherit the parent's id via the contextvar.
         with contextlib.suppress(Exception):
@@ -1144,15 +1144,15 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
-            ),  # CONCEPT:ORCH-1.39
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
-            ),  # CONCEPT:ORCH-1.39
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         # Merge registry tags into deps (same as run_graph)
@@ -1403,7 +1403,7 @@ class AgentOrchestrationEngine:
     ) -> str:
         """Run a spawned agent under a wall-clock budget, never raising.
 
-        CONCEPT:ORCH-1.24 — ``run_agent``'s ``max_steps`` bounds interaction rounds,
+        CONCEPT:AU-ORCH.execution.dynamic-workflows — ``run_agent``'s ``max_steps`` bounds interaction rounds,
         not time. A spawned agent awaiting an unresponsive MCP tool advances zero
         steps yet blocks forever, so a bare ``asyncio.gather`` over the fan-out hangs
         to the caller's outer timeout. Bounding each spawn by ``asyncio.wait_for``
@@ -1445,7 +1445,7 @@ class AgentOrchestrationEngine:
     async def execute_workflow(self, workflow_id: str, **kwargs: Any) -> dict[str, Any]:
         """Execute a dynamic workflow by ID. Replaces WorkflowRunner.
 
-        CONCEPT:ORCH-1.24 - Dynamic Workflows
+        CONCEPT:AU-ORCH.execution.dynamic-workflows - Dynamic Workflows
         Supports autonomous adversarial loops converging on a completion state,
         followed by automated PR creation via GitHub/GitLab MCP tools.
         """
@@ -1462,7 +1462,7 @@ class AgentOrchestrationEngine:
         # If there is no explicit completion state, we do standard linear execution (fallback)
         # Per-spawned-agent wall-clock budget. Honour a caller-supplied override
         # (kwargs / a threaded ``budget_tokens``-style timeout) before falling back
-        # to the module default (CONCEPT:ORCH-1.24).
+        # to the module default (CONCEPT:AU-ORCH.execution.dynamic-workflows).
         agent_timeout = float(
             kwargs.get("agent_timeout_s") or AGENT_WALLCLOCK_TIMEOUT_S
         )
@@ -1515,7 +1515,7 @@ class AgentOrchestrationEngine:
 
             # Use max_fan_out to control parallel subagents. Each spawned agent is
             # bounded by wall-clock (not just max_steps) so an unresponsive MCP tool
-            # cannot wedge the gather (CONCEPT:ORCH-1.24).
+            # cannot wedge the gather (CONCEPT:AU-ORCH.execution.dynamic-workflows).
             tasks = []
             for i in range(min(max_fan_out, 3)):
                 # Add variation to prompt
@@ -1534,7 +1534,7 @@ class AgentOrchestrationEngine:
 
             # Filter successful runs. _run_agent_bounded encodes a timeout/failure as
             # a JSON ``{"error", "agent"}`` string; those are NOT valid outputs, so
-            # drop them before adversarial review (CONCEPT:ORCH-1.24).
+            # drop them before adversarial review (CONCEPT:AU-ORCH.execution.dynamic-workflows).
             valid_outputs = [
                 r
                 for r in fan_out_results
@@ -1644,7 +1644,7 @@ class AgentOrchestrationEngine:
     ) -> ExecutionResult:
         """Execute a manifest. Delegates to ParallelEngine.
 
-        CONCEPT:ORCH-1.8 — Parallel Engine
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
         """
         from agent_utilities.graph.parallel_engine import ParallelEngine
 
@@ -1660,6 +1660,6 @@ class AgentOrchestrationEngine:
 
         Plan 03 Step 5 — conforms to ``core.execution.ExecutionEngine``.
         Additive adapter delegating to :meth:`execute` (the canonical
-        Parallel Engine entrypoint, CONCEPT:ORCH-1.8). Behaviour unchanged.
+        Parallel Engine entrypoint, CONCEPT:AU-ORCH.execution.parallel-engine-visualizer). Behaviour unchanged.
         """
         return await self.execute(manifest, graph_deps)

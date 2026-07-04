@@ -5,7 +5,7 @@
 ## Pre-Flight Checklist
 - [x] Design exists; KG-nearest-concepts table completed.
 - [x] Extension target identified (AHE-3.2/3.4, similarity ≥ 0.70); reuses EvaluationCorpus, KG-2.12, ORCH-1.27, router pattern.
-- [x] New CONCEPT:AHE-3.12 justified as the standalone reusable harness (user decision).
+- [x] New CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness justified as the standalone reusable harness (user decision).
 - [x] Wire-First confirmed: `POST /benchmark/query` → router → `search_hybrid(mode="hyde")` → `plan_and_retrieve` ≤ 3 hops.
 
 ## User Stories

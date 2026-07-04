@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.11 — Run-Scoped Tool Token.
+"""CONCEPT:AU-OS.identity.run-scoped-tool-token — Run-Scoped Tool Token.
 
 Assimilated from open-design's ``OD_TOOL_TOKEN``: each run is minted a short-lived, HMAC-signed token
 bound to ``run_id`` / ``project`` / an endpoint allowlist / expiry, injected into the run environment.

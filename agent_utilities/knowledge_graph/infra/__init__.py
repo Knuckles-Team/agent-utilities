@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Infrastructure inventory + multi-objective placement (CONCEPT:KG-2.9 / KG-2.49).
+"""Infrastructure inventory + multi-objective placement (CONCEPT:AU-KG.ingest.enterprise-source-extractor / KG-2.49).
 
 Two pieces that turn the live hardware estate into an optimized workload plan:
 

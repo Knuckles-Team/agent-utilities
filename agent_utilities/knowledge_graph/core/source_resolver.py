@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.6 — KG Source Resolver for Comparative Analysis.
+"""CONCEPT:AU-KG.research.research-pipeline-runner — KG Source Resolver for Comparative Analysis.
 
 Bridges the Knowledge Graph (indexing/discovery layer) to the
 comparative-analysis skill (analysis layer) by materializing stored
@@ -18,11 +18,11 @@ This is OPTIONAL — the comparative-analysis skill works without a KG.
 When a KG is available, it provides an additional discovery mechanism.
 
 Integrates with:
-    - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Source discovery
-    - CONCEPT:KG-2.6 (ResearchPipeline): Paper ingestion
+    - CONCEPT:AU-KG.query.object-graph-mapper (IntelligenceGraphEngine): Source discovery
+    - CONCEPT:AU-KG.research.research-pipeline-runner (ResearchPipeline): Paper ingestion
     - comparative-analysis skill: discover_projects.py --kg-query
 
-See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6
+See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:AU-KG.research.research-pipeline-runner
 """
 
 
@@ -68,7 +68,7 @@ class ResolvedSource(BaseModel):
 
 
 class KGSourceResolver:
-    """CONCEPT:KG-2.6 — Resolves KG-stored documents into filesystem-ready sources.
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Resolves KG-stored documents into filesystem-ready sources.
 
     Bridges the KG (indexing layer) to the comparative-analysis (analysis layer)
     by materializing stored documents to persistent paths with metadata enrichment.
@@ -354,7 +354,7 @@ class KGSourceResolver:
             )
 
         logger.info(
-            "[CONCEPT:KG-2.6] Resolved %d sources for type '%s' to %s",
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Resolved %d sources for type '%s' to %s",
             len(resolved),
             source_type,
             self.resolve_dir,
@@ -375,5 +375,5 @@ class KGSourceResolver:
             f.unlink()
             count += 1
 
-        logger.info("[CONCEPT:KG-2.6] Cleaned up %d materialized files", count)
+        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Cleaned up %d materialized files", count)
         return count

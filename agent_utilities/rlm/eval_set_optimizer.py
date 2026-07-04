@@ -10,7 +10,7 @@ of expert annotations, then make every production failure a new eval case and
 re-optimize the harness against the ever-growing eval set. The set compounds; the
 harness is just tuned against it.
 
-CONCEPT:ORCH-1.55 — Eval-Set Optimization & Compounding Learning Loop.
+CONCEPT:AU-ORCH.execution.eval-set-optimization-compounding — Eval-Set Optimization & Compounding Learning Loop.
 
 This complements :class:`agent_utilities.rlm.gepa.GEPAOptimizer`, which optimizes
 PROMPTS. Here we optimize the EVAL SET (the source of truth) and close the

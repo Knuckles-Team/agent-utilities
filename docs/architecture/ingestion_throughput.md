@@ -4,8 +4,8 @@
 > (ingestion / worldview / research) flowing toward the 50,000-reviews/hr north
 > star even under a maintenance burst — and how every per-element engine
 > round-trip on the hot path is collapsed to one. Builds on the functional task
-> lanes (CONCEPT:ORCH-1.75), the reserved-worker admission scheduler
-> (CONCEPT:ORCH-1.81), and the unified scheduler (CONCEPT:OS-5.44).
+> lanes (CONCEPT:AU-ORCH.execution.two-level-fair-rotation), the reserved-worker admission scheduler
+> (CONCEPT:AU-ORCH.dispatch.worker-scheduling), and the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
 ## The problem
 
@@ -27,7 +27,7 @@ The KG worker pool drains **one** queue partitioned into functional *lanes*
 
 ## Three mechanisms
 
-### 1. Best-effort lane cap (CONCEPT:ORCH-1.82)
+### 1. Best-effort lane cap (CONCEPT:AU-ORCH.scheduling.low-value-high-volume)
 
 A **best-effort lane** (`BEST_EFFORT_LANES = {"maint"}`) is low-value, high-volume
 periodic work. The `AdmissionPolicy` guarantees it its *floor* coverage
@@ -49,13 +49,13 @@ flowchart TD
     R -- no --> A[admit]
 ```
 
-#### Shard-writer floor on the codebase cap (CONCEPT:KG-2.279)
+#### Shard-writer floor on the codebase cap (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap)
 
 The derived `codebase_cap` (`workers − reserved − Σ other-pending-lane minimums`)
 collapses to **~1-3 on a busy box** with many pending lanes. That caps the number
 of *distinct* repos written concurrently — and because each repo routes its
 structural writes to its own `code:<repo>` graph (KG-2.269) that hashes to ONE of
-the engine's **K durable redb shard writers** (EG-026 `FNV-1a(name) % K`), it caps
+the engine's **K durable redb shard writers** (EG-KG.backend.sharded-k-way-durable `FNV-1a(name) % K`), it caps
 how many shard writers run at once. The profiler saw exactly this: one hot
 `eg-redb` writer at ~90% while the other K-1 sat at 0%, and `parallelism_factor`
 stuck at ~2.8 against a K=4 substrate.
@@ -73,7 +73,7 @@ is `tests/integration/knowledge_graph/test_shard_write_parallelism.py`: K writes
 K distinct-shard graphs touch all K `graph-<i>.redb` files; the same volume to one
 shard touches exactly one.
 
-### 2. Stale-tick collapse (CONCEPT:OS-5.53)
+### 2. Stale-tick collapse (CONCEPT:AU-OS.state.stale-tick-collapse)
 
 The scheduler's per-schedule **coalescer** already stops *new* pileup (it won't
 enqueue a tick while a prior one is un-consumed). `collapse_stale_ticks` recovers
@@ -88,12 +88,12 @@ is a cheap no-op once every schedule has ≤1 active tick.
 Together these are complementary: the collapse keeps the maint backlog *small*;
 the cap ensures even a transient burst *can't hog the pool*.
 
-### 3. Native bulk primitives (CONCEPT:KG-2.147)
+### 3. Native bulk primitives (CONCEPT:AU-KG.ingest.instead)
 
 The engine is a separate process behind a MessagePack/UDS socket, so each call is
 a round-trip, not a function call — *batch, never per-element* (see the
 epistemic-graph engine guide). The engine already exposes one-round-trip batch ops
-(CONCEPT:KG-2.16); `GraphComputeEngine` now surfaces them so orchestration code can
+(CONCEPT:EG-KG.compute.graph-compute-engine); `GraphComputeEngine` now surfaces them so orchestration code can
 use them natively:
 
 | Facade method | Engine op | Use |
@@ -107,13 +107,13 @@ use them natively:
 per-item `has_node`, so the review known-check is O(1)-round-trip. It degrades
 gracefully (per-item `_is_known`) when the engine lacks bulk existence.
 
-## Per-hop profiling — where an ingest actually spends its time (OS-5.69/70/71)
+## Per-hop profiling — where an ingest actually spends its time (AU-OS.observability.ingestion-profile-report/70/71)
 
-`profile_report` (CONCEPT:OS-5.55) already timed every queued task end-to-end per
+`profile_report` (CONCEPT:AU-OS.observability.per-lane-latency-metrics) already timed every queued task end-to-end per
 lane, but three things stayed invisible: the **token/cost** an ingest spent
-(CONCEPT:OS-5.69 — it reported `tokens=0`), the **per-stage** breakdown of a
-single ~5s ingest (CONCEPT:OS-5.70 — read vs LLM-extract vs embed vs graph-write),
-and **off-queue work** that never becomes a `:Task` (CONCEPT:OS-5.71 — embed
+(CONCEPT:AU-OS.observability.ingestion-profile-report — it reported `tokens=0`), the **per-stage** breakdown of a
+single ~5s ingest (CONCEPT:AU-OS.observability.ingest-stage-breakdown — read vs LLM-extract vs embed vs graph-write),
+and **off-queue work** that never becomes a `:Task` (CONCEPT:AU-OS.observability.embed-stage-profile — embed
 backfill, concept-registry embedding, assimilation passes).
 
 One primitive closes all three: a **contextvar-scoped `IngestProfile`**
@@ -133,19 +133,19 @@ flowchart TB
         S2 --> S3["embed<br/>make_embed_fn (auto-record)"]
         S3 --> S4["graph-write<br/>add_node / edges"]
     end
-    LLMW["make_llm_fn → record_llm_usage()"] -. "prompt/completion tokens" .-> PROF["IngestProfile<br/>stages_ms + tokens + cost (OS-5.69/70)"]
+    LLMW["make_llm_fn → record_llm_usage()"] -. "prompt/completion tokens" .-> PROF["IngestProfile<br/>stages_ms + tokens + cost (AU-OS.observability.ingestion-profile-report/70)"]
     EMBW["make_embed_fn → record_embed_usage()"] -. "embed tokens" .-> PROF
     ONE --> PROF
     PROF -->|"on-queue: to_dict() into :Task.metadata.profile"| TASK[":Task nodes"]
 
-    subgraph OFFQ["Off-queue passes (OS-5.71)"]
+    subgraph OFFQ["Off-queue passes (AU-OS.observability.embed-stage-profile)"]
         BF["embed backfill"]
         CR["concept-registry embedding"]
         AS["assimilation passes"]
     end
     OFFQ -->|"profile_ingest() + record_offqueue_span()"| SPAN[":ProfileSpan nodes<br/>(__control__ graph)"]
 
-    TASK --> RPT["profile_report(group_by=lane|type|tkind)<br/>(OS-5.55)"]
+    TASK --> RPT["profile_report(group_by=lane|type|tkind)<br/>(AU-OS.observability.per-lane-latency-metrics)"]
     SPAN --> RPT
     RPT --> OUT["per-group: p50/p95/max_ms · tokens · cost ·<br/>stages_ms{read,extract,embed,write} ·<br/>dead_letter · parallelism_factor"]
     OUT --> TOOL["graph_ingest action=profile<br/>(corpus_name → group_by)"]

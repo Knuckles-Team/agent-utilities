@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Real-engine proof for durable multimodal memory (CONCEPT:KG-2.251).
+"""Real-engine proof for durable multimodal memory (CONCEPT:AU-KG.ingest.list-durable-media).
 
 Against the ACTUAL ephemeral engine (KG-2.238, pi-max tier so blob+tsdb are served):
 
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("KG-2.251")]
+pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.ingest.list-durable-media")]
 
 
 # A tiny but non-trivial payload: includes 0x0A (newline) and 0xFF bytes so we prove

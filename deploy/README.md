@@ -3,8 +3,8 @@
 One image (`graph-os`), one env contract, two profiles — cloud (k8s) and homelab
 (Swarm) — differing only in replica counts and placement. This is the deployment
 side of the segmentation/sharing/audit stack: **OS-5.14** (served identity),
-**KG-2.58** (tenant→named-graph→shard), **KG-2.60** (org→user sharing + commons),
-**KG-2.61** (Postgres RLS), and **OS-5.10/5.11** (tenant-scoped fleet + audit).
+**AU-KG.sharding.tenant-partitioned-sharding-hrw** (tenant→named-graph→shard), **AU-KG.compute.data-is-private-its** (org→user sharing + commons),
+**AU-KG.backend.concept-2** (Postgres RLS), and **AU-OS.safety.ontological-guardrail/5.11** (tenant-scoped fleet + audit).
 
 ## Topology
 
@@ -14,7 +14,7 @@ side of the segmentation/sharing/audit stack: **OS-5.14** (served identity),
  clients → LB/Ingress → FRONT (stateless streamable-HTTP, autoscaled, role=client)
                               │  ActorContext{tenant_id, actor_id, roles}
                               ▼
-                    ENGINE shards (KG-2.58 HRW: tenant graph → one shard, role=host)
+                    ENGINE shards (AU-KG.sharding.tenant-partitioned-sharding-hrw HRW: tenant graph → one shard, role=host)
                               │  write-through
                               ▼
             Postgres: pg-age L3 (RLS) + STATE_DB_URI (sessions/checkpoints)
@@ -53,7 +53,7 @@ psql "$GRAPH_DB_URI" -f deploy/postgres/tenant_rls.sql
 | `KG_DEFAULT_GRAPH` | both | the **commons** graph; tenants route to `tenant__<slug>__<this>` |
 | `GRAPH_SERVICE_ENDPOINTS` | front | engine shard list; HRW routes each tenant graph to one shard |
 | `GRAPH_DB_URI` | both | L3 pg-age (apply RLS here) |
-| `STATE_DB_URI` | both | central sessions/goals/durable_checkpoints (OS-5.16) — lets any pod resume any tenant's goal |
+| `STATE_DB_URI` | both | central sessions/goals/durable_checkpoints (AU-OS.state.unified-durable-state-externalization) — lets any pod resume any tenant's goal |
 
 Dev escape hatch: `KG_SERVED_PROFILE=0` serves a network transport **without**
 enforced identity (local only).
@@ -63,14 +63,14 @@ enforced identity (local only).
 - **Front** is stateless → scale horizontally (HPA on CPU; Swarm `replicas`).
 - **Engine** shards are the partition unit: add an endpoint to `GRAPH_SERVICE_ENDPOINTS`
   and a StatefulSet/Swarm replica. HRW keeps key movement minimal; a graph whose
-  HRW winner changes must be moved with the snapshot tooling (KG-2.58 is not
+  HRW winner changes must be moved with the snapshot tooling (AU-KG.sharding.tenant-partitioned-sharding-hrw is not
   auto-rebalancing by design).
 - **State/L3** is the one stateful dependency: use managed/HA Postgres in cloud,
   the existing `kg-backbone_pg-age` in the homelab.
 
 ## What enforces isolation (defense in depth)
 1. **Identity** — `ActorIdentityMiddleware` mints `tenant_id`/`actor_id` from the JWT; the served profile blocks unauthenticated HTTP.
-2. **Physical** — KG-2.58 routes each org to its own named graph → shard.
-3. **Logical** — KG-2.60 owner/scope predicate (private-by-default) + KG-2.6 tenant scoping in every guarded read.
-4. **Database** — KG-2.61 Postgres RLS (`app.tenant_id` GUC) under all of it.
+2. **Physical** — AU-KG.sharding.tenant-partitioned-sharding-hrw routes each org to its own named graph → shard.
+3. **Logical** — AU-KG.compute.data-is-private-its owner/scope predicate (private-by-default) + KG-2.6 tenant scoping in every guarded read.
+4. **Database** — AU-KG.backend.concept-2 Postgres RLS (`app.tenant_id` GUC) under all of it.
 5. **Audit** — every RunTrace/session/correlation carrier is stamped tenant+actor; the fleet plane is tenant-scoped.

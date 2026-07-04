@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Hierarchical Constraint Engine.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Constraint Hierarchy)
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Constraint Hierarchy)
 
 Implements the AHE constraint hierarchy:
     tool_implementation → middleware → tool_description → prompt

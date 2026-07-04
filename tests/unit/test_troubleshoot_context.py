@@ -1,6 +1,6 @@
 """Cross-layer error-diagnosis context provider.
 
-CONCEPT:KG-2.297 (troubleshoot provider over :RunTrace/:ToolCall + the layered
+CONCEPT:AU-KG.retrieval.kg-4 (troubleshoot provider over :RunTrace/:ToolCall + the layered
 app-trace→container→system→host→cross-cutting tool playbook).
 """
 
@@ -55,7 +55,7 @@ class FakeFailedRunsEngine:
         return []
 
 
-@pytest.mark.concept("KG-2.297")
+@pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_diagnose_symptom_pulls_run_trace_and_failing_tool_call():
     res = diagnose_symptom(
         FakeTraceEngine(), query="why did my agent run fail", node_id="run-42"
@@ -79,7 +79,7 @@ def test_diagnose_symptom_pulls_run_trace_and_failing_tool_call():
     assert res["capability_id"].startswith("troubleshoot:")
 
 
-@pytest.mark.concept("KG-2.297")
+@pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_diagnose_symptom_service_intent_leads_with_host_split():
     res = diagnose_symptom(
         FakeFailedRunsEngine(),
@@ -92,14 +92,14 @@ def test_diagnose_symptom_service_intent_leads_with_host_split():
     assert res["sections"]["playbook"][0]["layer"] == "host"
 
 
-@pytest.mark.concept("KG-2.297")
+@pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_diagnose_symptom_no_trace_lists_recent_errored_runs():
     res = diagnose_symptom(FakeFailedRunsEngine(), query="something errored")
     assert "trace:run-9" in res["answer"]
     assert any(c["type"] == "failed_run" for c in res["citations"])
 
 
-@pytest.mark.concept("KG-2.297")
+@pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_diagnose_symptom_degrades_on_empty_engine():
     class Dead:
         def query_cypher(self, cypher, params):
@@ -111,7 +111,7 @@ def test_diagnose_symptom_degrades_on_empty_engine():
     assert len(res["sections"]["playbook"]) == 5
 
 
-@pytest.mark.concept("KG-2.297")
+@pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_troubleshoot_registered_in_context_plane():
     # Reachable via graph_analyze action=explain target="troubleshoot:..."
     assert "troubleshoot" in context_plane._BUILTIN_PROVIDERS

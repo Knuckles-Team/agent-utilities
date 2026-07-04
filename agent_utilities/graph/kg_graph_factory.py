@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""KG-Driven Pydantic Graph Factory (CONCEPT:ORCH-1.4).
+"""KG-Driven Pydantic Graph Factory (CONCEPT:AU-ORCH.adapter.kg-graph-materialization).
 
 Bridges the Knowledge Graph and ``pydantic-graph`` by dynamically
 materializing executable graph topologies from KG-stored agent
@@ -97,7 +97,7 @@ class KGGraphResult:
 class KGMaterializedStep(BaseModel, BaseNode[GraphState, GraphDeps, GraphResponse]):
     """A pydantic-graph step dynamically materialized from the KG.
 
-    CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+    CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
 
     Each instance wraps a single AgentTemplate node's configuration and
     executes as a native pydantic-graph ``BaseNode``. The step:
@@ -182,7 +182,7 @@ class KGMaterializedStep(BaseModel, BaseNode[GraphState, GraphDeps, GraphRespons
 
         # ── Log execution ──
         logger.info(
-            "[CONCEPT:ORCH-1.4] KG step '%s' (role=%s) executed. "
+            "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KG step '%s' (role=%s) executed. "
             "Tools: %s, Terminal: %s",
             self.step_id,
             self.role,
@@ -443,7 +443,7 @@ def build_pydantic_graph_from_kg(
 ) -> KGGraphResult:
     """Build a pydantic-graph from Knowledge Graph topology.
 
-    CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+    CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
 
     This is the primary factory function that bridges the KG and
     pydantic-graph. It:
@@ -501,7 +501,7 @@ def build_pydantic_graph_from_kg(
             )
         else:
             logger.info(
-                "[CONCEPT:ORCH-1.4] No AgentTemplate nodes found. "
+                "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] No AgentTemplate nodes found. "
                 "Falling back to KGTeamComposer."
             )
             composer = KGTeamComposer(engine=engine)
@@ -644,7 +644,7 @@ def build_pydantic_graph_from_kg(
     )
 
     logger.info(
-        "[CONCEPT:ORCH-1.4] Materialized KG graph: %d steps, entry='%s', topology='%s'",
+        "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Materialized KG graph: %d steps, entry='%s', topology='%s'",
         len(steps),
         entry_node_id,
         topology_id,

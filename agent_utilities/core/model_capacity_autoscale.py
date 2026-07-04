@@ -1,4 +1,4 @@
-"""Adaptive per-model concurrency controller (CONCEPT:KG-2.145).
+"""Adaptive per-model concurrency controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
 The static per-model capacity (``Config.model_capacity`` =
 ``parallel_instances × max_parallel_calls``, see
@@ -117,7 +117,7 @@ def metrics_url_from_base(base_url: str) -> str:
 
     ``http://host/v1`` → ``http://host/metrics``; ``http://host`` →
     ``http://host/metrics``. Trailing slashes and a trailing ``/v1`` segment are
-    stripped before appending ``/metrics``. CONCEPT:KG-2.145.
+    stripped before appending ``/metrics``. CONCEPT:AU-KG.compute.surfaces-universal-latency-signal.
     """
     u = (base_url or "").strip().rstrip("/")
     if u.endswith("/v1"):
@@ -129,7 +129,7 @@ def metrics_url_from_base(base_url: str) -> str:
 def parse_vllm_gauge(
     text: str, metric: str, *, model_name: str | None = None, reason: str | None = None
 ) -> float | None:
-    """Sum a vLLM Prometheus gauge across matching label sets (CONCEPT:KG-2.145).
+    """Sum a vLLM Prometheus gauge across matching label sets (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
     Parses the exposition text directly (no ``prometheus_client`` dep). Lines look
     like ``vllm:num_requests_running{model_name="bge-m3"} 3.0``. When
@@ -179,7 +179,7 @@ class _MetricsSample:
 
 @dataclass
 class AdaptiveCapacityController:
-    """AIMD concurrency auto-tuner for ONE model (CONCEPT:KG-2.145).
+    """AIMD concurrency auto-tuner for ONE model (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
     Starts at ``floor`` (the static configured capacity) and ramps toward
     ``ceiling``. The **primary, universal signal** is client-observed latency +
@@ -238,7 +238,7 @@ class AdaptiveCapacityController:
         (429/503/…) — or ``ok=False`` whose status looks like an overload — trigger
         an immediate multiplicative back-off (a congestion event), like a TCP loss.
         Otherwise the sample updates the rolling baseline/avg, and the target is
-        re-tuned on a throttle. CONCEPT:KG-2.145.
+        re-tuned on a throttle. CONCEPT:AU-KG.compute.surfaces-universal-latency-signal.
         """
         try:
             lat = float(latency_s)
@@ -425,7 +425,7 @@ class AdaptiveCapacityController:
         return "latency"
 
     def utilization(self) -> dict[str, object]:
-        """Observability snapshot for this model (CONCEPT:KG-2.145).
+        """Observability snapshot for this model (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
         Triggers a throttled optional /metrics poll so the numbers are reasonably
         fresh, then returns the latency-gradient state, the optional vLLM gauges,
@@ -464,7 +464,7 @@ class AdaptiveCapacityController:
 
 
 def _gpu_group_fields(gpu_group: str | None, model_key: str) -> dict[str, object]:
-    """Shared-GPU budget fields for a utilization snapshot (CONCEPT:KG-2.146).
+    """Shared-GPU budget fields for a utilization snapshot (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     Always returns the four keys (``gpu_group``/``group_budget``/``group_used``/
     ``group_allowed_for_this_model``) so the surface is stable; budget/used/allowed
@@ -533,7 +533,7 @@ def _tunables() -> dict[str, float]:
 
 
 def _resolve_gpu_group(model: str | None) -> str | None:
-    """Resolve a model's shared-GPU group key (CONCEPT:KG-2.146); never raises.
+    """Resolve a model's shared-GPU group key (CONCEPT:AU-KG.compute.pure-config-enumeration-fail); never raises.
 
     ``None`` whenever config lacks a ``gpu_group`` resolver or it errors — the
     budget layer then applies no cap (per-model behaviour, no regression).
@@ -550,14 +550,14 @@ def _resolve_gpu_group(model: str | None) -> str | None:
 
 
 def _role_hint(model: str | None) -> str | None:
-    """Best-effort role label for GPU-budget priority classification (CONCEPT:KG-2.146).
+    """Best-effort role label for GPU-budget priority classification (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     A model id that matches a configured chat/embedding model is classified by which
     registry it lives in; a bare role string (``"chat"``/``"embedding"``/…) is
     returned as-is. ``None`` ⇒ the group coordinator falls back to the model key.
     """
     key = (model or "").strip().lower()
-    # The failover embedder key (CONCEPT:KG-2.299) is a best-effort embedding role,
+    # The failover embedder key (CONCEPT:AU-KG.enrichment.each-call-resolves-active) is a best-effort embedding role,
     # so it yields the shared GPU's headroom to the latency-sensitive generator.
     if key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
         return "embedding"
@@ -577,7 +577,7 @@ def _role_hint(model: str | None) -> str | None:
 def _register_gpu_member(
     gpu_group: str | None, model_key: str, *, floor: int, model: str | None
 ) -> None:
-    """Register a model into its shared-GPU budget (CONCEPT:KG-2.146); never raises."""
+    """Register a model into its shared-GPU budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail); never raises."""
     if not gpu_group:
         return
     try:
@@ -589,7 +589,7 @@ def _register_gpu_member(
 
 
 def _register_gpu_group_peers(gpu_group: str | None) -> None:
-    """Proactively register EVERY configured model sharing ``gpu_group`` (CONCEPT:KG-2.146).
+    """Proactively register EVERY configured model sharing ``gpu_group`` (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     The shared-GPU budget reserves a *priority* peer's floor off the top of every
     member's allowance — but only for peers that are actually registered. A model is
@@ -633,7 +633,7 @@ def _register_gpu_group_peers(gpu_group: str | None) -> None:
 def _apply_gpu_cap(
     gpu_group: str | None, model_key: str, target: int, floor: int
 ) -> int:
-    """Cap ``target`` at the model's allowed share of its GPU budget (CONCEPT:KG-2.146).
+    """Cap ``target`` at the model's allowed share of its GPU budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     Reports the model's current target into the group, then returns
     ``min(target, group_allowed)`` floored at ``floor``. When no budget is
@@ -673,14 +673,14 @@ def _get_controller(
     gpu_group = _resolve_gpu_group(model)
     k = _key(model)
     tun = _tunables()
-    # Register this model as a member of its shared-GPU budget (CONCEPT:KG-2.146);
+    # Register this model as a member of its shared-GPU budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail);
     # a no-op when no budget is configured for the group → pure per-model behaviour.
     _register_gpu_member(
         gpu_group, k, floor=max(_DEFAULT_FLOOR, int(floor)), model=model
     )
     # Proactively register ALL configured peers sharing this GPU group, so an idle
     # priority peer (e.g. chat with no calls yet) still reserves its floor off every
-    # other member's allowance (CONCEPT:KG-2.146). Pure config enumeration; fail-safe.
+    # other member's allowance (CONCEPT:AU-KG.compute.pure-config-enumeration-fail). Pure config enumeration; fail-safe.
     _register_gpu_group_peers(gpu_group)
     with _lock:
         ctrl = _controllers.get(k)
@@ -717,7 +717,7 @@ def _get_controller(
 def adaptive_capacity(
     model: str | None, floor: int, *, fetcher: MetricsFetcher | None = None
 ) -> int:
-    """Resolve the adaptive concurrency target for ``model`` (CONCEPT:KG-2.145).
+    """Resolve the adaptive concurrency target for ``model`` (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
     ``floor`` is the static configured capacity (``Config.model_capacity``). When
     ``KG_ADAPTIVE_CONCURRENCY`` is off, or no config is resolvable, this returns
@@ -735,7 +735,7 @@ def adaptive_capacity(
     if ctrl is None:
         return floor
     target = max(floor, ctrl.resolve())
-    # Cap at this model's allowed share of any shared-GPU budget (CONCEPT:KG-2.146).
+    # Cap at this model's allowed share of any shared-GPU budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
     # No budget configured → returns the target unchanged (no regression).
     return _apply_gpu_cap(ctrl.gpu_group, ctrl.model_key, target, floor)
 
@@ -747,7 +747,7 @@ def record_sample(
     ok: bool,
     status: int | None = None,
 ) -> None:
-    """Feed one observed call into a model's adaptive controller (CONCEPT:KG-2.145).
+    """Feed one observed call into a model's adaptive controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
     The universal congestion signal. Called by the fan-out helpers in
     :mod:`model_concurrency` after each ``fn`` invocation. A no-op (never raises)
@@ -775,7 +775,7 @@ def record_sample(
 def get_utilization(model: str | None = None) -> dict[str, object]:
     """Profiling/observability view of a model's adaptive concurrency state.
 
-    CONCEPT:KG-2.145. Surfaces the universal latency signal (``baseline_latency``,
+    CONCEPT:AU-KG.compute.surfaces-universal-latency-signal. Surfaces the universal latency signal (``baseline_latency``,
     ``recent_avg_latency``, ``gradient``, ``error_rate``), the active ``signal``
     (``"latency"``|``"vllm_metrics"``|``"hybrid"``), the optional vLLM gauges, the
     live ``current_target``, and bounds. When adaptation is disabled or no config
@@ -818,9 +818,9 @@ def get_utilization(model: str | None = None) -> dict[str, object]:
 
 
 def reset_adaptive_controllers() -> None:
-    """Drop all cached controllers (test isolation / config reload). CONCEPT:KG-2.145.
+    """Drop all cached controllers (test isolation / config reload). CONCEPT:AU-KG.compute.surfaces-universal-latency-signal.
 
-    Also drops the shared-GPU budget registry (CONCEPT:KG-2.146) so a reload
+    Also drops the shared-GPU budget registry (CONCEPT:AU-KG.compute.pure-config-enumeration-fail) so a reload
     re-derives both the per-model state and the per-GPU member set from fresh config.
     """
     with _lock:

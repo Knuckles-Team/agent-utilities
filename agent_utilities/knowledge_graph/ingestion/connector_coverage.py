@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Per-connector coverage + freshness assessment (CONCEPT:OS-5.48).
+"""Per-connector coverage + freshness assessment (CONCEPT:AU-OS.deployment.connector-coverage-check).
 
 The connector analogue of the codebase coverage check (OS-5.47): the world-model
 is only trustworthy if EVERY configured connector is actually ingesting and fresh —

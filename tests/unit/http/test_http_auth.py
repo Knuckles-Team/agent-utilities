@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.auth strategies (CONCEPT:ECO-4.35)."""
+"""Tests for agent_utilities.http.auth strategies (CONCEPT:AU-ECO.ui.fleet-http-client-library)."""
 
 from __future__ import annotations
 

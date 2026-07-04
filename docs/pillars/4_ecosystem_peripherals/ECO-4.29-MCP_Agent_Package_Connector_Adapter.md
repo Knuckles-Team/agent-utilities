@@ -1,4 +1,4 @@
-# MCP Agent-Package Connector Adapter (CONCEPT:ECO-4.29)
+# MCP Agent-Package Connector Adapter (CONCEPT:AU-ECO.connector.mcp-package-adapter)
 
 ## Overview
 A single adapter that turns *any* `agent-packages/agents/*` MCP server into a document-source

@@ -1,4 +1,4 @@
-# Resilient Retrieval (CONCEPT:KG-2.15)
+# Resilient Retrieval (CONCEPT:AU-KG.retrieval.triviality-gate)
 
 ## Overview
 

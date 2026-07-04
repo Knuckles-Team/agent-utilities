@@ -1,4 +1,4 @@
-# RLM Resilience + Structured Telemetry (CONCEPT:ORCH-1.29)
+# RLM Resilience + Structured Telemetry (CONCEPT:AU-ORCH.execution.typed-failure-classification)
 
 ## Overview
 

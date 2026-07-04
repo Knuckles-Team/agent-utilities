@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:KG-2.6"""
+"""CONCEPT:AU-KG.research.research-pipeline-runner"""
 
 import logging
 import time
@@ -67,7 +67,7 @@ class FinanceEngineMixin(_Base):
     ) -> str:
         """Write measured backtest results back into a MicrostructureSignal's priors.
 
-        CONCEPT:EE-033 — closes the loop: the backtester's measured
+        CONCEPT:AU-AHE.assimilation.microstructure-signal-fusion — closes the loop: the backtester's measured
         ``deflated_sharpe`` / ``pbo`` / ``hit_rate`` become the stored
         ``standalone_sharpe`` / ``pbo`` / ``directional_accuracy`` priors. Creates
         the signal node when absent (MERGE semantics) and preserves existing
@@ -201,7 +201,7 @@ class FinanceEngineMixin(_Base):
             )
         return order_id
 
-    # --- Markov Regime Detection (CONCEPT:KG-2.6) ---
+    # --- Markov Regime Detection (CONCEPT:AU-KG.research.research-pipeline-runner) ---
 
     def fit_markov_regime(
         self,
@@ -313,7 +313,7 @@ class FinanceEngineMixin(_Base):
                 )
 
         logger.info(
-            "[CONCEPT:KG-2.6] Fitted Markov regime model for strategy %s: %s",
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Fitted Markov regime model for strategy %s: %s",
             strategy_id,
             matrix_id,
         )

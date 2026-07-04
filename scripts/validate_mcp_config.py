@@ -13,7 +13,7 @@ reverse-proxied by Caddy on the ``.arpa`` domain. This tool reconciles the two:
 Exit code is non-zero if any invalid/unreachable entry is found, so it can guard
 a pre-commit hook or CI job. Stdlib only — no third-party dependencies.
 
-CONCEPT:ECO-4.36 — dynamic MCP tool gateway
+CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — dynamic MCP tool gateway
 
 Examples
 --------

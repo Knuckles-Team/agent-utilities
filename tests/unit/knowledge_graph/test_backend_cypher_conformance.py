@@ -20,7 +20,7 @@ This module pins that contract:
   Cypher→SQL transpiler recognises every contract query — i.e. never silently
   degrades to ``UNKNOWN``.
 
-(CONCEPT:KG-2.0 / OS-5.0 — backend abstraction, single interface.)
+(CONCEPT:AU-KG.query.object-graph-mapper / OS-5.0 — backend abstraction, single interface.)
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ CONTRACT_QUERIES: list[tuple[str, str, dict]] = [
     ),
     # Single-hop traversal — the engine relies on this for concept↔code/feature
     # interweaving, golden-loop intake, and orchestration. A backend that
-    # degrades these to UNKNOWN silently returns wrong data (CONCEPT:KG-2.8).
+    # degrades these to UNKNOWN silently returns wrong data (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
     (
         "traversal_count",
         "MATCH (s:Article)-[r:MENTIONS]->(t:Concept) RETURN count(r) as c",
@@ -106,7 +106,7 @@ def test_durable_transpiler_recognises_contract(name, cypher, params):
     assert tq.sql, f"Empty SQL for contract query '{name}'"
     # A dangling/empty WHERE is as bad as UNKNOWN: ``DELETE FROM "Task" WHERE``
     # is a syntax error (swallowed L3 mirror failure → durable row never removed).
-    # Guards the inline-``{id:$id}`` filter being dropped on deletes. (CONCEPT:KG-2.7)
+    # Guards the inline-``{id:$id}`` filter being dropped on deletes. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     assert not re.search(r"\bWHERE\s*$", tq.sql), (
         f"Contract query '{name}' transpiled to a dangling empty WHERE: {tq.sql!r}"
     )

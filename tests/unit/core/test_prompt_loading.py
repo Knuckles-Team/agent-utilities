@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.0"""
+"""CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
 from agent_utilities.core.config import load_specialized_prompts
 

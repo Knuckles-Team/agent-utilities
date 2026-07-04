@@ -264,7 +264,7 @@ async def list_skills(request: Request):
 
 
 # --------------------------------------------------------------------------- #
-# Document → knowledge-graph fact extraction (CONCEPT:ECO-4.43)
+# Document → knowledge-graph fact extraction (CONCEPT:AU-ECO.connector.git-task-resolver)
 #
 # The shared SSE/jobs/JSONL contract every frontend (agent-webui, agent-terminal-ui,
 # geniusbot) consumes for the interactive extraction experience: submit a document

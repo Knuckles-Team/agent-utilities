@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.6 — Automated Research Intelligence Pipeline.
+"""CONCEPT:AU-KG.research.research-pipeline-runner — Automated Research Intelligence Pipeline.
 
 Orchestrates the end-to-end research ingestion cycle:
   ScholarX Discovery → Relevance Scoring → Tiered Ingestion → OWL Enrichment → Digest
@@ -19,11 +19,11 @@ Tiered Ingestion (per user specification):
       ArticleNode importance_score = 0.5. Serves as memory to avoid re-fetching.
 
 Integrates with:
-    - CONCEPT:OS-5.2 (MaintenanceCron): Triggered by scholarx_paper_discovery task
-    - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Graph persistence
-    - CONCEPT:KG-2.2 (OWL Bridge): Post-ingestion reasoning cycle
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (MaintenanceCron): Triggered by scholarx_paper_discovery task
+    - CONCEPT:AU-KG.query.object-graph-mapper (IntelligenceGraphEngine): Graph persistence
+    - CONCEPT:AU-KG.ingest.engineering-rules (OWL Bridge): Post-ingestion reasoning cycle
 
-See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6
+See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:AU-KG.research.research-pipeline-runner
 """
 
 
@@ -52,7 +52,7 @@ DEFAULT_CATEGORIES = [
     "cs.DC",
     "cs.DB",
     "q-bio",
-    # Quantitative finance (CONCEPT:EE-037) — microstructure, trading, pricing.
+    # Quantitative finance (CONCEPT:AU-AHE.assimilation.research-pipeline) — microstructure, trading, pricing.
     "q-fin.TR",
     "q-fin.PM",
     "q-fin.ST",
@@ -190,7 +190,7 @@ RELEVANCE_TAXONOMY: dict[str, dict[str, Any]] = {
 }
 
 
-# World-model relevance taxonomy (CONCEPT:KG-2.116) — the news/finance/tech sibling
+# World-model relevance taxonomy (CONCEPT:AU-KG.ingest.news-finance-tech-sibling) — the news/finance/tech sibling
 # of RELEVANCE_TAXONOMY, used by the FreshRSS world-model gate (WorldModelPipelineRunner)
 # instead of the research-paper profile. Keyed by domain → {keywords, weight}, scored by
 # the SAME ``score_text`` function. The ``companies`` set is seeded here and augmented at
@@ -305,7 +305,7 @@ WORLD_MODEL_TAXONOMY: dict[str, dict[str, Any]] = {
 }
 
 
-# Named relevance profiles (CONCEPT:KG-2.116). One scorer, two taxonomies: the research
+# Named relevance profiles (CONCEPT:AU-KG.ingest.news-finance-tech-sibling). One scorer, two taxonomies: the research
 # pipeline uses ``research``; the FreshRSS world-model gate uses ``world_model``.
 RELEVANCE_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
     "research": RELEVANCE_TAXONOMY,
@@ -319,7 +319,7 @@ def score_text(
     taxonomy: dict[str, dict[str, Any]],
     extra_keywords: list[str] | None = None,
 ) -> tuple[float, list[str]]:
-    """Profile-agnostic keyword relevance score (CONCEPT:KG-2.116).
+    """Profile-agnostic keyword relevance score (CONCEPT:AU-KG.ingest.news-finance-tech-sibling).
 
     The shared scorer behind both ``ResearchPipelineRunner.score_paper`` (research
     taxonomy) and ``WorldModelPipelineRunner`` (world-model taxonomy): sum of
@@ -355,7 +355,7 @@ def concept_novelty(engine: Any, text: str, *, holder: Any = None) -> float | No
 
     A cheap (no-LLM) ``ConceptMatcher`` cosine probe of ``text`` against the ecosystem
     ``Concept`` registry — the shared "relevant-enough-vs-existing-KG" signal behind both
-    the research pipeline (CONCEPT:KG-2.75) and the world-model gate (CONCEPT:KG-2.116).
+    the research pipeline (CONCEPT:AU-KG.ingest.world-model-gate) and the world-model gate (CONCEPT:AU-KG.ingest.news-finance-tech-sibling).
     When a ``holder`` object is given, the concept index + embed fn are cached on it
     (``_novelty_index`` / ``_novelty_embed_fn``) for the run. Best-effort: returns ``None``
     (no demotion) when no engine / no concepts / embedder is unavailable.
@@ -489,7 +489,7 @@ class PipelineReport(BaseModel):
 
 @dataclass
 class ResearchPipelineRunner:
-    """CONCEPT:KG-2.6 — Automated research ingestion pipeline.
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Automated research ingestion pipeline.
 
     Orchestrates: ScholarX Discovery → Relevance Scoring → Tiered Ingestion
     → OWL Reasoning → Digest Generation.
@@ -588,7 +588,7 @@ class ResearchPipelineRunner:
         returns ``None`` (no demotion) when no engine / no concepts / embedder is
         unavailable, so discovery never blocks on it. The authoritative
         covered/related verdict is still written later by the assimilate matcher.
-        (CONCEPT:KG-2.75)
+        (CONCEPT:AU-KG.ingest.world-model-gate)
         """
         return concept_novelty(self.engine, f"{title} — {abstract}", holder=self)
 
@@ -601,7 +601,7 @@ class ResearchPipelineRunner:
         article_id = f"article:scholarx:{safe_id}"
         # Per-id membership probe — NOT ``in graph.nodes``, which materializes the
         # whole node list (a gigabyte-scale payload on the live multi-tenant engine
-        # that resets the connection). (CONCEPT:KG-2.193)
+        # that resets the connection). (CONCEPT:AU-KG.ingest.fetch-only-requested-ids)
         graph = self.engine.graph
         has_node = getattr(graph, "has_node", None)
         if callable(has_node):
@@ -638,7 +638,7 @@ class ResearchPipelineRunner:
         article_id = f"article:scholarx:{safe_id}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-        # When invoked with only an id + a PDF (a research cohort, CONCEPT:KG-2.194),
+        # When invoked with only an id + a PDF (a research cohort, CONCEPT:AU-KG.research.so-cohort),
         # title/abstract arrive empty — extract them from the PDF so the Article node
         # carries real TEXT. ConceptMatcher builds its match text from name/abstract/
         # content and embeds it on-the-fly; an empty node has no text to recall against
@@ -762,7 +762,7 @@ class ResearchPipelineRunner:
             except Exception as e:
                 logger.warning(f"KB full ingestion failed for {paper_id}: {e}")
 
-        logger.info(f"[CONCEPT:KG-2.6] Fully ingested: {title[:60]} → {article_id}")
+        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: {title[:60]} → {article_id}")
         return article_id
 
     async def ingest_paper_marginal(
@@ -838,7 +838,7 @@ class ResearchPipelineRunner:
                     self.engine._serialize_node(article_node, "Article"),
                 )
 
-        logger.info(f"[CONCEPT:KG-2.6] Marginal ingested: {title[:60]} → {article_id}")
+        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Marginal ingested: {title[:60]} → {article_id}")
         return article_id
 
     async def ingest_local_file(
@@ -875,7 +875,7 @@ class ResearchPipelineRunner:
             force=False,
         )
         logger.info(
-            f"[CONCEPT:KG-2.6] Local file ingested: {file_path.name} → {result.id}"
+            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Local file ingested: {file_path.name} → {result.id}"
         )
         return result.id
 
@@ -905,7 +905,7 @@ class ResearchPipelineRunner:
             topic=topic or f"Web article: {url[:60]}",
             force=False,
         )
-        logger.info(f"[CONCEPT:KG-2.6] URL ingested: {url[:60]} → {result.id}")
+        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] URL ingested: {url[:60]} → {result.id}")
         return result.id
 
     def _run_owl_enrichment(self) -> int:
@@ -925,7 +925,7 @@ class ResearchPipelineRunner:
             )
             stats = bridge.run_cycle(lightweight=True)
             inferred = stats.get("inferred", 0)
-            logger.info(f"[CONCEPT:KG-2.6] OWL enrichment: {inferred} inferences")
+            logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] OWL enrichment: {inferred} inferences")
             return inferred
         except Exception as e:
             logger.debug(f"OWL enrichment skipped: {e}")
@@ -961,7 +961,7 @@ class ResearchPipelineRunner:
 
         report.papers_discovered = len(papers)
 
-        # Score + ingest every paper CONCURRENTLY (CONCEPT:KG-2.174 — generalized
+        # Score + ingest every paper CONCURRENTLY (CONCEPT:AU-KG.ingest.generalized-cross-lane-parallelization — generalized
         # cross-lane parallelization). Each paper's full/abstract ingest (the heavy
         # PDF + LLM work) is independent, so they fan out under a bounded semaphore
         # sized to the ingest worker count; vLLM batches server-side, turning an
@@ -990,7 +990,7 @@ class ResearchPipelineRunner:
 
             # Score relevance (cheap keyword prefilter) then let the ConceptMatcher
             # drive the tier by NOVELTY: a paper we already have (low novelty) is
-            # demoted from a full PDF ingest to memory-only. (CONCEPT:KG-2.75)
+            # demoted from a full PDF ingest to memory-only. (CONCEPT:AU-KG.ingest.world-model-gate)
             score, domains = self.score_paper(title, abstract, extra_keywords)
             novelty = self._paper_novelty(title, abstract)
             record.relevance_score = score
@@ -1034,7 +1034,7 @@ class ResearchPipelineRunner:
                     record.status = "below_threshold"
             except Exception as e:
                 record.status = f"error: {e}"
-                logger.error(f"[CONCEPT:KG-2.6] Ingestion error for {paper_id}: {e}")
+                logger.error(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Ingestion error for {paper_id}: {e}")
             return record
 
         records = await asyncio.gather(
@@ -1062,7 +1062,7 @@ class ResearchPipelineRunner:
 
         report.duration_seconds = time.time() - start
         logger.info(
-            "[CONCEPT:KG-2.6] Pipeline complete: %d discovered, %d relevant, "
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Pipeline complete: %d discovered, %d relevant, "
             "%d marginal, %d skipped, %d known, %.1fs",
             report.papers_discovered,
             report.papers_relevant,

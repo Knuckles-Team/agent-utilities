@@ -1,4 +1,4 @@
-"""Geopolitical Risk — CONCEPT:KG-2.30 — Geopolitical Risk Scoring
+"""Geopolitical Risk — CONCEPT:AU-KG.domains.geopolitical-risk-scoring — Geopolitical Risk Scoring
 
 Models geopolitical risk factors (armed conflict, sanctions, supply-chain
 chokepoints, election / regime change) as **reasoned OWL facts** and scores a
@@ -336,7 +336,7 @@ def geopolitical_facts_batch(
                 "likelihood": f.likelihood,
                 "expected_severity": f.expected_severity,
                 "description": f.description[:500],
-                "concept": "KG-2.30",
+                "concept": "AU-KG.domains.geopolitical-risk-scoring",
             },
         )
         for sector in f.sectors:

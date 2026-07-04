@@ -64,16 +64,16 @@ Every concept MUST have all three:
 tests/
 ├── unit/
 │   ├── core/              # OS-5.x tests
-│   ├── graph/             # ORCH-1.x tests
+│   ├── graph/             # AU-ORCH.planning.orchestration-overview tests
 │   ├── knowledge_graph/   # KG-2.x tests
-│   └── harness/           # AHE-3.x tests
+│   └── harness/           # AU-AHE.optimization.telemetry-optimization tests
 ├── integration/           # Cross-pillar integration tests
 └── conftest.py            # Shared fixtures
 ```
 
 ### Test Conventions
 - Test files: `test_<module_name>.py`
-- Concept tag in docstring: `"""Tests for CONCEPT:KG-2.5 — Topological Analysis."""`
+- Concept tag in docstring: `"""Tests for CONCEPT:AU-KG.compute.spectral-cluster-navigator — Topological Analysis."""`
 - Use `@pytest.mark.parametrize` for edge cases
 - Mock external services (LLM, MCP servers) in unit tests
 - Use `graph_fixture()` from conftest for KG tests

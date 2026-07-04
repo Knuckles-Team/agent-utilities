@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Research Orchestration Loop.
 
-CONCEPT:KG-2.6 — Research Orchestration Integration
+CONCEPT:AU-KG.research.research-orchestration — Research Orchestration Integration
 
 Connects the ResearchSubagent (KG-2.33) to the ResearchPipelineRunner
 (KG-2.7) and the unified RAG-KG retriever (KG-2.38) for automated,
@@ -124,7 +124,7 @@ class OrchestrationReport:
 class ResearchOrchestrator:
     """Automated research orchestration loop.
 
-    CONCEPT:KG-2.6 — Research Orchestration Integration
+    CONCEPT:AU-KG.research.research-orchestration — Research Orchestration Integration
 
     Connects the ResearchSubagent, ResearchPipelineRunner, and
     KGNativeRetrievalRetriever into a cohesive cycle for autonomous,
@@ -320,7 +320,7 @@ class ResearchOrchestrator:
         self._last_cycle_time = time.time()
 
         logger.info(
-            "[CONCEPT:KG-2.6] Orchestration cycle %s complete: "
+            "[CONCEPT:AU-KG.research.research-orchestration] Orchestration cycle %s complete: "
             "%d papers, %d ingested, %d citations, %d similarity edges, "
             "%d clusters, %.1fs",
             cycle_id,

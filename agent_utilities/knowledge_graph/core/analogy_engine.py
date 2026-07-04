@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Topological Analogy Engine.
 
-CONCEPT:KG-2.5 — Topological Analogy Engine
+CONCEPT:AU-KG.compute.topological-analogy — Topological Analogy Engine
 Leverages optimized `epistemic-graph` backend primitives and vectorized embeddings (`EncPI`) to find analogous
 subgraphs across different domains. This enables cross-domain innovation extraction
 and structural pattern matching within the Knowledge Graph.

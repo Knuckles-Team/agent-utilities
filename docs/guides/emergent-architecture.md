@@ -1,8 +1,8 @@
 # Emergent Architecture
 
-> **Concepts:** CONCEPT:KG-2.0, CONCEPT:KG-2.0, CONCEPT:ORCH-1.0, CONCEPT:KG-2.1, CONCEPT:ORCH-1.2
+> **Concepts:** CONCEPT:AU-KG.query.object-graph-mapper, CONCEPT:AU-KG.query.object-graph-mapper, CONCEPT:AU-ORCH.execution.inject-signal-board-observations, CONCEPT:AU-KG.memory.tiered-memory-caching, CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 >
-> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
+> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
 
 This document describes the Emergent Architecture layer of `agent-utilities` — a suite of five interconnected modules that enable dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering.
 
@@ -10,30 +10,30 @@ This document describes the Emergent Architecture layer of `agent-utilities` —
 
 The Emergent Architecture builds on top of the existing infrastructure:
 
-- **14-Phase Unified Intelligence Graph** — knowledge pipeline (CONCEPT:ORCH-1.0)
+- **14-Phase Unified Intelligence Graph** — knowledge pipeline (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)
 - **HSM Orchestration** — hierarchical state machine (graph/hsm.py)
-- **AHE (Agentic Harness Engineering)** — component evolution (CONCEPT:AHE-3.0)
+- **AHE (Agentic Harness Engineering)** — component evolution (CONCEPT:AU-AHE.harness.harness-evolution)
 - **OWL Reasoning Sidecar** — deterministic inference (knowledge_graph/core/owl_bridge.py)
 
 ```mermaid
 graph TD
-    subgraph "Foundation (CONCEPT:KG-2.0)"
+    subgraph "Foundation (CONCEPT:AU-KG.query.object-graph-mapper)"
         OGM["KG Object-Graph Mapper<br/>knowledge_graph/core/ogm.py"]
     end
 
-    subgraph "Evolution (CONCEPT:ORCH-1.0)"
+    subgraph "Evolution (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)"
         VP["Variant Pool<br/>harness/variant_pool.py"]
     end
 
-    subgraph "Metacognition (CONCEPT:KG-2.1)"
+    subgraph "Metacognition (CONCEPT:AU-KG.memory.tiered-memory-caching)"
         SM["Self-Model (MemoryRetriever)<br/>knowledge_graph/retrieval/memory_retriever.py"]
     end
 
-    subgraph "Orchestration (CONCEPT:KG-2.0)"
+    subgraph "Orchestration (CONCEPT:AU-KG.query.object-graph-mapper)"
         SW["KG Team Composer<br/>graph/team_composer.py"]
     end
 
-    subgraph "Quality (CONCEPT:ORCH-1.2)"
+    subgraph "Quality (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"
         GWT["Workspace Attention<br/>graph/workspace_attention.py"]
     end
 
@@ -46,7 +46,7 @@ graph TD
 
 ---
 
-## CONCEPT:KG-2.0 — KG Object-Graph Mapper (OGM)
+## CONCEPT:AU-KG.query.object-graph-mapper — KG Object-Graph Mapper (OGM)
 
 **Module:** `agent_utilities/knowledge_graph/core/ogm.py`
 
@@ -84,7 +84,7 @@ mapper.watch("SelfModel", lambda event, node: print(f"{event}: {node.id}"))
 
 ---
 
-## CONCEPT:ORCH-1.0 — Dynamic Team Composition
+## CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Dynamic Team Composition
 
 **Module:** `agent_utilities/graph/team_composer.py` (`KGTeamComposer`)
 
@@ -98,7 +98,7 @@ mapper.watch("SelfModel", lambda event, node: print(f"{event}: {node.id}"))
 Replaces static specialist dispatch with dynamic team formation. For each task,
 `compose_team()`:
 
-1. **Reuse**: Try a proven `TeamConfigNode` template first (CONCEPT:AHE-3.3)
+1. **Reuse**: Try a proven `TeamConfigNode` template first (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 2. **Synthesize**: If no proven team, dynamically build a specialist subgraph using KG primitives
 3. **Return**: A fully specified `TeamComposition`
 
@@ -125,7 +125,7 @@ composer.promote_to_team_config(composition, success=True, quality_score=0.9)
 
 ---
 
-## CONCEPT:AHE-3.2 — Evolutionary Variant Selection
+## CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Variant Selection
 
 **Module:** `agent_utilities/harness/variant_pool.py`
 
@@ -186,7 +186,7 @@ pool.prune_losers(base_prompt.id, keep=3)
 
 ---
 
-## CONCEPT:KG-2.1 — Persistent Self-Model
+## CONCEPT:AU-KG.memory.tiered-memory-caching — Persistent Self-Model
 
 **Module:** `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the `SelfModel` name and the `knowledge_graph/self_model.py` import path are retained as back-compat aliases)
 
@@ -259,7 +259,7 @@ print(sm.explain_self())
 
 ---
 
-## CONCEPT:ORCH-1.2 — Global Workspace Attention
+## CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Global Workspace Attention
 
 **Module:** `agent_utilities/graph/workspace_attention.py`
 
@@ -270,7 +270,7 @@ Always-on attention mechanism for specialist output quality filtering. Inspired 
 | Signal | Weight | Source |
 |--------|--------|--------|
 | **Relevance** | 50% | Embedding cosine similarity to query |
-| **Track record** | 30% | Historical success from self-model (CONCEPT:KG-2.1) |
+| **Track record** | 30% | Historical success from self-model (CONCEPT:AU-KG.memory.tiered-memory-caching) |
 | **Confidence** | 20% | Self-reported via parsed patterns |
 
 Composite: `0.5 × relevance + 0.3 × track_record + 0.2 × confidence`
@@ -321,24 +321,24 @@ gwt.broadcast_to_kg(winners, engine, task_id="task:123")
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `SELF_MODEL` | CONCEPT:KG-2.1 | Versioned metacognitive self-model |
-| `SWARM_COALITION` | CONCEPT:KG-2.0 | Dynamic agent coalition record |
-| `PROPOSAL` | CONCEPT:ORCH-1.2 | GWT specialist output proposal |
-| `TEAM_CONFIG` | CONCEPT:AHE-3.3 | Proven specialist coalition template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `AGENT_CAPABILITY` | CONCEPT:ORCH-1.2 | Dynamic capability with trigger conditions (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `SELF_MODEL` | CONCEPT:AU-KG.memory.tiered-memory-caching | Versioned metacognitive self-model |
+| `SWARM_COALITION` | CONCEPT:AU-KG.query.object-graph-mapper | Dynamic agent coalition record |
+| `PROPOSAL` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | GWT specialist output proposal |
+| `TEAM_CONFIG` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Proven specialist coalition template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `AGENT_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Dynamic capability with trigger conditions (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
 
 ### Edge Types (RegistryEdgeType)
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `VARIANT_OF` | CONCEPT:ORCH-1.0 | Links variant to base component |
-| `CURRENT_SELF_MODEL` | CONCEPT:KG-2.1 | Pointer to latest self-model version |
-| `SPAWNED_BY` | CONCEPT:KG-2.0 | Tracks swarm agent parentage |
-| `COORDINATED_BY` | CONCEPT:KG-2.0 | Links specialist to coordinator |
-| `PROPOSED_FOR` | CONCEPT:ORCH-1.2 | Links proposal to its specialist |
-| `HAS_CAPABILITY` | CONCEPT:ORCH-1.2 | Links specialist → capability node (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `REUSED_TEAM` | CONCEPT:AHE-3.3 | Links session → TeamConfig for reuse tracking (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `USES_PROMPT` | CONCEPT:AHE-3.3 | Links specialist → JSON prompt template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `VARIANT_OF` | CONCEPT:AU-ORCH.execution.inject-signal-board-observations | Links variant to base component |
+| `CURRENT_SELF_MODEL` | CONCEPT:AU-KG.memory.tiered-memory-caching | Pointer to latest self-model version |
+| `SPAWNED_BY` | CONCEPT:AU-KG.query.object-graph-mapper | Tracks swarm agent parentage |
+| `COORDINATED_BY` | CONCEPT:AU-KG.query.object-graph-mapper | Links specialist to coordinator |
+| `PROPOSED_FOR` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links proposal to its specialist |
+| `HAS_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links specialist → capability node (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `REUSED_TEAM` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links session → TeamConfig for reuse tracking (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `USES_PROMPT` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links specialist → JSON prompt template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
 
 ---
 
@@ -348,15 +348,15 @@ All modules have comprehensive test suites:
 
 ```bash
 # Individual modules
-python -m pytest tests/test_kg_ogm.py -v               # CONCEPT:KG-2.0
-python -m pytest tests/test_variant_pool.py -v         # CONCEPT:ORCH-1.0
-python -m pytest tests/test_memory_retriever.py -v     # CONCEPT:KG-2.1 (Self-Model)
-python -m pytest tests/test_workspace_attention.py -v  # CONCEPT:ORCH-1.2
+python -m pytest tests/test_kg_ogm.py -v               # CONCEPT:AU-KG.query.object-graph-mapper
+python -m pytest tests/test_variant_pool.py -v         # CONCEPT:AU-ORCH.execution.inject-signal-board-observations
+python -m pytest tests/test_memory_retriever.py -v     # CONCEPT:AU-KG.memory.tiered-memory-caching (Self-Model)
+python -m pytest tests/test_workspace_attention.py -v  # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 
 # First Principles Architecture tests
-python -m pytest tests/unit/core/test_config_helpers.py -v       # CONCEPT:ORCH-1.2
-python -m pytest tests/test_team_config.py -v                    # CONCEPT:AHE-3.3
-python -m pytest tests/unit/core/test_capabilities.py -v         # CONCEPT:ORCH-1.2
+python -m pytest tests/unit/core/test_config_helpers.py -v       # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
+python -m pytest tests/test_team_config.py -v                    # CONCEPT:AU-AHE.evaluation.interpretability-tests
+python -m pytest tests/unit/core/test_capabilities.py -v         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 
 # All emergent + first-principles tests
 python -m pytest tests/test_kg_ogm.py tests/test_variant_pool.py \

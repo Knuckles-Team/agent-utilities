@@ -1,4 +1,4 @@
-"""Unit tests for hosted-ontology lifecycle CRUD (CONCEPT:KG-2.265).
+"""Unit tests for hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary).
 
 Exercises the engine-free service core: load → list → get → update → delete,
 plus validate rejecting a malformed ontology. No live engine required — these

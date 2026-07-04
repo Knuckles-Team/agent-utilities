@@ -1,4 +1,4 @@
-"""Connector-grounded harness evolution + ARA-Seal (CONCEPT:KG-2.108)."""
+"""Connector-grounded harness evolution + ARA-Seal (CONCEPT:AU-KG.retrieval.harness-grounding)."""
 
 from __future__ import annotations
 

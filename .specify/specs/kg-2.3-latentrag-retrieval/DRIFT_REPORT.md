@@ -1,4 +1,4 @@
-# Drift Report: Spec: Latent-Space Retrieval Optimization (CONCEPT:KG-2.3)
+# Drift Report: Spec: Latent-Space Retrieval Optimization (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 ## Overview
 This report summarizes potential specification, requirement, or execution discrepancies discovered during automated alignment scanning.

@@ -1,4 +1,4 @@
-"""Persistent latent rollout memory (CONCEPT:KG-2.73b).
+"""Persistent latent rollout memory (CONCEPT:AU-KG.compute.reuse-model-latent).
 
 A learned world-model rollout carries the predicted next-state latent forward and
 EMA-blends it each step (the persistent-latent-memory analogue of arXiv:2606.09828)
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.core.world_model import (
 from agent_utilities.mcp import kg_server
 from agent_utilities.numeric import xp as np
 
-pytestmark = pytest.mark.concept("KG-2.73b")
+pytestmark = pytest.mark.concept("AU-KG.compute.reuse-model-latent")
 
 CYCLE = ["room_alpha", "room_beta", "room_gamma", "room_delta"]
 

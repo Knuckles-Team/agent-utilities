@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Zero-Shot Cognitive Trap Defense.
 
-Implements CONCEPT:KG-2.3 (Cognitive Trap Defense)
+Implements CONCEPT:AU-KG.memory.auto-similarity-memory-graph (Cognitive Trap Defense)
 Uses topological isomorphism via graph primitives to detect and neutralize adversarial subgraphs.
 """
 

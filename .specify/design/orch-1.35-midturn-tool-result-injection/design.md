@@ -1,4 +1,4 @@
-# Design Document: Mid-Turn Tool-Result Injection (ORCH-1.35)
+# Design Document: Mid-Turn Tool-Result Injection (AU-ORCH.execution.held-turn-registry-mid)
 
 > Assimilates open-design's keep-stdin-open interactive loop: a run can pause on a `tool_use`, surface a
 > structured ask to a human/tool, and **resume the same turn** when the result arrives — instead of
@@ -41,7 +41,7 @@ ORCH-1.3) recorded in the KG, enabling resumable long-horizon runs that a statel
 - **New Concept Required?**: Yes (provisional; collapses into ORCH-1.3 if live similarity ≥0.70).
 
 ### New Concept Proposal
-- **Proposed ID**: `CONCEPT:ORCH-1.35`
+- **Proposed ID**: `CONCEPT:AU-ORCH.execution.held-turn-registry-mid`
 - **Augments Pillar**: ORCH
 - **15-Phase Pipeline Integration**: Phase 3 (Execute) — pause/resume within a step.
 - **Justification**: Existing HITL is approve/reject (boolean gate); this holds a turn open and injects a structured `tool_result` payload mid-execution.
@@ -52,7 +52,7 @@ ORCH-1.3) recorded in the KG, enabling resumable long-horizon runs that a statel
 C4Context
     title Mid-Turn Tool-Result Injection — Integration Context
     System_Boundary(b1, "agent-utilities Core") {
-        System(hold, "ORCH-1.35 Held-Turn State", "pendingToolUseIds, resume()")
+        System(hold, "AU-ORCH.execution.held-turn-registry-mid Held-Turn State", "pendingToolUseIds, resume()")
         System(hsm, "ORCH-1.3 HSM", "execution state")
         System(human, "/api/human router", "/api/runs/{id}/tool-result")
         System(sidecar, "E2 Sidecar Runtime", "stdin open per run")

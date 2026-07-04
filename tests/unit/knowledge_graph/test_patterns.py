@@ -1,6 +1,6 @@
 """Tests for Agentic Engineering Patterns.
 
-CONCEPT:AHE-3.2 — Agentic Engineering Patterns
+CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Engineering Patterns
 """
 
 from pathlib import Path

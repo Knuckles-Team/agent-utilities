@@ -1,6 +1,6 @@
 """Topic resolution — mark KG topics as ADDRESSED_BY acquired sources.
 
-CONCEPT:KG-2.7 — Research assimilation / self-evolution convergence.
+CONCEPT:AU-KG.research.self-evolution-convergence — Research assimilation / self-evolution convergence.
 
 The evolution/golden loop pulls *unresolved* topics (``Concept`` nodes with no
 ``ADDRESSED_BY`` edge). After research acquisition ingests sources that mention a

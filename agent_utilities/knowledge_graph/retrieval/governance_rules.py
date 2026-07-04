@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Apply learned/asserted governance rules at retrieval time (CONCEPT:KG-2.8).
+"""Apply learned/asserted governance rules at retrieval time (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 This is the missing link that makes corrections-turned-rules *change behaviour*.
 Synthesized preferences/principles and human-asserted voice/source rules are

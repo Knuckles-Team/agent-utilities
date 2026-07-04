@@ -34,9 +34,9 @@ A frontend is "scale-many-instances ready" when:
 | Variable | Thin-instance value | Effect |
 |---|---|---|
 | `KG_DAEMON_ROLE` | `client` | Do not run the in-process host daemon; reach the shared host. |
-| `GRAPH_SERVICE_ENDPOINTS` | `unix:///run/eg-0.sock,…` (or host:port) | Where the shared engine (or shards, KG-2.58) lives. |
+| `GRAPH_SERVICE_ENDPOINTS` | `unix:///run/eg-0.sock,…` (or host:port) | Where the shared engine (or shards, AU-KG.sharding.tenant-partitioned-sharding-hrw) lives. |
 | `AGENT_URL` / gateway URL | `http://agent-utilities:8000` | The shared gateway the UI calls over HTTP. |
-| `STATE_DB_URI` | shared Postgres DSN | So client instances share sessions/queues/checkpoints (OS-5.16–18). |
+| `STATE_DB_URI` | shared Postgres DSN | So client instances share sessions/queues/checkpoints (AU-OS.state.unified-durable-state-externalization–18). |
 
 One node runs the **host** (`KG_DAEMON_ROLE=host` or unset + the engine), everything
 else runs **client**. Pair with the [Enterprise Enablement Runbook](enterprise-enablement-runbook.md)
@@ -69,7 +69,7 @@ it already follows the standard: the `BackendAdapter`
 (`geniusbot/services/backend_adapter.py`) is **gateway-first** — it routes through the
 HTTP `GatewayClient` and only lazy-imports the `agent_utilities` engine inside the one
 method that needs a local fallback, so the UI never eagerly loads the backend. The
-`gateway_client` SDK it consumes (ECO-4.37) imports only `httpx` + `agent_utilities.http`,
+`gateway_client` SDK it consumes (AU-ECO.interop.gateway-client-sdk) imports only `httpx` + `agent_utilities.http`,
 not the engine.
 
 ## Why webui can't be as small as terminal-ui (and that's fine)

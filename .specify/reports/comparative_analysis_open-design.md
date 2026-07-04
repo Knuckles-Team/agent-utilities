@@ -26,8 +26,8 @@ backend-agnostic execution substrate and a wired-in quality-gate loop.
 | Human-in-the-loop + pre-emit quality gates | **Strong** — discovery form, P0 checklist, 5-dim critique | **Partial** — harness exists (AHE-3.1) but no `MultiDimensionalCritique`, no wired pre-emit gate |
 | Refreshable, provenance-tracked outputs | **Strong** — Live Artifacts (template+data+provenance) | **Latent** — bi-temporal/evidence-weighted/self-curating KG exists, but no artifact abstraction over it |
 | Knowledge graph / semantic memory | minimal | **Strong** — KG-2.x is the spine |
-| Self-evolution / continuous evaluation | absent | **Strong** — AHE-3.x evolution + variant pool |
-| Multi-agent orchestration / HTN planning | absent (delegates to one CLI) | **Strong** — ORCH-1.x router/planner/parallel engine |
+| Self-evolution / continuous evaluation | absent | **Strong** — AU-AHE.optimization.telemetry-optimization evolution + variant pool |
+| Multi-agent orchestration / HTN planning | absent (delegates to one CLI) | **Strong** — AU-ORCH.planning.orchestration-overview router/planner/parallel engine |
 | Concept traceability / SDD discipline | good (specs/, CONTEXT.md) | **Strong** — DSTDD, concept registry, Wire-First |
 | Engineering lifecycle ergonomics | **Strong** — one `tools-dev` CLI, namespaces | weaker — docker-compose + scattered scripts |
 
@@ -36,7 +36,7 @@ backend-agnostic execution substrate and a wired-in quality-gate loop.
 
 - Live Artifacts that re-derive from a **bi-temporal, evidence-weighted, self-curating** KG
   (KG-2.11/2.18/2.19) — "failed refresh preserves prior" falls straight out of bi-temporal valid-time.
-- Quality gates whose pass/fail signal **feeds the evolution engine** (AHE-3.x) instead of being prompt-only.
+- Quality gates whose pass/fail signal **feeds the evolution engine** (AU-AHE.optimization.telemetry-optimization) instead of being prompt-only.
 - A provider proxy whose every datum is **provenance-traced** in the graph to the producing CLI/model.
 
 ---
@@ -70,10 +70,10 @@ All 19 rows are `verified` (read in `apps/daemon`, `packages/*`, `specs/`). High
    (`connectionTest.ts` `validateBaseUrlResolved`) — resolves the hostname and rejects private IPs,
    closing the public-DNS→private-IP vector; loopback carve-out keeps local LLMs working. → **ORCH-1.34** + OS-5.3.
 3. **Mid-turn tool_result injection** (`server.ts:11900+`, `/api/runs/:id/tool-result`) — keeps stdin
-   open and serializes a `tool_result` JSONL line back, making interactive tools work headless. → **ORCH-1.35**.
+   open and serializes a `tool_result` JSONL line back, making interactive tools work headless. → **AU-ORCH.execution.held-turn-registry-mid**.
 4. **Layered pre-emit gate**: Turn-1 discovery form → P0/P1/P2 preflight checklist → **5-dimensional
    self-critique** (score 1–5, fix any <3, re-score) composed by a documented **dominant-layer prompt
-   precedence** (`prompts/system.ts:8-29`). → **AHE-3.13**.
+   precedence** (`prompts/system.ts:8-29`). → **AU-AHE.harness.pre-emit-quality-gate**.
 5. **Live Artifacts** (`specs/2026-04-29-live-artifacts/`) — template + data.json + provenance.json;
    bounded, injection-safe interpolation; refresh re-derives data and **preserves the prior render on
    failure**; per-generation provenance. → **KG-2.24** (refresh from the KG).
@@ -105,7 +105,7 @@ parallel**. Lighthouse MVP = **E1 + E4**: *drive any agent CLI through a canonic
 into the epistemic KG with full provenance → emit a Live Artifact that re-derives itself from that KG on
 demand* — KG × orchestration × self-evolution fused with open-design's UX patterns.
 
-Six new CONCEPT:IDs are proposed (ORCH-1.33/1.34/1.35, AHE-3.13, KG-2.24, OS-5.11), each gated by its
+Six new CONCEPT:IDs are proposed (ORCH-1.33/1.34/1.35, AU-AHE.harness.pre-emit-quality-gate, KG-2.24, OS-5.11), each gated by its
 own `.specify/design/<id>/design.md` (KG-analysis similarity table proving <70% to the nearest existing
 concept, C4, 5-pillar data flow, risk) before any `CONCEPT:` marker lands. Full per-epic SDD lives under
 `.specify/design/` and `.specify/specs/`.

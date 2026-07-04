@@ -1,6 +1,6 @@
 # KG-2.6: Observational Memory Bridge
 
-> **Concept**: `CONCEPT:KG-2.1`
+> **Concept**: `CONCEPT:AU-KG.memory.tiered-memory-caching`
 > **Pillar**: 2 — Epistemic Knowledge Graph
 > **Status**: Implemented
 > **Research**: Inspired by observational-memory v0.6.3
@@ -46,7 +46,7 @@ graph TD
     end
 
     subgraph "Memory Bridge (KG-2.6)"
-        INSTALLER["Hook Installer (ECO-4.6)"]
+        INSTALLER["Hook Installer (AU-ECO.mcp.toolkit-live-discovery)"]
         OBS["ORCH-1.2: Observer"]
         REF["ORCH-1.2: Reflector"]
         MAT["KG-2.2: Materializer"]
@@ -61,10 +61,10 @@ graph TD
     end
 
     subgraph "Materialized Views"
-        OBS_MD["ORCH-1.5: observations.md"]
-        REF_MD["ORCH-1.5: reflections.md"]
-        PRO_MD["ORCH-1.5: profile.md"]
-        ACT_MD["ORCH-1.5: active.md"]
+        OBS_MD["AU-ORCH.planning.legal-automation-roadmap: observations.md"]
+        REF_MD["AU-ORCH.planning.legal-automation-roadmap: reflections.md"]
+        PRO_MD["AU-ORCH.planning.legal-automation-roadmap: profile.md"]
+        ACT_MD["AU-ORCH.planning.legal-automation-roadmap: active.md"]
     end
 
     CC & CX & GB & DV & AG & WS & OC & TUI -->|"Session hooks"| OBS
@@ -130,7 +130,7 @@ Produces deterministic, budgeted startup payloads:
 - Routing terms from `--cwd` and `--task` boost relevant sections
 - Overflow handles for expanding specific sections via `recall`
 
-### 5. Hook Installer (ECO-4.6)
+### 5. Hook Installer (AU-ECO.mcp.toolkit-live-discovery)
 
 **Module**: `ecosystem/hook_installer.py`
 
@@ -223,5 +223,5 @@ Agent B starts session
 - **KG-2.4**: Inductive Knowledge & Hypergraphs — SynthesisEngine hosts reflection rules
 - **KG-2.3**: Graph Integrity & Retrieval — HybridRetriever powers startup context
 - **KG-2.7**: External Graph Federation — multi-machine KG sync
-- **ECO-4.6**: Agent Hook Installer — cross-agent integration
+- **AU-ECO.mcp.toolkit-live-discovery**: Agent Hook Installer — cross-agent integration
 - **OS-5.0**: Agent OS Kernel — XDG path resolution for memory directory

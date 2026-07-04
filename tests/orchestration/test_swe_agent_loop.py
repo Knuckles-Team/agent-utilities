@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.47 — KG-grounded SWE agent loop, driven deterministically (no live LLM).
+"""CONCEPT:AU-ORCH.execution.swe-agent-system-prompt — KG-grounded SWE agent loop, driven deterministically (no live LLM).
 
 A scripted ``FunctionModel`` plays the role of the model: it grounds (a graph tool), edits a
 file, runs tests, then finishes. The assertions prove the loop actually acted in the workspace

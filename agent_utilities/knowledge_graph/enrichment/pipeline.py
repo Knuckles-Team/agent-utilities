@@ -1,4 +1,4 @@
-"""In-process KG enrichment pipeline (CONCEPT:KG-2.8 Phase 1).
+"""In-process KG enrichment pipeline (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 1).
 
 Clean, in-process ingestion that uses the **epistemic-graph Rust engine** as the
 compute layer (AST + native test metrics) and writes typed entities through the
@@ -70,7 +70,7 @@ _SKIP_DIRS = {
 }
 
 # Source extensions the Rust engine can parse — kept in sync with
-# ``parser::tree_sitter::SUPPORTED_EXTENSIONS``. (CONCEPT:KG-2.8)
+# ``parser::tree_sitter::SUPPORTED_EXTENSIONS``. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
 SOURCE_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".py",
@@ -95,7 +95,7 @@ SOURCE_EXTENSIONS: frozenset[str] = frozenset(
         ".hxx",
         ".hh",
         ".cs",
-        # Extended-language tier (CONCEPT:KG-2.106; engine built with ast-extended).
+        # Extended-language tier (CONCEPT:AU-KG.compute.built-ast-extended; engine built with ast-extended).
         ".rb",
         ".php",
         ".sh",
@@ -141,7 +141,7 @@ def discover_source_files(root: str | Path) -> list[Path]:
 
     Covers Python/JS/TS/Go/Rust/Java/C/C++/C# (see :data:`SOURCE_EXTENSIONS`),
     skipping vendored/build dirs. The Rust parser dispatches on extension, so a
-    repo in any of these languages produces ``Code`` nodes. (CONCEPT:KG-2.8)
+    repo in any of these languages produces ``Code`` nodes. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
     root = Path(root)
     if root.is_file():
@@ -163,7 +163,7 @@ class _BatchedBackend:
     dominant cost — the engine is a socket round-trip per call, so N per-node
     writes = N round-trips. Nodes are flushed before edges so every edge endpoint
     already exists; reads delegate to the wrapped backend. Falls back to per-item
-    writes if the engine has no bulk path or a batch fails. (CONCEPT:KG-2.8/2.16, #1)
+    writes if the engine has no bulk path or a batch fails. (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.16, #1)
     """
 
     def __init__(self, backend: Any, batch_size: int = 1000) -> None:
@@ -175,7 +175,7 @@ class _BatchedBackend:
         self._bulk = getattr(graph, "bulk_mutate", None) or getattr(
             graph, "batch_update", None
         )
-        # Multiplexed pool fan-out (CONCEPT:KG-2.274): when the engine exposes the
+        # Multiplexed pool fan-out (CONCEPT:AU-KG.compute.when-exposes): when the engine exposes the
         # pooled concurrent submitter, a large flush is split into independent
         # sub-batches that ride SEPARATE pooled connections, so the engine services
         # them as parallel per-connection tasks (and coalesces their durable commits)
@@ -220,7 +220,7 @@ class _BatchedBackend:
     def _submit_bulk(self, ops: list[dict[str, Any]]) -> bool:
         """Send one independent ``ops`` flush through the fastest available path.
 
-        Order of preference (CONCEPT:KG-2.274 → KG-2.16): the pooled concurrent
+        Order of preference (CONCEPT:AU-KG.compute.when-exposes → KG-2.16): the pooled concurrent
         submitter (sub-batches fanned across separate connections) → the single bulk
         ``batch_update`` → ``False`` so the caller degrades to per-item writes.
         """
@@ -299,12 +299,12 @@ class EnrichmentPipeline:
         self.backend = backend
         self.parse_fn = parse_fn
         # Optional batched parse (one RPC for N files). When set, changed files
-        # are parsed in a single round-trip instead of per-file. (CONCEPT:KG-2.16)
+        # are parsed in a single round-trip instead of per-file. (CONCEPT:EG-KG.compute.graph-compute-engine)
         self.batch_parse_fn = batch_parse_fn
         # Optional cross-file resolver (one RPC = parse + type/scope resolution).
         # When set, it is the PRIMARY code path: symbols and already-resolved
         # CALLS/INHERITS/REALIZES come from one engine round-trip, replacing the
-        # per-file parse + Python name-only call resolution. (CONCEPT:KG-2.100)
+        # per-file parse + Python name-only call resolution. (CONCEPT:EG-KG.compute.type-scope-resolved-call)
         self.index_fn = index_fn
         self.thresholds = thresholds or TestThresholds()
         self._hash_seen = hash_seen if hash_seen is not None else {}
@@ -312,7 +312,7 @@ class EnrichmentPipeline:
         self.community_fn = community_fn
         self.card_cache = card_cache if card_cache is not None else {}
         self.min_feature_size = min_feature_size
-        # Code → capability (REALIZES) resolution (CONCEPT:KG-2.8).
+        # Code → capability (REALIZES) resolution (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
         self.capability_provider = capability_provider
         self.capability_registry = capability_registry
         self.mint_capabilities = mint_capabilities
@@ -321,7 +321,7 @@ class EnrichmentPipeline:
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
         files = discover_source_files(target_path)
-        # IaC files alongside the code (CONCEPT:KG-2.103): read them here so the
+        # IaC files alongside the code (CONCEPT:AU-KG.enrichment.read-them-here-so): read them here so the
         # pipeline writes Resource nodes in the same batched pass.
         iac: list[tuple[str, str]] = []
         for p in discover_iac_files(target_path):
@@ -330,7 +330,7 @@ class EnrichmentPipeline:
             except OSError:
                 continue
         # The ingest root's name is the best-effort hint for the deployed service a
-        # route is servedBy (CONCEPT:KG-2.102).
+        # route is servedBy (CONCEPT:AU-KG.enrichment.http-route-extraction).
         return self.enrich_files(
             files, service_hint=Path(target_path).name, iac_files=iac
         )
@@ -343,7 +343,7 @@ class EnrichmentPipeline:
     ) -> EnrichmentSummary:
         summary = EnrichmentSummary()
 
-        # Phase 1 — pre-hash filter (CONCEPT:KG-2.8): hash the raw bytes BEFORE
+        # Phase 1 — pre-hash filter (CONCEPT:EG-KG.storage.nonblocking-checkpoint): hash the raw bytes BEFORE
         # parsing so an unchanged file costs one local sha256, not a Rust-engine
         # parse round-trip. The hash is byte-identical to ``ExtractionResult.
         # content_hash`` (same ``surrogatepass`` encoding), so the skip is exact.
@@ -364,7 +364,7 @@ class EnrichmentPipeline:
             pending.append((str(fp), source))
             pending_hashes[str(fp)] = content_hash
 
-        # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:KG-2.100):
+        # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:EG-KG.compute.type-scope-resolved-call):
         # one ``index_repository`` round-trip both parses every file and resolves
         # cross-file calls type/scope-aware in Rust, yielding the symbols AND the
         # already-bound CALLS/INHERITS/REALIZES edges. Fallback (engine without the
@@ -454,7 +454,7 @@ class EnrichmentPipeline:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 summary.calls_edges += 1
             # Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) from the
-            # Rust resolver (CONCEPT:KG-2.100/2.101).
+            # Rust resolver (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
             for e in struct_edges:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 if e.rel_type == "INHERITS":
@@ -470,7 +470,7 @@ class EnrichmentPipeline:
                     self._write_edge(mid, f.id, "PART_OF_FEATURE")
                 summary.features += 1
 
-            # CONCEPT:KG-2.102 — HTTP routes from handler decorators: Route nodes +
+            # CONCEPT:AU-KG.enrichment.http-route-extraction — HTTP routes from handler decorators: Route nodes +
             # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
             # deployed Service (best-effort name match), so OWL reasoning can chain
             # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
@@ -491,7 +491,7 @@ class EnrichmentPipeline:
                     self._write_edge(e.source, e.target, e.rel_type)
                     summary.served_by_edges += 1
 
-            # CONCEPT:KG-2.103 — IaC Resources (Dockerfile/K8s/Terraform) + the
+            # CONCEPT:AU-KG.enrichment.read-them-here-so — IaC Resources (Dockerfile/K8s/Terraform) + the
             # PROVISIONS link to the deployed Service, spanning code → infra.
             if iac_files:
                 resource_nodes, _ = extract_iac(iac_files)
@@ -591,7 +591,7 @@ class EnrichmentPipeline:
                 metadata=json.dumps(doc.metadata)[:4000],
             )
             summary.documents += 1
-            # Distil reusable operating intelligence (CONCEPT:KG-2.8): turn the
+            # Distil reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint): turn the
             # document/call into Insight/Fact/Framework/Playbook nodes.
             try:
                 intel_nodes, intel_edges = extract_intelligence(
@@ -635,7 +635,7 @@ class EnrichmentPipeline:
         return list(all_concepts.values()), all_edges, summary
 
     def _write_intelligence(self, node: Any) -> None:
-        """Persist an Insight/Fact/Framework/Playbook node (CONCEPT:KG-2.8).
+        """Persist an Insight/Fact/Framework/Playbook node (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
         The node type label is the model class name (``Insight``/...); list
         fields are JSON-serialised so they survive scalar property storage.
@@ -699,7 +699,7 @@ class EnrichmentPipeline:
 
     def _ecosystem_service_ids(self) -> set[str]:
         """Deployed ecosystem ``Service`` node ids, for code↔service `servedBy`
-        linking (CONCEPT:KG-2.102). Best-effort: empty when the backend has no
+        linking (CONCEPT:AU-KG.enrichment.http-route-extraction). Best-effort: empty when the backend has no
         query path or no services — we never invent a topology link."""
         execute = getattr(self.backend, "execute", None)
         if not callable(execute):
@@ -732,7 +732,7 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     of a large repo makes few round-trips: the engine's ``parse_files`` parses a
     whole chunk in parallel across cores (rayon), and request/response is serialized
     on one connection, so a bigger chunk = bigger parallel batch + fewer round-trips
-    (the dominant parse cost). (CONCEPT:KG-2.16)
+    (the dominant parse cost). (CONCEPT:EG-KG.compute.graph-compute-engine)
     """
 
     try:
@@ -761,7 +761,7 @@ def make_index_fn(graph_compute: Any) -> IndexFn | None:
 
     The whole batch is one resolution scope, so it ships in a SINGLE round-trip:
     the engine parses (rayon) and resolves cross-file calls type/scope-aware over
-    the whole set, returning one merged ``IndexResult``. (CONCEPT:KG-2.100)
+    the whole set, returning one merged ``IndexResult``. (CONCEPT:EG-KG.compute.type-scope-resolved-call)
     """
     try:
         if not getattr(graph_compute, "supports_index_repository", False):

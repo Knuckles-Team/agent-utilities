@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for pack-driven OWL closure (the "free value-add").
 
-CONCEPT:KG-2.36 — Pack-Driven OWL Closure
+CONCEPT:AU-KG.ontology.pack-owl-closure — Pack-Driven OWL Closure
 """
 
 

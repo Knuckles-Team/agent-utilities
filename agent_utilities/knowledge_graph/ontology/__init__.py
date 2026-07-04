@@ -6,20 +6,20 @@ from __future__ import annotations
 This package composes the first-class ontology primitives the execution plane
 reaches through :class:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph`:
 
-  - **Property types** (CONCEPT:KG-2.47, ``property_types``) — the Palantir-style
+  - **Property types** (CONCEPT:AU-KG.ontology.ontology-property-types, ``property_types``) — the Palantir-style
     type vocabulary (scalars, geo, vector/embedding, array/struct) that drives
     node-table column DDL and ontology write-path coercion.
-  - **Value types** (CONCEPT:KG-2.39, ``value_types``) — constrained semantic
+  - **Value types** (CONCEPT:AU-KG.ontology.value-type-shacl-load, ``value_types``) — constrained semantic
     types (EmailAddress, Percentage, …) that compile to SHACL/OWL and gate
     writes via the SHACL validator.
-  - **Interfaces** (CONCEPT:KG-2.38, ``interfaces``) — abstract shapes a concrete
+  - **Interfaces** (CONCEPT:AU-KG.ontology.conformance-check, ``interfaces``) — abstract shapes a concrete
     object type can implement; the programmatic-targeting resolver expands an
     interface name to its implementing types.
-  - **Links** (CONCEPT:KG-2.26, ``links``) — first-class typed links and
+  - **Links** (CONCEPT:AU-KG.domains.trade-journal-bias-auditor, ``links``) — first-class typed links and
     many-to-many junction reification onto the existing graph-write path.
-  - **Functions** (CONCEPT:KG-2.41, ``functions``) — typed, versioned, governed
+  - **Functions** (CONCEPT:AU-KG.ontology.default-runtime-bound-import, ``functions``) — typed, versioned, governed
     user functions (PLAIN | ON_OBJECTS | QUERY) with a single audited runtime.
-  - **Derived properties** (CONCEPT:KG-2.40, ``derived_properties``) — computed
+  - **Derived properties** (CONCEPT:AU-KG.ontology.derived-property-registry, ``derived_properties``) — computed
     read-time properties dispatched across FUNCTION/CYPHER/SPARQL/EMBEDDING.
 
 :class:`OntologySystem` binds these registries together and (optionally) to a
@@ -38,9 +38,9 @@ from typing import Any
 
 # Import for its registration side-effect: research-intelligence interfaces +
 # typed links are populated into the default registries so kg.ontology discovers
-# them by default (CONCEPT:KG-2.76).
+# them by default (CONCEPT:AU-KG.ontology.kg-2).
 # Same: finance microstructure / Kyle-surveillance interfaces + typed links
-# (CONCEPT:KG-2.81).
+# (CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance).
 from . import (
     finance_objects,  # noqa: E402,F401
     research_objects,  # noqa: E402,F401
@@ -209,7 +209,7 @@ class OntologySystem:
         self.property_types: dict[str, PropertyType] = PROPERTY_TYPES
         self.value_types: dict[str, ValueType] = VALUE_TYPES
         self.interfaces: InterfaceRegistry = DEFAULT_INTERFACE_REGISTRY
-        # Enterprise standards (CONCEPT:KG-2.49): a DEDICATED interface registry
+        # Enterprise standards (CONCEPT:AU-KG.ontology.populated-at-import-real-3): a DEDICATED interface registry
         # of north-star contracts (ManagedApplication/BusinessProcess/DataAsset),
         # kept separate from the structural interfaces above so authoring an
         # enterprise standard never pollutes the built-in shape registry. Reached
@@ -227,11 +227,11 @@ class OntologySystem:
             else DEFAULT_FUNCTION_RUNTIME
         )
         self.derived: DerivedPropertyEngine = DEFAULT_DERIVED_ENGINE
-        # Durable edit ledger (CONCEPT:KG-2.43) — bound to the live graph so
+        # Durable edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback) — bound to the live graph so
         # recorded edits persist as durable object_edit nodes + EDITED_BY/EDITS
         # edges and revert is itself durable + audited.
         self.edits: EditLedger = EditLedger(graph=graph)
-        # Object Index Funnel (CONCEPT:KG-2.44) — drives the SAME live search
+        # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — drives the SAME live search
         # index the router ranks against (graph.retrieval), never a second one.
         self.index_funnel: ObjectIndexFunnel = ObjectIndexFunnel(
             index=getattr(graph, "retrieval", None) if graph is not None else None
@@ -305,7 +305,7 @@ class OntologySystem:
         """Whether a concrete object dict satisfies a named interface's shape."""
         return self.interfaces.conforms(object_dict, interface)
 
-    # ── Enterprise standards (CONCEPT:KG-2.49) ───────────────────────────────
+    # ── Enterprise standards (CONCEPT:AU-KG.ontology.populated-at-import-real-3) ───────────────────────────────
     def standard_for(self, asset: dict[str, Any]) -> str | None:
         """Route an asset dict to the enterprise standard that governs it."""
         from ..standardization.standards import applicable_standard
@@ -358,7 +358,7 @@ class OntologySystem:
             raise KeyError(f"no junction link type registered as {link_name!r}")
         return link.materialize_junction(source_id, target_id, properties)
 
-    # ── Durable edit ledger (CONCEPT:KG-2.43) ────────────────────────────────
+    # ── Durable edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback) ────────────────────────────────
     def record_edit(self, edit: Edit) -> Edit:
         """Apply + durably persist a structured object edit via the ledger."""
         return self.edits.record(edit)
@@ -382,7 +382,7 @@ class OntologySystem:
         )
 
     def history(self, object_id: str) -> list[Edit]:
-        """Per-object edit history (oldest first) — CONCEPT:KG-2.43."""
+        """Per-object edit history (oldest first) — CONCEPT:AU-KG.ontology.edit-ledger-writeback."""
         return self.edits.history(object_id)
 
     def as_of(self, object_id: str, ts: float) -> dict[str, Any] | None:
@@ -393,7 +393,7 @@ class OntologySystem:
         """Undo a recorded edit, recording a durable compensating edit."""
         return revert_edit(self.edits, edit_id, actor=actor)
 
-    # ── Object sets (CONCEPT:KG-2.45 / KG-2.38) ──────────────────────────────
+    # ── Object sets (CONCEPT:AU-KG.ontology.link-type-pivot / KG-2.38) ──────────────────────────────
     def object_set(self, ids: Any) -> ObjectSet:
         """A STATIC object set over fixed ids, bound to the live graph."""
         return object_set_from_ids(self._graph, ids)
@@ -408,13 +408,13 @@ class OntologySystem:
         """A DYNAMIC object set from a predicate / typed filters."""
         return dynamic_object_set(self._graph, predicate, filters=filters)
 
-    # ── Document processing (CONCEPT:KG-2.48) ────────────────────────────────
+    # ── Document processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage) ────────────────────────────────
     def process_document(self, document: Any, **kwargs: Any) -> dict[str, Any]:
         """Process a document into Document + Chunk objects through the graph."""
         return process_document(document, self._graph, **kwargs)
 
     def list_connectors(self) -> list[str]:
-        """List the registered document-source connector types (CONCEPT:ECO-4.27)."""
+        """List the registered document-source connector types (CONCEPT:AU-ECO.connector.factory-ingestion-adaptor)."""
         from ...protocols.source_connectors import list_sources
 
         return list_sources()
@@ -432,7 +432,7 @@ class OntologySystem:
     ) -> dict[str, Any]:
         """Run a document-source connector and ingest its documents into the KG.
 
-        CONCEPT:ECO-4.25/4.29 facade — the single ``kg.ontology.run_connector``
+        CONCEPT:AU-ECO.connector.document-source-framework/4.29 facade — the single ``kg.ontology.run_connector``
         seam the MCP tool and REST route call. Builds and drains the connector
         through the KG-2.7 ``CONNECTOR`` ingestion adaptor, so documents become
         first-class ``Document`` + ``Chunk`` ontology objects with contextual

@@ -1,13 +1,13 @@
 """``xp`` — a numpy-compatible numeric namespace backed SOLELY by the epistemic-graph kernel.
 
-CONCEPT:KG-2.312 — Surface A of the Analytics Program's "one kernel, two surfaces"
-(engine side: CONCEPT:EG-321). ``xp`` mirrors the subset of the numpy API that
+CONCEPT:AU-KG.compute.surface-analytics-program — Surface A of the Analytics Program's "one kernel, two surfaces"
+(engine side: CONCEPT:AU-KG.compute.numeric-kernel). ``xp`` mirrors the subset of the numpy API that
 agent-utilities actually uses (the 598-site audit: reductions/stats, element-wise,
 the linalg-6 + ``LinAlgError``, random, the four scipy ops) and routes those ops
 through the compiled ``epistemic_graph.numeric`` kernel (pure-Rust faer + ndarray,
 BLAS/LAPACK-free).
 
-CONCEPT:KG-2.324 — **the hard numpy/scipy drop (Analytics Program P5 final).** numpy
+CONCEPT:AU-KG.compute.numpy-scipy-drop — **the hard numpy/scipy drop (Analytics Program P5 final).** numpy
 and scipy are **fully removed** from agent-utilities: this package **imports numpy
 nowhere and declares it in no dependency** (``requirements.txt`` / ``pyproject.toml``
 carry neither). The compiled ``epistemic_graph.numeric`` kernel is the **sole numeric
@@ -34,17 +34,17 @@ Migration (executed) is mechanical — the old ``numpy as np`` import line becom
 
     from agent_utilities.numeric import xp as np    # kernel-backed drop-in for `np`
 
-CONCEPT:KG-2.313 — the executed P2/P3 rollout: the agent-utilities numpy call sites were
+CONCEPT:AU-KG.compute.executed-p2-p3-rollout — the executed P2/P3 rollout: the agent-utilities numpy call sites were
 swapped to this ``xp`` surface, keeping the ``np`` alias so bodies are unchanged.
 
-CONCEPT:KG-2.314 — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are small
+CONCEPT:AU-KG.compute.ufunc-method-surface — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are small
 ``_Ufunc`` wrapper objects: calling them keeps the kernel-routed element-wise behaviour,
 while ``.accumulate`` / ``.reduce`` / ``.outer`` / ``.at`` forward to the kernel's cumulative
 op (``cummax`` / ``cummin``) on a bare 1-D float64 input, else to the (kernel-internal)
 numpy ufunc method.
 
 The four scipy ops used by ``domains/finance`` + ``spectral_navigator`` are now native
-kernel exports (CONCEPT:EG-356): ``xp.eigsh`` (``scipy.sparse.linalg.eigsh``, k
+kernel exports (CONCEPT:EG-KG.compute.concept-5): ``xp.eigsh`` (``scipy.sparse.linalg.eigsh``, k
 smallest-magnitude symmetric eigenpairs), ``xp.spearmanr`` (``scipy.stats.spearmanr``),
 ``xp.ks_2samp`` (``scipy.stats.ks_2samp``), ``xp.norm_ppf`` / ``xp.norm_pdf``
 (``scipy.stats.norm.ppf`` / ``.pdf``). No scipy import remains anywhere in agent-utilities.
@@ -256,7 +256,7 @@ def _minimum_call(a: Any, b: Any, **kw: Any) -> Any:
 
 
 class _Ufunc:
-    """A callable mirroring a numpy ufunc's method surface (CONCEPT:KG-2.314).
+    """A callable mirroring a numpy ufunc's method surface (CONCEPT:AU-KG.compute.ufunc-method-surface).
 
     Calling routes through *call* (kernel-accelerated on the fast path). ``.accumulate``
     is kernel-routed (``cummax`` / ``cummin``) on a bare 1-D float64 input; the other
@@ -515,7 +515,7 @@ class _XP:
                 return _knp.asarray(_KERNEL.isnan(v), dtype=bool)
         return _knp.isnan(a, **kw)
 
-    #: ufunc-method surface (CONCEPT:KG-2.314).
+    #: ufunc-method surface (CONCEPT:AU-KG.compute.ufunc-method-surface).
     maximum = _Ufunc("maximum", _maximum_call, kernel_accum="cummax")
     minimum = _Ufunc("minimum", _minimum_call, kernel_accum="cummin")
 
@@ -549,7 +549,7 @@ class _XP:
                 return _KERNEL.matmul(ma, mb)
         return _knp.matmul(a, b, **kw)
 
-    # ---- scipy ops, now native kernel exports (CONCEPT:EG-356 / KG-2.324) ----
+    # ---- scipy ops, now native kernel exports (CONCEPT:EG-KG.compute.concept-5 / KG-2.324) ----
     def eigsh(self, a: Any, k: int, which: str = "SM") -> Any:
         """``scipy.sparse.linalg.eigsh(A, k, which="SM")`` — the ``k`` smallest-magnitude
         symmetric eigenpairs. The kernel op is always smallest-magnitude; ``which`` is

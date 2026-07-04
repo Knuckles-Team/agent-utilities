@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.89 — container_fork sandbox: warm container pool (CRIU-ready) vs cold --rm.
+"""CONCEPT:AU-ORCH.sandbox.container-fork-sandbox — container_fork sandbox: warm container pool (CRIU-ready) vs cold --rm.
 
 The ``docker`` rung (``docker_backend.py``) spawns a fresh ``--rm`` container *per snippet* — a
 full container cold-start every call. This rung closes that gap (G3): it keeps a **warm**
@@ -47,7 +47,7 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-# CONCEPT:ORCH-1.94 — strict zombie protection. A warm container is labelled so a stateless sweep
+# CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — strict zombie protection. A warm container is labelled so a stateless sweep
 # can find it even after the orchestrator process (and its in-memory WarmParentRegistry) dies, and
 # its PID 1 is a self-expiring ``timeout … sleep`` so the kernel inside the container tears it down
 # at the hard age cap with NO host involvement — the failure mode that left 5 ``sleep infinity``
@@ -139,7 +139,7 @@ class ContainerForkSandbox(ForkableSandbox):
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "-v", f"{pool_dir}:/data:rw",
-            # CONCEPT:ORCH-1.94 — PID 1 self-expires at the hard age cap. ``timeout`` kills the
+            # CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — PID 1 self-expires at the hard age cap. ``timeout`` kills the
             # ``sleep`` (and thus stops the whole container) after WARM_CONTAINER_MAX_AGE_S even if
             # the orchestrator never calls ``close`` — the kernel-enforced hard lifetime.
             self.image, "timeout", "--signal=KILL", str(WARM_CONTAINER_MAX_AGE_S),
@@ -203,7 +203,7 @@ class ContainerForkSandbox(ForkableSandbox):
             with contextlib.suppress(FileNotFoundError):
                 os.chmod(sock_path, 0o777)  # nosec B103 — bridge socket must accept container uid
 
-            # CONCEPT:ORCH-1.94 — the forked child carries its OWN in-container hard timeout, so it
+            # CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — the forked child carries its OWN in-container hard timeout, so it
             # self-kills even if this host process (the only other thing that would kill it via the
             # asyncio.wait_for below) dies mid-run. Without this, a host crash orphans runner.py to
             # spin forever — the observed 3-day, 100%-CPU zombie.
@@ -292,7 +292,7 @@ def reap_orphaned_sandboxes(
 ) -> list[str]:
     """Force-remove warm-fork sandbox containers older than ``max_age_secs`` + Exited husks.
 
-    CONCEPT:ORCH-1.94 — the stateless backstop. It finds containers by the ``_SANDBOX_LABEL``
+    CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — the stateless backstop. It finds containers by the ``_SANDBOX_LABEL``
     label via the runtime CLI, so it reaps zombies the in-memory :class:`WarmParentRegistry` can no
     longer see (e.g. after a daemon restart dropped the registry that held their ``close`` handles —
     the exact gap that let five ``sleep infinity`` containers spin a forked child at 100% CPU for

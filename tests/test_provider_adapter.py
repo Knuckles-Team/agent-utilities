@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ECO-4.0 — Provider Prompt Adaptation."""
+"""Tests for CONCEPT:AU-ECO.messaging.native-backend-abstraction — Provider Prompt Adaptation."""
 
 import pytest
 

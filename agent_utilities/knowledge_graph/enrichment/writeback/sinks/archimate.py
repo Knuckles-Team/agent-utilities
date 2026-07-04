@@ -1,4 +1,4 @@
-"""ArchiMate model write-back sink (CONCEPT:KG-2.9).
+"""ArchiMate model write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Writes KG-inferred elements/relationships back into the ArchiMate model so the
 model stays a live mirror of the cross-tool reality (ServiceNow/LeanIX/Camunda all

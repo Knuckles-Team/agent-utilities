@@ -1,4 +1,4 @@
-"""AgentBus — a federated agent-to-agent communication bus over the KG (CONCEPT:ECO-4.84).
+"""AgentBus — a federated agent-to-agent communication bus over the KG (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent).
 
 The platform already had a *human*-reach core (``MessagingService``, ECO-4.48) and a host-local
 *invoker↔spawned-agent* channel (``agent_channel.py``, ORCH-1.40). What it lacked was a way for
@@ -7,7 +7,7 @@ first-party providers, on **any host** — to address and message *each other* t
 graph-os hub, for the cost of the LLM calls each side already makes.
 
 ``AgentBus`` is that bus. It is durable-store-first by design: presence and messages are
-**KG nodes** (``:Agent`` / ``:Topic`` / ``:BusMessage``, CONCEPT:KG-2.141), so any process
+**KG nodes** (``:Agent`` / ``:Topic`` / ``:BusMessage``, CONCEPT:AU-KG.compute.user-override-prompt-library), so any process
 pointed at the same engine — including a remote session reaching a networked graph-os over
 streamable-http — sees the same roster and mailbox, and the conversation survives an engine
 restart. Delivery is at-least-once with a per-reader **cursor** (``receive(since)`` returns the
@@ -20,11 +20,11 @@ across hubs. Every ``send`` passes the fail-closed ActionPolicy gate (``kind="bu
 ``dispatch`` (``kind="bus.dispatch"``, ORCH-1.80) turns a message into fleet work by submitting a
 Loop, so one agent can hand work to the fleet, not just chat.
 
-CONCEPT:ECO-4.84 — AgentBus federated agent-to-agent communication bus over the KG
-CONCEPT:KG-2.141 — :Agent / :Topic / :BusMessage presence + mailbox node model
-CONCEPT:ECO-4.91 — store-and-forward topic log + per-(agent,topic) replay cursor (leave a message)
-CONCEPT:ECO-4.92 — auto-register + online presence on any bus touch (no explicit register)
-CONCEPT:ECO-4.98 — bus register under the served auth profile: run as the request's authenticated identity + surface a denied write (never a silent ok:false)
+CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent — AgentBus federated agent-to-agent communication bus over the KG
+CONCEPT:AU-KG.compute.user-override-prompt-library — :Agent / :Topic / :BusMessage presence + mailbox node model
+CONCEPT:AU-ECO.bus.store-and-forward-log — store-and-forward topic log + per-(agent,topic) replay cursor (leave a message)
+CONCEPT:AU-ECO.bus.auto-register-online-presence — auto-register + online presence on any bus touch (no explicit register)
+CONCEPT:AU-ECO.bus.bus-register-under-served — bus register under the served auth profile: run as the request's authenticated identity + surface a denied write (never a silent ok:false)
 
 See Also:
     - ``messaging/service.py`` (ECO-4.48) — the sibling *human*-reach core this mirrors.
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Node id prefixes for the durable bus model (CONCEPT:KG-2.141).
+# Node id prefixes for the durable bus model (CONCEPT:AU-KG.compute.user-override-prompt-library).
 # NOTE: a dedicated ``:BusAgent`` label (not the platform's typed ``:Agent`` table) — the live
 # Postgres backend gives ``:Agent`` a typed schema (capabilities ARRAY, no agent_id) that bus
 # props don't fit. ``:BusAgent`` lands in the generic JSONB node table. (Found in live E2E.)
@@ -56,7 +56,7 @@ _AGENT_LABEL = "BusAgent"
 _TOPIC_PREFIX = "topic:"
 _SUB_PREFIX = "bussub:"
 _MSG_PREFIX = "busmsg:"
-# Store-and-forward topic log + per-(agent,topic) replay cursor (CONCEPT:ECO-4.91).
+# Store-and-forward topic log + per-(agent,topic) replay cursor (CONCEPT:AU-ECO.bus.store-and-forward-log).
 _TOPICMSG_PREFIX = "topicmsg:"
 _TCURSOR_PREFIX = "bustcur:"
 
@@ -64,7 +64,7 @@ _TCURSOR_PREFIX = "bustcur:"
 # computes presence lazily from ``last_seen`` so no reaper process is needed for liveness.
 DEFAULT_STALE_AFTER_S = 90.0
 
-# Store-and-forward retention for the durable topic log (CONCEPT:ECO-4.91). A stored topic
+# Store-and-forward retention for the durable topic log (CONCEPT:AU-ECO.bus.store-and-forward-log). A stored topic
 # message stays replayable to late subscribers until it expires; the reaper prunes it after.
 TOPIC_MSG_TTL_S = (
     86_400.0  # 24h — long enough for a peer to come back, still bounded growth.
@@ -77,7 +77,7 @@ TOPIC_REPLAY_RECENT_S = 3_600.0  # 1h, used only when replay_recent=True on subs
 class AgentBus:
     """Presence registry + durable mailbox + pub/sub + work dispatch for agents.
 
-    CONCEPT:ECO-4.84
+    CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent
 
     Singleton: use :meth:`instance`. The same object backs the ``graph_bus`` MCP tool, the
     ``/graph/bus`` REST twin, and the federation relay, so all three read/write one durable
@@ -88,7 +88,7 @@ class AgentBus:
 
     def __init__(self, engine: Any = None) -> None:
         self._engine = engine
-        # The reason the most recent :meth:`_add_node` write failed (CONCEPT:ECO-4.98).
+        # The reason the most recent :meth:`_add_node` write failed (CONCEPT:AU-ECO.bus.bus-register-under-served).
         # ``_add_node`` is best-effort and returns a bool, but a write that does NOT
         # land must never be swallowed as a benign ``ok:false`` — the caller (e.g.
         # :meth:`register`) reads this to tell a real engine/ACL denial apart from a
@@ -129,7 +129,7 @@ class AgentBus:
             self._last_write_error = ""
             return True
         except Exception as exc:  # noqa: BLE001 — durability is best-effort
-            # Record WHY so the caller can surface it (CONCEPT:ECO-4.98). A write that
+            # Record WHY so the caller can surface it (CONCEPT:AU-ECO.bus.bus-register-under-served). A write that
             # does not land — e.g. an engine/ACL denial under the served profile
             # (KG_BRAIN_ENFORCE) — must not be silently swallowed as a benign false.
             self._last_write_error = f"{type(exc).__name__}: {exc}"
@@ -166,7 +166,7 @@ class AgentBus:
             return inner if isinstance(inner, dict) else node
         return {}
 
-    # ── Identity & presence (:Agent, CONCEPT:KG-2.141) ───────────────
+    # ── Identity & presence (:Agent, CONCEPT:AU-KG.compute.user-override-prompt-library) ───────────────
     def register(
         self,
         agent_id: str,
@@ -210,7 +210,7 @@ class AgentBus:
             "agent_id": agent_id,
             "capabilities": caps,
         }
-        # A failed register must say WHY (CONCEPT:ECO-4.98) — never a silent ok:false.
+        # A failed register must say WHY (CONCEPT:AU-ECO.bus.bus-register-under-served) — never a silent ok:false.
         # The most common served-profile cause is an unattributed write under
         # KG_BRAIN_ENFORCE: the bus is fleet-coordination infrastructure, so a
         # legitimate *authenticated* session must be able to register (its identity
@@ -242,7 +242,7 @@ class AgentBus:
         return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
 
     def touch(self, agent_id: str) -> bool:
-        """Keep a participant online by merely *using* the bus (CONCEPT:ECO-4.92).
+        """Keep a participant online by merely *using* the bus (CONCEPT:AU-ECO.bus.auto-register-online-presence).
 
         Auto-registers ``agent_id`` on first reference (so a session that has the ``graph_bus``
         tool appears in the roster without an explicit ``register`` call) and refreshes
@@ -331,7 +331,7 @@ class AgentBus:
     ) -> bool:
         """Subscribe a participant to a topic (idempotent; creates the topic if new).
 
-        Late-subscriber replay (CONCEPT:ECO-4.91): a per-(agent,topic) cursor is seeded so the
+        Late-subscriber replay (CONCEPT:AU-ECO.bus.store-and-forward-log): a per-(agent,topic) cursor is seeded so the
         next ``receive`` replays the durable topic log from this subscription forward — a fresh
         subscriber does NOT get the whole history dumped on it. Pass ``replay_recent=True`` to
         backfill a bounded recent window (:data:`TOPIC_REPLAY_RECENT_S`) so a joiner can catch
@@ -386,7 +386,7 @@ class AgentBus:
         }
         return sorted(topics)
 
-    # ── Per-(agent,topic) replay cursor (CONCEPT:ECO-4.91) ────────────
+    # ── Per-(agent,topic) replay cursor (CONCEPT:AU-ECO.bus.store-and-forward-log) ────────────
     # A dedicated cursor NODE per (agent, topic) — NOT a property on the shared :Topic node:
     # the durable backend replaces a node's whole property blob on upsert, so storing each
     # agent's cursor on the topic would clobber every other agent's. Per-agent nodes are safe.
@@ -419,7 +419,7 @@ class AgentBus:
     ) -> dict[str, Any]:
         """Deliver ``payload`` to one agent (``to``) or every subscriber of ``topic``.
 
-        Governed by the ActionPolicy ``bus.send`` gate (CONCEPT:ECO-4.84). Writes one durable
+        Governed by the ActionPolicy ``bus.send`` gate (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent). Writes one durable
         ``:BusMessage`` per recipient (sharing a ``msg_group`` so a fan-out is dedupable across
         hubs by the federation relay) and links it to the recipient's :Agent node.
         """
@@ -445,7 +445,7 @@ class AgentBus:
         recipients = [to] if to else self._subscribers(topic)
         recipients = [r for r in recipients if r and r != sender]
 
-        # Store-and-forward (CONCEPT:ECO-4.91): a TOPIC message is also written to a durable
+        # Store-and-forward (CONCEPT:AU-ECO.bus.store-and-forward-log): a TOPIC message is also written to a durable
         # topic log so a peer who subscribes LATER (or was offline) still gets it on replay —
         # whether or not there are current subscribers. This is the "leave a message" path.
         stored = False
@@ -485,7 +485,7 @@ class AgentBus:
                 if topic:
                     # This current subscriber already got the message per-recipient, so advance
                     # its topic-replay cursor past this entry — the backlog replay in ``receive``
-                    # must NOT hand it the same message again (no double-delivery, CONCEPT:ECO-4.91).
+                    # must NOT hand it the same message again (no double-delivery, CONCEPT:AU-ECO.bus.store-and-forward-log).
                     self._set_topic_cursor(rcpt, topic, now)
         _metrics.BUS_MESSAGES.labels(kind=kind, outcome="delivered").inc(len(delivered))
         _metrics.BUS_SEND_DURATION.observe(time.time() - start)
@@ -504,7 +504,7 @@ class AgentBus:
         meta_json: str,
         created: float,
     ) -> bool:
-        """Persist a durable, replayable topic-log entry (CONCEPT:ECO-4.91).
+        """Persist a durable, replayable topic-log entry (CONCEPT:AU-ECO.bus.store-and-forward-log).
 
         Reuses the ``:BusMessage`` shape (so federation/group dedup keep working) with a
         ``recipient=""`` sentinel + ``kind="topic"`` marker and an ``expires_at`` for the reaper.
@@ -537,7 +537,7 @@ class AgentBus:
         new total to pass next time — the same at-least-once cursor model as
         ``agent_channel.receive``. Durable, so it works cross-host and across engine restarts.
 
-        Also replays the durable TOPIC backlog (CONCEPT:ECO-4.91) for every topic this agent is
+        Also replays the durable TOPIC backlog (CONCEPT:AU-ECO.bus.store-and-forward-log) for every topic this agent is
         subscribed to: messages stored after the agent's per-(agent,topic) cursor are returned
         once, and the cursor is advanced so each topic message is read at most once. Topic
         backlog is delivered alongside the per-recipient inbox; ``since`` governs only the latter
@@ -554,7 +554,7 @@ class AgentBus:
         msgs.sort(key=lambda m: (float(m.get("created", 0) or 0), str(m.get("id", ""))))
         new = msgs[since:] if since < len(msgs) else []
         shaped = [self._shape_message(m) for m in new]
-        # Late-subscriber topic backlog replay (CONCEPT:ECO-4.91).
+        # Late-subscriber topic backlog replay (CONCEPT:AU-ECO.bus.store-and-forward-log).
         shaped.extend(self._replay_topic_backlog(agent_id))
         shaped.sort(key=lambda m: m["created"])
         return {"messages": shaped, "cursor": len(msgs)}
@@ -577,7 +577,7 @@ class AgentBus:
 
         Per-(agent,topic) cursors make each topic message read at most once per agent; current
         subscribers already had their cursor advanced at send time, so they don't get a duplicate
-        (CONCEPT:ECO-4.91). The cursor is advanced to the newest replayed message's timestamp.
+        (CONCEPT:AU-ECO.bus.store-and-forward-log). The cursor is advanced to the newest replayed message's timestamp.
         """
         out: list[dict[str, Any]] = []
         now = time.time()
@@ -607,7 +607,7 @@ class AgentBus:
         return out
 
     def prune_topic_log(self, *, now: float | None = None) -> int:
-        """Reaper: delete durable topic-log messages whose TTL has expired (CONCEPT:ECO-4.91).
+        """Reaper: delete durable topic-log messages whose TTL has expired (CONCEPT:AU-ECO.bus.store-and-forward-log).
 
         Bounds KG growth — mirrors ``inbox.retry_unanswered`` as the bus's housekeeping pass.
         Returns the number pruned. Best-effort; a backend without ``delete_node`` is a no-op.
@@ -634,7 +634,7 @@ class AgentBus:
                 )
         if pruned:
             logger.info(
-                "[CONCEPT:ECO-4.91] bus reaper pruned %d expired topic message(s).",
+                "[CONCEPT:AU-ECO.bus.store-and-forward-log] bus reaper pruned %d expired topic message(s).",
                 pruned,
             )
         return pruned
@@ -652,7 +652,7 @@ class AgentBus:
         props.pop("id", None)
         return self._add_node(message_id, "BusMessage", props)
 
-    # ── Federation support (CONCEPT:ECO-4.86) ────────────────────────
+    # ── Federation support (CONCEPT:AU-ECO.bus.federation-relay) ────────────────────────
     def group_messages(self, group: str) -> list[dict[str, Any]]:
         """All :BusMessage rows of one ``msg_group`` (the unit a relay forwards)."""
         rows = self._query(
@@ -674,7 +674,7 @@ class AgentBus:
         topic: str,
         origin: str,
     ) -> list[str]:
-        """Apply a message forwarded from a peer hub (CONCEPT:ECO-4.86), idempotently.
+        """Apply a message forwarded from a peer hub (CONCEPT:AU-ECO.bus.federation-relay), idempotently.
 
         Reuses the origin ``msg_group`` for deterministic node ids, so a re-forward is a no-op
         upsert (dedup), and stamps ``federated_from`` so the local relay never re-forwards it
@@ -706,7 +706,7 @@ class AgentBus:
                 delivered.append(rcpt)
         return delivered
 
-    # ── Dispatch: message → fleet work (CONCEPT:ORCH-1.80) ───────────
+    # ── Dispatch: message → fleet work (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical) ───────────
     def dispatch(
         self,
         *,
@@ -775,7 +775,7 @@ class AgentBus:
         roster = self.roster()
         online = sum(1 for a in roster if a["presence"] == "online")
         topics = self._query("MATCH (t:Topic) RETURN t.name as name", {})
-        # Sample the presence gauges on the health/status read (CONCEPT:ECO-4.87).
+        # Sample the presence gauges on the health/status read (CONCEPT:AU-ECO.bus.operator-view-agentbus).
         _metrics.BUS_PARTICIPANTS.labels(status="online").set(online)
         _metrics.BUS_PARTICIPANTS.labels(status="offline").set(len(roster) - online)
         return {
@@ -795,20 +795,20 @@ def _safe_json(value: Any) -> Any:
 
 
 def swarm_topic(session_id: str | None) -> str:
-    """The shared bus topic a swarm uses to coordinate (CONCEPT:ECO-4.88)."""
+    """The shared bus topic a swarm uses to coordinate (CONCEPT:AU-ECO.bus.native-capability)."""
     return f"swarm:{session_id}" if session_id else "swarm:default"
 
 
 def bus_capability_prompt() -> str:
     """Canonical, single-source capability blurb woven into every agent's system prompt.
 
-    CONCEPT:ECO-4.88 — the AgentBus is a NATIVE capability, not an opt-in persona: the core
+    CONCEPT:AU-ECO.bus.native-capability — the AgentBus is a NATIVE capability, not an opt-in persona: the core
     orchestrator (the "graph shaper") and every spawned swarm/sub-agent inherit this so they
     know they can coordinate with peers instead of working in isolation. Kept in sync with the
     ``prompts/bus_coordinator.json`` blueprint, which is the deeper standalone profile.
     """
     return (
-        "## Agent Bus — coordinate with other agents (native capability, CONCEPT:ECO-4.84)\n"
+        "## Agent Bus — coordinate with other agents (native capability, CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent)\n"
         "You are not alone. Other AI sessions and agents — any provider, any host — share a "
         "durable **AgentBus**, and you can talk to them. Use the native bus tools (or the "
         "`graph_bus` tool with the same actions):\n"

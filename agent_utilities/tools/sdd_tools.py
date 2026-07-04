@@ -1,6 +1,6 @@
 """SDD Specialist Tools.
 
-CONCEPT:ORCH-1.3
+CONCEPT:AU-ORCH.execution.execution-budget-caps
 
 This module provides tools for Spec-Driven Development, including
 specification management, task planning, and technical approach generation.

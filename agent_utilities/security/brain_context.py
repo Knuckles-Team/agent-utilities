@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ambient actor context for Company Brain enforcement (CONCEPT:KG-2.6).
+"""Ambient actor context for Company Brain enforcement (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 The Company Brain's trust, permission, and audit layers need to know *who* is
 reading or writing. Threading an actor through hundreds of existing call sites
@@ -33,7 +33,7 @@ class ActorContext:
 
     ``authenticated`` is True only when the identity was minted server-side
     from a validated credential (JWT via the gateway middleware or a validated
-    ``KG_AUTH_TOKEN`` — CONCEPT:OS-5.14). Caller-supplied identities and the
+    ``KG_AUTH_TOKEN`` — CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Caller-supplied identities and the
     ambient :data:`SYSTEM_ACTOR` are unauthenticated; when an authenticated
     actor is in scope, caller-supplied ``_actor``/``_roles``/``_tenant``
     kwargs are ignored.

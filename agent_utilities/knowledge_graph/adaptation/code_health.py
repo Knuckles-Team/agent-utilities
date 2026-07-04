@@ -1,4 +1,4 @@
-"""CONCEPT:CE-038 — periodic code-health (liveness) sweep across workspace repos.
+"""CONCEPT:AU-KG.maintenance.periodic-code-health — periodic code-health (liveness) sweep across workspace repos.
 
 A bounded, **LLM-free** maintenance pass: locates the code-enhancer liveness
 analyzer (the deterministic dead-pathway detector) and runs it over each repo
@@ -28,14 +28,14 @@ _PER_REPO_TIMEOUT_S = 180
 # Per-repo baseline snapshots so each sweep can report *new vs. resolved* dead
 # pathways instead of a bare score — a regression is what matters, not legacy debt.
 # Stored as ``:CodeHealthBaseline`` nodes on the one epistemic-graph engine
-# authority (CONCEPT:KG-2.248) — engine-only, no local file cache.
+# authority (CONCEPT:AU-KG.maintenance.only-no-file-cache) — engine-only, no local file cache.
 _BASELINE_LABEL = "CodeHealthBaseline"
 
 
 def _baseline_backend(engine: Any) -> Any:
     """The engine-authority backend to persist baselines on.
 
-    CONCEPT:KG-2.248 — engine-only: returns the engine backend bound to ``engine``
+    CONCEPT:AU-KG.maintenance.only-no-file-cache — engine-only: returns the engine backend bound to ``engine``
     when it is engine-capable, else resolves the active engine backend (raising a
     clear error when no engine is reachable). There is no local-file fallback.
     """
@@ -48,7 +48,7 @@ def _baseline_backend(engine: Any) -> Any:
     if is_engine_authority_backend(backend):
         return backend
     return require_engine_authority_backend(
-        "code-health regression baselines (CONCEPT:KG-2.248)"
+        "code-health regression baselines (CONCEPT:AU-KG.maintenance.only-no-file-cache)"
     )
 
 
@@ -109,7 +109,7 @@ def _baseline_delta(
 ) -> dict[str, Any]:
     """Diff this run's findings against the persisted per-repo baseline, then refresh
     it. Baselines live as ``:CodeHealthBaseline`` nodes on the engine (``backend``,
-    CONCEPT:KG-2.248) — engine-only, no file cache. Returns
+    CONCEPT:AU-KG.maintenance.only-no-file-cache) — engine-only, no file cache. Returns
     ``{new, fixed, new_debt_score}`` (empty if unavailable)."""
     if baseline_mod is None:
         return {}

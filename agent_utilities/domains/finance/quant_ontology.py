@@ -1,5 +1,5 @@
 """
-Quant Ontology — CONCEPT:KG-2.6
+Quant Ontology — CONCEPT:AU-KG.research.research-pipeline-runner
 FIBO-aligned Knowledge Graph ontology for quantitative finance primitives.
 """
 

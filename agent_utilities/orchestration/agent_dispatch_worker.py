@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Stateless agent dispatch worker — the ``agent-dispatch`` consumer fleet.
 
-CONCEPT:ORCH-1.45 — Queue-driven agent dispatch with session-keyed partitions
+CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — Queue-driven agent dispatch with session-keyed partitions
 consumed by a stateless dispatch-worker fleet (sibling of the KG-2.57
 ``kg-ingest`` worker — same skeleton, same delivery contract):
 
@@ -28,7 +28,7 @@ consumed by a stateless dispatch-worker fleet (sibling of the KG-2.57
   redelivery racing the original consumer can never execute one session
   twice concurrently — the correctness contract for turn coherence.
 * **Engine clients.** Like the ingest workers, dispatch workers force
-  ``KG_DAEMON_ROLE=client`` (CONCEPT:OS-5.14 auth applies) and never contend
+  ``KG_DAEMON_ROLE=client`` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement auth applies) and never contend
   for the KG host flock.
 
 Run::
@@ -72,7 +72,7 @@ def worker_token() -> str:
 
 
 def _turn_correlation_id() -> str:
-    """Correlation id stamped on the executed Task node (CONCEPT:OS-5.11).
+    """Correlation id stamped on the executed Task node (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
     Makes ``/api/fleet/touched`` able to resolve which agent turn touched a task.
     """
@@ -96,7 +96,7 @@ def claim_goal_run(
 ) -> dict[str, Any] | None:
     """Claim one goal run; return its rehydrated spec, or ``None`` to skip.
 
-    Reads the goal's KG Loop node (CONCEPT:KG-2.78) plus the ``goal_spec``
+    Reads the goal's KG Loop node (CONCEPT:AU-KG.research.these-properties-carry) plus the ``goal_spec``
     persisted in the session's metadata (the envelope carried only the reference).
     Skips terminal/paused goals (duplicate delivery) and goals whose 'running'
     claim is FRESH (a live worker owns them); re-claims stale 'running' and
@@ -267,7 +267,7 @@ def _execute_orchestrator_turn(
     """Run the claimed orchestrator job via the existing agent execution path.
 
     The agent invocation is wrapped in a durable action keyed by ``job_id``
-    (CONCEPT:OS-5.16): the queue gives at-least-once delivery, so a redelivery
+    (CONCEPT:AU-OS.state.unified-durable-state-externalization): the queue gives at-least-once delivery, so a redelivery
     of the same turn returns the recorded result instead of re-running the
     agent (exactly-once effect), complementing the stale-claim guard above.
     """
@@ -552,7 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent-dispatch-worker",
         description=(
-            "Stateless agent dispatch worker (CONCEPT:ORCH-1.45): consumes "
+            "Stateless agent dispatch worker (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch): consumes "
             f"session-keyed agent turns (group '{DISPATCH_GROUP}') and "
             "executes them as an engine client — no KG host role required."
         ),
@@ -569,7 +569,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
 
-    # Engine-client posture (CONCEPT:KG-2.8/OS-5.9): never contend for the host
+    # Engine-client posture (CONCEPT:EG-KG.storage.nonblocking-checkpoint/OS-5.9): never contend for the host
     # flock, never spawn the consolidated daemon — this process only consumes.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
@@ -577,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = IntelligenceGraphEngine()
 
-    # Verify the client/auth path (CONCEPT:OS-5.14) BEFORE consuming: a worker
+    # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
     # that cannot reach the engine must fail loud, not claim turns and drop them.
     try:
         engine.query_cypher("MATCH (t:Task) RETURN count(t) AS c")
@@ -588,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS / GRAPH_SERVICE_TCP_ADDR / "
             "GRAPH_SERVICE_SOCKET and the shared HMAC secret "
             "(GRAPH_SERVICE_AUTH_SECRET or the host's data_dir()/engine_secret "
-            "— CONCEPT:OS-5.14).\n",
+            "— CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
         )
 
     stop = threading.Event()

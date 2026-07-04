@@ -1,10 +1,10 @@
 """LMCache / vLLM remote-backend connector for the epistemic-graph KV-cache.
 
-CONCEPT:KG-2.306 — the Python half of the EG-187 remote KV-cache contract.
+CONCEPT:AU-KG.backend.remote-kvcache-contract — the Python half of the EG-187 remote KV-cache contract.
 
 The engine exposes a shared, content-addressed KV-cache backend
-(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-186) over a small HTTP surface
-(CONCEPT:EG-187). This module drives that surface from Python so that parallel
+(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-KG.enrichment.content-address-separation) over a small HTTP surface
+(CONCEPT:EG-KG.backend.is-configured-so-co). This module drives that surface from Python so that parallel
 vLLM / LMCache workers pool their KV-cache blocks by token-hash: an identical KV
 page produced by two workers is stored **once** (dedup) and a cold worker can
 fetch a page a warm worker already computed.
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# --- Optional lmcache abstract-base detection (CONCEPT:KG-2.306) --------------
+# --- Optional lmcache abstract-base detection (CONCEPT:AU-KG.backend.remote-kvcache-contract) --------------
 # If the real lmcache package is installed we expose its abstract backend base so
 # callers can adapt; absent (the common case in this repo's test env) we fall
 # back to `object` and remain a standalone, fully-usable connector.
@@ -84,7 +84,7 @@ LMCACHE_AVAILABLE = _LMCACHE_BASE is not None
 
 
 class KvCacheStats(BaseModel):
-    """Parsed ``GET /kv/stats`` response (CONCEPT:KG-2.306).
+    """Parsed ``GET /kv/stats`` response (CONCEPT:AU-KG.backend.remote-kvcache-contract).
 
     Fields mirror the engine's occupancy + dedup counters. Unknown extra keys
     are ignored so a newer engine can add counters without breaking the client.
@@ -103,7 +103,7 @@ class KvCacheStats(BaseModel):
 class EpistemicGraphKVBackend:
     """LMCache/vLLM remote backend backed by the engine's ``/kv`` HTTP surface.
 
-    CONCEPT:KG-2.306. Implements the LMCache remote-backend shape
+    CONCEPT:AU-KG.backend.remote-kvcache-contract. Implements the LMCache remote-backend shape
     (``get`` / ``put`` / ``contains`` / ``stats``) against EG-187 with a pooled,
     keep-alive :class:`httpx.Client` (connection reuse), a short per-request
     timeout, an optional bearer token, and total graceful degradation — every
@@ -158,7 +158,7 @@ class EpistemicGraphKVBackend:
         """
         return f"/kv/{quote(str(key), safe='')}"
 
-    # -- LMCache remote-backend contract (CONCEPT:KG-2.306) -------------------
+    # -- LMCache remote-backend contract (CONCEPT:AU-KG.backend.remote-kvcache-contract) -------------------
     def get(self, key: str) -> bytes | None:
         """Fetch KV-block bytes for ``key`` (LMCache load).
 

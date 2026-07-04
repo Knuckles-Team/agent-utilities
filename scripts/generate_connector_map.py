@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the connector / ingestor / enricher inventory (CONCEPT:KG-2.9).
+"""Generate the connector / ingestor / enricher inventory (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Introspects the LIVE registries — the single sources of truth — and rewrites the
 auto-generated inventory block in

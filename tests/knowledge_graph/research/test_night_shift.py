@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unit tests for the night-shift second-brain swarm (CONCEPT:KG-2.84).
+"""Unit tests for the night-shift second-brain swarm (CONCEPT:AU-KG.research.run-one-autonomous-night).
 
 Deterministic and offline: uses ``tmp_path`` as the vault root and the default
 (or an injected) paragraph splitter — no LLM, no network.

@@ -1,4 +1,4 @@
-# Provider Prompt Adaptation (CONCEPT:ECO-4.0)
+# Provider Prompt Adaptation (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 ## Overview
 Abstracted-backend provider-aware prompt optimization with static and KG-backed rule storage. Built-in rules for OpenAI, Anthropic, Google with contextual activation. Based on Rosetta Prompt research.
@@ -9,7 +9,7 @@ Abstracted-backend provider-aware prompt optimization with static and KG-backed 
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Self-Describing Function Registry (CONCEPT:ECO-4.0)
+# Self-Describing Function Registry (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 ## Overview
 Runtime function registration with input/output JSON schemas and declarative trigger bindings (http/cron/event). Unified `discover_all_capabilities()` for AgentOS-style category collapse via KG.
@@ -20,7 +20,7 @@ Runtime function registration with input/output JSON schemas and declarative tri
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Dynamic Skill Evolution (CONCEPT:ECO-4.0)
+# Dynamic Skill Evolution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 ## Overview
 On-the-fly skill creation and synthesis to avoid catastrophic forgetting during continual learning. SkillNeologismDetector (identifies when existing skills don't cover a task), SkillFactory (creates new skills from execution traces), SkillMerger (detects overlapping skills via Jaccard similarity and consolidates). Derived from Skill Neologisms (arXiv:2605.04970v1).

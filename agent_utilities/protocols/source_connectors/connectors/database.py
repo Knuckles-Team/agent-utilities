@@ -2,15 +2,15 @@ from __future__ import annotations
 
 """Relational/NoSQL database document-source connector.
 
-CONCEPT:ECO-4.25 — reference ``Load`` + ``Poll`` connector over a database.
-CONCEPT:ECO-4.26 — incremental poll keyed on a monotonic column watermark.
+CONCEPT:AU-ECO.connector.document-source-framework — reference ``Load`` + ``Poll`` connector over a database.
+CONCEPT:AU-ECO.connector.incremental-poll-watermark — incremental poll keyed on a monotonic column watermark.
 
-Wraps the existing :class:`UniversalConnector` (CONCEPT:KG-2.9) so a database it
+Wraps the existing :class:`UniversalConnector` (CONCEPT:AU-KG.ingest.enterprise-source-extractor) so a database it
 speaks becomes a document source: a query's rows are each mapped to a
 :class:`SourceDocument` via a declarative field map. **PostgreSQL is the proven
 native path** — other ``UniversalConnector`` dialects (MySQL/MariaDB, MSSQL,
 Oracle, Mongo) require their driver installed in-process and are better served
-through the :mod:`mcp_tool` source (CONCEPT:KG-2.59) over sql-mcp, which owns
+through the :mod:`mcp_tool` source (CONCEPT:AU-KG.ingest.mcp-tool-connector) over sql-mcp, which owns
 the dialect drivers, the read-only gate, and the row caps. No new driver
 dependency is added here; ``UniversalConnector`` lazily imports the appropriate
 driver and raises a clear error if it is missing.
@@ -39,7 +39,7 @@ from ..registry import register_source
 class DatabaseConnector(LoadConnector, PollConnector):
     """Map a database query's rows to documents.
 
-    CONCEPT:ECO-4.25.
+    CONCEPT:AU-ECO.connector.document-source-framework.
 
     Config:
         dsn: Connection string (e.g. ``postgresql://user:pw@host/db``,
@@ -138,7 +138,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Return rows newer than the watermark; advance it to the new max.
 
-        CONCEPT:ECO-4.26 — when ``watermark_param`` is set the query binds the
+        CONCEPT:AU-ECO.connector.incremental-poll-watermark — when ``watermark_param`` is set the query binds the
         prior watermark (server-side filtering); otherwise the full result is
         filtered in-memory by ``updated_field``. The watermark advances to the max
         ``updated_at`` observed, so a re-poll with no new rows yields nothing.

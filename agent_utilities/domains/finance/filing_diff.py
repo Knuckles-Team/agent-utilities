@@ -1,5 +1,5 @@
 """
-Year-over-Year Filing Diff — CONCEPT:KG-2.6
+Year-over-Year Filing Diff — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Given this-year and last-year Risk Factors / MD&A text from two annual filings,
 produce a structured "what is NEW or REMOVED, ignore boilerplate" diff and an

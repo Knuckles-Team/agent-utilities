@@ -2,7 +2,7 @@
 
 Plan 03 Step 5 — unify the ExecutionEngine contract.
 
-CONCEPT:ORCH-1.33 — additive multi-CLI adapter dispatch. When a manifest requests an external runtime
+CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch — additive multi-CLI adapter dispatch. When a manifest requests an external runtime
 backend (``manifest.metadata["runtime"] = "<adapter_id>"`` or an ``AgentSpec`` whose ``model_id`` is
 ``"adapter:<id>"``), the engine resolves the adapter from the :class:`AdapterRegistry`, spawns it via
 the adapter executor, and records the producing adapter as provenance on the result. When no runtime
@@ -88,7 +88,7 @@ class UnifiedExecutionEngine(ExecutionEngine):
             text, success = str(exc), False
 
         telemetry: dict[str, Any] = {"runtime_adapter": runtime}
-        # CONCEPT:AHE-3.13 — pre-emit quality gate on the live execution path (default off; warn/block).
+        # CONCEPT:AU-AHE.harness.pre-emit-quality-gate — pre-emit quality gate on the live execution path (default off; warn/block).
         meta = getattr(manifest, "metadata", {}) or {}
         gate_mode = meta.get("quality_gate")
         if success and gate_mode in {"warn", "block"}:

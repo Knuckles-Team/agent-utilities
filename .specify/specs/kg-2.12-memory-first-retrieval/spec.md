@@ -5,7 +5,7 @@
 ## Pre-Flight Checklist
 - [x] Design exists; KG-nearest-concepts table completed.
 - [x] Extension target identified (KG-2.3, similarity 0.88 ≥ 0.70); reuses AHE-3.4, KG-2.6, ORCH-1.27.
-- [x] New CONCEPT:KG-2.12 justified as the memory-first retrieval *policy* atop the KG-2.3 retriever.
+- [x] New CONCEPT:AU-KG.retrieval.memory-first-retrieval justified as the memory-first retrieval *policy* atop the KG-2.3 retriever.
 - [x] Wire-First confirmed: `graph_search → search_hybrid → plan_and_retrieve → retrieve_hybrid` = 3 hops.
 
 ## User Stories

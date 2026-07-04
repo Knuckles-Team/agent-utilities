@@ -1,4 +1,4 @@
-"""Agent-source registry — the pluggable parser catalog (CONCEPT:ECO-4.38).
+"""Agent-source registry — the pluggable parser catalog (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 Mirrors agentsview ``internal/parser/types.go``: one ``AgentSource`` per agent
 declaring where its session logs live and how to parse them. The registry powers

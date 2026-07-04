@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the measured-lift assimilation benchmark suite (CONCEPT:AHE-3.39).
+"""Tests for the measured-lift assimilation benchmark suite (CONCEPT:AU-AHE.optimization.real-optimization-metric).
 
 Each ``bench_*`` must return a :class:`BenchmarkResult` with the right metric and
 ``claim_reproduced is True`` under the fixed seed (the mechanism beats its

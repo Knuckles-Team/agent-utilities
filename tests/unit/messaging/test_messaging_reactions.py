@@ -1,7 +1,7 @@
-"""Tests for the messaging RENDERER of core reactions (CONCEPT:ECO-4.81).
+"""Tests for the messaging RENDERER of core reactions (CONCEPT:AU-ECO.messaging.messaging-as-renderer).
 
 Messaging no longer owns the reaction logic — it renders the core orchestrator's
-``AgentReaction`` (CONCEPT:ECO-4.79). These tests prove the renderer contract: a core
+``AgentReaction`` (CONCEPT:AU-ECO.reactions.emitted-alongside-reply). These tests prove the renderer contract: a core
 reaction decision lands on a backend's ``send_reaction``, end-to-end.
 """
 

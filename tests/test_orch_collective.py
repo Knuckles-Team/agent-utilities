@@ -1,5 +1,5 @@
 """Multi-agent collective: market allocation, emergent specialization, hierarchical
-coordination (CONCEPT:ORCH-1.51, ORCH-1.52, ORCH-1.53).
+coordination (CONCEPT:AU-ORCH.routing.virtual-agent-economy-task, CONCEPT:AU-ORCH.routing.emergent-specialization-discovery-pass, CONCEPT:AU-ORCH.dispatch.hierarchical-coordination).
 
 The SCALE stage of the self-improving substrate: a market self-organizes who does what,
 specialization is discovered from the task stream, and coordination federates so a
@@ -18,7 +18,7 @@ from agent_utilities.graph.hierarchical_coordination import (
 from agent_utilities.graph.specialization_discovery import SpecializationDiscovery
 from agent_utilities.orchestration.agent_market import Bid, MarketAllocator
 
-pytestmark = pytest.mark.concept("ORCH-1.51")
+pytestmark = pytest.mark.concept("AU-ORCH.routing.virtual-agent-economy-task")
 
 
 class TestMarket:
@@ -63,7 +63,7 @@ class TestMarket:
         assert a.scarcity(allocs) == 6.0
 
 
-@pytest.mark.concept("ORCH-1.52")
+@pytest.mark.concept("AU-ORCH.routing.emergent-specialization-discovery-pass")
 class TestSpecialization:
     def test_proposes_specialist_for_uncovered_niche(self):
         # a tight cluster of 3 tasks pointing in a direction no archetype covers
@@ -84,7 +84,7 @@ class TestSpecialization:
         assert SpecializationDiscovery(min_cluster=3).discover(tasks, []) == []
 
 
-@pytest.mark.concept("ORCH-1.53")
+@pytest.mark.concept("AU-ORCH.dispatch.hierarchical-coordination")
 class TestHierarchicalCoordination:
     def test_federated_majority(self):
         # 3 neighborhoods → reps [x, y, y] → unambiguous majority y

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:OS-5.1 — Permissions Kernel (Identity-Based Governance).
+"""CONCEPT:AU-OS.identity.permissions-kernel — Permissions Kernel (Identity-Based Governance).
 
 Shifts agent security from tool-centric ("is this tool dangerous?") to
 identity-centric ("which agent is requesting, and do they have permission?").
@@ -21,12 +21,12 @@ Architecture:
       3. Falls back to pattern-based ``tool_guard.py`` for unmatched tools
 
 Integrates with:
-    - CONCEPT:OS-5.1 (Secrets & Auth): HMAC key from Secrets Engine
-    - CONCEPT:ECO-4.0 (Agent Tool System): Tool Guard pipeline integration
-    - CONCEPT:OS-5.2 (Cognitive Scheduler): Priority escalation for CRITICAL roles
+    - CONCEPT:AU-OS.identity.permissions-kernel (Secrets & Auth): HMAC key from Secrets Engine
+    - CONCEPT:AU-ECO.messaging.native-backend-abstraction (Agent Tool System): Tool Guard pipeline integration
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Cognitive Scheduler): Priority escalation for CRITICAL roles
     - ``systems-manager``: Eunomia RBAC enforcement
 
-See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 """
 
 
@@ -174,7 +174,7 @@ DEFAULT_POLICIES: list[AgentPolicy] = [
 class PermissionsKernel:
     """Identity-based permissions kernel for agent governance.
 
-    CONCEPT:OS-5.1 — Permissions Kernel
+    CONCEPT:AU-OS.identity.permissions-kernel — Permissions Kernel
 
     Manages the lifecycle of agent identities and enforces role-based
     tool access policies.  Integrates with the existing ``tool_guard.py``

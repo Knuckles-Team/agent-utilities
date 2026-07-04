@@ -27,7 +27,7 @@ class IntelligencePipeline:
         self.config = config
         # An isolated tenant graph keeps a bulk-ingest subprocess's scratch
         # symbol graph off the shared "__commons__" tenant — avoids saturating the
-        # single daemon when many repos ingest concurrently. (CONCEPT:KG-2.7)
+        # single daemon when many repos ingest concurrently. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         self.graph = GraphComputeEngine(graph_name=graph_name)
         self.graph_name = graph_name
         self.metadata = RegistryGraphMetadata()

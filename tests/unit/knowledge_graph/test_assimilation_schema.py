@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Schema foundation for the graph-native assimilation engine (VU-1).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -12,7 +12,7 @@ from agent_utilities.models.knowledge_graph import (
     SDDFeatureNode,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 def test_sdd_feature_node_type_registered():
@@ -47,7 +47,7 @@ def test_sdd_feature_node_roundtrip():
         id="sddf:1",
         name="executable-rag planner",
         sdd_feature_id="b2-03-planner",
-        concept_ids=["KG-2.12"],
+        concept_ids=["AU-KG.retrieval.memory-first-retrieval"],
         research_sources=["paper:pyrag"],
         sdd_path=".specify/specs/...",
         codebase="agent-utilities",
@@ -57,4 +57,4 @@ def test_sdd_feature_node_roundtrip():
     dumped = node.model_dump()
     assert dumped["type"] == "sdd_feature"
     assert dumped["sdd_feature_id"] == "b2-03-planner"
-    assert dumped["concept_ids"] == ["KG-2.12"]
+    assert dumped["concept_ids"] == ["AU-KG.retrieval.memory-first-retrieval"]

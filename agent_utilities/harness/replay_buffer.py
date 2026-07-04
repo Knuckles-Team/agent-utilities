@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Prioritized replay buffer for sample-efficient self-evolution (CONCEPT:AHE-3.0).
+"""Prioritized replay buffer for sample-efficient self-evolution (CONCEPT:AU-AHE.harness.harness-evolution).
 
 Distilled from MEMO (`.specify/specs/research-evolution-20260606/` plan b4-03,
 F4 "prioritized replay of decisive states"): a capacity-bounded buffer of past

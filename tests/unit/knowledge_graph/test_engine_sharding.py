@@ -1,4 +1,4 @@
-"""Tenant-partitioned engine sharding tests (CONCEPT:KG-2.58 / OS-5.28).
+"""Tenant-partitioned engine sharding tests (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw / OS-5.28).
 
 Covers HRW routing determinism (and parity with ``epistemic_graph.pool``'s
 ``ShardRouter``), single-endpoint back-compat, the tenant→graph naming
@@ -26,7 +26,7 @@ from agent_utilities.knowledge_graph.core.shard_topology import (
 )
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
-pytestmark = pytest.mark.concept("KG-2.58")
+pytestmark = pytest.mark.concept("AU-KG.sharding.tenant-partitioned-sharding-hrw")
 
 THREE_SHARDS = ["tcp://shard-a:9100", "tcp://shard-b:9100", "tcp://shard-c:9100"]
 
@@ -299,7 +299,7 @@ def test_local_endpoint_detection():
 
 
 # ---------------------------------------------------------------------------
-# Topology visibility (CONCEPT:OS-5.28)
+# Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 # ---------------------------------------------------------------------------
 
 
@@ -371,7 +371,7 @@ def test_unified_daemon_status_includes_shards(monkeypatch):
 
 
 def test_gateway_daemon_shards_route(monkeypatch):
-    """The dashboard router exposes the shard topology (CONCEPT:OS-5.28)."""
+    """The dashboard router exposes the shard topology (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)."""
     import asyncio
 
     from agent_utilities.gateway import api as gateway_api

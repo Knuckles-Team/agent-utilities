@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Workspace Synchronization Phase (Phase 14).
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Uses the repository-manager (as a library or MCP) to ensure all projects
 defined in workspace.yml are cloned and available, then triggers graph ingestion.

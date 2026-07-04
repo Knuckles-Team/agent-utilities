@@ -1,4 +1,4 @@
-"""Request-path tenant isolation through query_cypher (CONCEPT:KG-2.60).
+"""Request-path tenant isolation through query_cypher (CONCEPT:AU-KG.compute.data-is-private-its).
 
 Proves the MCP/orchestration read chokepoint (IntelligenceGraphEngine.query_cypher)
 applies tenant scope() + owner/scope visibility on a shared backend graph, and

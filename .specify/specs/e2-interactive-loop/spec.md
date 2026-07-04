@@ -1,13 +1,13 @@
-# Spec: EPIC 2 — Interactive Execution Loop (ORCH-1.35 + sidecar isolation)
+# Spec: EPIC 2 — Interactive Execution Loop (AU-ORCH.execution.held-turn-registry-mid + sidecar isolation)
 
 > Design: `.specify/design/orch-1.35-midturn-tool-result-injection/design.md`. Depends on EPIC 1.
 > Item 15 (OS-5.11 run-scoped token) lands with this epic.
 
 ## Pre-Flight Checklist
-- [x] Design exists; KG-nearest table (ORCH-1.35 max 0.64 vs ORCH-1.3) <0.70 (provisional — confirm live).
+- [x] Design exists; KG-nearest table (AU-ORCH.execution.held-turn-registry-mid max 0.64 vs ORCH-1.3) <0.70 (provisional — confirm live).
 - [x] Extension points: `graph/hsm.py` (new `WAITING_HOST`), `server/routers/human.py`, `core/execution/engine.py`.
 - [x] Wire-First: ≤1 hop from `/api/runs/{id}/tool-result`.
-- [ ] Live `kg_search`: if ORCH-1.35 ≥0.70 vs ORCH-1.3, downgrade to augmentation.
+- [ ] Live `kg_search`: if AU-ORCH.execution.held-turn-registry-mid ≥0.70 vs ORCH-1.3, downgrade to augmentation.
 
 ## User Stories
 ### US-1 — Hold a turn open on tool_use
@@ -31,7 +31,7 @@
 - **AC8**: `mint_token(actor, run)` produces a token bound to runId/project/endpoints/ops/expiry; `tool_guard.validate` rejects expired/out-of-scope, passes in-scope (unit).
 
 ## Non-Functional Requirements
-- `@pytest.mark.concept(id="ORCH-1.35")` / `("OS-5.11")`; no network; ≤60s.
+- `@pytest.mark.concept(id="AU-ORCH.execution.held-turn-registry-mid")` / `("OS-5.11")`; no network; ≤60s.
 - Non-interactive runs never enter `WAITING_HOST` (zero regression).
 - Security tests: scope-escape, expiry, revocation for OS-5.11.
 - Docs: `docs/pillars/1_graph_orchestration/ORCH-1.35.md`, `docs/pillars/5_agent_os_infrastructure/OS-5.11.md`; concepts.yaml regen.

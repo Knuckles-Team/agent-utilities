@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Direct Corpus Interaction — literal/regex retrieval over raw documents.
 
-CONCEPT:KG-2.12 — Memory-First Retrieval (direct-corpus mode)
+CONCEPT:AU-KG.retrieval.memory-first-retrieval — Memory-First Retrieval (direct-corpus mode)
 
 A precise, deterministic retrieval mode that searches document *text* directly
 (grep/read) instead of (or alongside) dense vector similarity. Distilled from the

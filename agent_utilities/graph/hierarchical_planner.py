@@ -26,7 +26,7 @@ Extracted from the monolithic steps.py for maintainability.
 - ``memory_selection_step``: Workspace memory filtering and gap detection.
 - ``fetch_epistemic_context``: Aggregate workspace metadata helper.
 """
-# CONCEPT:ECO-4.0 — Planner Step
+# CONCEPT:AU-ORCH.planning.planner-step — Planner Step
 
 import asyncio
 import logging
@@ -131,7 +131,7 @@ async def researcher_step(
 
 
 def _plan_output_type(model: Any) -> Any:
-    """FU-2 (CONCEPT:ORCH-1.37) — choose how the planner emits its structured GraphPlan.
+    """FU-2 (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid) — choose how the planner emits its structured GraphPlan.
 
     Models flagged ``supports_json: false`` (e.g. the deployed qwen pool) are unreliable at
     schema-constrained/tool-JSON output and frequently emit an EMPTY plan. For those, wrap the
@@ -188,7 +188,7 @@ async def planner_step(
     planner_prompt = load_specialized_prompts("planner")
     agent_context = await fetch_epistemic_context()
 
-    # FU-4 (CONCEPT:ORCH-1.37) — bound the accumulated re-plan context so it can't grow
+    # FU-4 (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid) — bound the accumulated re-plan context so it can't grow
     # unbounded across attempts and overflow the model window (we observed 32K-limit 400s).
     _MAX_RESULTS_ENTRIES = 5
     _MAX_RESULTS_CHARS = 2500
@@ -229,7 +229,7 @@ async def planner_step(
     # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
     # adapt the graph context so planner tool calls don't fail on GraphDeps.
     _planner_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
-    # CONCEPT:ORCH-1.37 (perf) — bound planner requests (default pydantic-ai cap is 50).
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — bound planner requests (default pydantic-ai cap is 50).
     from pydantic_ai.usage import UsageLimits
 
     _planner_usage_limits = UsageLimits(
@@ -267,13 +267,13 @@ async def planner_step(
         toolsets=domain_toolsets,
         system_prompt=(
             f"{planner_prompt}\n\n"
-            f"### WIDE-SEARCH ORCHESTRATION (CONCEPT:ORCH-1.1)\n"
+            f"### WIDE-SEARCH ORCHESTRATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)\n"
             f"If the query requests extracting a large table of data across many entities "
             f"(e.g., 'Web2WideSearch'), decompose the extraction into discrete batches. Emit "
             f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
             f"a specific partition of the data in its 'refined_subtask'. Set 'parallel=True' "
             f"and configure 'access_list' to share the shared workboard context.\n\n"
-            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.3)\n"
+            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:AU-ORCH.execution.execution-budget-caps)\n"
             f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
             f"and delegate the detailed refinement to the executing adaptive_agent_router. This saves "
             f"upfront planning tokens and allows adaptive_agent_router to adapt dynamically.\n\n"
@@ -293,7 +293,7 @@ async def planner_step(
     rlm_config = RLMConfig()
 
     try:
-        # CONCEPT:ORCH-1.1 — LATS implementation fallback for complex failures
+        # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — LATS implementation fallback for complex failures
         if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
             logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
             lats_env = LATSPlanner(
@@ -439,7 +439,7 @@ async def fetch_epistemic_context() -> str:
     except Exception:
         git_status = "Not a git repository or git not installed."
 
-    # 3. KG-based context from IntelligenceGraphEngine (CONCEPT:KG-2.3)
+    # 3. KG-based context from IntelligenceGraphEngine (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
     kg_context = ""
     try:
         from ..knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -508,7 +508,7 @@ async def architect_step(
         return "error_recovery"
 
 
-# CONCEPT:ORCH-1.68 — the workspace-doc inventory is static within a process; cache it per
+# CONCEPT:AU-ORCH.execution.direct-completion-shape — the workspace-doc inventory is static within a process; cache it per
 # root so the scan runs ONCE, not on every full-graph turn.
 _DOC_SCAN_CACHE: dict[str, list[str]] = {}
 
@@ -555,7 +555,7 @@ _KG_MEMORY_RESULT_CAP = 20
 def _scan_workspace_docs(root: str) -> list[str]:
     """Inventory workspace markdown docs as memory lines — pruned, capped, off the loop.
 
-    CONCEPT:ORCH-1.68 — this replaces an unbounded ``Path(root).rglob("*.md")`` +
+    CONCEPT:AU-ORCH.execution.direct-completion-shape — this replaces an unbounded ``Path(root).rglob("*.md")`` +
     ``read_text`` over the ENTIRE workspace (which descended into ``.venv``/``node_modules``/
     ``.git`` and read ~1000 files, ~90 s, on the event loop). ``os.walk`` with IN-PLACE dir
     pruning never descends into the ignored trees, and the scan stops at ``_DOC_SCAN_CAP``.
@@ -586,7 +586,7 @@ def _scan_workspace_docs(root: str) -> list[str]:
 
 
 def _load_selected_docs(root: str, selected: list[str]) -> list[str]:
-    """Load the content of the selected memory docs in ONE pruned walk (CONCEPT:ORCH-1.68).
+    """Load the content of the selected memory docs in ONE pruned walk (CONCEPT:AU-ORCH.execution.direct-completion-shape).
 
     This replaces an unbounded ``Path(root).rglob(filename)`` PER selected file; it walks the
     tree once with the same in-place dir pruning and reads only the wanted filenames, stopping
@@ -647,7 +647,7 @@ async def memory_selection_step(
     root = ctx.state.project_root or os.getcwd()
 
     # Phase 1: Workspace documentation inventory — pruned/capped/cached and run OFF the event
-    # loop (CONCEPT:ORCH-1.68). Cached per root because the inventory is static within a
+    # loop (CONCEPT:AU-ORCH.execution.direct-completion-shape). Cached per root because the inventory is static within a
     # process; the first turn pays the (bounded) scan, later turns read memory.
     cached = _DOC_SCAN_CACHE.get(root)
     if cached is None:
@@ -656,7 +656,7 @@ async def memory_selection_step(
     memories = list(cached)
 
     # Phase 2: Knowledge Graph memory lookup — bounded single pass, OFF the event loop
-    # (CONCEPT:ORCH-1.68). The previous version was O(query_words × all_KG_nodes) with a
+    # (CONCEPT:AU-ORCH.execution.direct-completion-shape). The previous version was O(query_words × all_KG_nodes) with a
     # per-node property fetch ON the loop; this visits each node at most once against the whole
     # word set, caps both the nodes scanned and the memories returned, and runs in a thread.
     if ctx.deps.knowledge_engine:
@@ -826,7 +826,7 @@ logger = logging.getLogger(__name__)
 
 
 class LATSPlanner:
-    """CONCEPT:ORCH-1.1 — Language Agent Tree Search (LATS) Planner.
+    """CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Language Agent Tree Search (LATS) Planner.
     Uses Monte Carlo Tree Search to explore multiple execution plans,
     simulate their outcomes, and select the highest-scoring trajectory
     when the standard single-shot planner fails.
@@ -861,7 +861,7 @@ class LATSPlanner:
 
         results = await gather_with_resilience(tasks, label="mcts_simulation")
 
-        # CONCEPT:AHE-3.4: Memory-Aware Test-Time Scaling
+        # CONCEPT:AU-AHE.rlm.memory-aware-test-time-scaling: Memory-Aware Test-Time Scaling
         # Distill memory from parallel scaling trajectories before evaluation
         try:
             from .verification import parallel_trajectory_distiller
@@ -920,7 +920,7 @@ class LATSPlanner:
 # === From recursive_executor.py ===
 
 #!/usr/bin/python
-"""CONCEPT:ORCH-1.1 — Recursive Graph Orchestration.
+"""CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Recursive Graph Orchestration.
 
 Enables the graph orchestrator to spawn a nested ``run_graph()`` call as a
 specialist step. The inner graph receives the parent's ``GraphState``
@@ -932,10 +932,10 @@ Inspired by the RL Conductor's self-referential recursive topologies
 a worker LLM and adaptively revise its coordination strategy at test-time.
 
 This composes naturally with:
-    - CONCEPT:ORCH-1.1 (RLM): Both provide recursive execution, but RLM is
+    - CONCEPT:AU-ORCH.planning.recursion-nesting-depth (RLM): Both provide recursive execution, but RLM is
       sub-shell-level while this is graph-level.
-    - CONCEPT:ORCH-1.0 (Graph Orchestration): Reuses the existing ``run_graph`` pipeline.
-    - CONCEPT:ORCH-1.1 (Conductor Workflow): The recursive call gets a refined
+    - CONCEPT:AU-ORCH.execution.inject-signal-board-observations (Graph Orchestration): Reuses the existing ``run_graph`` pipeline.
+    - CONCEPT:AU-ORCH.planning.recursion-nesting-depth (Conductor Workflow): The recursive call gets a refined
       subtask explaining what the parent tried and what needs correction.
 
 Controlled by:
@@ -958,7 +958,7 @@ Usage::
     )
     result = await execute_recursive_graph(ctx, graph_deps)
 
-See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.1
+See docs/pillars/1_graph_orchestration.md §CONCEPT:AU-ORCH.planning.recursion-nesting-depth
 """
 
 
@@ -981,7 +981,7 @@ MAX_RECURSION_DEPTH = int(config.max_recursion_depth or "2")
 class RecursiveContext:
     """Parent state snapshot for recursive graph orchestration.
 
-    CONCEPT:ORCH-1.1 — Recursive Graph Orchestration
+    CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Recursive Graph Orchestration
 
     Carries the parent graph's context into the inner graph so it can
     understand what was tried, what failed, and devise a corrected strategy.
@@ -1011,7 +1011,7 @@ async def execute_recursive_graph(
 ) -> str:
     """Spawn a nested graph execution with parent context.
 
-    CONCEPT:ORCH-1.1 — Recursive Graph Orchestration
+    CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Recursive Graph Orchestration
 
     Creates a new ``GraphState`` seeded with the parent's failed context
     as ``exploration_notes``, then runs the full graph pipeline.  The inner
@@ -1036,7 +1036,7 @@ async def execute_recursive_graph(
         )
 
     logger.info(
-        "[CONCEPT:ORCH-1.1] Spawning recursive graph execution (depth=%d/%d)",
+        "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Spawning recursive graph execution (depth=%d/%d)",
         context.recursion_depth,
         MAX_RECURSION_DEPTH,
     )
@@ -1059,7 +1059,7 @@ async def execute_recursive_graph(
             val_str = str(value)[:500]
             parent_context_notes += f"- {key}: {val_str}\n"
 
-    # CONCEPT:ORCH-1.1 — Generate a refined subtask for the inner graph
+    # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Generate a refined subtask for the inner graph
     refined_query = (
         f"The previous orchestration attempt failed with error: "
         f"'{context.parent_error[:300]}'. "
@@ -1104,7 +1104,7 @@ async def execute_recursive_graph(
         output = str(result)
 
     logger.info(
-        "[CONCEPT:ORCH-1.1] Recursive graph execution completed (depth=%d). Output length: %d",
+        "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Recursive graph execution completed (depth=%d). Output length: %d",
         context.recursion_depth,
         len(output),
     )
@@ -1115,7 +1115,7 @@ async def execute_recursive_graph(
 # === From evolutionary_aggregation.py ===
 
 #!/usr/bin/python
-"""CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine.
+"""CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine.
 
 Group-level diversity scoring, three-tier aggregation, and convergence-
 aware early stopping for specialist outputs.  Adapted from the Squeeze
@@ -1134,12 +1134,12 @@ Three-tier aggregation strategy:
                           diversity groups requiring reasoning.
 
 Integrates with:
-    - CONCEPT:ORCH-1.2 (Global Workspace Attention): Proposals and confidence scores.
-    - CONCEPT:OS-5.2 (Cognitive Scheduler): ConvergenceMonitor for early stopping.
-    - CONCEPT:ORCH-1.2 (Confidence-Gated Router): Feeds group confidence back as a
+    - CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (Global Workspace Attention): Proposals and confidence scores.
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Cognitive Scheduler): ConvergenceMonitor for early stopping.
+    - CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (Confidence-Gated Router): Feeds group confidence back as a
       routing signal.
 
-See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.2
+See docs/pillars/1_graph_orchestration.md §CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 """
 
 
@@ -1178,7 +1178,7 @@ class AggregationStrategy(StrEnum):
 class GroupFitness(BaseModel):
     """Fitness metrics for a group of specialist proposals.
 
-    CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine
+    CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine
 
     Implements the group-level signals from Squeeze Evolve §5.1:
     - Group Confidence (GC): Mean confidence across proposals in the group
@@ -1219,7 +1219,7 @@ class GroupFitness(BaseModel):
 class ConvergenceMonitor:
     """Tracks diversity across iterations for early stopping.
 
-    CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine
+    CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine
 
     When diversity drops below ``convergence_threshold`` for
     ``patience`` consecutive iterations, signals that the evolutionary
@@ -1263,7 +1263,7 @@ class ConvergenceMonitor:
         converged = self._consecutive_low >= self.patience
         if converged:
             logger.info(
-                "[CONCEPT:ORCH-1.2] Convergence detected: diversity %.3f < %.3f "
+                "[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Convergence detected: diversity %.3f < %.3f "
                 "for %d consecutive iterations — recommending early stop.",
                 diversity_score,
                 self.convergence_threshold,
@@ -1288,12 +1288,12 @@ class ConvergenceMonitor:
 class EvolutionaryAggregator:
     """Evolutionary aggregation engine for specialist outputs.
 
-    CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine
+    CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine
 
     Implements the core Squeeze Evolve evolutionary loop adapted for
     agent orchestration:
 
-    1. Collects scored proposals from WorkspaceAttention (CONCEPT:ORCH-1.2).
+    1. Collects scored proposals from WorkspaceAttention (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation).
     2. Groups proposals and computes group fitness (GC, D).
     3. Routes each group to the appropriate aggregation strategy.
     4. Detects convergence (diversity collapse) for early stopping.

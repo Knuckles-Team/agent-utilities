@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Versioned Order System."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Versioned Order System."""
 
 import pytest
 

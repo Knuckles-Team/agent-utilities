@@ -1,4 +1,4 @@
-"""Loop engine — develop/skill execution stages + unified dispatch (CONCEPT:KG-2.78 L3)."""
+"""Loop engine — develop/skill execution stages + unified dispatch (CONCEPT:AU-KG.research.these-properties-carry L3)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class _Engine:
 
 
 class _CASBackend:
-    """Engine backend exposing a controllable compare-and-set (CONCEPT:KG-2.141)."""
+    """Engine backend exposing a controllable compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library)."""
 
     def __init__(self, win: bool):
         self._win = win
@@ -108,7 +108,7 @@ def test_skill_without_ref_fails():
     assert eng.nodes["loop:skill:z"]["status"] == "failed"
 
 
-# ── CAS-arbitrated execute claim (CONCEPT:KG-2.141) ──────────────────────────
+# ── CAS-arbitrated execute claim (CONCEPT:AU-KG.compute.user-override-prompt-library) ──────────────────────────
 
 
 def test_execute_claims_via_cas_when_backend_supports_it():

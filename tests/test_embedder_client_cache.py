@@ -1,4 +1,4 @@
-"""Process-scoped embedder-client cache (CONCEPT:KG-2.294).
+"""Process-scoped embedder-client cache (CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
 ``create_embedding_model`` used to construct a brand-new LlamaIndex embedding
 client (httpx client + TLS context + tokenizer) on EVERY call. On the ingest hot

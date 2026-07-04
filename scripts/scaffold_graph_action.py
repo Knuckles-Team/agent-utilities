@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Scaffold a new graph_* tool action — kill the 6-file wiring drudgery (CONCEPT:OS-5.50).
+"""Scaffold a new graph_* tool action — kill the 6-file wiring drudgery (CONCEPT:AU-OS.deployment.os-2).
 
 Adding one action means touching ~6 places (dispatch branch, REST twin, route,
 manifest, description, test) + 3 generators. This emits ready-to-paste snippets for

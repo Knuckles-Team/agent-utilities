@@ -30,7 +30,7 @@ from .graph_models import (
     ValidationResult,
 )
 from .horizon_curriculum import (
-    # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
+    # CONCEPT:AU-AHE.reward.horizon-task-curriculum — Horizon-Aware Task Curriculum
     CurriculumStage,
     HorizonCurriculum,
     HorizonStageConfig,
@@ -52,13 +52,13 @@ from .hsm import (
     static_route_query,
 )
 from .kg_graph_factory import (
-    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
+    # KG-Driven Graph Materialization (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
     KGGraphResult,
     KGMaterializedStep,
     build_pydantic_graph_from_kg,
 )
 from .manifest_generators import (
-    # CONCEPT:ORCH-1.8 — Manifest Generators
+    # CONCEPT:AU-ORCH.execution.manifest-generators — Manifest Generators
     manifest_for_enterprise,
     manifest_from_department,
     manifest_from_planner,
@@ -83,12 +83,12 @@ from .reactive import (
     BehaviorDispatcher,
     BudgetGuard,
     BudgetTrippedException,
-    # CONCEPT:ORCH-1.10 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    # CONCEPT:AU-ORCH.reactive.event-sourcing-ledger — Graph-Native Reactive Event Sourcing and OS Guardrails
     EventLedger,
     reactive_behavior,
 )
 from .reward_decomposition import (
-    # CONCEPT:AHE-3.1 — Decomposed Reward Signals
+    # CONCEPT:AU-AHE.reward.decomposed-reward-framework — Decomposed Reward Signals
     DecomposedRewardRecord,
     RewardDecomposer,
     StepOutcome,
@@ -116,7 +116,7 @@ __all__ = [
     "run_graph",
     "run_graph_stream",
     "validate_graph",
-    # CONCEPT:ORCH-1.10 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    # CONCEPT:AU-ORCH.reactive.event-sourcing-ledger — Graph-Native Reactive Event Sourcing and OS Guardrails
     "EventLedger",
     "BehaviorDispatcher",
     "reactive_behavior",
@@ -165,21 +165,21 @@ __all__ = [
     "ACPEventHandler",
     # Mermaid
     "get_graph_mermaid",
-    # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
+    # CONCEPT:AU-AHE.reward.horizon-task-curriculum — Horizon-Aware Task Curriculum
     "HorizonCurriculum",
     "HorizonStageConfig",
     "CurriculumStage",
     "PromotionPolicy",
     "MacroAction",
     "SubgoalCheckpoint",
-    # CONCEPT:AHE-3.1 — Decomposed Reward Signals
+    # CONCEPT:AU-AHE.reward.decomposed-reward-framework — Decomposed Reward Signals
     "RewardDecomposer",
     "DecomposedRewardRecord",
     "StepReward",
     "TrajectoryReward",
     "StepOutcome",
     "TrajectoryOutcome",
-    # CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+    # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
     "build_pydantic_graph_from_kg",
     "KGGraphResult",
     "KGMaterializedStep",

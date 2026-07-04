@@ -1,4 +1,4 @@
-"""Retrieval-time context budget + task-scoped retrieval tests (CONCEPT:KG-2.1)."""
+"""Retrieval-time context budget + task-scoped retrieval tests (CONCEPT:AU-KG.memory.tiered-memory-caching)."""
 
 from __future__ import annotations
 

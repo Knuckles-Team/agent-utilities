@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.26 — Trade-Journal Bias Auditor and Shadow Account
+"""CONCEPT:AU-KG.domains.trade-journal-bias-auditor — Trade-Journal Bias Auditor and Shadow Account
 
 Borrowed from Vibe-Trading's *shadow account / trade-journal* skill, but made a
 first-class, **queryable learning signal** rather than a one-shot report.
@@ -378,7 +378,7 @@ class TradeJournalAuditor:
                     "total_pnl": profile.total_pnl,
                     "max_drawdown": profile.max_drawdown,
                     "total_roundtrips": profile.total_roundtrips,
-                    "concept": "KG-2.26",
+                    "concept": "AU-KG.domains.trade-journal-bias-auditor",
                 },
             )
         ]
@@ -394,7 +394,7 @@ class TradeJournalAuditor:
                         "severity": b.severity,
                         "metric": b.metric,
                         "evidence": b.evidence,
-                        "concept": "KG-2.26",
+                        "concept": "AU-KG.domains.trade-journal-bias-auditor",
                     },
                 )
             )

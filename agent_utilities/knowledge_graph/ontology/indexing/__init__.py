@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Object Index Lifecycle — the Object Data Funnel (CONCEPT:KG-2.44).
+"""Object Index Lifecycle — the Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live).
 
 Palantir provenance: *object-indexing/overview* (batch + streaming pipelines,
 data restrictions, metadata sync, staleness/reindex) and *object-backend*.

@@ -1,5 +1,5 @@
 """
-Forensic Screener — CONCEPT:KG-2.6
+Forensic Screener — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Engine-grounded forensic-accounting screen for an equity. Takes a ticker's two
 fiscal years of standardized financial line items, calls the epistemic-graph
@@ -11,7 +11,7 @@ The numbers are NEVER hallucinated — every score comes from the Rust engine.
 When the engine is unreachable (offline / unit tests), the screen degrades
 gracefully to an ``UNAVAILABLE`` verdict instead of inventing figures.
 
-Source: epistemic-graph CONCEPT:KG-2.20g forensic accounting kernels.
+Source: epistemic-graph CONCEPT:EG-KG.domains.forensic-accounting-kernels forensic accounting kernels.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def _forensic_engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numpy kernel when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())

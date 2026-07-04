@@ -1,4 +1,4 @@
-"""Unit + live-path tests for the copy-trade pipeline (CONCEPT:KG-2.6).
+"""Unit + live-path tests for the copy-trade pipeline (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Engine-dependent sizing degrades gracefully to the local Kelly fallback when no
 epistemic-graph engine is reachable, so these run fully offline.

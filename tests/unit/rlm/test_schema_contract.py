@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.12 — SchemaContract normalizes every supported output-spec form.
+"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime — SchemaContract normalizes every supported output-spec form.
 
 Unit coverage for the structured-output contract used by RLM subagent fan-out:
 a Pydantic model, a primitive (`int`/`bool`), a typing generic (`list[Model]`),
@@ -19,7 +19,7 @@ class _Person(BaseModel):
     age: int
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_pydantic_model_spec_validates_and_coerces():
     c = SchemaContract.from_spec(_Person)
     assert "properties" in c.json_schema
@@ -31,7 +31,7 @@ def test_pydantic_model_spec_validates_and_coerces():
     assert bad_ok is False and "age" in bad_err
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_primitive_int_spec_coerces_string():
     c = SchemaContract.from_spec(int)
     assert c.json_schema.get("type") == "integer"
@@ -41,7 +41,7 @@ def test_primitive_int_spec_coerces_string():
     assert bad_ok is False and bad_err
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_primitive_bool_spec():
     c = SchemaContract.from_spec(bool)
     assert c.json_schema.get("type") == "boolean"
@@ -49,7 +49,7 @@ def test_primitive_bool_spec():
     assert ok and coerced is True
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_generic_list_of_models_spec():
     c = SchemaContract.from_spec(list[_Person])
     assert c.json_schema.get("type") == "array"
@@ -58,7 +58,7 @@ def test_generic_list_of_models_spec():
     assert len(coerced) == 2 and all(isinstance(p, _Person) for p in coerced)
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_raw_jsonschema_dict_spec():
     c = SchemaContract.from_spec({"type": "boolean"})
     assert c.json_schema == {"type": "boolean"}
@@ -68,7 +68,7 @@ def test_raw_jsonschema_dict_spec():
     assert bad_ok is False and bad_err
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_raw_dict_shallow_fallback_when_jsonschema_absent(monkeypatch):
     """When jsonschema is unavailable we fall back to a shallow type check — never a silent pass."""
     import agent_utilities.rlm.schema as schema_mod
@@ -81,7 +81,7 @@ def test_raw_dict_shallow_fallback_when_jsonschema_absent(monkeypatch):
     assert bad_ok is False and "boolean" in bad_err
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_bad_spec_raises_typeerror():
     with pytest.raises(TypeError):
         SchemaContract.from_spec(object())  # not a type, dict, or model

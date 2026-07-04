@@ -1,4 +1,4 @@
-"""Moat trace analytics (CONCEPT:KG-2.257) — queries Opik's opaque store can't do."""
+"""Moat trace analytics (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot) — queries Opik's opaque store can't do."""
 
 from __future__ import annotations
 

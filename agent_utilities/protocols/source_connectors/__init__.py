@@ -1,4 +1,4 @@
-"""Document-source connector framework (CONCEPT:ECO-4.25–4.29).
+"""Document-source connector framework (CONCEPT:AU-ECO.connector.document-source-framework–4.29).
 
 Onyx-parity document ingestion bolted onto agent-utilities' semantic core: a
 ``load`` / ``poll`` / ``slim`` connector abstraction (:mod:`base`), resumable

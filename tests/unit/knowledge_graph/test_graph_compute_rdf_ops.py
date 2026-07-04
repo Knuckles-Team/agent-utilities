@@ -1,4 +1,4 @@
-"""GraphComputeEngine RDF retract + SQL-write wrappers (CONCEPT:KG-2.266).
+"""GraphComputeEngine RDF retract + SQL-write wrappers (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 The engine gained ``RemoveTriples`` / ``DropNamedGraph`` wire ops and a write-capable
 SQL surface. These tests assert the Python wrappers call the right path: a typed
@@ -13,7 +13,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 
 def _engine_with_client(client):

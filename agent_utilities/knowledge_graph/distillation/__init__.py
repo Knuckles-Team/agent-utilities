@@ -1,6 +1,6 @@
 """Knowledge Distillation Engine.
 
-CONCEPT:KG-2.2 — Knowledge Distillation Engine
+CONCEPT:AU-KG.ingest.knowledge-distillation — Knowledge Distillation Engine
 
 Provides IdeaBlock-compatible structured knowledge ingestion, semantic
 deduplication via LSH + cosine similarity, and iterative LLM-driven merging —

@@ -1,4 +1,4 @@
-"""Tests for the elastic per-tenant L1 engine pool (CONCEPT:KG-2.62).
+"""Tests for the elastic per-tenant L1 engine pool (CONCEPT:AU-KG.sharding.elastic-over-kg-shard).
 
 Covers LRU warm-set bounds, eviction (with the evict hook), hydrate-on-miss,
 hit/miss accounting, passthrough when disabled, and graph-name resolution.

@@ -1,4 +1,4 @@
-"""Per-model parallel-call concurrency controller (CONCEPT:KG-2.143).
+"""Per-model parallel-call concurrency controller (CONCEPT:AU-KG.compute.concurrency-controller-sizing).
 
 Each model declares how many parallel calls it can serve — its vLLM per-instance
 concurrency (``max_parallel_calls``) times the number of parallel instances
@@ -44,7 +44,7 @@ __all__ = [
     "map_concurrent_sync",
 ]
 
-# Conservative default per-endpoint server-capacity ceiling (CONCEPT:ORCH-1.102).
+# Conservative default per-endpoint server-capacity ceiling (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp).
 # A 35B model on a 121 GB unified-memory box (the GB10) has a FINITE concurrent-
 # sequence budget: exceed it and KV-cache + activations exhaust memory → driver
 # OOM → the HOST dies. The local CPU count says nothing about that budget, so the
@@ -81,7 +81,7 @@ def _record(
     """Side-channel: feed an observed call into the adaptive controller.
 
     Pure observation — never raises, never affects the fan-out contract
-    (CONCEPT:KG-2.145).
+    (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
     """
     try:
         from agent_utilities.core.model_capacity_autoscale import record_sample
@@ -94,11 +94,11 @@ def _record(
 def server_ceiling(model: str | None = None) -> int:
     """The HARD ceiling on aggregate in-flight requests to a model's SERVER.
 
-    CONCEPT:ORCH-1.102. This is the number the remote model server's real capacity
+    CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp. This is the number the remote model server's real capacity
     dictates — its vLLM ``--max-num-seqs`` / KV-cache + unified-memory budget — NOT
     the local host's CPU count. Resolution order:
 
-    1. The model's explicit ``max_concurrent_requests`` (CONCEPT:KG-2.298), when
+    1. The model's explicit ``max_concurrent_requests`` (CONCEPT:AU-KG.compute.same-semantics-as), when
        configured — the operator's exact server capacity, wins absolutely (it may be
        *below* the optimistic ``parallel_instances × max_parallel_calls`` product if
        the box genuinely can't sustain that).
@@ -133,18 +133,18 @@ def server_ceiling(model: str | None = None) -> int:
 
 
 def resolve_capacity(model: str | None = None, default: int = 1) -> int:
-    """Resolve a model's parallel-call capacity (CONCEPT:KG-2.143 / KG-2.145).
+    """Resolve a model's parallel-call capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing / KG-2.145).
 
     Looks the model up in the live config registry (by id or role; see
     :meth:`Config.model_capacity`) for the *static* capacity, then lets the
-    adaptive controller (CONCEPT:KG-2.145) raise/lower it toward the model's real
+    adaptive controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal) raise/lower it toward the model's real
     vLLM serving capacity using that static value as the **floor**. When adaptive
     concurrency is disabled, or the model has no scrapeable endpoint, or any
     metrics scrape fails, this returns the static capacity unchanged — fail-safe,
     never below the configured floor.
 
     The result is finally clamped at the model's :func:`server_ceiling`
-    (CONCEPT:ORCH-1.102) so the adaptive ramp can NEVER push a fan-out's width past
+    (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp) so the adaptive ramp can NEVER push a fan-out's width past
     what the remote server can actually serve — the absolute guard against OOM-ing
     the model host.
 
@@ -163,7 +163,7 @@ def resolve_capacity(model: str | None = None, default: int = 1) -> int:
         target = adaptive_capacity(model, static_cap)
     except Exception:  # noqa: BLE001 — adaptation is best-effort; fall back to static
         target = static_cap
-    # CONCEPT:ORCH-1.102 — clamp at the remote server's real capacity ceiling.
+    # CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp — clamp at the remote server's real capacity ceiling.
     return max(1, min(int(target), server_ceiling(model)))
 
 
@@ -194,7 +194,7 @@ def get_semaphore(
 ) -> asyncio.Semaphore:
     """Return the shared per-model :class:`asyncio.Semaphore` sized to capacity.
 
-    Cached per (model, capacity, event-loop). CONCEPT:KG-2.143.
+    Cached per (model, capacity, event-loop). CONCEPT:AU-KG.compute.concurrency-controller-sizing.
     """
     cap = max(1, int(capacity)) if capacity is not None else resolve_capacity(model)
     try:
@@ -215,7 +215,7 @@ def get_thread_pool(
 ) -> ThreadPoolExecutor:
     """Return the shared per-model bounded :class:`ThreadPoolExecutor`.
 
-    Cached per (model, capacity). CONCEPT:KG-2.143.
+    Cached per (model, capacity). CONCEPT:AU-KG.compute.concurrency-controller-sizing.
     """
     cap = max(1, int(capacity)) if capacity is not None else resolve_capacity(model)
     k = (_key(model), cap)
@@ -230,11 +230,11 @@ def get_thread_pool(
 
 
 def reset_controllers() -> None:
-    """Drop all cached gates/pools (test isolation; config reload). CONCEPT:KG-2.143.
+    """Drop all cached gates/pools (test isolation; config reload). CONCEPT:AU-KG.compute.concurrency-controller-sizing.
 
-    Also drops the adaptive-capacity controllers (CONCEPT:KG-2.145), the shared
-    server-capacity priority gates (CONCEPT:ORCH-1.102/1.99) and the per-endpoint
-    circuit breakers (CONCEPT:ORCH-1.103), so a reload re-derives the whole
+    Also drops the adaptive-capacity controllers (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal), the shared
+    server-capacity priority gates (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp/1.99) and the per-endpoint
+    circuit breakers (CONCEPT:AU-ORCH.routing.load-shedding-backoff), so a reload re-derives the whole
     capacity-guard stack from fresh config.
     """
     with _lock:
@@ -280,7 +280,7 @@ async def map_concurrent(
 ) -> list[R]:
     """Fan ``fn`` out over ``items`` up to the model's capacity, async.
 
-    CONCEPT:KG-2.143. ``fn`` may be sync or async. At most
+    CONCEPT:AU-KG.compute.concurrency-controller-sizing. ``fn`` may be sync or async. At most
     ``min(len(items), capacity)`` calls are in flight at once (gated by the shared
     per-model semaphore). **Results are returned in input order.** With capacity
     ``1`` this is sequential; with capacity ``K`` up to ``K`` run concurrently.
@@ -290,7 +290,7 @@ async def map_concurrent(
     """
     if not items:
         return []
-    # Two-layer capacity guard (CONCEPT:ORCH-1.102):
+    # Two-layer capacity guard (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp):
     #  • ``ceiling`` — the remote SERVER's hard capacity, shared by ALL demand
     #    sources (embeds + enrichment + orchestration) on this endpoint via the
     #    per-model priority gate, so their SUM can never oversubscribe the box.
@@ -308,7 +308,7 @@ async def map_concurrent(
     breaker = get_circuit_breaker(model)
 
     async def _run(item: T) -> R:
-        # CONCEPT:ORCH-1.103 — back off (don't hammer) while the server is shedding.
+        # CONCEPT:AU-ORCH.routing.load-shedding-backoff — back off (don't hammer) while the server is shedding.
         await breaker.before_call()
         # Outer: the shared server-capacity ceiling + the priority edict (ORCH-1.99 —
         # background yields the reserved headroom to interactive/orchestration). Inner:
@@ -348,7 +348,7 @@ def map_concurrent_sync(
 ) -> list[R]:
     """Fan ``fn`` out over ``items`` up to the model's capacity, synchronous.
 
-    CONCEPT:KG-2.143. Uses the shared per-model bounded thread pool. At most
+    CONCEPT:AU-KG.compute.concurrency-controller-sizing. Uses the shared per-model bounded thread pool. At most
     ``min(len(items), capacity)`` calls run at once. **Results are returned in
     input order.** With capacity ``1`` (or a single item) this runs inline with
     no thread hand-off — byte-for-byte the old sequential behaviour.
@@ -356,7 +356,7 @@ def map_concurrent_sync(
     n = len(items)
     if n == 0:
         return []
-    # Two-layer capacity guard (CONCEPT:ORCH-1.102): ``ceiling`` = the shared remote
+    # Two-layer capacity guard (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp): ``ceiling`` = the shared remote
     # SERVER ceiling enforced by the per-model priority gate (embeds + enrichment +
     # orchestration on the SAME endpoint share it); ``cap`` = this fan-out's own width
     # (the thread pool), clamped to the ceiling. The bge-m3 embedding fan-out
@@ -375,7 +375,7 @@ def map_concurrent_sync(
     breaker = get_circuit_breaker(model)
 
     def _timed(item: T) -> R:
-        # CONCEPT:ORCH-1.103 — back off while the server is shedding load.
+        # CONCEPT:AU-ORCH.routing.load-shedding-backoff — back off while the server is shedding load.
         breaker.before_call_sync()
         start = time.monotonic()
         try:

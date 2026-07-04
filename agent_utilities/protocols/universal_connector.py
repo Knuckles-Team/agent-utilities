@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Universal multi-DB / GraphQL DataConnector with KG schema introspection.
 
-CONCEPT:KG-2.9 — Universal DataConnector
+CONCEPT:AU-KG.ingest.universal-data-connector — Universal DataConnector
 
 A single, driver-based connector that speaks SQL (PostgreSQL, MySQL, MS SQL,
 Oracle, SQLite), MongoDB, and GraphQL through one uniform surface:
@@ -104,7 +104,7 @@ def infer_kind(dsn: str) -> str:
 class UniversalConnector:
     """Driver-based connector for SQL + MongoDB + GraphQL with KG introspection.
 
-    CONCEPT:KG-2.9
+    CONCEPT:AU-KG.ingest.universal-data-connector
 
     Args:
         dsn: A data-source connection string. SQL/Mongo use a URL DSN

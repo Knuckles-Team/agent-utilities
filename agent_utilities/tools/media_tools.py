@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Agent tools for media generation + transcription (CONCEPT:ECO-4.30 / ECO-4.31).
+"""Agent tools for media generation + transcription (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path / ECO-4.31).
 
 Exposes the :mod:`agent_utilities.ecosystem.media` gateway as agent tools so an
 agent can synthesize speech, generate images/video, and transcribe audio via the
@@ -43,7 +43,7 @@ def _stamp(prefix: str, ext: str) -> Path:
 async def synthesize_speech(
     ctx: RunContext[AgentDeps], text: str, speaker: str = "", language: str = "en"
 ) -> str:
-    """Synthesize speech audio from text via the xtts service (CONCEPT:ECO-4.30).
+    """Synthesize speech audio from text via the xtts service (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     Args:
         ctx: The agent run context.
@@ -75,7 +75,7 @@ async def generate_image(
     steps: int = 4,
     backend: str = "flux",
 ) -> str:
-    """Generate an image from a prompt (CONCEPT:ECO-4.30).
+    """Generate an image from a prompt (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     Args:
         ctx: The agent run context.
@@ -102,7 +102,7 @@ async def generate_image(
 async def generate_video(
     ctx: RunContext[AgentDeps], prompt: str, num_frames: int = 65, fps: int = 16
 ) -> str:
-    """Generate a short video from a prompt via hunyuanvideo (CONCEPT:ECO-4.30).
+    """Generate a short video from a prompt via hunyuanvideo (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     Args:
         ctx: The agent run context.
@@ -130,7 +130,7 @@ async def generate_video(
 async def transcribe_audio(
     ctx: RunContext[AgentDeps], audio_path: str, language: str = ""
 ) -> str:
-    """Transcribe an audio file to text via faster-whisper (CONCEPT:ECO-4.31).
+    """Transcribe an audio file to text via faster-whisper (CONCEPT:AU-ECO.toolkit.media-transcription-bridge).
 
     Args:
         ctx: The agent run context.

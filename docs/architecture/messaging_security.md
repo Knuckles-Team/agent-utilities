@@ -1,4 +1,4 @@
-# Secure messaging ingress — instant push with zero open ports (ECO-4.66)
+# Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)
 
 The messaging stack is designed so the user gets **instant communication** without ever
 exposing a port to the internet, and so only **designated identities** (via Keycloak) and

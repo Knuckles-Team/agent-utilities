@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Multi-CLI Agent Adapter Registry tests.
+"""CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch — Multi-CLI Agent Adapter Registry tests.
 
 Covers the declarative adapter contract, non-blocking PATH detection (graceful degradation on a
 missing/broken CLI), stream-format dispatch to canonical events, the subprocess executor, and the
@@ -28,7 +28,7 @@ from agent_utilities.core.execution.stream_handlers import (
     get_stream_handler,
 )
 
-pytestmark = pytest.mark.concept(id="ORCH-1.33")
+pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.multi-cli-adapter-dispatch")
 
 
 # ── declarative contract ────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Optimistic-concurrency on the object-mutation layer (CONCEPT:KG-2.142).
+"""Optimistic-concurrency on the object-mutation layer (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property).
 
 ``object_edits action=record`` for a ``property_set`` accepts an optional
 ``expect`` precondition. When non-empty, the set is applied through the engine's
@@ -73,7 +73,7 @@ async def test_conditional_set_calls_backend_and_records_on_win(
 ):
     # A non-empty ``expect`` routes the property_set through the engine CAS with
     # the EXACT object_id/conditions/updates; on a win it records the edit and
-    # surfaces applied=True (CONCEPT:KG-2.142).
+    # surfaces applied=True (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property).
     ledger = _RecordingLedger()
     engine = _patch(monkeypatch, cas_result=True, ledger=ledger)
 

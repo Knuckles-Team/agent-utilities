@@ -1,4 +1,4 @@
-# Robust Edit-Application Engine (CONCEPT:ORCH-1.49)
+# Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)
 
 > A multi-format code-edit applier that lands LLM-proposed edits even when their
 > whitespace drifts from disk, and **reflects** on failures by re-prompting the
@@ -13,7 +13,7 @@ The original `tools/developer_tools.py::replace_in_file` did a single **exact**
 what is on disk made it fail silently, with no recovery — the single weakest link
 for any coding agent. Production coding harnesses (e.g. aider) instead parse a
 well-known edit format and apply it with a *ladder* of increasingly-forgiving
-matchers, then retry on failure. ORCH-1.49 brings that capability natively to
+matchers, then retry on failure. AU-ORCH.execution.robust-multi-format-edit brings that capability natively to
 agent-utilities. The fuzzy-match laddering is our own implementation; the laddered
 strategy is inspired by aider's `editblock_coder`.
 
@@ -92,7 +92,7 @@ sequenceDiagram
 
 ## Relationship to other concepts
 
-- The optional post-apply `verify` gate composes with the **AHE-3.13** pre-emit
+- The optional post-apply `verify` gate composes with the **AU-AHE.harness.pre-emit-quality-gate** pre-emit
   quality gates (`harness/quality_gates.py`) and the lint-enforcement hook.
 - It is the edit-execution half of the maker/checker loop that the golden loop
   (**KG-2.7**) and verifier (`harness/verifier.py`) drive at the proposal level.

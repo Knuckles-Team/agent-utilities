@@ -1,6 +1,6 @@
 """Model-name normalization & resolution for the pricing catalog.
 
-CONCEPT:ECO-4.40 — Unified model pricing catalog.
+CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Faithful Python port of agentsview ``internal/pricing/normalize.go``. The
 resolution order is load-bearing for matching agent-reported model ids

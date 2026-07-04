@@ -1,7 +1,7 @@
-"""Per-model-endpoint circuit breaker + capacity-aware backpressure (CONCEPT:ORCH-1.103).
+"""Per-model-endpoint circuit breaker + capacity-aware backpressure (CONCEPT:AU-ORCH.routing.load-shedding-backoff).
 
 A saturating model server must slow the CLIENT, never crash the server. The
-adaptive controller (CONCEPT:KG-2.145) already *shrinks* a model's concurrency
+adaptive controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal) already *shrinks* a model's concurrency
 target when latency inflates or an overload status arrives, but shrinking the gate
 width is a slow, statistical signal — it does not *stop the bleeding* the instant
 the endpoint starts shedding load. This module adds the fast, decisive half: a
@@ -18,7 +18,7 @@ engine breaker.
   re-opens with a longer cooldown.
 
 The breaker composes with — and sits OUTSIDE — the server-capacity ceiling gate
-(CONCEPT:ORCH-1.102): the ceiling decides the steady-state MAX in flight; the
+(CONCEPT:AU-ORCH.dispatch.embedding-fanout): the ceiling decides the steady-state MAX in flight; the
 breaker reacts to a server that is *already* saturating by throttling the client
 to near-zero until it recovers. It is pure in-process bookkeeping (a lock + a few
 timestamps), feeds off the SAME ``(ok, status)`` samples the fan-out already
@@ -47,7 +47,7 @@ __all__ = [
 ]
 
 # Statuses that mean "the endpoint is overloaded / shedding load" — the same set
-# the adaptive controller treats as a congestion event (CONCEPT:KG-2.145).
+# the adaptive controller treats as a congestion event (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 OVERLOAD_STATUSES = frozenset({429, 502, 503, 504, 529})
 
 # A single backpressure sleep is sliced so OPEN→HALF_OPEN transitions are picked up
@@ -61,7 +61,7 @@ _DEFAULT_BACKOFF_FACTOR = 2.0
 
 
 class CircuitState(Enum):
-    """The three breaker states (CONCEPT:ORCH-1.103)."""
+    """The three breaker states (CONCEPT:AU-ORCH.routing.load-shedding-backoff)."""
 
     CLOSED = "closed"
     OPEN = "open"
@@ -78,7 +78,7 @@ def _is_overload(ok: bool, status: int | None) -> bool:
 
 
 class ModelCircuitBreaker:
-    """A three-state circuit breaker for ONE model endpoint (CONCEPT:ORCH-1.103).
+    """A three-state circuit breaker for ONE model endpoint (CONCEPT:AU-ORCH.routing.load-shedding-backoff).
 
     Symmetric async (:meth:`before_call`) and sync (:meth:`before_call_sync`)
     admission faces share one logic core and one lock, so an async orchestration
@@ -144,7 +144,7 @@ class ModelCircuitBreaker:
             return _MAX_SLEEP_SLICE_S
 
     def record(self, *, ok: bool, status: int | None = None) -> None:
-        """Feed one call's outcome back into the breaker (CONCEPT:ORCH-1.103).
+        """Feed one call's outcome back into the breaker (CONCEPT:AU-ORCH.routing.load-shedding-backoff).
 
         An overload sample trips the breaker (immediately when half-open, else after
         ``fail_threshold`` consecutive overloads); any non-overload outcome — a
@@ -195,7 +195,7 @@ class ModelCircuitBreaker:
 
     # -- introspection (tests / observability) -------------------------------
     def is_tripped(self) -> bool:
-        """True while this endpoint is actively shedding load (CONCEPT:KG-2.299).
+        """True while this endpoint is actively shedding load (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
         Read-only and side-effect-free (it does NOT consume the HALF_OPEN probe):
         returns ``True`` only while the breaker is OPEN *and still within its
@@ -268,7 +268,7 @@ def _key(model: str | None) -> str:
 
 
 def get_circuit_breaker(model: str | None = None) -> ModelCircuitBreaker:
-    """Return (creating if needed) the cached breaker for ``model`` (CONCEPT:ORCH-1.103).
+    """Return (creating if needed) the cached breaker for ``model`` (CONCEPT:AU-ORCH.routing.load-shedding-backoff).
 
     One breaker per model endpoint, so embeds + enrichment + orchestration on the
     SAME endpoint trip and recover together — a server shedding load slows ALL of
@@ -291,6 +291,6 @@ def get_circuit_breaker(model: str | None = None) -> ModelCircuitBreaker:
 
 
 def reset_circuit_breakers() -> None:
-    """Drop all cached breakers (test isolation / config reload). CONCEPT:ORCH-1.103."""
+    """Drop all cached breakers (test isolation / config reload). CONCEPT:AU-ORCH.routing.load-shedding-backoff."""
     with _lock:
         _breakers.clear()

@@ -1,8 +1,8 @@
-# CONCEPT:KG-2.58 - Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement over GRAPH_SERVICE_ENDPOINTS
-# CONCEPT:OS-5.28 - Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges and counters
+# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement over GRAPH_SERVICE_ENDPOINTS
+# CONCEPT:AU-OS.scaling.shard-topology-visibility-per - Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges and counters
 """Tenant-partitioned engine shard topology.
 
-CONCEPT:KG-2.58 — Tenant-Partitioned Engine Sharding. Stage-2 scaling for the
+CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw — Tenant-Partitioned Engine Sharding. Stage-2 scaling for the
 epistemic-graph compute tier: N independent engine processes ("shards") behind
 the client-side HRW router that already ships in ``epistemic_graph.pool``.
 
@@ -34,7 +34,7 @@ endpoints):
   (``tcp://``) shard that is unreachable is a hard, fail-loud
   ``ConnectionError`` naming the shard — silently auto-starting a local
   stand-in would split that shard's graphs into invisible islands (same
-  convention as the CONCEPT:KG-2.55 task-queue contract).
+  convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task-queue contract).
 * **The flock host role is per-host.** ``host_lock.py`` elects the ONE process
   per host that runs daemons and may own the LOCAL engine; it says nothing
   about remote shards.
@@ -46,7 +46,7 @@ endpoints):
   ``lifecycle.to_msgpack``/``from_msgpack``). Until then the graph re-creates
   empty on its new shard.
 
-Topology visibility (CONCEPT:OS-5.28 — Shard Topology Visibility):
+Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per — Shard Topology Visibility):
 :func:`shard_topology_status` powers the unified daemon status and the
 gateway's ``/daemon/shards`` route, and exports the per-shard
 ``agent_utilities_engine_shard_up{endpoint}`` gauge.
@@ -81,7 +81,7 @@ DEFAULT_GRAPH = "__commons__"
 
 
 def _platform_default_endpoint() -> str:
-    """The per-platform default local endpoint (CONCEPT:OS-5.64).
+    """The per-platform default local endpoint (CONCEPT:AU-OS.deployment.cross-platform-locks-plus).
 
     Mirrors the engine's own per-platform default transport (``src/main.rs``):
 
@@ -140,7 +140,7 @@ def resolve_endpoints(config: Any = None) -> list[str]:
     """Resolve the configured engine endpoint list (1 = today's single mode).
 
     Precedence: ``engine_endpoint`` (ENGINE_ENDPOINT, the remote override,
-    CONCEPT:OS-5.63) → ``graph_service_endpoints`` (GRAPH_SERVICE_ENDPOINTS, comma
+    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) → ``graph_service_endpoints`` (GRAPH_SERVICE_ENDPOINTS, comma
     or JSON list) → ``tcp://{graph_service_tcp_addr}`` → ``unix://{socket}`` →
     :data:`DEFAULT_LOCAL_ENDPOINT`. Endpoint strings are used VERBATIM as both
     the HRW hash input and the connect target so every client that hashes the
@@ -149,7 +149,7 @@ def resolve_endpoints(config: Any = None) -> list[str]:
     """
     cfg = _config(config)
     # The explicit remote override (ENGINE_ENDPOINT) wins outright — the single
-    # "engine deployed on another host" endpoint (CONCEPT:OS-5.63).
+    # "engine deployed on another host" endpoint (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
     engine_endpoint = getattr(cfg, "engine_endpoint", None)
     if engine_endpoint and str(engine_endpoint).strip():
         return [str(engine_endpoint).strip()]
@@ -206,7 +206,7 @@ def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
 def resolve_routing_graph(graph_name: str | None, config: Any = None) -> str:
     """Resolve the effective graph (= HRW routing key) for an engine client.
 
-    Resolution order (CONCEPT:KG-2.58):
+    Resolution order (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw):
 
     1. An explicit, non-default ``graph_name`` — the operation targets a named
        graph; use it verbatim.
@@ -262,7 +262,7 @@ def shard_endpoint_for(graph_name: str, endpoints: Sequence[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Topology visibility (CONCEPT:OS-5.28)
+# Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 # ---------------------------------------------------------------------------
 
 

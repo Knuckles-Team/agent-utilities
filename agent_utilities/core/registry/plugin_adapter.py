@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Plugin Registry (CONCEPT:ECO-4.0).
+"""Plugin Registry (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Provides dynamic tool hydration at runtime. Agents can request capabilities
 and the plugin registry dynamically resolves and attaches them to the Pydantic AI agent,

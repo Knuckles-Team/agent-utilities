@@ -1,4 +1,4 @@
-"""Active Cue-Tag-Content graph reconstruction (CONCEPT:KG-2.275, MRAgent).
+"""Active Cue-Tag-Content graph reconstruction (CONCEPT:AU-KG.retrieval.assimilated-from-mragent, MRAgent).
 
 Unit tests for the dependency-injected reconstruction walk plus a LIVE-PATH test
 that drives it through the real ``entity_context`` provider / context plane — the
@@ -15,14 +15,14 @@ from agent_utilities.knowledge_graph.retrieval.entity_context import entity_cont
 
 
 # ── primitives ────────────────────────────────────────────────────────────────
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_lexical_relevance_is_query_coverage():
     assert ar.lexical_relevance("home country", "Sweden home country") == 1.0
     assert ar.lexical_relevance("home country", "dance studio") == 0.0
     assert ar.lexical_relevance("", "anything") == 0.0
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_humanize_tag_and_node_text():
     assert ar.humanize_tag("MOVED_TO") == "moved to"
     assert ar.humanize_tag("rdf:type") == "rdf type"
@@ -54,7 +54,7 @@ def _toy_neighbors():
     return neighbor_fn
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_reconstruct_finds_evidence_and_prunes_irrelevant_branch():
     recon = ar.reconstruct(
         "where did alice move to her home country",
@@ -72,13 +72,13 @@ def test_reconstruct_finds_evidence_and_prunes_irrelevant_branch():
     assert recon.stop_reason
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_reconstruct_no_seed_is_a_clean_noop():
     recon = ar.reconstruct("q", [], neighbor_fn=_toy_neighbors())
     assert recon.evidence == [] and recon.stop_reason == "no_seed"
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_reconstruct_tag_top_k_bounds_expansion():
     # With tag_top_k=1 only the single most-relevant tag is expanded per hop.
     recon = ar.reconstruct(
@@ -131,7 +131,7 @@ class FakeGraphEngine:
         return []  # census + CONTAINS fallback: nothing
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_engine_neighbor_fn_and_resolve_seeds():
     eng = FakeGraphEngine()
     seeds = ar.resolve_seeds(eng, "tell me about alice")
@@ -142,7 +142,7 @@ def test_engine_neighbor_fn_and_resolve_seeds():
     assert by_id["sweden"][1]["name"] == "Sweden home country"
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_entity_context_why_runs_active_reconstruction_live():
     """The live provider path: intent='why' reconstructs instead of a census."""
     res = entity_context(
@@ -160,7 +160,7 @@ def test_entity_context_why_runs_active_reconstruction_live():
     assert res["sections"]["stop_reason"]
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_entity_context_why_falls_back_to_census_when_no_seed():
     """No resolvable seed → falls through to the census view (no regression)."""
     res = entity_context(
@@ -170,7 +170,7 @@ def test_entity_context_why_falls_back_to_census_when_no_seed():
     assert res["used_primitives"] != ["active_reconstruction"]
 
 
-@pytest.mark.concept("KG-2.275")
+@pytest.mark.concept("AU-KG.retrieval.assimilated-from-mragent")
 def test_context_plane_routes_entity_why_to_reconstruction():
     """End-to-end through synthesize_context, as the MCP/REST surface calls it."""
     res = synthesize_context(

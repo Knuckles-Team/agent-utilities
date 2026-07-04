@@ -1,4 +1,4 @@
-"""Parser modules + the full 36-agent registration (CONCEPT:ECO-4.38).
+"""Parser modules + the full 36-agent registration (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 ``load_all()`` registers every supported agent source. Coverage tiers:
 

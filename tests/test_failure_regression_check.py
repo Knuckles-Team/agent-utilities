@@ -1,11 +1,11 @@
-"""Closed-loop regression gate for failure remediations (CONCEPT:AHE-3.18).
+"""Closed-loop regression gate for failure remediations (CONCEPT:AU-AHE.harness.failure-evolution).
 
 The failure-ingest tick builds a ``(spec) -> bool`` regression check and threads
 it into the GovernedAutoMerger: a remediation auto-merges only when promoting it
 does not coincide with a spiking failure, and every gap is recorded as a durable
 eval regression case + reward nudge.
 
-@pytest.mark.concept("AHE-3.18")
+@pytest.mark.concept("AU-AHE.harness.failure-evolution")
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     MergePolicy,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.18")
+pytestmark = pytest.mark.concept("AU-AHE.harness.failure-evolution")
 
 
 class _Backend:

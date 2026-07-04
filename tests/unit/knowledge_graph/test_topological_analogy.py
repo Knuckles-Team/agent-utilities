@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.5"""
+"""CONCEPT:AU-KG.compute.spectral-cluster-navigator"""
 
 import pytest
 

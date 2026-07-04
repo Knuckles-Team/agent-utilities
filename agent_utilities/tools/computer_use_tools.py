@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.85 — Computer-use tools: the agent's GUI action surface.
+"""CONCEPT:AU-ORCH.execution.computer-use-tools — Computer-use tools: the agent's GUI action surface.
 
 These Pydantic-AI tools translate the model's tool calls into typed
 ``ComputerUseAction``s executed inside the agent's :class:`DevWorkspace`

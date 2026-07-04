@@ -1,4 +1,4 @@
-"""Unit tests for the single-GPU-slot scheduler (CONCEPT:KG-2.65).
+"""Unit tests for the single-GPU-slot scheduler (CONCEPT:AU-KG.compute.code-intelligence-tools).
 
 Exercises the preempt / backfill / held / restart-reconcile state machine with a
 cooperative runner that checkpoints between items and resumes from where it left
@@ -92,7 +92,7 @@ async def test_preempt_backfill_resume_from_checkpoint() -> None:
 @pytest.mark.asyncio
 async def test_training_job_preempted_by_foreground_inference() -> None:
     """A long ``kind="training"`` job yields the slot to interactive inference and
-    resumes from its checkpoint — the background tier (CONCEPT:ML-011) needs no
+    resumes from its checkpoint — the background tier (CONCEPT:AU-AHE.trainer.join-inference) needs no
     ``preempt_foreground`` flag."""
     log: list = []
     gate = asyncio.Event()

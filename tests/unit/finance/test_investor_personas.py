@@ -1,4 +1,4 @@
-"""Investor personas + forensic/pattern agents wired to the debate (CONCEPT:KG-2.6).
+"""Investor personas + forensic/pattern agents wired to the debate (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Engine-grounded numbers (forensic_report / momentum / mean_reversion / regimes)
 are exercised with an in-process fake client so the suite never requires a live

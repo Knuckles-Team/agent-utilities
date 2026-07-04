@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Entropy-gated entity resolution (CONCEPT:AHE-3.69).
+"""Entropy-gated entity resolution (CONCEPT:AU-AHE.assimilation.merge-entities).
 
 A cheap, deterministic, LLM-free entity-dedup fast-path absorbed from Zep's
 Graphiti (its ``dedup_helpers`` ladder, arXiv:2501.13956) and folded in front of
@@ -140,7 +140,7 @@ class ResolutionResult:
             with no name match) the caller should escalate to the embedding tier.
         variants: ``(base_id, variant_id, score, kind)`` for near-miss pairs that
             are a subtype/version of one another rather than duplicates — they are
-            **linked** (an ``EXTENDS`` edge), NOT merged (CONCEPT:AHE-3.70, the
+            **linked** (an ``EXTENDS`` edge), NOT merged (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe, the
             duplicates-vs-variants split; the type-aware case is decided in the
             engine ResolveCandidates op, KG-2.260).
         exact_merges: count of pairs decided by tier 1.
@@ -158,7 +158,7 @@ class ResolutionResult:
 
 
 def _transliterate(name: str) -> str:
-    """ASCII-fold accents/non-Latin so ``"José"``≡``"Jose"`` (CONCEPT:AHE-3.70).
+    """ASCII-fold accents/non-Latin so ``"José"``≡``"Jose"`` (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe).
 
     ``unidecode`` lives in the optional ``[ingest-dedup]`` extra; absent (the lean
     serving plane), this is a no-op and folding falls back to raw alphanumerics.
@@ -219,7 +219,7 @@ def normalize_name(name: str) -> str:
     ``"william"``) can collide; the entropy gate + embedding tier downstream are the
     backstop, matching sift-kg's behaviour. Order is preserved so
     ``"Sun Microsystems"`` and ``"Microsystems Sun"`` do NOT collide
-    (CONCEPT:AHE-3.70 — transliteration + singularization extend the AHE-3.69 ladder).
+    (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe — transliteration + singularization extend the AHE-3.69 ladder).
     """
     if not name:
         return ""
@@ -350,7 +350,7 @@ def detect_version_variant(key_a: str, key_b: str) -> bool:
     They are a version-variant pair when their version-stripped bases are equal,
     at least one carried a version suffix, and the keys differ. Such pairs are
     distinct entities — diverted from *merge* into the ``variants`` channel as an
-    ``EXTENDS`` link (CONCEPT:AHE-3.70).
+    ``EXTENDS`` link (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe).
     """
     if not key_a or not key_b or key_a == key_b:
         return False

@@ -1,4 +1,4 @@
-"""Self-Model routing enrichers (R4, R5 — CONCEPT:KG-2.1).
+"""Self-Model routing enrichers (R4, R5 — CONCEPT:AU-KG.memory.tiered-memory-caching).
 
 Pure formatters extracted from the router monolith so the discovery-context
 injection is defined once and independently testable:

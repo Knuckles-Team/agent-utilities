@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Health-gated deploy/restart watch + policy-gated rollback.
 
-CONCEPT:OS-5.27 — Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers is followed by a durable health watch whose failure invokes a policy-gated rollback and escalation
+CONCEPT:AU-OS.config.health-gated-deploy-rollback — Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers is followed by a durable health watch whose failure invokes a policy-gated rollback and escalation
 
 This is the safety net under the reconciler (OS-5.25) and the remediation
 playbooks (OS-5.26): they never fire-and-forget a mutating action. The flow:

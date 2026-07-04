@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.39 Phase 3 — native invoker↔spawned-agent message channel wiring.
+"""CONCEPT:AU-ORCH.session.invoker-agent-handoff Phase 3 — native invoker↔spawned-agent message channel wiring.
 
 Covers the agent_channel wrapper (deterministic id, send/receive cursor, graceful no-engine
 degradation) and the GraphState→AgentDeps threading that hands a spawned agent its channel id.
@@ -73,12 +73,12 @@ class _FakeEngine:
         return out
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_channel_id_is_deterministic():
     assert agent_channel.channel_id_for("s1", "r1") == "orch:s1:r1"
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_open_send_receive_cursor_roundtrip():
     eng = _FakeEngine()
     cid = agent_channel.open_channel(eng, "s1", "r1")
@@ -94,7 +94,7 @@ def test_open_send_receive_cursor_roundtrip():
     assert agent_channel.close(eng, cid)
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_arbitrary_sender_auto_joins():
     """A sender label that is not an initial member must still be able to send (auto-join)."""
     eng = _FakeEngine()
@@ -105,7 +105,7 @@ def test_arbitrary_sender_auto_joins():
     assert [m["payload"] for m in msgs] == ["hi"]
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_graceful_when_no_engine_channels():
     bad = type("E", (), {})()  # no graph_compute
     assert agent_channel.open_channel(bad, "s", "r") is None
@@ -114,7 +114,7 @@ def test_graceful_when_no_engine_channels():
     assert agent_channel.close(bad, "orch:s:r") is False
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_deps_carry_channel_id_from_state():
     from agent_utilities.graph.executor import agent_deps_from_graph
 
@@ -142,7 +142,7 @@ def test_deps_carry_channel_id_from_state():
     assert ad.message_channel_id == "orch:s:r"
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_durable_send_persists_and_history_replays():
     eng = _FakeEngine()
     cid = agent_channel.open_channel(eng, "s1", "r1")
@@ -161,7 +161,7 @@ def test_durable_send_persists_and_history_replays():
     assert sum(1 for _, _, rel in eng._edges if rel == "HAS_MESSAGE") == 2
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_elicitation_bridge_drains_to_queue():
     import asyncio
 

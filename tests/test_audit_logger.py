@@ -1,6 +1,6 @@
-"""Tests for AuditLogger — Compliance Logging (CONCEPT:OS-5.1).
+"""Tests for AuditLogger — Compliance Logging (CONCEPT:AU-OS.config.secrets-authentication).
 
-@pytest.mark.concept("OS-5.6")
+@pytest.mark.concept("AU-OS.observability.deterministic-replay")
 """
 
 import time

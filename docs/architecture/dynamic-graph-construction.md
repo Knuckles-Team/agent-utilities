@@ -1,6 +1,6 @@
 # Dynamic graph construction — one path, dynamically shaped
 
-> CONCEPT:ORCH-1.67 / ORCH-1.68 (built) · ORCH-1.69 / ORCH-1.70 (planned)
+> CONCEPT:AU-ORCH.execution.dynamic-execution-profile / ORCH-1.68 (built) · AU-ORCH.execution.residual-ambiguous / AU-ORCH.execution.planner-failure-feedback (planned)
 
 agent-utilities is **one** pydantic-ai Knowledge-Graph orchestrator. Historically it had two
 hard-coded altitudes — a "fast path" escape hatch buried inside the router, and the full
@@ -57,7 +57,7 @@ flowchart TD
     cache -. reuse identical job .-> s0
 ```
 
-- **Stage 0 — reuse a cached recipe** (ORCH-1.70, **built**): a bounded in-process LRU keyed by a
+- **Stage 0 — reuse a cached recipe** (AU-ORCH.execution.planner-failure-feedback, **built**): a bounded in-process LRU keyed by a
   normalized job signature returns the constructed shape for an identical job, skipping all
   resolution (incl. the expensive stage-2 search). `reset_recipe_cache()` for tests. The durable
   cross-process layer (persisting recipes as `AgentTemplate`s for reuse across restarts) is the
@@ -65,13 +65,13 @@ flowchart TD
 - **Stage 1 — free structural signals** (**built**): the graded `orchestration_signal_strength`
   (`graph/routing/strategies/fast_path.py`, single source of truth). **0** → confident lean; **≥2**
   → confident full; **1 → the ambiguous middle**, the only case that escalates. No I/O, no LLM.
-- **Stage 2 — cheap, Rust-routed KG search** (ORCH-1.69, **built**): only the ambiguous middle pays
+- **Stage 2 — cheap, Rust-routed KG search** (AU-ORCH.execution.residual-ambiguous, **built**): only the ambiguous middle pays
   this — `engine.search_hybrid` disambiguates *tool-task* (→ full) vs. *conversational* (→ lean).
-- **Stage 3 — LLM HTN planning** (ORCH-1.69, planned): genuinely complex jobs earn an HTN
+- **Stage 3 — LLM HTN planning** (AU-ORCH.execution.residual-ambiguous, planned): genuinely complex jobs earn an HTN
   decomposition (`graph/planning/Planner.decompose`).
-- **Learning loop** (ORCH-1.70, **built**): `record_shape_outcome`, wired into `run_agent`, evicts a
+- **Learning loop** (AU-ORCH.execution.planner-failure-feedback, **built**): `record_shape_outcome`, wired into `run_agent`, evicts a
   recipe whose run **failed** (re-plan next time) and keeps one whose run **succeeded** (reinforce).
-- **Learned shape policy** (ORCH-1.71, **built**): the heuristic cascade is a *prior*; an
+- **Learned shape policy** (AU-ORCH.execution.shape-policy-learning, **built**): the heuristic cascade is a *prior*; an
   outcome-learned policy (`orchestration/outcome_router.OutcomeRouter`) refines which archetype
   (lean vs full) actually wins **per task-class**, learned from real outcomes (`success × speed`,
   `outcome_reward`). Applied as a fresh dynamic overlay on every plan (`_apply_shape_policy`) so it
@@ -82,7 +82,7 @@ flowchart TD
 
 The shape policy deliberately **does not** add a new learner. `OutcomeRouter` is a thin,
 **embedding-free** wrapper over the *same* `CapabilityIndex` reward-EMA (`record_outcome`/`reward_of`)
-that the **KG-2.68 `ReasonerRouter`** (paradigm routing) and the **AHE-3.38** sampling-profile
+that the **AU-KG.compute.first-class-reasoner-paradigm `ReasonerRouter`** (paradigm routing) and the **AHE-3.38** sampling-profile
 EMA-tournament already use — keyed like `_profile_id(task_class, choice)`, with the task-class from the
 *same* `agent/sampling_profile.classify_task`. So shape, paradigm, and profile selection are all
 instances of **one** *"pick per task-class, learn from outcome"* mechanism, not N. (DSPy stays for
@@ -126,7 +126,7 @@ context-window optimization is the cascade's lean/full decision + the existing r
 + the lean loadout + the multiplexer's on-demand `load_tools`. Hard binding needs a verified
 id→tool-name resolution and live validation first.
 
-## The shape is an agent *recipe* (planned, ORCH-1.69/1.70)
+## The shape is an agent *recipe* (planned, AU-ORCH.execution.residual-ambiguous/1.70)
 
 The shape generalizes beyond node-flags to a full **agent recipe** — node-set **+ model +
 system prompt + tools + skills** — all resolved from the KG per job and bound to only what the

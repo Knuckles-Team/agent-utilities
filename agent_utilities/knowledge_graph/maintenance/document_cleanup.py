@@ -1,6 +1,6 @@
 """
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 Automated Cleanup Operations for Knowledge Graph.
 
 Handle automated cleanup of old documents, orphan embeddings, etc.

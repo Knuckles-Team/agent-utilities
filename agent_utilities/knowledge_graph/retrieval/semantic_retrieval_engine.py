@@ -23,7 +23,7 @@ from agent_utilities.numeric import xp as np
 
 """Hybrid Search Scorer.
 
-CONCEPT:KG-2.3 — Hybrid Search Index
+CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Hybrid Search Index
 
 Provides weighted semantic+keyword search scoring adapted from contextplus's
 hybrid search. Uses existing embedding infrastructure.
@@ -53,7 +53,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 class HybridSearchScorer:
     """Weighted hybrid semantic+keyword scoring engine.
 
-    CONCEPT:KG-2.3 — Hybrid Search Index
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Hybrid Search Index
 
     Scores documents via configurable blend of semantic similarity
     and keyword matching with phrase boost and symbol-specific scoring.
@@ -224,7 +224,7 @@ class KGNativeRetrievalConfig:
 class KGNativeRetrievalRetriever:
     """KG-native retrieval combining similarity shortcuts, spectral scoping, and hybrid scoring.
 
-    CONCEPT:KG-2.3 — RAG-KG Unification
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — RAG-KG Unification
 
     This replaces the pure-vector RAG pipeline with a graph-aware retrieval
     path that leverages pre-computed structure (similarity edges, spectral
@@ -639,7 +639,7 @@ class CoverageReport:
 class GraphDistillationMigrator:
     """Migrates RAG retrieval to use pre-computed similarity shortcuts.
 
-    CONCEPT:KG-2.6 — Graph Distillation Migration
+    CONCEPT:AU-KG.retrieval.graph-distillation-migration — Graph Distillation Migration
 
     Pre-computes similarity edges across KG nodes to enable O(degree)
     retrieval instead of O(N) full-index scans. Manages the lifecycle
@@ -755,7 +755,7 @@ class GraphDistillationMigrator:
         self._retriever.build_similarity_index(self._all_edges)
 
         logger.info(
-            "[CONCEPT:KG-2.6] Distillation batch: %d nodes, %d edges created, "
+            "[CONCEPT:AU-KG.retrieval.graph-distillation-migration] Distillation batch: %d nodes, %d edges created, "
             "%d pruned, coverage=%.0f%%, %.1fs",
             stats.nodes_processed,
             stats.edges_created,

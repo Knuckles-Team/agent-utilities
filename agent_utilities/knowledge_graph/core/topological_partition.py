@@ -1,6 +1,6 @@
 """Topological Mincut Partitioning and Community Detection.
 
-CONCEPT:KG-2.5 — Mincut Partitioning
+CONCEPT:AU-KG.compute.topological-mincut-partitioning — Mincut Partitioning
 This module uses GraphComputeEngine community detection to dynamically
 partition the Knowledge Graph into emergent topological communities.
 Stable communities are persisted back to the backend.
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def detect_communities(graph: Any) -> list[set[str]]:
     """Detect emergent communities using GraphComputeEngine.
 
-    CONCEPT:KG-2.5
+    CONCEPT:AU-KG.compute.topological-mincut-partitioning
 
     Args:
         graph: The GraphComputeEngine or compatible graph object.
@@ -149,7 +149,7 @@ def detect_communities(graph: Any) -> list[set[str]]:
 def persist_stable_communities(engine: Any) -> int:
     """Detect and persist stable communities into the Cypher backend.
 
-    CONCEPT:KG-2.5
+    CONCEPT:AU-KG.compute.topological-mincut-partitioning
 
     Called by the maintenance cron to permanently register topological
     waypoints in the graph.

@@ -1,5 +1,5 @@
 """
-Universal Real-Time Streaming Infrastructure — CONCEPT:KG-2.6
+Universal Real-Time Streaming Infrastructure — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides a protocol-based, domain-agnostic WebSocket streaming framework
 that can be leveraged for financial market data, system telemetry,

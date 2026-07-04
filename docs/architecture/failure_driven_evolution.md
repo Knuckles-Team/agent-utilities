@@ -1,4 +1,4 @@
-# Failure-Driven Evolution (CONCEPT:AHE-3.18)
+# Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)
 
 > The self-evolution loop learns from **failures observed in production telemetry**,
 > not only from research papers and unresolved concepts. Failures recorded in
@@ -7,13 +7,13 @@
 
 ## Why
 
-The research-driven golden loop (`CONCEPT:KG-2.7`) assimilated papers, OSS, and
+The research-driven golden loop (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) assimilated papers, OSS, and
 unresolved `Concept` topics — but a running fleet's most valuable signal, its own
 failures, never entered the loop. Langfuse already received exported traces
-(`CONCEPT:AHE-3.0` Experience Observability), yet the integration was
+(`CONCEPT:AU-AHE.harness.harness-evolution` Experience Observability), yet the integration was
 write-only: nothing read failures back out, the `ExecutionSummary` /
 `PerformanceAnomaly` schema sat dormant, and the daemon's `telemetry_ingestion`
-sweep referenced a workflow that never existed (it raised every cycle). AHE-3.18
+sweep referenced a workflow that never existed (it raised every cycle). AU-AHE.harness.failure-evolution
 closes that loop.
 
 ## The loop
@@ -49,7 +49,7 @@ Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intak
    holds the proposal if any signature is actively spiking (current > baseline).
    Each gap is also appended to the durable eval corpus and the failing
    capability's reward is nudged down (`FeedbackService`).
-6. **Lock regression (CONCEPT:AHE-3.25)** — when the gate *passes* (the fix holds
+6. **Lock regression (CONCEPT:AU-AHE.evaluation.failure-analysis-loop)** — when the gate *passes* (the fix holds
    against the originally-observed failures), `_lock_regression_cases` promotes one
    **plain-English assertion** case per signature into the durable `EvalCorpus`
    (idempotent) — e.g. *"The response does not reproduce the failure 'X' in workflow
@@ -67,7 +67,7 @@ The integration is bidirectional and both halves are wired through
 | Direction | Path | Notes |
 |---|---|---|
 | **Write** (agent-utilities → Langfuse) | `observability/langfuse_exporter.py` + OTEL exporter → `${LANGFUSE_HOST}/api/public/otel` | Exports graph runs as traces. |
-| **Read** (Langfuse → AHE-3.18) | `harness/trace_backend.py::LangfuseTraceBackend` | `get_error_observations`, `get_low_score_traces`, `get_cost_latency_anomalies` (+ dataset helpers), wrapping `langfuse_agent.LangfuseApi`. |
+| **Read** (Langfuse → AU-AHE.harness.failure-evolution) | `harness/trace_backend.py::LangfuseTraceBackend` | `get_error_observations`, `get_low_score_traces`, `get_cost_latency_anomalies` (+ dataset helpers), wrapping `langfuse_agent.LangfuseApi`. |
 
 **Endpoint note.** Self-hosted Langfuse (validated against 3.182.0) does not expose
 the `/api/public/v2/observations` or `/api/public/v2/metrics` routes (404). The
@@ -134,10 +134,10 @@ Both share one implementation: `failure_analyzer.run_failure_ingest(engine)`.
 - Builds on **AHE-3.0** (Experience Observability) and the propose-only golden loop
   (**KG-2.7**).
 - Reuses **KG-2.8** feedback primitives (`FeedbackService` `eval`/`outcome`
-  corrections) and the **AHE-3.14** `GovernedAutoMerger` (its injectable
+  corrections) and the **AU-AHE.assimilation.research-auto-merge** `GovernedAutoMerger` (its injectable
   `regression_check`).
 - The remediation proposals are the same `TeamSpec`/`AgentSpec` artifacts the
-  research-driven synthesis (**KG-2.10**) produces.
+  research-driven synthesis (**AU-KG.enrichment.a2a-capability-extraction**) produces.
 - **AHE-3.25** (plain-English regression assertions) closes the loop's final step:
   a *verified* remediation locks a human-readable regression case into the eval
   corpus, the "lock-as-regression-test" guarantee.

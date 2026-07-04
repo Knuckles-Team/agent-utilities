@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Drive the graph-os retrieval configs across MemoryData families (CONCEPT:AHE-3.72).
+"""Drive the graph-os retrieval configs across MemoryData families (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
 
 A *bake-off* runs each retrieval config (:data:`RETRIEVAL_CONFIGS`) over each task family —
 memorizing the family's context chunks, answering its queries, and scoring exact-match plus
@@ -33,13 +33,13 @@ __all__ = ["BakeoffResult", "run_bakeoff", "rouge_l", "ROUTER_CONFIG"]
 # The router is a meta-config: it is NOT a single retrieval surface in
 # ``RETRIEVAL_CONFIGS`` but a :class:`GraphOSRouterMethod` that picks a surface per query
 # from the family tag. ``run_bakeoff`` recognizes this name and drives the router method so
-# the bake-off can pit "route per family" against every single config (CONCEPT:AHE-3.73).
+# the bake-off can pit "route per family" against every single config (CONCEPT:AU-AHE.harness.callers-feed-back-per).
 ROUTER_CONFIG = "graphos_router"
 
 
 @dataclass
 class BakeoffResult:
-    """One (config × family × task) cell of the bake-off (CONCEPT:AHE-3.72)."""
+    """One (config × family × task) cell of the bake-off (CONCEPT:AU-AHE.harness.when-outcome-names-agent)."""
 
     config: str
     family: str

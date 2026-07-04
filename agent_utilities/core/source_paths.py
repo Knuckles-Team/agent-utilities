@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Source-path canonicalization for the served fleet (CONCEPT:KG-2.136).
+"""Source-path canonicalization for the served fleet (CONCEPT:AU-KG.retrieval.route-question-its-domain).
 
 The agent-packages tree is bind-mounted at stable aliases inside the served
 containers (``/au`` = agent-utilities, ``/src`` = a generic package mount), so the

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unit tests for the eval-set optimizer + compounding loop (CONCEPT:ORCH-1.55).
+"""Unit tests for the eval-set optimizer + compounding loop (CONCEPT:AU-ORCH.execution.eval-set-optimization-compounding).
 
 No LLM: a deterministic substring-match judge and stub system functions exercise
 the seed -> score -> harvest -> re-optimize compounding loop.

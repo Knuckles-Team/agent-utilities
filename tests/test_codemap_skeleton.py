@@ -1,4 +1,4 @@
-"""Tests for the repo-map skeleton renderer (CONCEPT:ORCH-1.48)."""
+"""Tests for the repo-map skeleton renderer (CONCEPT:AU-ORCH.planning.repo-map-skeleton)."""
 
 from __future__ import annotations
 

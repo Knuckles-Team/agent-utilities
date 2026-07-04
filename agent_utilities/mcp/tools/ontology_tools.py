@@ -40,7 +40,7 @@ def _run_coro(coro: Any) -> Any:
 def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     """Load every package-contributed ontology through the given lifecycle.
 
-    CONCEPT:KG-2.321 — federation runtime: iterate
+    CONCEPT:AU-KG.ontology.federation-runtime — federation runtime: iterate
     ``discover_provider_ontologies()`` and call the EXISTING
     :meth:`OntologyLifecycle.load` per contributed ``.ttl`` (parse + SHACL-validate
     + register + activate for reasoning). No new load logic — reuse the one path
@@ -90,7 +90,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_property_types",
-        description="List the ontology property-type registry and resolve/validate a Palantir-style type ref (CONCEPT:KG-2.47).",
+        description="List the ontology property-type registry and resolve/validate a Palantir-style type ref (CONCEPT:AU-KG.ontology.ontology-property-types).",
         tags=["graph-os", "ontology"],
     )
     def ontology_property_types(
@@ -138,7 +138,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_value_types",
-        description="List/describe constrained ontology value types and validate or coerce a value (CONCEPT:KG-2.39).",
+        description="List/describe constrained ontology value types and validate or coerce a value (CONCEPT:AU-KG.ontology.value-type-shacl-load).",
         tags=["graph-os", "ontology"],
     )
     def ontology_value_types(
@@ -186,7 +186,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_interface",
-        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:KG-2.38). Set registry='enterprise' to operate on the enterprise-standard contracts (CONCEPT:KG-2.49).",
+        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:AU-KG.ontology.conformance-check). Set registry='enterprise' to operate on the enterprise-standard contracts (CONCEPT:AU-KG.ontology.populated-at-import-real-3).",
         tags=["graph-os", "ontology"],
     )
     def ontology_interface(
@@ -200,7 +200,7 @@ def register_ontology_tools(mcp):
         ),
         registry: str = Field(
             default="structural",
-            description="Which interface registry: 'structural' (built-in shapes) or 'enterprise' (enterprise-standard contracts, CONCEPT:KG-2.49).",
+            description="Which interface registry: 'structural' (built-in shapes) or 'enterprise' (enterprise-standard contracts, CONCEPT:AU-KG.ontology.populated-at-import-real-3).",
         ),
     ) -> str:
         """Resolve interface targeting, check conformance, or emit interface OWL/SHACL."""
@@ -248,7 +248,7 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="ontology_sampling_profile",
         description=(
-            "Task-aware LLM sampling profiles (CONCEPT:ORCH-1.58/KG-2.94): list/describe "
+            "Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe "
             "the per-task-class profiles, 'resolve' the profile that would be picked for a "
             "prompt/role, 'set' a profile (SHACL-validated), 'evolve' one round, or emit OWL."
         ),
@@ -346,7 +346,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_leanix_sync",
-        description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:KG-2.9). dry_run=true previews without writing.",
+        description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:AU-KG.ingest.enterprise-source-extractor). dry_run=true previews without writing.",
         tags=["graph-os", "ontology"],
     )
     def ontology_leanix_sync(
@@ -370,7 +370,7 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="graph_ontology",
         description=(
-            "Hosted-ontology lifecycle CRUD (CONCEPT:KG-2.265) — manage arbitrary "
+            "Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary "
             "OWL/RDF ontologies hosted in the running KG. action='load' (parse + "
             "SHACL-validate + register a .ttl/OWL from a file path, URL, or raw "
             "turtle text via `source`/`source_type`, idempotent on iri+version, and "
@@ -381,7 +381,7 @@ def register_ontology_tools(mcp):
             "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
             "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
             "gate on a candidate WITHOUT committing), 'activate'/'deactivate' "
-            "(toggle participation in reasoning), 'sync_packages' (CONCEPT:KG-2.321 "
+            "(toggle participation in reasoning), 'sync_packages' (CONCEPT:AU-KG.ontology.federation-runtime "
             "— federation: discover every ontology .ttl contributed by installed "
             "fleet packages via the agent_utilities.ontology_providers entry-point "
             "and load each through the SAME load path, so package-contributed "
@@ -503,7 +503,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="graph_writeback",
-        description="Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:KG-2.8/2.9). target='leanix'|'servicenow'|'erpnext'|'process'|'capability'. ops: inferences_json [{source,rel_type,target}] (relationships), enrichments_json [{node,patches,tag}], creations_json [{type,name}] (inventory CIs/items/fact sheets), retirements_json [{node}]. Fail-closed: live writes need the target's enable flag (e.g. LEANIX_ENABLE_WRITE / SERVICENOW_ENABLE_WRITE / ERPNEXT_ENABLE_WRITE / KG_PROCESS_WRITEBACK); dry_run=true (default) previews the exact proposed writes.",
+        description="Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9). target='leanix'|'servicenow'|'erpnext'|'process'|'capability'. ops: inferences_json [{source,rel_type,target}] (relationships), enrichments_json [{node,patches,tag}], creations_json [{type,name}] (inventory CIs/items/fact sheets), retirements_json [{node}]. Fail-closed: live writes need the target's enable flag (e.g. LEANIX_ENABLE_WRITE / SERVICENOW_ENABLE_WRITE / ERPNEXT_ENABLE_WRITE / KG_PROCESS_WRITEBACK); dry_run=true (default) previews the exact proposed writes.",
         tags=["graph-os", "writeback"],
     )
     def graph_writeback(
@@ -622,7 +622,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="spec_ticket",
-        description="Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable (CONCEPT:KG-2.9). action='link' (push spec content onto the item, link it, assign to user/agent/act-as-user, comment) or 'pull' (read items assigned to a user — 'what do I own?'). Fail-closed (PLANE_ENABLE_WRITE/JIRA_ENABLE_WRITE), dry_run=true previews.",
+        description="Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable (CONCEPT:AU-KG.ingest.enterprise-source-extractor). action='link' (push spec content onto the item, link it, assign to user/agent/act-as-user, comment) or 'pull' (read items assigned to a user — 'what do I own?'). Fail-closed (PLANE_ENABLE_WRITE/JIRA_ENABLE_WRITE), dry_run=true previews.",
         tags=["graph-os", "writeback", "sdd"],
     )
     def spec_ticket(
@@ -691,8 +691,8 @@ def register_ontology_tools(mcp):
         name="concept_registry",
         description=(
             "Atomically claim/list/release concept ids across parallel sessions & worktrees "
-            "(CONCEPT:OS-5.42). action='reserve' mints the next free id in a namespace (a pillar "
-            "like 'KG-2'/'OS-5' or a package prefix like 'KEY') and appends it to the committed, "
+            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). action='reserve' mints the next free id in a namespace (a pillar "
+            "like 'EG-KG.compute.backend'/'OS-5' or a package prefix like 'KEY') and appends it to the committed, "
             "merge=union ledger so two sessions never collide; 'list' shows reservations; "
             "'release' frees one; 'reconcile' marks landed/expired. The ledger is authoritative; "
             "reservations are also projected into the KG when the gateway is healthy."
@@ -706,7 +706,7 @@ def register_ontology_tools(mcp):
         ),
         namespace: str = Field(
             default="",
-            description="For 'reserve': pillar ('KG-2','OS-5') or package prefix ('KEY','GL').",
+            description="For 'reserve': pillar ('EG-KG.compute.backend','OS-5') or package prefix ('KEY','GL').",
         ),
         session_id: str = Field(
             default="", description="Claiming session id (defaults to host:pid)."
@@ -793,7 +793,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="source_sync",
-        description="THE canonical connector→KG ingestion tool (CONCEPT:KG-2.9) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; all others fall back to a full hydrate, and a generic write-layer content-hash delta means unchanged entities are skipped (no re-write, no re-reason) for ALL sources even on a full fetch. ids=[...] narrows to specific records (webhook-driven). (graph_hydrate is a thin alias of this tool; graph_ingest covers path/URL/document content.)",
+        description="THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; all others fall back to a full hydrate, and a generic write-layer content-hash delta means unchanged entities are skipped (no re-write, no re-reason) for ALL sources even on a full fetch. ids=[...] narrows to specific records (webhook-driven). (graph_hydrate is a thin alias of this tool; graph_ingest covers path/URL/document content.)",
         tags=["graph-os", "ingestion"],
     )
     def source_sync(
@@ -831,7 +831,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="source_drain",
-        description="Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:KG-2.301). action='status' + drain_id returns cumulative progress (pages_done / items_seen / items_ingested) plus a live per-status breakdown of the drain's connector_drain :Task chain. action='list' lists registered chunked-drain sources. A single source_sync(source=X, mode='full') returns a drain_id immediately and drains the whole backlog across capacity-guarded background page-tasks; poll this to watch it finish.",
+        description="Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:AU-KG.ontology.single-source-full-drain). action='status' + drain_id returns cumulative progress (pages_done / items_seen / items_ingested) plus a live per-status breakdown of the drain's connector_drain :Task chain. action='list' lists registered chunked-drain sources. A single source_sync(source=X, mode='full') returns a drain_id immediately and drains the whole backlog across capacity-guarded background page-tasks; poll this to watch it finish.",
         tags=["graph-os", "ingestion"],
     )
     def source_drain(
@@ -871,7 +871,7 @@ def register_ontology_tools(mcp):
         name="graph_etl",
         description=(
             "Unified ETL pipeline between systems over the canonical KG hub "
-            "(CONCEPT:KG-2.98). One source→(ontological transform)→sink interface that "
+            "(CONCEPT:AU-KG.ontology.one-source). One source→(ontological transform)→sink interface that "
             "composes the existing ingestion, write-back, and graph-store machinery. "
             "action='run' (default): pull `source` into the KG (any registered "
             "ingestion source: leanix/servicenow/egeria/camunda/aris/gitlab/…; mode "
@@ -883,10 +883,10 @@ def register_ontology_tools(mcp):
             "urn:source:<system> named graphs; sources_json filters the subset) OR the "
             "native engine SQL-table sink (sink='table' → mirror the inbound `source` "
             "connector's data into an engine SQL table via CREATE TABLE + bulk INSERT; "
-            "pass ops_json {table,config,limit,replace} — CONCEPT:KG-2.266). Omit "
+            "pass ops_json {table,config,limit,replace} — CONCEPT:AU-KG.ingest.mirror-inbound). Omit "
             "either side for a one-directional run. action='list': available sources, "
             "write-back sinks, and graph-store backends. action='lineage': recorded "
-            "ETL runs (impact analysis), filterable by source/sink (CONCEPT:KG-2.99)."
+            "ETL runs (impact analysis), filterable by source/sink (CONCEPT:AU-KG.ontology.kg-3)."
         ),
         tags=["graph-os", "ingestion", "etl"],
     )
@@ -1006,7 +1006,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_function",
-        description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:KG-2.41).",
+        description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:AU-KG.ontology.default-runtime-bound-import).",
         tags=["graph-os", "ontology"],
     )
     def ontology_function(
@@ -1061,7 +1061,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_derive",
-        description="Compute derived (function/cypher/sparql/embedding-backed) properties live at read time (CONCEPT:KG-2.40).",
+        description="Compute derived (function/cypher/sparql/embedding-backed) properties live at read time (CONCEPT:AU-KG.ontology.derived-property-registry).",
         tags=["graph-os", "ontology"],
     )
     def ontology_derive(
@@ -1069,7 +1069,7 @@ def register_ontology_tools(mcp):
             default="compute",
             description="'list' declarations, 'compute' one property, 'compute_all', "
             "or 'discover_extensions' (propose ontology .ttl extensions from a text "
-            "sample, CONCEPT:KG-2.259).",
+            "sample, CONCEPT:AU-KG.ontology.do-not-auto-merge).",
         ),
         object_json: str = Field(
             default="{}", description="JSON object dict the property is computed for."
@@ -1140,7 +1140,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_link_materialize",
-        description="Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:KG-2.26).",
+        description="Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).",
         tags=["graph-os", "ontology"],
     )
     async def ontology_link_materialize(
@@ -1217,11 +1217,11 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="object_edits",
         description=(
-            "Durable object-edit ledger (CONCEPT:KG-2.43): record a structured edit "
+            "Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit "
             "(property_set/link_add/link_remove/object_create/object_delete), revert "
             "an edit, or read per-object history / as_of snapshot. For a property_set, "
             "pass 'expect' to record the edit ONLY if the object still matches those "
-            "values (CONCEPT:KG-2.142) — optimistic concurrency for concurrent agent "
+            "values (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property) — optimistic concurrency for concurrent agent "
             "object-shaping so two agents editing the same object never lose a write."
         ),
         tags=["graph-os", "ontology"],
@@ -1259,7 +1259,7 @@ def register_ontology_tools(mcp):
                 "For action='record' edit_type='property_set': field→expected current "
                 "value the object must still match for the set to apply (missing field "
                 "reads as null). When non-empty the set goes through an atomic "
-                "compare-and-set (CONCEPT:KG-2.142): the edit is recorded ONLY if it "
+                "compare-and-set (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property): the edit is recorded ONLY if it "
                 "wins; an unapplied set returns {'applied': false} and records nothing. "
                 "Empty (default) = unconditional set, identical to prior behavior. "
                 "e.g. {'status': 'pending'}."
@@ -1268,7 +1268,7 @@ def register_ontology_tools(mcp):
     ) -> str:
         """Record / revert object edits and read per-object edit history or an as_of snapshot.
 
-        CONCEPT:KG-2.142 optimistic-concurrency for object property edits.
+        CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property optimistic-concurrency for object property edits.
         ``action='record'`` with a non-empty ``expect`` is the object-layer
         optimistic-concurrency primitive: the property_set is
         applied through the engine's atomic ``compare_and_set_node_fields`` and the
@@ -1313,7 +1313,7 @@ def register_ontology_tools(mcp):
                     props = json.loads(properties_json) if properties_json else {}
                     conditions = _as_dict(expect)
                     if etype == EditType.PROPERTY_SET and conditions:
-                        # CONCEPT:KG-2.142 — atomic optimistic-concurrency property
+                        # CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property — atomic optimistic-concurrency property
                         # set. The object id IS the node id (the ledger persists the
                         # edit's target as MERGE (t {id: object_id})), so we condition
                         # on the SAME node the edit targets. Apply the set ONLY if the
@@ -1386,7 +1386,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="object_index",
-        description="Object Index Lifecycle / Object Data Funnel (CONCEPT:KG-2.44): batch/incremental sync of the live search index from source nodes, report staleness, or reindex stale objects.",
+        description="Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live): batch/incremental sync of the live search index from source nodes, report staleness, or reindex stale objects.",
         tags=["graph-os", "ontology"],
     )
     def object_index(
@@ -1425,7 +1425,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="object_permissioning",
-        description="Fine-grained object permissioning (CONCEPT:KG-2.46): redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved from the ambient context — never from caller-supplied clearance.",
+        description="Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved from the ambient context — never from caller-supplied clearance.",
         tags=["graph-os", "ontology"],
     )
     def object_permissioning(
@@ -1475,7 +1475,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="graph_share",
-        description="Share a private node (CONCEPT:KG-2.60). Data is private-to-its-owner by default; this is the explicit promotion path. action='org' shares with the owner's org (in-place), 'commons' promotes a copy into the shared cross-org commons graph (share by WHERE placed), 'mark' attaches a mandatory marking (share by HOW placed), 'private' restricts it back. Actor/owner is the ambient identity — never caller-supplied.",
+        description="Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). Data is private-to-its-owner by default; this is the explicit promotion path. action='org' shares with the owner's org (in-place), 'commons' promotes a copy into the shared cross-org commons graph (share by WHERE placed), 'mark' attaches a mandatory marking (share by HOW placed), 'private' restricts it back. Actor/owner is the ambient identity — never caller-supplied.",
         tags=["graph-os", "tenancy"],
     )
     def graph_share(
@@ -1518,7 +1518,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="object_set",
-        description="Object Set Service (CONCEPT:KG-2.45/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
+        description="Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
         tags=["graph-os", "ontology"],
     )
     def object_set(
@@ -1610,7 +1610,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="document_process",
-        description="Document → ontology processing (CONCEPT:KG-2.48): extract → chunk(overlap) → embed → materialize a Document + linked Chunk objects through the live graph write path.",
+        description="Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): extract → chunk(overlap) → embed → materialize a Document + linked Chunk objects through the live graph write path.",
         tags=["graph-os", "ontology"],
     )
     def document_process(
@@ -1629,7 +1629,7 @@ def register_ontology_tools(mcp):
         ),
         contextual: bool = Field(
             default=False,
-            description="Enable contextual-retrieval enrichment (CONCEPT:KG-2.50): situate each chunk within the document and embed context+chunk for better recall.",
+            description="Enable contextual-retrieval enrichment (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment): situate each chunk within the document and embed context+chunk for better recall.",
         ),
     ) -> str:
         """Process a document into Document + Chunk ontology objects through the live graph."""
@@ -1669,7 +1669,7 @@ def register_ontology_tools(mcp):
 
     kg_server.REGISTERED_TOOLS["document_process"] = document_process
 
-    # Quant trading system tool (CONCEPT:ECO-4.0): debate/regime/data/execute/
+    # Quant trading system tool (CONCEPT:AU-ECO.messaging.native-backend-abstraction): debate/regime/data/execute/
     # portfolio over the finance engines. Registered onto the MCP server AND the
     # shared kg_server.REGISTERED_TOOLS map so the gateway REST twin (/quant) reaches it.
     # The finance domain needs the optional `[finance]` extra (scipy/pandas/statsmodels);
@@ -1689,7 +1689,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="source_connector",
-        description="Document-source connectors (CONCEPT:ECO-4.25–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool drives any fleet MCP server's listing tool as a paginated source) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
+        description="Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool drives any fleet MCP server's listing tool as a paginated source) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
         tags=["graph-os", "ecosystem", "connectors"],
     )
     async def source_connector(
@@ -1711,14 +1711,14 @@ def register_ontology_tools(mcp):
         ),
         contextual: bool = Field(
             default=True,
-            description="Enable contextual-retrieval enrichment (CONCEPT:KG-2.50).",
+            description="Enable contextual-retrieval enrichment (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment).",
         ),
         incremental: bool = Field(
             default=True,
-            description="Use the connector's resumable poll (CONCEPT:ECO-4.26) vs a full load.",
+            description="Use the connector's resumable poll (CONCEPT:AU-ECO.connector.incremental-poll-watermark) vs a full load.",
         ),
     ) -> str:
-        """List or run a document-source connector (CONCEPT:ECO-4.25–4.29)."""
+        """List or run a document-source connector (CONCEPT:AU-ECO.connector.document-source-framework–4.29)."""
         from agent_utilities.knowledge_graph.facade import KnowledgeGraph
 
         try:

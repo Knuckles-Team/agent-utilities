@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Apache AGE graph backend — real openCypher on PostgreSQL.
 
-CONCEPT:KG-2.7 — the durable PostgreSQL graph tier executed via a bounded regex
+CONCEPT:AU-KG.backend.age-postgresql-tier — the durable PostgreSQL graph tier executed via a bounded regex
 Cypher→SQL transpiler that silently returned ``[]`` for any unsupported shape
 (``count(r)``, ``RETURN ... AS alias``, multi-hop, variable-length). This backend
 runs Cypher natively through Apache AGE's ``cypher()`` function, so the full
@@ -87,7 +87,7 @@ class AGEBackend(PostgreSQLBackend):
     @property
     def cypher_support(self) -> str:
         """Apache AGE runs native openCypher (count/alias/multi-hop/variable-length/
-        edge-props), so the full query surface is portable here (CONCEPT:KG-2.63)."""
+        edge-props), so the full query surface is portable here (CONCEPT:AU-KG.backend.multi-connection-registry)."""
         return "full"
 
     # ── Cypher → AGE translation ─────────────────────────────────────────────
@@ -154,7 +154,7 @@ class AGEBackend(PostgreSQLBackend):
     def _age_session(self, cur: Any) -> None:
         """Prepare a connection to run AGE Cypher — ONCE per physical connection.
 
-        CONCEPT:KG-2.152 — ``LOAD 'age'`` + ``SET search_path`` are session-scoped:
+        CONCEPT:AU-KG.backend.authority-write-tail — ``LOAD 'age'`` + ``SET search_path`` are session-scoped:
         they persist for the connection's lifetime, so re-issuing them on EVERY
         ``execute`` cost two extra server round-trips per authority write and
         lengthened how long each write held its pooled connection — the very thing
@@ -193,7 +193,7 @@ class AGEBackend(PostgreSQLBackend):
         )
 
         def _run() -> tuple[list[Any], list[str]]:
-            # CONCEPT:KG-2.152 — the live authority-write path. Drive the raw-SQL
+            # CONCEPT:AU-KG.backend.authority-write-tail — the live authority-write path. Drive the raw-SQL
             # AGE write through the SHARED pool-timeout/lock-contention retry policy
             # (``_run_resilient``) so a starved-pool ``PoolTimeout`` becomes a bounded
             # retry instead of escaping uncaught — the parent's resilience fix only
@@ -255,7 +255,7 @@ class AGEBackend(PostgreSQLBackend):
         vec = "[" + ",".join(repr(float(x)) for x in embedding) + "]"
 
         def _run() -> None:
-            # CONCEPT:KG-2.152 — embedding writes share the same starved pool, so
+            # CONCEPT:AU-KG.backend.authority-write-tail — embedding writes share the same starved pool, so
             # route through the shared pool-timeout/lock-contention retry policy too.
             with self._conn() as conn:
                 with conn.cursor() as cur:
@@ -274,7 +274,7 @@ class AGEBackend(PostgreSQLBackend):
         vec = "[" + ",".join(repr(float(x)) for x in query_embedding) + "]"
 
         def _run() -> list[Any]:
-            # CONCEPT:KG-2.152 — vector search competes for the same pool under load;
+            # CONCEPT:AU-KG.backend.authority-write-tail — vector search competes for the same pool under load;
             # route through the shared pool-timeout/lock-contention retry policy.
             with self._conn() as conn:
                 with conn.cursor() as cur:

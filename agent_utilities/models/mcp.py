@@ -18,7 +18,7 @@ class MCPAgent(BaseModel):
             "Agent classification. 'specialist' for all local agents "
             "(regardless of origin: prompts, MCP partitioning, or skills). "
             "'a2a' for remote Agent-to-Agent peers. Legacy values 'prompt' "
-            "and 'mcp' are normalized to 'specialist' at read time (CONCEPT:ORCH-1.2)."
+            "and 'mcp' are normalized to 'specialist' at read time (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)."
         ),
     )
     prompt_file: str | None = Field(
@@ -93,7 +93,7 @@ class DiscoveredSpecialist(BaseModel):
     source: str = Field(
         description=(
             "Origin: 'specialist' (unified local agent) or 'a2a' (remote peer). "
-            "Legacy values 'prompt' and 'mcp' are normalized to 'specialist' (CONCEPT:ORCH-1.2)."
+            "Legacy values 'prompt' and 'mcp' are normalized to 'specialist' (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)."
         ),
     )
     mcp_server: str = Field(default="", description="Source MCP server (MCP only)")

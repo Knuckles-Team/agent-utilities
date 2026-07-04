@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.89 — container_fork warm-pool rung: live-path warm-reuse + bridge.
+"""CONCEPT:AU-ORCH.sandbox.container-fork-sandbox — container_fork warm-pool rung: live-path warm-reuse + bridge.
 
 Gated on a usable docker/podman daemon; skipped otherwise. Proves the same ForkableSandbox
 protocol (warm + run_forked + registry-backed execute) generalises from the process substrate

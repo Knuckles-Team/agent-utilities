@@ -1,6 +1,6 @@
 # Skill-Graph Migration Plan — updating all existing graphs to the KG-driven format
 
-The unified pipeline (CONCEPT:KG-2.7) builds every skill-graph the same way:
+The unified pipeline (CONCEPT:AU-KG.query.vendor-agnostic-traversal) builds every skill-graph the same way:
 standardized `SKILL.md` + `index.json` + `sources.json`, content-optimized
 `reference/`, optional distilled `OVERVIEW.md`, and **document-grade KG ingestion**
 (chunk → embed → Concept/Fact extraction). This plan migrates the existing library
@@ -28,7 +28,7 @@ The migration has two costs with very different speeds, so **separate them**:
    contract immediately.
 2. **KG processing (slow, LLM-bound)** — chunk → embed → **Concept + Fact extraction**
    into the KG. This is where the *leverage* is: every graph's concepts are
-   deduped by `ConceptMatcher` (KG-2.75) onto the **same Concept nodes** that
+   deduped by `ConceptMatcher` (AU-KG.ingest.world-model-gate) onto the **same Concept nodes** that
    documents, papers, code and the other skill types point to — so a freshly-ingested
    `fastapi-docs` instantly links to existing `Concept:dependency-injection`,
    `Concept:asgi`, etc., and to any Code/Spec that realizes them. Each graph is also a

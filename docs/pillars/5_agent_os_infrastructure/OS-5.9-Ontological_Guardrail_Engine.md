@@ -1,4 +1,4 @@
-# Ontological Guardrail Engine (CONCEPT:OS-5.10)
+# Ontological Guardrail Engine (CONCEPT:AU-OS.safety.ontological-guardrail)
 
 ## Overview
 High-risk tools (such as local command execution, database updates, or financial transactions) must be verified before execution to prevent prompt injection and compliance drift.
@@ -117,7 +117,7 @@ The ontological guardrails are invoked within the `flag_mcp_tool_definitions()` 
 
 ```python
 def _requires_approval(ctx, tool_def, tool_args):
-    # 1. OS-5.10: Ontological Guardrails (argument-level analysis)
+    # 1. AU-OS.safety.ontological-guardrail: Ontological Guardrails (argument-level analysis)
     if check_ontological_guardrails(name, tool_args, engine=engine):
         return True  # Requires approval
 
@@ -130,7 +130,7 @@ def _requires_approval(ctx, tool_def, tool_args):
 ```
 
 This creates a **defense-in-depth** stack:
-1. **OS-5.10** checks the *arguments* (what the tool targets)
+1. **AU-OS.safety.ontological-guardrail** checks the *arguments* (what the tool targets)
 2. **OS-5.1** checks the *identity* (who is calling)
 3. **Pattern matching** checks the *tool name* (what tool is being called)
 

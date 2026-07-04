@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for Knowledge Architecture gaps: SPARQL, ArchiMate, ADR.
 
-CONCEPT:KG-2.6 — Context Graph Architecture
+CONCEPT:AU-KG.research.research-pipeline-runner — Context Graph Architecture
 
 Tests covering:
 - SPARQL read-only endpoint via rdflib materialization
@@ -30,7 +30,7 @@ def sample_graph() -> GraphComputeEngine:
     # Add nodes with types
     g.add_node("agent_1", type="agent", name="TestAgent", description="A test agent")
     g.add_node("tool_1", type="tool", name="CodeSearch", description="Search code")
-    g.add_node("concept_1", type="concept", name="KG-2.7", description="Architecture")
+    g.add_node("concept_1", type="concept", name="AU-KG.query.vendor-agnostic-traversal", description="Architecture")
     g.add_node("policy_1", type="policy", name="NoDelete", description="No deletions")
     g.add_node("server_1", type="server", name="MCPServer", description="MCP endpoint")
     g.add_node("goal_1", type="goal", name="Governance", description="Full governance")
@@ -119,7 +119,7 @@ class TestSPARQL:
 
         This exercises the rdflib materialization (``_sparql_via_rdflib`` /
         ``_build_rdf_graph``) DIRECTLY: under the engine-native architecture
-        (CONCEPT:KG-2.242) ``query_sparql`` prefers the engine projection and only
+        (CONCEPT:AU-KG.compute.native-sparql-owl-shacl) ``query_sparql`` prefers the engine projection and only
         builds the rdflib cache on the no-engine path, so the cache invariant belongs
         to the rdflib materialization itself. A hermetic networkx LPG keeps it engine-
         independent and deterministic.
@@ -280,13 +280,13 @@ class TestArchitectureDecisionRecords:
             consequences=["No native SPARQL", "WAL corruption risk"],
             authority="user",
             pillar="KG",
-            impacted_concepts=["KG-2.0", "KG-2.7"],
+            impacted_concepts=["AU-KG.query.object-graph-mapper", "AU-KG.query.vendor-agnostic-traversal"],
         )
 
         assert adr.type == RegistryNodeType.ARCHITECTURE_DECISION  # type: ignore[attr-defined]
         assert adr.status == "accepted"
         assert len(adr.alternatives) == 3
-        assert "KG-2.7" in adr.impacted_concepts
+        assert "AU-KG.query.vendor-agnostic-traversal" in adr.impacted_concepts
 
     def test_adr_status_transitions(self):
         """ADR status should accept all valid lifecycle values."""
@@ -335,11 +335,11 @@ class TestArchitectureDecisionRecords:
         adr = ArchitectureDecisionRecord(
             id="adr-sparql",
             name="Add SPARQL endpoint",
-            impacted_concepts=["KG-2.7", "KG-2.0", "ORCH-1.1"],
+            impacted_concepts=["AU-KG.query.vendor-agnostic-traversal", "AU-KG.query.object-graph-mapper", "AU-ORCH.planning.recursion-nesting-depth"],
         )
 
         assert len(adr.impacted_concepts) == 3
-        assert "KG-2.7" in adr.impacted_concepts
+        assert "AU-KG.query.vendor-agnostic-traversal" in adr.impacted_concepts
 
     def test_adr_from_evolution_cycle(self):
         """ADR created from evolution cycle has proper authority."""

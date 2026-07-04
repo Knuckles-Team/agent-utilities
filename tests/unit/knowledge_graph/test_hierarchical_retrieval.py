@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for hierarchical (global→local) community retrieval (b2-04).
 
-CONCEPT:KG-2.5
+CONCEPT:AU-KG.compute.spectral-cluster-navigator
 """
 
 import pytest
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.core.topological_analysis_engine import (
     TopologicalAnalysisEngine,
 )
 
-pytestmark = pytest.mark.concept("KG-2.5")
+pytestmark = pytest.mark.concept("AU-KG.compute.spectral-cluster-navigator")
 
 
 def _graph():

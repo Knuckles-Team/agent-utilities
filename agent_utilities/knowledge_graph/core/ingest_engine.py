@@ -1,4 +1,4 @@
-"""Dedicated ingest engine lifecycle (CONCEPT:KG-2.58, Phase D).
+"""Dedicated ingest engine lifecycle (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, Phase D).
 
 A SECOND, EPHEMERAL epistemic-graph engine that handles ONLY the codebase-ingest
 path's heavy compute — stateless tree-sitter parsing and throwaway

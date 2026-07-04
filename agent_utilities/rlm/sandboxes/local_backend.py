@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Local (in-process ``exec``) sandbox: the always-available floor.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Local (in-process ``exec``) sandbox: the always-available floor.
 
 This is the legacy ``_execute_local`` behaviour, lifted verbatim behind the :class:`Sandbox`
 contract. It is NOT a real isolation boundary (CWE-94: it runs model-generated code in this

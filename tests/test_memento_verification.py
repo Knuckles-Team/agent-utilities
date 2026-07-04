@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the external-verification + provenance stamp on memento compaction.
 
-CONCEPT:KG-2.20
+CONCEPT:AU-KG.memory.mementified-context
 """
 
 from unittest.mock import MagicMock
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.memory.memento_compressor import (
     verify_memento,
 )
 
-pytestmark = pytest.mark.concept("KG-2.20")
+pytestmark = pytest.mark.concept("AU-KG.memory.mementified-context")
 
 _BLOCK = "The capital of France is Paris. The Eiffel Tower is in Paris."
 

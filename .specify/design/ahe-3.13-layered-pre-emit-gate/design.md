@@ -1,4 +1,4 @@
-# Design Document: Layered Pre-Emit Gate Pipeline (AHE-3.13)
+# Design Document: Layered Pre-Emit Gate Pipeline (AU-AHE.harness.pre-emit-quality-gate)
 
 > Assimilates open-design's quality culture as a wired-in pipeline: **discovery-form brief lock →
 > P0/P1/P2 preflight checklist → 5-dimensional self-critique (score 1–5, fix any <3, re-score)**,
@@ -27,11 +27,11 @@ improve over time and the antipattern registry is a queryable KG asset, not stat
 |---|---|---|---|
 | AHE-3.1 | Continuous Evaluation / Adversarial Verification | 0.66 | AHE-3 |
 | AHE-3.0 | Agentic Harness Core | 0.58 | AHE-3 |
-| OS-5.3 | Guardrails & Safety Boundaries | 0.49 | OS-5 |
+| AU-OS.governance.reactive-multi-axis-budget | Guardrails & Safety Boundaries | 0.49 | OS-5 |
 | ORCH-1.0 | Core Orchestration Engine | 0.40 | ORCH-1 |
-| KG-2.0 | Active Knowledge Graph | 0.33 | KG-2 |
+| KG-2.0 | Active Knowledge Graph | 0.33 | EG-KG.compute.backend |
 
-> Highest 0.66 < 0.70 → **new concept justified**. AHE-3.1 evaluates *after* a run for learning; AHE-3.13
+> Highest 0.66 < 0.70 → **new concept justified**. AHE-3.1 evaluates *after* a run for learning; AU-AHE.harness.pre-emit-quality-gate
 > is a *blocking pre-emit pipeline* (discovery + checklist + critique composition) that gates output. The
 > `MultiDimensionalCritique` class is implemented as an **extension of AHE-3.1**, but the layered gate
 > composition is the new concept.
@@ -42,7 +42,7 @@ improve over time and the antipattern registry is a queryable KG asset, not stat
 - **New Concept Required?**: Yes (the layered composition + dominant-layer precedence).
 
 ### New Concept Proposal
-- **Proposed ID**: `CONCEPT:AHE-3.13`
+- **Proposed ID**: `CONCEPT:AU-AHE.harness.pre-emit-quality-gate`
 - **Augments Pillar**: AHE (hooks ORCH-1.0 router + KG-2.0 storage)
 - **15-Phase Pipeline Integration**: Phase 1 (Discovery gate, pre-dispatch) + Phase 4 (pre-emit critique).
 - **Justification**: A blocking, multi-stage, re-scoring pre-emit gate with documented prompt-layer precedence is distinct from post-hoc evaluation.
@@ -70,7 +70,7 @@ C4Context
 2. **KG**: antipattern registry stored/queried in KG-2.0; critique scores persisted as nodes.
 3. **AHE**: critique scores feed the eval/evolution engine (AHE-3.1/3.2) — gates self-improve.
 4. **ECO**: per-skill `critique.policy` (E5) toggles the critique stage; discovery reuses `/api/human` forms.
-5. **OS**: a failing P0 (blocking) short-circuits emit; guardrail integration (OS-5.3).
+5. **OS**: a failing P0 (blocking) short-circuits emit; guardrail integration (AU-OS.governance.reactive-multi-axis-budget).
 
 ## Risk Assessment
 - **Blast Radius**: new `harness/preflight_gate.py`, `harness/evaluation_engine.py` (+`MultiDimensionalCritique`), `graph/_router_impl.py` (gate seam), `graph/parallel_engine.py` (`_synthesize` hook). Touches the hot path → must be feature-flagged and default-on-soft (warn) before default-on-block.

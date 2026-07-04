@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 
 # Postgres connection-pool sizing (config discipline): sensible bounded defaults
-# that work everywhere. CONCEPT:KG-2.152 — the authority (L3) is the single shared
+# that work everywhere. CONCEPT:AU-KG.backend.authority-backend — the authority (L3) is the single shared
 # write ceiling: under sustained ingest EVERY lane worker + the fan-out drainer
 # threads + reads contend on this ONE pool, so a 10-conn cap starves and the
 # acquire wait becomes the multi-second authority-write tail (profiled p50 ~3ms,
@@ -110,7 +110,7 @@ _ACTIVE_BACKEND: Any = None
 def _parse_mirror_targets(raw: Any) -> list[str]:
     """Parse ``GRAPH_MIRROR_TARGETS`` into a clean list of mirror names.
 
-    CONCEPT:KG-2.203 — tolerant of every shape this value arrives in:
+    CONCEPT:AU-KG.backend.tolerant-parse — tolerant of every shape this value arrives in:
 
     * already a list (``config.json`` native, ``["a","b"]``) — used as-is;
     * a JSON-array *string* (``config.json`` injects list settings into the env
@@ -213,7 +213,7 @@ def __getattr__(name: str):
 def _build_member(spec: dict[str, Any]):
     """Build a composite member backend WITHOUT claiming the active slot.
 
-    Used by the ``fanout`` composite (CONCEPT:KG-2.74): a member is a full
+    Used by the ``fanout`` composite (CONCEPT:AU-KG.backend.mirror-health-repair): a member is a full
     ``create_backend`` call (so it gets schema init + driver resolution), but it
     must not register itself as ``_ACTIVE_BACKEND`` — only the composite does, at
     the end of the outer call. We park the ``_BUILDING`` sentinel in the slot so
@@ -230,7 +230,7 @@ def _build_member(spec: dict[str, Any]):
 
 
 def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
-    """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:KG-2.74),
+    """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:AU-KG.backend.mirror-health-repair),
     resolved against ``kg_connections``. Returns ``{}`` when none are configured.
 
     Used by the ``fanout`` backend: every write that lands in the engine authority
@@ -241,7 +241,7 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
     targets = _parse_mirror_targets(
         setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
     )
-    # CONCEPT:KG-2.89 — derive the mirror set from connections with role="mirror";
+    # CONCEPT:AU-KG.backend.derive-mirror-set — derive the mirror set from connections with role="mirror";
     # the explicit GRAPH_MIRROR_TARGETS above stays an optional override/addition.
     role_mirrors = [
         str(s.get("name") or "").strip()
@@ -503,10 +503,10 @@ def create_backend(
         )
 
     elif backend_type == "fanout":
-        # Concurrent N-way mirroring (CONCEPT:KG-2.74): ONE authority store serves
+        # Concurrent N-way mirroring (CONCEPT:AU-KG.backend.mirror-health-repair): ONE authority store serves
         # reads + acks writes; every mutation is mirrored, losslessly, to the named
         # mirror connections via a durable outbox. Authority + mirrors are resolved
-        # against kg_connections (CONCEPT:KG-2.63) so DSN/creds live in one place.
+        # against kg_connections (CONCEPT:AU-KG.backend.multi-connection-registry) so DSN/creds live in one place.
         from agent_utilities.core.config import config as _cfg
 
         from .fanout_backend import FanOutBackend
@@ -515,7 +515,7 @@ def create_backend(
         for spec in _cfg.kg_connections or []:
             d = dict(spec)
             nm = str(d.pop("name", "")).strip()
-            # kg_connections (CONCEPT:KG-2.63) uses "backend"; create_backend's
+            # kg_connections (CONCEPT:AU-KG.backend.multi-connection-registry) uses "backend"; create_backend's
             # parameter is "backend_type" — normalize so it isn't dropped into
             # **kwargs (which would silently recurse into the default backend).
             if "backend" in d and "backend_type" not in d:
@@ -540,7 +540,7 @@ def create_backend(
             )
             return None
 
-        # CONCEPT:KG-2.203 — tolerant parse: accepts a JSON-array string
+        # CONCEPT:AU-KG.backend.tolerant-parse — tolerant parse: accepts a JSON-array string
         # ('["prod-neo4j","team-falkor"]', the shape config.json injects into the
         # env), a comma list, or a single value. The old naive comma-split turned
         # a JSON array into fragments ('["prod-neo4j"' / '"team-falkor"]') that were
@@ -623,7 +623,7 @@ def create_backend(
         except Exception as e:
             logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
 
-        # CONCEPT:KG-2.6 — wrap with the Company Brain write-path guard
+        # CONCEPT:AU-KG.backend.company-brain-write-guard — wrap with the Company Brain write-path guard
         # (provenance + source-authority arbitration) only when enforcement is
         # on, so the default path stays byte-identical.
         try:

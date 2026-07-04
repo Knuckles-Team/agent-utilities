@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unit tests for adaptive_stopping (CONCEPT:KG-2.87, TASR)."""
+"""Unit tests for adaptive_stopping (CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval, TASR)."""
 
 from agent_utilities.knowledge_graph.retrieval.adaptive_stopping import (
     IterativeStopper,

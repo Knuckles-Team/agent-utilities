@@ -1,8 +1,8 @@
 """Tests for Evolutionary Memory parity features: Topological Partitioning, Drift Tracker, EWC++.
 
-CONCEPT:KG-2.5 (Topological Mincut)
-CONCEPT:AHE-3.4 (Temporal Drift)
-CONCEPT:AHE-3.4 (EWC++)
+CONCEPT:AU-KG.compute.spectral-cluster-navigator (Topological Mincut)
+CONCEPT:AU-AHE.evaluation.backtest-harness (Temporal Drift)
+CONCEPT:AU-AHE.evaluation.backtest-harness (EWC++)
 """
 
 from typing import Any
@@ -34,11 +34,11 @@ class MockEngine:
         self.upserted_edges.append(edge)
 
 
-@pytest.mark.concept("KG-2.5", "CONCEPT:KG-2.5")
+@pytest.mark.concept("AU-KG.compute.spectral-cluster-navigator", "CONCEPT:AU-KG.compute.spectral-cluster-navigator")
 def test_detect_communities():
     """Test Louvain community detection.
 
-    CONCEPT:KG-2.5
+    CONCEPT:AU-KG.compute.spectral-cluster-navigator
     """
     # Create a graph with two distinct cliques connected by a single edge
     from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
@@ -63,11 +63,11 @@ def test_detect_communities():
         assert c2 == {1, 2, 3}
 
 
-@pytest.mark.concept("KG-2.5", "CONCEPT:KG-2.5")
+@pytest.mark.concept("AU-KG.compute.spectral-cluster-navigator", "CONCEPT:AU-KG.compute.spectral-cluster-navigator")
 def test_persist_stable_communities():
     """Test community persistence to Cypher backend.
 
-    CONCEPT:KG-2.5
+    CONCEPT:AU-KG.compute.spectral-cluster-navigator
     """
     from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
 
@@ -86,11 +86,11 @@ def test_persist_stable_communities():
     assert len(engine.upserted_edges) == 6  # 3 members per community = 6 edges
 
 
-@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
+@pytest.mark.concept("AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness")
 def test_drift_tracker():
     """Test temporal knowledge drift measurement.
 
-    CONCEPT:AHE-3.4
+    CONCEPT:AU-AHE.evaluation.backtest-harness
     """
     history = [[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.8, 0.2, 0.0]]
     current = [0.0, 1.0, 0.0]  # Orthogonal, huge shift
@@ -103,11 +103,11 @@ def test_drift_tracker():
     assert report.coefficient_of_variation > 0.0
 
 
-@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
+@pytest.mark.concept("AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness")
 def test_ewc_synthesis():
     """Test Fisher-proxy Elastic Weight Consolidation.
 
-    CONCEPT:AHE-3.4
+    CONCEPT:AU-AHE.evaluation.backtest-harness
     """
     # History with high variance in index 1, low variance in index 0
     history = [[1.0, -1.0], [1.0, 1.0], [1.0, -0.5], [1.0, 0.5]]

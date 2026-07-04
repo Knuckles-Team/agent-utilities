@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1 — Prompt Integrity Tests.
+"""CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Prompt Integrity Tests.
 
 Validates the structural integrity and consistency of all JSON prompt
 files in ``agent_utilities/prompts/``.  Catches prompt drift, missing

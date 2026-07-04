@@ -1,4 +1,4 @@
-"""Tests for governed fleet write-back actions (CONCEPT:KG-2.42).
+"""Tests for governed fleet write-back actions (CONCEPT:AU-KG.ontology.batch-actions-executor).
 
 Exercises the reusable ``call_tool_once`` write helper against an in-process
 FastMCP server (the write-side twin of the KG-2.59 source connector) and asserts
@@ -32,7 +32,7 @@ def _fake_fleet_server():
     return server, calls
 
 
-@pytest.mark.concept("KG-2.42")
+@pytest.mark.concept("AU-KG.ontology.batch-actions-executor")
 async def test_call_tool_once_invokes_injected_fleet_tool():
     server, calls = _fake_fleet_server()
     result = await call_tool_once(
@@ -48,7 +48,7 @@ async def test_call_tool_once_invokes_injected_fleet_tool():
     assert result["result"]["state"] == "6"
 
 
-@pytest.mark.concept("KG-2.42")
+@pytest.mark.concept("AU-KG.ontology.batch-actions-executor")
 def test_fleet_write_record_registered_as_external_action():
     action = DEFAULT_REGISTRY.get("fleet.write_record")
     assert action is FLEET_WRITE_RECORD
@@ -57,7 +57,7 @@ def test_fleet_write_record_registered_as_external_action():
     assert DEFAULT_REGISTRY.get_handler("fleet.write_record") is not None
 
 
-@pytest.mark.concept("KG-2.42")
+@pytest.mark.concept("AU-KG.ontology.batch-actions-executor")
 def test_handler_threads_params_and_wraps_result(monkeypatch):
     captured: dict = {}
 

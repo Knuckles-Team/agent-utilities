@@ -1,6 +1,6 @@
-"""Shared-GPU concurrency budget coordinator (CONCEPT:KG-2.146).
+"""Shared-GPU concurrency budget coordinator (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
-The per-model adaptive controller (CONCEPT:KG-2.145,
+The per-model adaptive controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal,
 :mod:`model_capacity_autoscale`) tunes each model's concurrency target on its own,
 toward that model's real serving capacity. But several models can be served from
 **one physical GPU** — on our homelab the embedder ``bge-m3`` (``vllm-embed.arpa``)
@@ -78,7 +78,7 @@ DEFAULT_RESERVED_ROLES = frozenset({"chat", "generator", "default", "lite", "sup
 
 @dataclass
 class _Member:
-    """One model's slice of a shared-GPU group (CONCEPT:KG-2.146)."""
+    """One model's slice of a shared-GPU group (CONCEPT:AU-KG.compute.pure-config-enumeration-fail)."""
 
     model_key: str
     floor: int = 1
@@ -90,7 +90,7 @@ class _Member:
 
 @dataclass
 class GpuGroupBudget:
-    """Tracks one GPU's budget + its member models' demand (CONCEPT:KG-2.146).
+    """Tracks one GPU's budget + its member models' demand (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     ``budget`` is the total concurrent in-flight calls allowed across *all* models
     sharing this GPU. Members register their floor + role; each re-tune reports the
@@ -129,7 +129,7 @@ class GpuGroupBudget:
                 m.current_target = max(1, int(target))
 
     def allowed_for(self, model_key: str) -> int | None:
-        """Cap for ``model_key`` under this GPU's budget (CONCEPT:KG-2.146).
+        """Cap for ``model_key`` under this GPU's budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
         ``None`` when the model isn't a registered member (caller applies no cap).
         Otherwise: budget − reserved floors of *priority* peers − current targets
@@ -195,7 +195,7 @@ _budgets: dict[str, GpuGroupBudget] = {}
 
 
 def _budget_for_group(group: str) -> int | None:
-    """Configured concurrent budget for ``group`` (CONCEPT:KG-2.146).
+    """Configured concurrent budget for ``group`` (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     Read from ``GPU_CONCURRENCY_BUDGETS`` — a JSON/dict mapping ``group -> int``.
     An unmapped group (or unparsable config) returns ``None`` ⇒ no budget ⇒ no cap.
@@ -230,7 +230,7 @@ def _budget_for_group(group: str) -> int | None:
 
 
 def _reserved_roles() -> frozenset[str]:
-    """The latency-sensitive roles whose floor is reserved first (CONCEPT:KG-2.146)."""
+    """The latency-sensitive roles whose floor is reserved first (CONCEPT:AU-KG.compute.pure-config-enumeration-fail)."""
     from agent_utilities.core._env import setting
 
     raw = setting("GPU_RESERVED_ROLES", "")
@@ -277,7 +277,7 @@ def register_member(
     floor: int,
     role_hint: str | None = None,
 ) -> None:
-    """Register a model as a member of its GPU group (CONCEPT:KG-2.146).
+    """Register a model as a member of its GPU group (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     No-op when ``group`` is falsy or the group has no configured budget — so an
     un-budgeted deployment behaves exactly as per-model (no regression).
@@ -291,7 +291,7 @@ def register_member(
 
 
 def report_target(group: str | None, model_key: str, target: int) -> None:
-    """Report a member's current per-model target into its group (CONCEPT:KG-2.146)."""
+    """Report a member's current per-model target into its group (CONCEPT:AU-KG.compute.pure-config-enumeration-fail)."""
     if not group:
         return
     gb = _get_budget(group)
@@ -301,7 +301,7 @@ def report_target(group: str | None, model_key: str, target: int) -> None:
 
 
 def group_allowed(group: str | None, model_key: str) -> int | None:
-    """Group cap for ``model_key`` (CONCEPT:KG-2.146); ``None`` ⇒ no cap.
+    """Group cap for ``model_key`` (CONCEPT:AU-KG.compute.pure-config-enumeration-fail); ``None`` ⇒ no cap.
 
     ``None`` whenever there is no group, no configured budget, or the model isn't a
     registered member — the per-model target then passes through unchanged.
@@ -317,7 +317,7 @@ def group_allowed(group: str | None, model_key: str) -> int | None:
 def group_snapshot(
     group: str | None, model_key: str | None = None
 ) -> dict[str, object]:
-    """Observability view of a GPU group (CONCEPT:KG-2.146).
+    """Observability view of a GPU group (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     Returns the budget, total used, and per-member targets; when ``model_key`` is a
     member it also includes ``group_allowed_for_this_model``. An empty dict when no
@@ -332,6 +332,6 @@ def group_snapshot(
 
 
 def reset_gpu_group_budgets() -> None:
-    """Drop all cached group budgets (test isolation / config reload). CONCEPT:KG-2.146."""
+    """Drop all cached group budgets (test isolation / config reload). CONCEPT:AU-KG.compute.pure-config-enumeration-fail."""
     with _lock:
         _budgets.clear()

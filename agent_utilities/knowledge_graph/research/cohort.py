@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Research cohort — one-command batch ingest + barrier synthesis (CONCEPT:KG-2.172).
+"""Research cohort — one-command batch ingest + barrier synthesis (CONCEPT:AU-KG.coordination.research-cohort-barrier).
 
 A *cohort* is the unit the evolution pipeline actually works in: "ingest THESE N
 papers + M codebases in one go, then produce the comparative matrix." Without it,
@@ -84,8 +84,8 @@ def create_cohort(
 
     ``papers`` are arXiv ids / URLs ingested via the ``research_paper_fetch`` lane —
     so each becomes an **Article** node (the matrix feature type), full-text from a
-    pre-downloaded PDF when present (CONCEPT:KG-2.194), and its ``article_id`` is
-    recorded on the task as durable cohort provenance (CONCEPT:KG-2.192). ``repos``
+    pre-downloaded PDF when present (CONCEPT:AU-KG.research.so-cohort), and its ``article_id`` is
+    recorded on the task as durable cohort provenance (CONCEPT:AU-KG.research.provenance). ``repos``
     are local paths / git URLs ingested via the ``codebase`` lane. Returns the
     ``cohort_id`` and the submitted job ids.
     """
@@ -106,7 +106,7 @@ def create_cohort(
             "repos": len(repos),
             "created_at": datetime.now(UTC).isoformat(),
             "deadline_unix": deadline,
-            "concept": "KG-2.172",
+            "concept": "AU-KG.coordination.research-cohort-barrier",
         },
     )
 
@@ -221,12 +221,12 @@ def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
 
 
 def cohort_source_ids(engine: Any, cohort_id: str) -> set[str]:
-    """Graph node ids this cohort's members produced (CONCEPT:KG-2.192 provenance).
+    """Graph node ids this cohort's members produced (CONCEPT:AU-KG.research.provenance provenance).
 
     Each member task records the node it created (``research_paper_fetch`` stamps
     ``article_id``), so the cohort's source set is recovered from durable task
     provenance WITHOUT scanning the graph — this is exactly what scopes the matrix
-    to the cohort (CONCEPT:KG-2.193) instead of the whole 15k-feature graph.
+    to the cohort (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) instead of the whole 15k-feature graph.
     """
     ids: set[str] = set()
     try:
@@ -277,7 +277,7 @@ def finalize_cohort(engine: Any, cohort_id: str) -> dict[str, Any]:
     """Run the assimilation pass SCOPED to the cohort's sources + materialize its
     feature matrix, then mark the cohort ``synthesized``.
 
-    Scoping (CONCEPT:KG-2.193) makes this O(cohort) not O(graph): only the cohort's
+    Scoping (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) makes this O(cohort) not O(graph): only the cohort's
     Article ids (recovered from task provenance, KG-2.192) are matched/ranked, and
     the matrix is materialized to the cohort's own node ``feature_matrix:<cohort>``
     so it never clobbers the ecosystem-wide matrix.

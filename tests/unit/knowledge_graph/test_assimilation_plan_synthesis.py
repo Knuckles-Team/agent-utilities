@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Plan synthesis from KG neighborhood (VU-8).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.assimilation import (
 )
 from agent_utilities.knowledge_graph.assimilation.plan_synthesis import _default_synth
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:
@@ -57,14 +57,14 @@ def _nodes():
         "f1": {
             "type": "capability",
             "name": "exec-rag planner",
-            "concept_ids": ["KG-2.12"],
+            "concept_ids": ["AU-KG.retrieval.memory-first-retrieval"],
             "research_sources": ["arxiv:pyrag"],
             "status": "open",
         },
         "f2": {
             "type": "capability",
             "name": "social swarm",
-            "concept_ids": ["ORCH-1.32"],
+            "concept_ids": ["AU-ORCH.dispatch.kg-governed-agent-swarm"],
             "research_sources": ["arxiv:mass"],
             "status": "open",
         },
@@ -89,7 +89,7 @@ def test_default_template_is_grounded():
     plan = _default_synth(hydrate_feature(engine, "f1"))
     assert "exec-rag planner" in plan["title"]
     assert "arxiv:pyrag" in plan["body"]  # grounded in the source
-    assert "KG-2.12" in plan["body"]
+    assert "AU-KG.retrieval.memory-first-retrieval" in plan["body"]
 
 
 def test_synthesize_persists_proposal():

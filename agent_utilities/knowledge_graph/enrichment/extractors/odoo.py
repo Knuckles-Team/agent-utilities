@@ -1,4 +1,4 @@
-"""Odoo CRM source extractor (CONCEPT:KG-2.9).
+"""Odoo CRM source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering extractor that maps **Odoo** CRM records into the uniform
 ``ExtractionBatch`` shape (typed ``GraphNode`` + ``EnrichmentEdge``) so they

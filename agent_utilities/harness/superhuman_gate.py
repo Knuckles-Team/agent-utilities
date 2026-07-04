@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Superhuman-certification gate for SAI specialists (CONCEPT:SAFE-1.6).
+"""Superhuman-certification gate for SAI specialists (CONCEPT:AU-OS.safety.superhuman-gate).
 
 The SAI paper's promotion criterion is *exceed humans at the task* — but its own
 remark is that comparing to a human point-estimate "will not produce useful signal

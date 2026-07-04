@@ -1,7 +1,7 @@
 # Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity
 
-> CONCEPT:KG-2.145. Builds on the static per-model concurrency controller
-> (CONCEPT:KG-2.143, `agent_utilities/core/model_concurrency.py`).
+> CONCEPT:AU-KG.compute.surfaces-universal-latency-signal. Builds on the static per-model concurrency controller
+> (CONCEPT:AU-KG.compute.concurrency-controller-sizing, `agent_utilities/core/model_concurrency.py`).
 
 ## The problem
 

@@ -54,7 +54,7 @@ except Exception:  # pragma: no cover - import guard
     _HNSW_AVAILABLE = False
 
 
-# CONCEPT:KG-2.276 — generation-scoped selective reward erasure for memory maintenance.
+# CONCEPT:AU-KG.memory.generation-scoped-selective-reward — generation-scoped selective reward erasure for memory maintenance.
 # When an entity is re-ingested with a *materially* different
 # embedding, the learned reward EMA was scored under a now-superseded
 # representation and is no longer valid evidence about the new content. A
@@ -166,10 +166,10 @@ class CapabilityIndex:
         # id -> reward EMA in [0, 1] (0.5 = neutral/unproven). Updated by
         # record_outcome() to close the learning loop (Plan 08 Synergy 5).
         self._reward: dict[str, float] = {}
-        # Running count of reward records selectively erased (CONCEPT:KG-2.276),
+        # Running count of reward records selectively erased (CONCEPT:AU-KG.memory.generation-scoped-selective-reward),
         # for observability/doctor. Transient — not persisted across save/load.
         self._reward_erasures: int = 0
-        # id -> ontology type/class (CONCEPT:KG-2.44b). Optional; populated from the
+        # id -> ontology type/class (CONCEPT:AU-KG.ontology.optional-populated-from). Optional; populated from the
         # live node's ``type`` when the funnel/bulk loader knows it. Lets
         # ``designate`` re-project the flat cosine neighbourhood through the ontology
         # class structure (the structured-prior analogue of arXiv:2606.09828's
@@ -242,7 +242,7 @@ class CapabilityIndex:
                 ``providesCapability``.
             swappable_with: Optional iterable of ids this entity is
                 ``swappableWith`` (edges are made symmetric).
-            node_type: Optional ontology type/class of the entity (CONCEPT:KG-2.44b).
+            node_type: Optional ontology type/class of the entity (CONCEPT:AU-KG.ontology.optional-populated-from).
                 When supplied, ``designate`` uses it to bias ranking toward the
                 ontology-coherent neighbourhood; omitting it leaves ranking on pure
                 cosine (+ reward), exactly as before.
@@ -260,7 +260,7 @@ class CapabilityIndex:
 
         norm_vec = _l2_normalize(vec)
         is_update = id in self._id_to_vec
-        # CONCEPT:KG-2.276 — selective reward erasure on the ingestion upsert path.
+        # CONCEPT:AU-KG.memory.generation-scoped-selective-reward — selective reward erasure on the ingestion upsert path.
         # A re-add whose representation has materially diverged from the stored one is a
         # new generation: the reward EMA accrued under the old content is stale
         # evidence, so erase only that id's record (RQGM selective erasure). The
@@ -393,7 +393,7 @@ class CapabilityIndex:
                 providers before ranking.
             k: Maximum number of designations to return.
             reward_weight: Blend weight for the learned reward EMA.
-            ontology_prior: Optional structured prior (CONCEPT:KG-2.44b) — a mapping
+            ontology_prior: Optional structured prior (CONCEPT:AU-KG.ontology.optional-populated-from) — a mapping
                 ``id -> alignment∈[0,1]`` or a callable ``id -> alignment`` (0.5 =
                 neutral). When omitted, an *exact-type-coherence* prior is derived
                 automatically from the stored node types (the dominant ontology type
@@ -495,7 +495,7 @@ class CapabilityIndex:
     ) -> Any:
         """Resolve the ontology prior into a callable ``id -> alignment∈[0,1]``.
 
-        CONCEPT:KG-2.44b. An explicit ``ontology_prior`` (mapping or callable) is
+        CONCEPT:AU-KG.ontology.optional-populated-from. An explicit ``ontology_prior`` (mapping or callable) is
         honoured as-is — that is how a caller injects a richer, subsumption-aware
         prior. When none is given, derive the default *exact-type-coherence* prior:
         rank the candidate pool by cosine, take the dominant ontology type among the
@@ -596,7 +596,7 @@ class CapabilityIndex:
         return self._reward.get(id, 0.5)
 
     def selective_erase_rewards(self, ids: Any) -> int:
-        """Selectively erase the reward EMA for exactly ``ids`` (CONCEPT:KG-2.276).
+        """Selectively erase the reward EMA for exactly ``ids`` (CONCEPT:AU-KG.memory.generation-scoped-selective-reward).
 
         The explicit, provenance-scoped form of the Red Queen Gödel Machine's
         *selective erasure* (arXiv:2606.26294): when the source/evaluator/impl

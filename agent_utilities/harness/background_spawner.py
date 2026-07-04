@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Background Context Spawner (CONCEPT:AHE-3.4).
+"""Background Context Spawner (CONCEPT:AU-AHE.evaluation.backtest-harness).
 
 Monitors background context shifts via the Knowledge Graph and autonomously
 spawns specialized sub-agents dynamically.
@@ -45,7 +45,7 @@ class BackgroundAgentSpawner:
             return
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())
-        logger.info("[CONCEPT:AHE-3.4] Started BackgroundContextSpawner.")
+        logger.info("[CONCEPT:AU-AHE.evaluation.backtest-harness] Started BackgroundContextSpawner.")
 
     def stop(self):
         """Stop the background spawner loop."""
@@ -84,7 +84,7 @@ class BackgroundAgentSpawner:
 
                 if desc:
                     logger.info(
-                        "[CONCEPT:AHE-3.4] High-impact event detected: %s. "
+                        "[CONCEPT:AU-AHE.evaluation.backtest-harness] High-impact event detected: %s. "
                         "Dynamically synthesizing response team.",
                         event_id,
                     )

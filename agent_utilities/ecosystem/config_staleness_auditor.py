@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Config Staleness Auditor — Periodic Review of Agent Configuration.
 
-CONCEPT:ECO-4.21 — Configuration Staleness Auditor
+CONCEPT:AU-OS.audit.config-staleness-auditor — Configuration Staleness Auditor
 
 Periodic audit (default 30 days) that reviews AGENTS.md, skills, and hooks
 for staleness and proposes removals.  Identifies rules never triggered,
@@ -125,7 +125,7 @@ class StalenessReport:
 class ConfigStalenessAuditor:
     """Periodic staleness audit for agent configurations.
 
-    CONCEPT:ECO-4.21 — Configuration Staleness Auditor
+    CONCEPT:AU-OS.audit.config-staleness-auditor — Configuration Staleness Auditor
 
     Usage::
 

@@ -1,6 +1,6 @@
 """Test suite for the Knowledge Graph MCP Server tools (graph-os).
 
-CONCEPT:ECO-4.1 — KG MCP Server & Execution
+CONCEPT:AU-ECO.mcp.fastmcp-middleware — KG MCP Server & Execution
 
 Tests use the synthesized graph-os tool names: graph_query, graph_search,
 graph_write, graph_ingest, graph_analyze, graph_orchestrate, graph_configure.

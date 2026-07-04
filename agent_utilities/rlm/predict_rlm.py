@@ -1,6 +1,6 @@
 """Predict-RLM: Structured, type-safe RLM executions using Pydantic signatures.
 
-CONCEPT:ORCH-1.12 — Structured Predict-RLM Runtime
+CONCEPT:AU-ORCH.execution.predict-rlm-runtime — Structured Predict-RLM Runtime
 
 This module implements a native Pydantic signature system to replicate
 the structured input/output contract of DSPy Signatures without adding
@@ -62,7 +62,7 @@ class PredictRLM:
         self.graph_deps = graph_deps
         self.skills: dict[str, Any] = {}
         self.last_run_trace: Any = (
-            None  # CONCEPT:AHE-3.32 — set after run() for cost capture
+            None  # CONCEPT:AU-AHE.rlm.long-context-benchmark — set after run() for cost capture
         )
 
         # Inspect the signature to identify input and output fields
@@ -90,7 +90,7 @@ class PredictRLM:
                     self.inputs.append(name)
 
     def mount_skill_unit(self, skill: Any) -> None:
-        """Mount a composable :class:`~agent_utilities.rlm.skills.Skill` (CONCEPT:ORCH-1.28).
+        """Mount a composable :class:`~agent_utilities.rlm.skills.Skill` (CONCEPT:AU-ORCH.adapter.inject-composable-skill-instructions).
 
         Merges the skill's ``tools`` and ``modules`` (name→source) into the REPL skill set and
         appends its instructions to the task prompt. Raises on a name collision with already-mounted
@@ -122,7 +122,7 @@ class PredictRLM:
             f"TASK DESCRIPTION:\n"
             f"  {self.signature.__doc__ or 'No description provided.'}\n\n"
         )
-        # CONCEPT:ORCH-1.28 — inject mounted composable-Skill instructions (the SOP) so they
+        # CONCEPT:AU-ORCH.adapter.inject-composable-skill-instructions — inject mounted composable-Skill instructions (the SOP) so they
         # actually reach the model, not just the skill's tool/module sources.
         extra = getattr(self, "_extra_instructions", "")
         if extra.strip():
@@ -141,7 +141,7 @@ class PredictRLM:
         for name in self.outputs:
             field = self.signature.model_fields[name]
             prompt += f"  - `{name}`: {field.description or 'No description'}\n"
-            # CONCEPT:ORCH-1.12 (per-field output schema) — show the exact JSON
+            # CONCEPT:AU-ORCH.execution.predict-rlm-runtime (per-field output schema) — show the exact JSON
             # Schema for each output field (not just its prose description) so
             # the model knows the precise shape.
             annotation = getattr(field, "annotation", None)
@@ -180,7 +180,7 @@ class PredictRLM:
 
         prompt = self._generate_instruction_prompt(inputs)
         await env.run_full_rlm(prompt)
-        # CONCEPT:AHE-3.32 — expose the run's token usage to callers (benchmark cost capture).
+        # CONCEPT:AU-AHE.rlm.long-context-benchmark — expose the run's token usage to callers (benchmark cost capture).
         self.last_run_trace = env.last_run_trace
 
         # Gather final variables and validate with Pydantic

@@ -1,4 +1,4 @@
-"""Cross-ingestion + research→spec distillation (CONCEPT:KG-2.8 Phase 3)."""
+"""Cross-ingestion + research→spec distillation (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 3)."""
 
 from __future__ import annotations
 

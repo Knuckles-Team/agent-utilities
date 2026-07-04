@@ -1,6 +1,6 @@
 # Spec: Self-Healing Durable-Tier Sync (L1↔L2 autoheal)
 
-> CONCEPT:KG-2.8 (consolidated KG daemon / maintenance scheduler). Surfaced when
+> CONCEPT:EG-KG.storage.nonblocking-checkpoint (consolidated KG daemon / maintenance scheduler). Surfaced when
 > validating all graph layers after a pre-persistence daemon restart lost data.
 
 ## Finding (what we observed)

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Engine-native SPARQL / OWL / SHACL demotion tests (CONCEPT:KG-2.242).
+"""Engine-native SPARQL / OWL / SHACL demotion tests (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
 Proves the semantic-web stack routes to the engine's native RDF/SPARQL/OWL surface
 (`client.rdf.*`) and that the Python rdflib/owlready2/pyshacl path is a true
@@ -12,7 +12,7 @@ last-resort fallback:
 * The no-engine fallback (`_sparql_via_rdflib`, `_python_reasoning`) still works.
 
 These engine-mode tests run against the **REAL ephemeral epistemic-graph engine**
-the session fixture deploys (CONCEPT:KG-2.238): they request the conftest
+the session fixture deploys (CONCEPT:AU-KG.memory.provides-real-ephemeral-one): they request the conftest
 ``engine_graph`` (a fresh per-test tenant on the one running engine, source-built
 so its client carries the ``.rdf`` namespace), seed a tiny graph, and assert the
 engine-native semantic surface. There is NO SQLite and no per-module engine spawn;
@@ -33,7 +33,7 @@ from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 
 @pytest.fixture()
 def owl_graph(engine_graph):
-    """A tiny typed graph on the REAL ephemeral engine tenant (CONCEPT:KG-2.238).
+    """A tiny typed graph on the REAL ephemeral engine tenant (CONCEPT:AU-KG.memory.provides-real-ephemeral-one).
 
     Layers a small fixture topology (two Agents + one ``knows`` edge) onto the
     fresh per-test tenant ``engine_graph`` yields, so the engine-native
@@ -145,7 +145,7 @@ def test_shacl_gate_data_graph_from_engine(owl_graph):
     pytest.importorskip("rdflib")
     from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
 
-    # Build the data graph via the engine triples path (CONCEPT:KG-2.242).
+    # Build the data graph via the engine triples path (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
     data = shacl_gate._data_graph_from_engine_triples(owl_graph)
     assert data is not None, "engine triple path returned no data graph"
 

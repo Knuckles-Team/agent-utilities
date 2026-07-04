@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Iterative Knowledge Deduplication Engine.
 
-CONCEPT:KG-2.2 — Knowledge Distillation Engine
+CONCEPT:AU-KG.ingest.knowledge-distillation — Knowledge Distillation Engine
 
 Provides semantic deduplication of IdeaBlock nodes using:
 1. LSH-accelerated candidate pair generation (for large sets)

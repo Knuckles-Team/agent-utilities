@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Latent Topology RAG (Latte).
 
-Implements CONCEPT:KG-2.6 (LatentRAG & Latte)
+Implements CONCEPT:AU-KG.research.research-pipeline-runner (LatentRAG & Latte)
 Provides hierarchical graph routing using latent topological embeddings to bypass semantic noise.
 """
 

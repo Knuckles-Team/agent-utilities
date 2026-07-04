@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Persistent Background Agents (CONCEPT:ORCH-1.4).
+"""Persistent Background Agents (CONCEPT:AU-ORCH.dispatch.persistent-background-agents).
 
 Manages long-running background agents coordinated via the Knowledge Graph.
 Unlike ephemeral request agents (which are spawned per-request and destroyed),
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 class PersistentAgentManager:
     """Manages persistent background agents coordinated via the KG.
 
-    CONCEPT:ORCH-1.4 — Persistent Background Agents
+    CONCEPT:AU-ORCH.dispatch.persistent-background-agents — Persistent Background Agents
 
     Each persistent agent is a ``PersistentAgentNode`` in the KG with:
         - ``subscriptions``: Event types to react to
@@ -146,7 +146,7 @@ class PersistentAgentManager:
                 }
                 self.engine._upsert_node("PersistentAgent", agent_id, data)
                 logger.info(
-                    "[CONCEPT:ORCH-1.4] Registered persistent agent '%s' (type=%s)",
+                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Registered persistent agent '%s' (type=%s)",
                     agent_id,
                     agent_type,
                 )
@@ -196,7 +196,7 @@ class PersistentAgentManager:
                     {"aid": agent_id, "status": status},
                 )
                 logger.info(
-                    "[CONCEPT:ORCH-1.4] Agent '%s' status → %s",
+                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Agent '%s' status → %s",
                     agent_id,
                     status,
                 )
@@ -379,7 +379,7 @@ class PersistentAgentManager:
             del self._registered_agents[agent_id]
 
         logger.info(
-            "[CONCEPT:ORCH-1.4] Terminated persistent agent '%s'",
+            "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Terminated persistent agent '%s'",
             agent_id,
         )
 
@@ -411,5 +411,5 @@ class PersistentAgentManager:
                     pass
 
         if pruned:
-            logger.info("[CONCEPT:ORCH-1.4] Pruned %d stale persistent agents", pruned)
+            logger.info("[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Pruned %d stale persistent agents", pruned)
         return pruned

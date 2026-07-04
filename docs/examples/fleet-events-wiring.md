@@ -4,9 +4,9 @@
 
 How to point real monitoring systems — Prometheus Alertmanager and Uptime
 Kuma — at the gateway's fleet-events webhook ingress
-(`POST /api/fleet/events`, CONCEPT:OS-5.15), what each event becomes in the
+(`POST /api/fleet/events`, CONCEPT:AU-OS.config.fleet-event-ingress), what each event becomes in the
 Knowledge Graph (`FleetEvent` nodes), and how critical events flow into the
-OS-5.26 remediation playbooks (`service_down` / `service_flapping` /
+AU-OS.host.remediation-playbooks remediation playbooks (`service_down` / `service_flapping` /
 `resource_pressure`) with a step-by-step `remediation_log` audit trail.
 
 Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
@@ -171,7 +171,7 @@ flowchart LR
     GW -->|enqueue fleet_event_triage| Q[Durable task queue]
     Q --> W[Engine task worker]
     W --> PB{Playbook dispatch}
-    PB -->|critical or error| RP[Remediation playbooks OS-5.26]
+    PB -->|critical or error| RP[Remediation playbooks AU-OS.host.remediation-playbooks]
     PB -->|warning or info| DP[Default playbook: correlate + failure_gap]
     RP --> AP[ActionPolicy gate OS-5.24]
 ```
@@ -182,10 +182,10 @@ workers dispatch it to
 worker first calls `remediation_playbooks.ensure_registered()`, which
 registers the remediation dispatcher via `register_playbook()` for every
 `(source, severity)` pair in `{alertmanager, uptime-kuma, portainer, generic}
-x {critical, error}` — that is the OS-5.26 seam. Lookup order for a playbook
+x {critical, error}` — that is the AU-OS.host.remediation-playbooks seam. Lookup order for a playbook
 key is `"<source>:<severity>"` → `"<source>"` → `"default"`.
 
-Every playbook runs the OS-5.15 default playbook first (correlate the subject
+Every playbook runs the AU-OS.config.fleet-event-ingress default playbook first (correlate the subject
 to known `Server`/`Session`/`Resource`/`Tool` nodes with `OBSERVED_ON` edges,
 and file a `failure_gap` Concept topic for critical/error/firing/down
 events), then classifies (`remediation_playbooks._classify`):
@@ -199,8 +199,8 @@ events), then classifies (`remediation_playbooks._classify`):
   approval queue.
 - **`service_down`** (everything else) — confirm via the FleetObserver (an
   already-recovered service ends the playbook), then propose
-  `restart_service` through the ActionPolicy gate (CONCEPT:OS-5.24). Allowed
-  ⇒ actuate and schedule an OS-5.27 deploy watch; queued/denied ⇒ escalate
+  `restart_service` through the ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). Allowed
+  ⇒ actuate and schedule an AU-OS.config.health-gated-deploy-rollback deploy watch; queued/denied ⇒ escalate
   to the approvals flow + operator notification.
 
 Every step is recorded back onto the originating `FleetEvent` node:

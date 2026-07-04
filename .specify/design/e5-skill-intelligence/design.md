@@ -25,16 +25,16 @@ a static picker cannot.
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
 | ORCH-1.2 | Specialist Routing & Discovery | 0.74 | ORCH-1 |
-| ECO-4.6 | Dynamic Capability Ingestion & Discovery | 0.72 | ECO-4 |
+| AU-ECO.mcp.toolkit-live-discovery | Dynamic Capability Ingestion & Discovery | 0.72 | AU-ECO.connector.plane-provisioning-auth |
 | ORCH-1.28 | Composable Skills + Generic Adapter | 0.70 | ORCH-1 |
 | AHE-3.1 | Continuous Evaluation | 0.55 | AHE-3 |
-| ECO-4.0 | Tool Interface & MCP Factory | 0.48 | ECO-4 |
+| ECO-4.0 | Tool Interface & MCP Factory | 0.48 | AU-ECO.connector.plane-provisioning-auth |
 
 > Highest 0.74 ≥ 0.70 → **MUST extend, no new concept**. The picker is a new routing *strategy* under
-> ORCH-1.2; the taxonomy/critique-policy fields extend ECO-4.6/skill_compiler.
+> ORCH-1.2; the taxonomy/critique-policy fields extend AU-ECO.mcp.toolkit-live-discovery/skill_compiler.
 
 ### Extension Analysis
-- **Primary Extension Point**: `ORCH-1.2` (`graph/routing/strategies/`) for the picker; `ECO-4.6`/`workflows/skill_compiler.py` for frontmatter.
+- **Primary Extension Point**: `ORCH-1.2` (`graph/routing/strategies/`) for the picker; `AU-ECO.mcp.toolkit-live-discovery`/`workflows/skill_compiler.py` for frontmatter.
 - **Extension Strategy**: `augment` (new routing strategy + frontmatter fields + eval-feed read).
 - **New Concept Required?**: No.
 
@@ -58,7 +58,7 @@ C4Context
 1. **ORCH**: routing invokes `skill_picker.pick(query, context)`; the picked skill seeds the ExecutionManifest.
 2. **KG**: skills are nodes; scenario/category are properties; success-rate read from eval traces.
 3. **AHE**: the picker reads AHE-3.1 win-rates; outcomes feed back (self-improving loop).
-4. **ECO**: `skill_compiler` parses extended frontmatter; critique gate (AHE-3.13) honors `critique.policy`.
+4. **ECO**: `skill_compiler` parses extended frontmatter; critique gate (AU-AHE.harness.pre-emit-quality-gate) honors `critique.policy`.
 5. **OS**: no new policy surface.
 
 ## Risk Assessment

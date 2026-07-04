@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.3 — Fixed Corpus Evaluation Mode.
+"""CONCEPT:AU-KG.retrieval.fixed-corpus-evaluation — Fixed Corpus Evaluation Mode.
 
 Enables reproducible agent benchmarking by constraining retrieval to a
 curated, frozen document set. Inspired by BrowseComp-Plus (arXiv:2508.06600),
@@ -74,7 +74,7 @@ class CorpusQuery(BaseModel):
 class EvaluationCorpus(BaseModel):
     """A named, versioned set of documents for reproducible evaluation.
 
-    CONCEPT:KG-2.3 — Fixed Corpus Evaluation Mode (BrowseComp-Plus)
+    CONCEPT:AU-KG.retrieval.fixed-corpus-evaluation — Fixed Corpus Evaluation Mode (BrowseComp-Plus)
 
     When ``frozen`` is True, the corpus is immutable: document IDs and
     queries cannot be modified. This guarantees that benchmark results
@@ -116,7 +116,7 @@ class EvaluationCorpus(BaseModel):
 class CorpusManager:
     """Manages evaluation corpora for reproducible benchmarking.
 
-    CONCEPT:KG-2.3 — Fixed Corpus Evaluation Mode
+    CONCEPT:AU-KG.retrieval.fixed-corpus-evaluation — Fixed Corpus Evaluation Mode
 
     Persists corpora as KG nodes with type ``EvaluationCorpus`` for
     discovery via ``kg_search`` and ``kg_query``.

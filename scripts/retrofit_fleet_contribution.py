@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Retrofit an existing agent-package as a skill/prompt fleet contributor.
 
-CONCEPT:OS-5.52 / ORCH-1.80. Idempotently brings one ``agents/<pkg>`` repo up to
+CONCEPT:AU-OS.deployment.agent-factory-autoload / ORCH-1.80. Idempotently brings one ``agents/<pkg>`` repo up to
 the modular-contribution standard the scaffolder now emits for new packages:
 
   1. canonical ``<pkg_module>/prompts/main_agent.json`` (+ ``prompts/__init__.py``),

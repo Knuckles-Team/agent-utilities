@@ -28,7 +28,7 @@ to just this package. Ask your agent to **"deploy `{package}` with agent-os-gene
 Secrets are read-existing + seeded via `graph_configure action=vault_sync` — you are only
 prompted for what's missing. See the `agent-os-genesis` skill for the full flow.
 
-**Env vars** follow the env-var canon (CONCEPT:OS-5.72): the code is the single source of
+**Env vars** follow the env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard): the code is the single source of
 truth — this package's `.env.example`, `mcp_config*.json` `env`, docker compose, and this
 README expose exactly the vars the server reads, and the `env` block carries
 `MCP_TOOL_MODE` (`condensed` | `verbose` | `both`, default `condensed`). The

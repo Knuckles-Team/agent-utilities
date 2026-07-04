@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for fine-grained object permissioning (CONCEPT:KG-2.46).
+"""Tests for fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted).
 
 Self-contained against the stable company-brain fabric; no Wave-1 ontology
 primitive is imported, so this passes standalone.
@@ -182,7 +182,7 @@ def test_acl_denying_node_filtered_by_enforce():
     assert [o["id"] for o in out] == ["open:1"]
 
 
-# --- fail-closed enforcement (CONCEPT:OS-5.14) -------------------------------
+# --- fail-closed enforcement (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) -------------------------------
 
 
 def test_acl_exception_denies_when_enforced(monkeypatch):
@@ -244,7 +244,7 @@ def test_explicit_acl_still_checked_when_enforced(monkeypatch):
     assert pm._acl_permits("hr:doc", granted) is True
 
 
-# --- durable marking persistence (CONCEPT:OS-5.14) ---------------------------
+# --- durable marking persistence (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) ---------------------------
 
 
 class FakeMarkingStore:

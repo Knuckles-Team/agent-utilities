@@ -4,7 +4,7 @@
 > **Wire-First:** add a non-saturating eval family as new scorers under `harness/` and a "frontier"
 > mode on `harness/benchmark.py` (today fixed-target LongMemEval-S, AHE-3.12) — reusing the existing
 > `adversarial_verifier` "Hacker Agent" as the setter in a setter-solver loop, the VariantPool
-> tournament (AHE-3.2) for agent-vs-agent duels, and feeding verdicts into the AHE-3.18 regression
+> tournament (AHE-3.2) for agent-vs-agent duels, and feeding verdicts into the AU-AHE.harness.failure-evolution regression
 > gate. Extends the AHE-3.1 reliability-scorer registry; no new harness.
 
 ## Pre-Flight Checklist
@@ -14,7 +14,7 @@
   (tournament vs a fixed reward corpus). No setter-solver / self-play / Elo / compression /
   saturation-detector primitive exists — AU can't distinguish a capability jump from metric saturation
   (the central §6/§7.3 measurement risk).
-- [x] **New CONCEPT:SAFE-1.1 justified** — a methodology that keeps producing signal **past** the
+- [x] **New CONCEPT:AU-OS.scaling.non-saturating-compression-scorer justified** — a methodology that keeps producing signal **past** the
   human/known-answer ceiling is distinct from the fixed-target scorers (AHE-3.1/3.12); it opens the
   SAFE-1 frictions/measurement pillar's first benchmark family.
 - [x] **Wire-First confirmed** — new scorers register in the AHE-3.1 reliability registry; the
@@ -39,7 +39,7 @@ agents against each other instead of against a saturated human baseline.
 "no improvement" as "no capability."
 - **AC4**: a saturation detector flags any eval whose pass-rate has collapsed to ceiling across the last
   N agent versions and recommends promotion to a frontier/relative scorer.
-- **AC5**: frontier scores feed the AHE-3.18 regression gate so progress is **tracked even where it
+- **AC5**: frontier scores feed the AU-AHE.harness.failure-evolution regression gate so progress is **tracked even where it
   cannot be forecast** (the §6/§7 unpredictability-floor response).
 
 ## Non-Functional Requirements
@@ -50,5 +50,5 @@ agents against each other instead of against a saturated human baseline.
 - `pre-commit run --all-files` green; `scripts/build_concepts_yaml.py` re-run so SAFE-1.1 lands in
   `docs/concepts.yaml`; `scripts/check_concepts.py` passes.
 - Per-concept doc under `docs/architecture/` (new `safety_measurement.md`, opening the SAFE-1 pillar
-  guide), relating SAFE-1.1 to SAFE-1.2 (multi-agent scaling laws) and SAFE-1.3 (RSI velocity) as the
+  guide), relating SAFE-1.1 to AU-OS.scaling.multi-agent-scaling-law (multi-agent scaling laws) and AU-OS.audit.recursive-improvement-velocity-tracker (RSI velocity) as the
   measurement triad for the unpredictability floor.

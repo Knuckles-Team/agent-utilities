@@ -1,4 +1,4 @@
-"""Role-aware multi-database registry + live config mutation (CONCEPT:KG-2.89).
+"""Role-aware multi-database registry + live config mutation (CONCEPT:AU-KG.backend.connection-registry).
 
 Covers: connection roles + write-guard, secret-ref resolution, mirror derivation
 from role=mirror, durable config write-back + restart classifier, and the doctor
@@ -18,7 +18,7 @@ from agent_utilities.knowledge_graph.core.connection_registry import (
     _resolve_secret,
 )
 
-pytestmark = pytest.mark.concept("KG-2.89")
+pytestmark = pytest.mark.concept("AU-KG.backend.connection-registry")
 
 
 def test_role_default_validation_and_writability():

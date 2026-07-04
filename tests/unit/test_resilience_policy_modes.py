@@ -1,6 +1,6 @@
 """Tests for the ResiliencePolicy backoff/jitter modes and retry-delay hints.
 
-CONCEPT:ORCH-1.36 — Declarative Resilience Policy.
+CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy.
 
 These modes exist so hand-rolled retry loops across the codebase (linear
 backoff in the PulseLink X-search tool, additive lock-contention jitter in the

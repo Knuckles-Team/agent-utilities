@@ -28,7 +28,7 @@ class Spec(BaseModel):
     success_metrics: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    # CONCEPT:KG-2.9 — external tracker ids this spec is tracked by, e.g.
+    # CONCEPT:AU-KG.ingest.external-tracker-ids — external tracker ids this spec is tracked by, e.g.
     # {"jira": "PROJ-123", "plane": "<project>/<work_item>"}. Mirrored to the KG
     # spec node's :trackedBy property by the spec↔ticket link flow.
     external_links: dict[str, str] = Field(default_factory=dict)
@@ -49,10 +49,10 @@ class Task(BaseModel):
     result: str | None = None
     git_commit: str | None = None
     subtasks: list["Task"] = Field(default_factory=list)
-    """CONCEPT:ORCH-1.1 — HTN subtasks allowing recursive goal decomposition."""
+    """CONCEPT:AU-ORCH.planning.recursion-nesting-depth — HTN subtasks allowing recursive goal decomposition."""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # CONCEPT:ORCH-1.50 — Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and tags
+    # CONCEPT:AU-ORCH.planning.sdd-task-ergonomics — Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and tags
     # (complexity-aware expansion, dependency-aware scheduling, and test-strategy tracking)
     priority: str = Field(
         default="medium",
@@ -77,7 +77,7 @@ class Task(BaseModel):
     refined_subtask: str | None = Field(
         default=None,
         description=(
-            "CONCEPT:ORCH-1.1 — Conductor-refined, self-contained restatement of this "
+            "CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Conductor-refined, self-contained restatement of this "
             "step's goal used by the executor in lieu of the raw description when present."
         ),
     )
@@ -85,14 +85,14 @@ class Task(BaseModel):
     model_id: str | None = Field(
         default=None,
         description=(
-            "CONCEPT:ORCH-1.27 — Conductor-assigned per-step model id. When set, the "
+            "CONCEPT:AU-ORCH.routing.conductor-per-step-model — Conductor-assigned per-step model id. When set, the "
             "executor runs this step on this exact model instead of inferring a role/tier."
         ),
     )
     access_list: list[str] = Field(
         default_factory=list,
         description=(
-            "CONCEPT:ORCH-1.3 — Visibility allow-list of upstream step ids whose results "
+            "CONCEPT:AU-ORCH.execution.visibility-allow-list — Visibility allow-list of upstream step ids whose results "
             "this step may read ('all' grants full visibility; empty denies cross-step access)."
         ),
     )
@@ -130,7 +130,7 @@ class Task(BaseModel):
         self.parallel = val
 
 
-# CONCEPT:ORCH-1.50 — ordering used by Tasks.next_task; higher wins.
+# CONCEPT:AU-ORCH.planning.sdd-task-ergonomics — ordering used by Tasks.next_task; higher wins.
 _PRIORITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
 _DONE_STATUSES = {"completed", "done", "cancelled", "deferred"}
 
@@ -142,7 +142,7 @@ class Tasks(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def detect_cycles(self) -> list[list[str]]:
-        """Return dependency cycles among ``depends_on`` edges (CONCEPT:ORCH-1.50).
+        """Return dependency cycles among ``depends_on`` edges (CONCEPT:AU-ORCH.planning.sdd-task-ergonomics).
 
         Each cycle is a list of task ids in traversal order. An empty list means
         the dependency graph is a DAG.
@@ -177,7 +177,7 @@ class Tasks(BaseModel):
         return cycles
 
     def validate_dependencies(self) -> list[str]:
-        """Return human-readable dependency problems (CONCEPT:ORCH-1.50).
+        """Return human-readable dependency problems (CONCEPT:AU-ORCH.planning.sdd-task-ergonomics).
 
         Flags dangling dependencies (pointing at unknown ids), self-dependencies,
         and cycles. An empty list means the graph is schedulable.
@@ -197,7 +197,7 @@ class Tasks(BaseModel):
     def next_task(self) -> Task | None:
         """Pick the next actionable task respecting deps, status, and priority.
 
-        CONCEPT:ORCH-1.50 — mirrors task-master's selection: subtasks of an
+        CONCEPT:AU-ORCH.planning.sdd-task-ergonomics — mirrors task-master's selection: subtasks of an
         in-progress parent are preferred, then top-level tasks whose dependencies
         are all satisfied. Ties break by priority (critical→low), then fewer
         dependencies, then id. Returns None when nothing is actionable.
@@ -367,7 +367,7 @@ class NewConceptProposal(BaseModel):
     """
 
     proposed_id: str = Field(
-        description="Proposed CONCEPT:ID (e.g., 'KG-2.54', 'ECO-4.8')"
+        description="Proposed CONCEPT:ID (e.g., 'AU-KG.ingest.cross-host-safe-kg', 'AU-OS.deployment.blueprint-library')"
     )
     target_pillar: str = Field(
         description="Which pillar this new concept augments (ORCH/KG/AHE/ECO/OS)"
@@ -427,7 +427,7 @@ class RiskAssessment(BaseModel):
 class DesignDocument(BaseModel):
     """Design Document — First phase of the DSTDD pipeline.
 
-    CONCEPT:ORCH-1.3 Extension — Design-Spec-Test Driven Development
+    CONCEPT:AU-ORCH.execution.visibility-allow-list Extension — Design-Spec-Test Driven Development
 
     Every feature begins with a design document that gates creation through
     the Knowledge Graph. The design must demonstrate:

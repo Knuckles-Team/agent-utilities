@@ -1,8 +1,8 @@
 """Cross-host daemon leadership election.
 
-CONCEPT:OS-5.17 — Cross-host daemon leadership election via Postgres advisory locks so singleton background ticks run on exactly one host fleet-wide
+CONCEPT:AU-OS.state.cross-host-daemon-leadership — Cross-host daemon leadership election via Postgres advisory locks so singleton background ticks run on exactly one host fleet-wide
 
-When durable state is externalized (``state_db_uri`` set, CONCEPT:OS-5.16),
+When durable state is externalized (``state_db_uri`` set, CONCEPT:AU-OS.state.unified-durable-state-externalization),
 N hosts may each hold their *per-host* flock and would otherwise all run the
 singleton background ticks (golden loop, maintenance scheduler, SDD watcher,
 …) — duplicating LLM work and racing writes. :class:`DaemonLeadership` makes
@@ -29,7 +29,7 @@ Tick classification (documented here, enforced in
 * **Per-host** — ingestion capacity: the task workers, the submission-queue
   drain, and the graph-writer drain. These scale out across hosts safely
   because queue claims are atomic (SKIP LOCKED / advisory claim guard,
-  CONCEPT:KG-2.54).
+  CONCEPT:AU-KG.ingest.cross-host-safe-kg).
 """
 
 from __future__ import annotations

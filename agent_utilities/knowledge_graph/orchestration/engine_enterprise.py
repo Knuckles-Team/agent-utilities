@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:KG-2.6"""
+"""CONCEPT:AU-KG.research.research-pipeline-runner"""
 
 import logging
 import time

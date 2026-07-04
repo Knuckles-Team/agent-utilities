@@ -1,4 +1,4 @@
-# KG-2.35 — Schema-Pack Lifecycle and Audit
+# AU-KG.ontology.schema-pack-lifecycle-audit — Schema-Pack Lifecycle and Audit
 
 **Pillar:** 2 — Epistemic Knowledge Graph · **Status:** live
 

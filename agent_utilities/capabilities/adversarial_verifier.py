@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1 — Adversarial Verification (Opt-In).
+"""CONCEPT:AU-AHE.evaluation.adversarial-verification — Adversarial Verification (Opt-In).
 
 Provides an optional adversarial verification pass that runs alongside
 the standard quality gate in :func:`verifier_step`.  When enabled via
@@ -17,12 +17,12 @@ hacker agent finds a flaw, the verification fails with specific
 feedback, triggering a re-dispatch.
 
 Integrates with:
-    - CONCEPT:ORCH-1.2 (Signal Board): Adversarial findings are emitted as
+    - CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (Signal Board): Adversarial findings are emitted as
       ``security_concern`` or ``quality_gap`` signals.
     - Verifier prompt: Extends the existing adversarial probes section.
     - ``GraphState``: Uses standard feedback/re-dispatch flow.
 
-See docs/pillars/3_agentic_harness_engineering.md §CONCEPT:AHE-3.1
+See docs/pillars/3_agentic_harness_engineering.md §CONCEPT:AU-AHE.evaluation.adversarial-verification
 """
 
 
@@ -136,14 +136,14 @@ async def run_adversarial_pass(
 
         if adversarial.vulnerabilities_found:
             logger.warning(
-                "[CONCEPT:AHE-3.1] Adversarial verification found %d issue(s) "
+                "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial verification found %d issue(s) "
                 "(severity: %s, confidence: %.0f%%)",
                 len(adversarial.findings),
                 adversarial.severity,
                 adversarial.confidence * 100,
             )
 
-            # CONCEPT:ORCH-1.0 — Emit findings to the signal board
+            # CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Emit findings to the signal board
             for finding in adversarial.findings[:5]:
                 signal_type = (
                     "security_concern"
@@ -169,10 +169,10 @@ async def run_adversarial_pass(
             return adversarial
 
         logger.info(
-            "[CONCEPT:AHE-3.1] Adversarial verification passed — no issues found"
+            "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial verification passed — no issues found"
         )
         return None
 
     except Exception as e:
-        logger.warning(f"[CONCEPT:AHE-3.1] Adversarial pass failed (non-fatal): {e}")
+        logger.warning(f"[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial pass failed (non-fatal): {e}")
         return None

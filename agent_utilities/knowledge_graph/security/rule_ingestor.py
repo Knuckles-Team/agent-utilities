@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Engineering Rules Ingestor — Parses agent-rules-books into KG nodes.
 
-CONCEPT:KG-2.2 — Engineering Rules Engine
+CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine
 
 Parses structured markdown rule files (mini/nano tiers) from the
 agent-rules-books repository and creates versioned KG nodes for
@@ -279,7 +279,7 @@ def _extract_list_items(text: str) -> list[str]:
 class RuleIngestor:
     """Ingests agent-rules-books into the Knowledge Graph.
 
-    CONCEPT:KG-2.2 — Engineering Rules Engine
+    CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine
 
     Parses structured markdown files and creates versioned KG nodes
     with embeddings, SKOS taxonomy, and PROV-O provenance.
@@ -616,7 +616,7 @@ class RuleIngestor:
 
         from ..core.bounded_read import iter_nodes_by_types
 
-        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        # Bounded per-label fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never a whole-graph node pull.
         for node_id, data in iter_nodes_by_types(self.engine.graph, "engineering_rule"):
             rule_tier = data.get("tier", "mini")
             if tier_order.get(rule_tier, 1) > max_tier_val:

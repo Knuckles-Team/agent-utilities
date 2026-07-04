@@ -1,4 +1,4 @@
-"""Ingestion/serving plane separation (CONCEPT:KG-2.130).
+"""Ingestion/serving plane separation (CONCEPT:AU-KG.compute.offloaded-memory-write).
 
 In a SERVING role (not the daemon host), heavy KG writes are enqueued to the durable task
 queue instead of embedding+writing inline — so ingestion can never contend with reads/replies

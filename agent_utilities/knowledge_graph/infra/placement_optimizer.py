@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Multi-objective workload placement optimizer (CONCEPT:KG-2.9 / KG-2.49).
+"""Multi-objective workload placement optimizer (CONCEPT:AU-KG.ingest.enterprise-source-extractor / KG-2.49).
 
 Reads the infra subgraph (hosts + services) and produces a placement plan that
 balances four objectives, instead of the single efficiency heuristic the
@@ -384,7 +384,7 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
                 "placed": len(plan.placements),
                 "migrations": len(plan.migrations),
                 "blueprint": plan.blueprint(),
-                "concept": "KG-2.9",
+                "concept": "AU-KG.ingest.enterprise-source-extractor",
             },
         )
     except Exception:  # noqa: BLE001
@@ -403,7 +403,7 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
                     "scores": p.scores,
                     "reason": p.reason,
                     "status": "proposal",
-                    "concept": "KG-2.9",
+                    "concept": "AU-KG.ingest.enterprise-source-extractor",
                 },
             )
             if callable(link):
@@ -422,7 +422,7 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
                     "from": m.migrates_from,
                     "to": m.host_id,
                     "status": "proposal",
-                    "concept": "KG-2.9",
+                    "concept": "AU-KG.ingest.enterprise-source-extractor",
                 },
             )
         except Exception:  # noqa: BLE001  # nosec B112

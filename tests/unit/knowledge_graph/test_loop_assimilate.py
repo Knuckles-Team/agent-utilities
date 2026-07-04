@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Golden-loop assimilation stage + watermark idempotency (VU-7).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
 
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:
@@ -61,7 +61,7 @@ def _graph_nodes():
         "f1": {
             "type": "capability",
             "embedding": [1.0, 0.0],
-            "concept_ids": ["KG-2.1"],
+            "concept_ids": ["AU-KG.memory.tiered-memory-caching"],
             "research_sources": ["p1", "p2"],
             "importance_score": 0.5,
             "status": "open",
@@ -69,14 +69,14 @@ def _graph_nodes():
         "f2": {
             "type": "capability",
             "embedding": [1.0, 0.0],
-            "concept_ids": ["KG-2.1"],
+            "concept_ids": ["AU-KG.memory.tiered-memory-caching"],
             "importance_score": 0.4,
             "status": "open",
         },  # duplicate of f1
         "f3": {
             "type": "capability",
             "embedding": [0.0, 1.0],
-            "concept_ids": ["ORCH-1.2"],
+            "concept_ids": ["AU-ORCH.adapter.hot-cache-invalidation"],
             "research_sources": ["p3"],
             "importance_score": 0.7,
             "status": "open",

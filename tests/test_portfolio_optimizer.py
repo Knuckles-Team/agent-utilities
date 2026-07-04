@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Portfolio Optimization Suite."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Portfolio Optimization Suite."""
 
 import pytest
 

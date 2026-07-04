@@ -1,14 +1,14 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for Innovation Framework modules (CONCEPT:OS-5.2 through CONCEPT:OS-5.2).
+"""Tests for Innovation Framework modules (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption).
 
 Tests cover:
-- CONCEPT:OS-5.2: Homeostatic model downgrade integration
-- CONCEPT:AHE-3.1: Adversarial verification models and logic
-- CONCEPT:ORCH-1.2: Signal board state management
-- CONCEPT:OS-5.0: File watcher trigger rules and package audit
-- CONCEPT:OS-5.2: Maintenance cron scheduling and budget management
+- CONCEPT:AU-OS.state.cognitive-scheduler-preemption: Homeostatic model downgrade integration
+- CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort: Adversarial verification models and logic
+- CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Signal board state management
+- CONCEPT:AU-OS.safety.doom-loop-detection: File watcher trigger rules and package audit
+- CONCEPT:AU-OS.state.cognitive-scheduler-preemption: Maintenance cron scheduling and budget management
 """
 
 
@@ -17,11 +17,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── CONCEPT:OS-5.2: Homeostatic Model Downgrade ──────────────────────────────
+# ── CONCEPT:AU-OS.state.cognitive-scheduler-preemption: Homeostatic Model Downgrade ──────────────────────────────
 
 
 class TestHomeostaticDowngrade:
-    """CONCEPT:OS-5.2: ResourceOptimizer-driven tier downgrade."""
+    """CONCEPT:AU-OS.state.cognitive-scheduler-preemption: ResourceOptimizer-driven tier downgrade."""
 
     def test_resource_optimizer_budget_remaining(self):
         """ResourceBudget computes remaining correctly."""
@@ -69,11 +69,11 @@ class TestHomeostaticDowngrade:
         assert deps.resource_optimizer is not None
 
 
-# ── CONCEPT:AHE-3.1: Adversarial Verification ─────────────────────────────────
+# ── CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort: Adversarial Verification ─────────────────────────────────
 
 
 class TestAdversarialVerification:
-    """CONCEPT:AHE-3.1: Adversarial verification models."""
+    """CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort: Adversarial verification models."""
 
     def test_adversarial_result_model(self):
         """AdversarialResult should serialize correctly."""
@@ -117,11 +117,11 @@ class TestAdversarialVerification:
         assert not enabled or os.getenv("ADVERSARIAL_VERIFICATION") is not None
 
 
-# ── CONCEPT:ORCH-1.2: Signal Board ─────────────────────────────────────────────
+# ── CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Signal Board ─────────────────────────────────────────────
 
 
 class TestSignalBoard:
-    """CONCEPT:ORCH-1.2: Stigmergy signal board on GraphState."""
+    """CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Stigmergy signal board on GraphState."""
 
     def test_signal_board_default_empty(self):
         """Signal board should start empty."""
@@ -159,11 +159,11 @@ class TestSignalBoard:
         assert "quality_gap" in state.signal_board
 
 
-# ── CONCEPT:OS-5.0: File Watcher ─────────────────────────────────────────────
+# ── CONCEPT:AU-OS.safety.doom-loop-detection: File Watcher ─────────────────────────────────────────────
 
 
 class TestFileWatcher:
-    """CONCEPT:OS-5.0: Watchdog file trigger system."""
+    """CONCEPT:AU-OS.safety.doom-loop-detection: Watchdog file trigger system."""
 
     def test_trigger_rule_creation(self):
         """TriggerRule should create with defaults."""
@@ -280,7 +280,7 @@ class TestFileWatcher:
 
 
 class TestInnovationConfig:
-    """Config fields for CONCEPT:OS-5.2 through CONCEPT:OS-5.2"""
+    """Config fields for CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption"""
 
     def test_homeostatic_downgrade_config_exists(self):
         """AgentConfig should have homeostatic_downgrade_enabled field."""

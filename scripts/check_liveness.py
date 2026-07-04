@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Liveness / dead-pathway ratchet gate (CONCEPT:CE-038 consumer).
+"""Liveness / dead-pathway ratchet gate (CONCEPT:AU-KG.maintenance.periodic-code-health consumer).
 
 Wire-First's static `check_wiring.py` catches modules with no import path. This
 gate adds the two layers it can't: the **typed-seam / contract-drift** scan (public

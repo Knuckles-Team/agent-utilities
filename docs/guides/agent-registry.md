@@ -1,4 +1,4 @@
-# CONCEPT:OS-5.0 — Agent Registry
+# CONCEPT:AU-OS.safety.doom-loop-detection — Agent Registry
 
 > Package-manager-style specialist installation with KG auto-hydration and hot-reload.
 
@@ -13,20 +13,20 @@ Each specialist is packaged as a JSON definition containing an MCP server config
 ```mermaid
 flowchart LR
     subgraph Registry
-        AVAIL[ECO-4.6: available/] --> |install| INSTALLED[installed/]
+        AVAIL[AU-ECO.mcp.toolkit-live-discovery: available/] --> |install| INSTALLED[installed/]
         INSTALLED --> |uninstall| AVAIL
     end
 
     subgraph Install Flow
-        PKG[ECO-4.6: Package JSON] --> MCP[ECO-4.6: Merge MCP Config]
+        PKG[AU-ECO.mcp.toolkit-live-discovery: Package JSON] --> MCP[AU-ECO.mcp.toolkit-live-discovery: Merge MCP Config]
         MCP --> KG[KG-2.0: Hydrate KG Nodes]
-        KG --> CACHE[Invalidate Cache CONCEPT:ORCH-1.2]
-        CACHE --> RELOAD[ECO-4.6: Hot Reload /mcp/reload]
+        KG --> CACHE[Invalidate Cache CONCEPT:AU-ORCH.adapter.hot-cache-invalidation]
+        CACHE --> RELOAD[AU-ECO.mcp.toolkit-live-discovery: Hot Reload /mcp/reload]
     end
 
     subgraph Uninstall Flow
-        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[ECO-4.6: Remove MCP Config]
-        RM_MCP --> RM_CACHE[ECO-4.6: Invalidate Cache]
+        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[AU-ECO.mcp.toolkit-live-discovery: Remove MCP Config]
+        RM_MCP --> RM_CACHE[AU-ECO.mcp.toolkit-live-discovery: Invalidate Cache]
     end
 ```
 
@@ -106,7 +106,7 @@ For packages requiring system-level installation (e.g., Docker containers, syste
 
 1. Package definition includes `"install_via": "systems-manager"`
 2. Registry sends install request to `systems-manager` MCP server
-3. `systems-manager` validates caller identity (CONCEPT:OS-5.2) and executes
+3. `systems-manager` validates caller identity (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) and executes
 4. Registry updates KG and cache upon completion
 
 ## KG Persistence

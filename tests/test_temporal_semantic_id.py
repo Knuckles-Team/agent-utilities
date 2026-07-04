@@ -1,4 +1,4 @@
-"""Tests for the ChronoID-style temporal semantic ID encoder (CONCEPT:KG-2.86)."""
+"""Tests for the ChronoID-style temporal semantic ID encoder (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization)."""
 
 from __future__ import annotations
 

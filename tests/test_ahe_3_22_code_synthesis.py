@@ -1,4 +1,4 @@
-"""Autonomous code-synthesis stage for promoted proposals (CONCEPT:AHE-3.22).
+"""Autonomous code-synthesis stage for promoted proposals (CONCEPT:AU-AHE.harness.single-file-code-synthesis).
 
 The deployed loop could branch a ``kind="code"`` change but never *generated*
 the diff. These tests cover the new generator seam: target resolution, the
@@ -33,7 +33,7 @@ from agent_utilities.knowledge_graph.research.code_synthesis import (  # noqa: E
     synthesize_code,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.22")
+pytestmark = pytest.mark.concept("AU-AHE.harness.single-file-code-synthesis")
 
 
 class _StubSynthesizer:

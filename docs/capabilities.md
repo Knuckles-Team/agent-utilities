@@ -107,7 +107,7 @@ and the [queue-dispatch walkthrough](examples/queue-dispatch-walkthrough.md).
 
 Descriptive BPMN process knowledge is executable too: `compile_process` lifts a
 process definition into an executable plan via the `ProcessPlanCompiler`
-(ORCH-1.41), gated by ontology validation on the execution path (ORCH-1.42),
+(ORCH-1.41), gated by ontology validation on the execution path (AU-ORCH.execution.ontology-validation-execution-path),
 with run lineage written back to close the descriptive↔executable loop
 (ORCH-1.43). See the [ontology-to-workflow example](examples/ontology-to-workflow.md).
 
@@ -122,7 +122,7 @@ await kg_server._execute_tool("graph_goals", action="create",
 `graph_goals`: `create`, `list`, `iterations`, `cancel`. `graph_sessions`:
 `list`, `get`, `reply`, `cancel`. Sessions, turns, and goals are durable and
 resumable across restarts — per-host SQLite by default, or one shared Postgres
-state store for the whole fleet via `STATE_DB_URI` (OS-5.16, see
+state store for the whole fleet via `STATE_DB_URI` (AU-OS.state.unified-durable-state-externalization, see
 [State Externalization](architecture/state_externalization.md)).
 
 ## Ontology (Palantir-Foundry parity)
@@ -154,15 +154,15 @@ edit code reliably and drive long-horizon work:
 - **Apply code edits** — `apply_edits(edits, root, fmt)` (`tools/developer_tools.py`)
   parses SEARCH/REPLACE blocks or unified diffs and applies them with fuzzy matching
   (so edits land despite whitespace drift) plus a reflection loop on failure. See
-  [Edit-Application Engine](architecture/edit_application_engine.md) (CONCEPT:ORCH-1.49).
+  [Edit-Application Engine](architecture/edit_application_engine.md) (CONCEPT:AU-ORCH.execution.robust-multi-format-edit).
 - **PRD → task list** — the harness MCP server (`mcp/harness_server.py`) exposes
   `task_parse_prd`, `task_analyze_complexity`, `task_next`, `task_set_status`, and
   `task_scope`: decompose a PRD into a durable, dependency-aware task list, score
   complexity, and pull the next actionable task (cycle-validated). Backed by
-  `SDDManager` (CONCEPT:ORCH-1.50).
+  `SDDManager` (CONCEPT:AU-ORCH.planning.sdd-task-ergonomics).
 - **Repo-map skeleton** — `POST /api/codemap` with `{"skeleton": true, "max_tokens": N}`
   returns a token-budgeted, importance-ranked code skeleton for context injection
-  (CONCEPT:ORCH-1.48).
+  (CONCEPT:AU-ORCH.planning.repo-map-skeleton).
 
 ## Identity & multi-tenancy
 
@@ -228,7 +228,7 @@ Any `agent-packages/agents/*` connector follows the same template
 as a streamable-http container — see [Day-0](guides/day0.md) and the
 [ecosystem map](ecosystem.md). The `mcp-multiplexer` that aggregates the fleet
 is hardened per child: concurrency limits, session pools, restart-on-crash,
-circuit breakers, and a `multiplexer_status` health tool (ECO-4.34,
+circuit breakers, and a `multiplexer_status` health tool (AU-ECO.mcp.profile-differences-from-client,
 `agent_utilities/mcp/child_resilience.py`).
 
 ---

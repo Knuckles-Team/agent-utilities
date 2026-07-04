@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Render the MemoryData bake-off as a markdown scoreboard (CONCEPT:AHE-3.74).
+"""Render the MemoryData bake-off as a markdown scoreboard (CONCEPT:AU-AHE.harness.ahe-3).
 
 Turns a list of :class:`~agent_utilities.harness.memorydata.bakeoff.BakeoffResult` into a
 report with three sections, modelled on :mod:`agent_utilities.rlm.benchmarks.scoreboard`:
@@ -59,7 +59,7 @@ def render_scoreboard(
     *,
     title: str = "MemoryData Graph-OS Bake-off",
 ) -> str:
-    """Render ``results`` as a markdown scoreboard (CONCEPT:AHE-3.74).
+    """Render ``results`` as a markdown scoreboard (CONCEPT:AU-AHE.harness.ahe-3).
 
     ``baselines`` defaults to :data:`MEMORYDATA_BASELINES`; it is reserved for a future Δ
     column against the published presets.

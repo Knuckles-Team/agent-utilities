@@ -4,7 +4,7 @@
 Research as OWL/RDF reasoning over the one ecosystem knowledge-graph: promote any
 array of information, reason to extrapolate new relationships/concepts/heuristics
 across agents/services/research, and harvest them back as research outputs and the
-next Loop iteration's inputs. The keystone is :mod:`reasoning_driver`. (CONCEPT:KG-2.79)
+next Loop iteration's inputs. The keystone is :mod:`reasoning_driver`. (CONCEPT:AU-KG.research.best-effort-lightweight-never)
 """
 
 from .artifact import (

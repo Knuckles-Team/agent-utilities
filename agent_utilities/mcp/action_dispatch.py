@@ -20,7 +20,7 @@ Two entry points cover the two dispatch shapes in the fleet:
   the tool with the known action list; it returns the discovery payload, the
   canonical action string (which the existing if/elif then handles), or raises.
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Dual-score statistical fusion gate for retrieval result sets.
 
-CONCEPT:KG-2.85 — Adaptive Chunk Selection (dual-score fusion)
+CONCEPT:AU-KG.retrieval.unset-dependency-free — Adaptive Chunk Selection (dual-score fusion)
 
 Implements ScoreGate from "ScoreGate: Adaptive Chunk Selection for
 Retrieval-Augmented Generation via Dual-Score Statistical Fusion"

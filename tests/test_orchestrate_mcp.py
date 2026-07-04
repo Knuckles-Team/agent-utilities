@@ -1,6 +1,6 @@
 """Tests for the graph_orchestrate MCP tool and Agent Runner integration.
 
-CONCEPT:ORCH-1.21 — KG-to-LLM Execution Bridge tests.
+CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — KG-to-LLM Execution Bridge tests.
 
 Covers:
 - Orchestrator dispatch/status/approval workflow

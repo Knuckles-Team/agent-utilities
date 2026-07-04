@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Company Brain Infrastructure Models (CONCEPT:KG-2.6).
+"""Company Brain Infrastructure Models (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Pydantic models for the Company Brain operational state layer.
 These models define the data structures for the six infrastructure

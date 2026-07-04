@@ -1,6 +1,6 @@
-"""Tests for AgentConfigVersionManager (CONCEPT:AHE-3.2).
+"""Tests for AgentConfigVersionManager (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
-@pytest.mark.concept("AHE-3.13")
+@pytest.mark.concept("AU-AHE.harness.pre-emit-quality-gate")
 """
 
 import pytest

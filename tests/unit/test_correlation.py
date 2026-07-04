@@ -1,4 +1,4 @@
-"""Tests for cross-agent trace correlation (CONCEPT:OS-5.11)."""
+"""Tests for cross-agent trace correlation (CONCEPT:AU-OS.observability.run-wide-correlation-id)."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def test_traceparent_is_w3c_shaped():
     ctx.run(body)
 
 
-# --- identity propagation (CONCEPT:OS-5.14 + OS-5.11) -----------------------
+# --- identity propagation (CONCEPT:AU-OS.identity.authenticated-identity-enforcement + OS-5.11) -----------------------
 
 
 def test_inject_carries_tenant_and_actor():

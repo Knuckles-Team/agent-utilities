@@ -3,15 +3,15 @@ from __future__ import annotations
 
 """Pluggable Secrets Manager.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
-CONCEPT:OS-5.66 — Engine-backed encrypted secret store
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
+CONCEPT:AU-OS.identity.encrypted-secret-store — Engine-backed encrypted secret store
 
 Provides encrypted secrets storage with two backends:
 
 - **InEpistemicGraphBackend** (default everywhere): a *durable*, engine-backed
   store. Secrets live as ``:Secret`` nodes in a dedicated ``__secrets__``
   epistemic-graph graph; the secret VALUE is held as an **encrypted node
-  property** (sealed by the engine's encryption-at-rest, CONCEPT:KG-2.231
+  property** (sealed by the engine's encryption-at-rest, CONCEPT:EG-KG.sharding.row-level-security
   ChaCha20-Poly1305 over redb value blobs, keyed by
   ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + KMS seam). The key NAME and metadata stay
   queryable plaintext. There is **no local-disk / RAM fallback**: even the
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 #: The dedicated engine graph that holds secret nodes, isolated from all other
 #: content/control-plane writes (mirrors the ``__control__`` isolation pattern,
-#: CONCEPT:KG-2.148). Its value blobs are sealed by the engine's
+#: CONCEPT:AU-KG.backend.schedule-on-control-graph). Its value blobs are sealed by the engine's
 #: encryption-at-rest when ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` is configured.
 #: (Named ``__secrets__`` — a system ``__…__`` graph like ``__control__`` /
 #: ``__commons__`` — kept as a single constant so the dedicated-graph name is the
@@ -76,7 +76,7 @@ SECRET_LABEL = "Secret"
 class SecretValue(BaseModel):
     """Typed wrapper for a secret value with optional metadata.
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
     value: SecretStr
@@ -86,7 +86,7 @@ class SecretValue(BaseModel):
 class SecretsConfig(BaseModel):
     """Configuration for the secrets client factory.
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
     backend: str = Field(
@@ -156,7 +156,7 @@ class SecretsConfig(BaseModel):
 class SecretsBackend(abc.ABC):
     """Abstract base class for secrets storage backends.
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
     @abc.abstractmethod
@@ -189,16 +189,16 @@ def _node_id(key: str) -> str:
 class InEpistemicGraphBackend(SecretsBackend):
     """Durable, engine-backed secrets store — the name is finally true.
 
-    CONCEPT:OS-5.66 — Engine-backed encrypted secret store
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.identity.encrypted-secret-store — Engine-backed encrypted secret store
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
     Secrets are stored as ``:Secret`` nodes in a dedicated ``__secrets__``
     epistemic-graph graph (isolated from all other content/control-plane
-    writes — cf. the ``__control__`` pattern, CONCEPT:KG-2.148). The split
+    writes — cf. the ``__control__`` pattern, CONCEPT:AU-KG.backend.schedule-on-control-graph). The split
     mirrors :class:`SQLiteBackend`:
 
     - the secret **value** is held as the encrypted ``value`` node property —
-      sealed on disk by the engine's encryption-at-rest (CONCEPT:KG-2.231,
+      sealed on disk by the engine's encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security,
       ChaCha20-Poly1305 over redb value blobs, keyed by
       ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + the KMS seam);
     - the key **name** and **metadata** stay queryable plaintext properties
@@ -273,7 +273,7 @@ class SQLiteBackend(SecretsBackend):
     plaintext for queryability.  The DB file itself should live in a
     user-private directory (e.g. ``~/.agent-utilities/secrets.db``).
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
     def __init__(
@@ -379,7 +379,7 @@ class VaultBackend(SecretsBackend):
         backend.get("gitlab/token")
         # reads: secret/data/agents/mcp/gitlab/token
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
     def __init__(
@@ -652,7 +652,7 @@ class VaultBackend(SecretsBackend):
 class SecretsClient:
     """High-level secrets client with URI resolution and env-var fallback.
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
     Wraps any ``SecretsBackend`` and adds:
 
@@ -753,7 +753,7 @@ class SecretsClient:
     ) -> dict[str, Any]:
         """Reconcile a service's secrets with the store (read-existing + seed).
 
-        CONCEPT:OS-5.43 — the vault-first routine genesis/deployment uses so an
+        CONCEPT:AU-OS.deployment.vault-first-routine-genesis — the vault-first routine genesis/deployment uses so an
         operator (or Claude) never re-supplies a secret that already exists. For
         each env var name a service needs, it:
 
@@ -822,7 +822,7 @@ def _legacy_sqlite_path() -> Path:
 def _migrate_legacy_sqlite(backend: InEpistemicGraphBackend) -> int:
     """One-time migration: legacy ``secrets.db`` → the encrypted ``__secrets__`` graph.
 
-    CONCEPT:OS-5.66 — the No-Legacy on-disk exception (read-old → write-new →
+    CONCEPT:AU-OS.identity.encrypted-secret-store — the No-Legacy on-disk exception (read-old → write-new →
     delete-old). On first engine-backed boot, if the old Fernet SQLite store
     exists, decrypt every secret via its sibling ``.key`` file, write it into the
     engine-backed encrypted store, then delete the db + key file. Idempotent: if
@@ -878,8 +878,8 @@ def _migrate_legacy_sqlite(backend: InEpistemicGraphBackend) -> int:
 def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
     """Create a ``SecretsClient`` from configuration.
 
-    CONCEPT:OS-5.1 — Secrets & Authentication
-    CONCEPT:OS-5.66 — Engine-backed encrypted secret store
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
+    CONCEPT:AU-OS.identity.encrypted-secret-store — Engine-backed encrypted secret store
 
     The backend is selected by ``config.backend``:
 
@@ -936,7 +936,7 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
     # Default everywhere: the durable engine-backed encrypted ``__secrets__``
     # store. The OS-5.63 resolver auto-starts the pi-tier engine when nothing is
     # running, so this is the store even in the zero-infra ``tiny`` profile —
-    # there is no local-disk / RAM fallback (CONCEPT:OS-5.66).
+    # there is no local-disk / RAM fallback (CONCEPT:AU-OS.identity.encrypted-secret-store).
     engine_backend = InEpistemicGraphBackend()
     _migrate_legacy_sqlite(engine_backend)
     logger.info("SecretsClient initialised with engine-backed backend.")
@@ -953,7 +953,7 @@ def generate_pq_kem_keypair() -> Any:
 
     Requires cryptography>=48.0.0.
 
-    CONCEPT:OS-5.1 — Post-Quantum Secrecy
+    CONCEPT:AU-OS.config.secrets-authentication — Post-Quantum Secrecy
     """
     import importlib
 
@@ -969,7 +969,7 @@ def generate_pq_dsa_keypair() -> Any:
 
     Requires cryptography>=48.0.0.
 
-    CONCEPT:OS-5.1 — Post-Quantum Signatures
+    CONCEPT:AU-OS.config.secrets-authentication — Post-Quantum Signatures
     """
     import importlib
 

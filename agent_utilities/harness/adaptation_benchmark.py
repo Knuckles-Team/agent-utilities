@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Reproducible adaptation-speed benchmark for the SAI factory (CONCEPT:SAFE-1.7).
+"""Reproducible adaptation-speed benchmark for the SAI factory (CONCEPT:AU-OS.scaling.safe-2).
 
 The "time-to-superhuman leaderboard" the SAI paper calls for but never builds. It
 runs the factory (AHE-3.29) over a *fixed, seeded* suite of specialization tasks

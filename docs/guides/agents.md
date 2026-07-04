@@ -39,7 +39,7 @@ graph TD
         KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
 
         Manager -->|Config Hash Match?| Branch{ORCH-1.1: Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["ECO-4.6: Skip Tool Extraction"]
+        Branch -- "Yes (Cache Hit)" --> Skip["AU-ECO.mcp.toolkit-live-discovery: Skip Tool Extraction"]
         Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
 
         Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Enterprise-scale repository batch ingestion (CONCEPT:KG-2.19 / KG-2.49).
+"""Enterprise-scale repository batch ingestion (CONCEPT:EG-KG.query.wire-protocol / KG-2.49).
 
 Fans out deep code ingestion for tens of thousands of repos into the KG's durable
 task queue without oversubscribing the engine. The companion remote enumeration
@@ -88,7 +88,7 @@ class BatchProgress:
 def _inflight_count(engine: Any) -> int | None:
     """In-flight ingest depth (``None`` if not queryable).
 
-    Prefers the engine's uniform :meth:`ingest_queue_depth` (CONCEPT:KG-2.57):
+    Prefers the engine's uniform :meth:`ingest_queue_depth` (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer):
     the selected queue backend's not-yet-claimed backlog (Kafka = ``kg-ingest``
     consumer-group lag; SQLite/Postgres = row count) PLUS pending/running
     ``:Task`` nodes — so backpressure sees work the graph poll alone would miss

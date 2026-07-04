@@ -1,4 +1,4 @@
-"""Throughput-per-dollar scaling governor (CONCEPT:OS-5.35).
+"""Throughput-per-dollar scaling governor (CONCEPT:AU-OS.scaling.cost-aware-autoscaling).
 
 The OS-5.29 target-tracking math is unchanged; this only trims a scale-up that
 would breach a configured hourly budget and surfaces a cost/throughput lens. With
@@ -26,7 +26,7 @@ from agent_utilities.orchestration.fleet_actuation import DryRunActuator  # noqa
 from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler  # noqa: E402
 from agent_utilities.orchestration.fleet_reconciler import ScalingSpec  # noqa: E402
 
-pytestmark = pytest.mark.concept("OS-5.35")
+pytestmark = pytest.mark.concept("AU-OS.scaling.cost-aware-autoscaling")
 
 
 # ── pure cost model ──────────────────────────────────────────────────

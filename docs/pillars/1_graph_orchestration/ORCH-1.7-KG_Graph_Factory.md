@@ -1,10 +1,10 @@
-# ORCH-1.20: KG-Driven Graph Factory
+# AU-ORCH.execution.service-registry-initialization: KG-Driven Graph Factory
 
 ## Concept Summary
 
 | Field | Value |
 |-------|-------|
-| **Concept ID** | `ORCH-1.20` |
+| **Concept ID** | `AU-ORCH.execution.service-registry-initialization` |
 | **Pillar** | 1 — Graph Orchestration Engine |
 | **Status** | Implemented |
 | **Source Modules** | `graph/kg_graph_factory.py`, `graph/builder.py` (`create_graph_agent`), `graph/routing/`, `core/registry/kg_adapter.py` |
@@ -23,9 +23,9 @@ requirements from the KG at runtime.
 ```mermaid
 flowchart LR
     Q["ORCH-1.0: User Query"] -->|"router_step"| SEARCH["KG-2.3: KG: Hybrid Search"]
-    SEARCH -->|"AgentTemplate nodes"| TOPO["ORCH-1.20: Topological Sort"]
+    SEARCH -->|"AgentTemplate nodes"| TOPO["AU-ORCH.execution.service-registry-initialization: Topological Sort"]
     TOPO -->|"DEPENDS_ON edges"| PROMPT["AHE-3.2: Prompt Resolution"]
-    PROMPT -->|"USES_PROMPT edges"| TOOL["ORCH-1.20: Tool Binding"]
+    PROMPT -->|"USES_PROMPT edges"| TOOL["AU-ORCH.execution.service-registry-initialization: Tool Binding"]
     TOOL -->|"REQUIRES_TOOLSET edges"| BUILD["KG-2.0: Graph Build"]
     BUILD -->|"KGGraphResult"| DISPATCH["ORCH-1.0: ORCH: Dispatcher"]
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unit tests for the KG→skill-graph distiller (CONCEPT:AHE-3.9, read side).
+"""Unit tests for the KG→skill-graph distiller (CONCEPT:AU-AHE.optimization.physical-distillation-engine, read side).
 
 Uses an in-memory fake async client that mimics the ``EpistemicGraphClient``
 namespace surface (``nodes``/``edges``/``graph``), so the distiller logic is

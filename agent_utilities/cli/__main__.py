@@ -1,4 +1,4 @@
-"""Module entry: ``python -m agent_utilities.cli`` (CONCEPT:OS-5.11)."""
+"""Module entry: ``python -m agent_utilities.cli`` (CONCEPT:AU-OS.observability.run-wide-correlation-id)."""
 
 from __future__ import annotations
 

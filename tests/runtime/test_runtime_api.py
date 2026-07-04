@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 / ORCH-1.46 — /api/runtime/* HTTP surface: session -> act -> status -> delete."""
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 — /api/runtime/* HTTP surface: session -> act -> status -> delete."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def test_act_on_unknown_session_is_404(client):
 
 
 def test_provenance_panel_data(client, monkeypatch):
-    """CONCEPT:OS-5.34 — the webui provenance panel reads action + mutated-symbol rows."""
+    """CONCEPT:AU-OS.scaling.kg-provenance-panel-data — the webui provenance panel reads action + mutated-symbol rows."""
 
     class _Backend:
         def execute(self, q, params=None):

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Multi-CLI Agent Adapter Registry package."""
+"""CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch — Multi-CLI Agent Adapter Registry package."""
 
 from __future__ import annotations
 

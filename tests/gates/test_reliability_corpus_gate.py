@@ -1,6 +1,6 @@
 """Meta-test: the reliability-corpus gate passes clean and trips on degrade.
 
-A gate that can't fail is not a gate. CONCEPT:AHE-3.1
+A gate that can't fail is not a gate. CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 from __future__ import annotations

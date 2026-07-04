@@ -7,7 +7,7 @@ in the agent-packages ecosystem should import these instead of hand-rolling
 ctx interactions. All helpers are safe when *ctx* is ``None`` (backward
 compatible with callers that do not inject a context).
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 

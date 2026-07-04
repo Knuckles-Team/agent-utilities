@@ -1,4 +1,4 @@
-"""Unit + live-path tests for memory→weights distillation (CONCEPT:KG-2.316).
+"""Unit + live-path tests for memory→weights distillation (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
 
 Drives the AU-side EXPORT path with a MOCK engine whose backend returns synthetic
 consolidated/procedural memory. Asserts:
@@ -209,7 +209,7 @@ def test_kg_2_316_default_submit_enqueues_training_job(tmp_path, monkeypatch) ->
     assert engine.nodes[job.job_id]["server"] == "data-science-mcp"
     # The hand-off carries the concrete train_model workflow + spec.
     hoff = job.handoff
-    assert hoff["contract"] == "KG-2.316"
+    assert hoff["contract"] == "AU-KG.memory.memory-weights-distillation-export"
     assert hoff["workflow"]["name"] == "train_model"
     assert hoff["workflow"]["task"]["spec"]["adapter_rank"] == 8
     assert hoff["tools"][1]["tool"] == "train_sft"
@@ -247,7 +247,7 @@ def test_kg_2_316_injected_submitter_seam() -> None:
             corpus_ref="stub",
             checksum=corpus.checksum,
             example_count=len(corpus.examples),
-            handoff={"contract": "KG-2.316"},
+            handoff={"contract": "AU-KG.memory.memory-weights-distillation-export"},
         )
 
     dist = MemoryWeightsDistiller(
@@ -273,7 +273,7 @@ def test_kg_2_316_action_core_export_only() -> None:
         engine, params={"base_model": "m", "scopes": ["procedural", "semantic"]}
     )
     assert res["status"] == "ok"
-    assert res["concept"] == "KG-2.316"
+    assert res["concept"] == "AU-KG.memory.memory-weights-distillation-export"
     assert res["corpus"]["example_count"] == 2
     assert res["corpus"]["format"] == "sft"
     # Export-only: a hand-off preview is offered but no job is submitted.
@@ -336,7 +336,7 @@ def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
     payload = json.loads(out)
 
     assert payload["status"] == "ok"
-    assert payload["concept"] == "KG-2.316"
+    assert payload["concept"] == "AU-KG.memory.memory-weights-distillation-export"
     assert payload["corpus"]["example_count"] == 2
     assert payload["corpus"]["spec"]["adapter_rank"] == 8
     # Submitted live: a job with the data-science-mcp hand-off came back.
@@ -488,6 +488,6 @@ def test_kg_2_318_action_core_poll_reads_status_back(tmp_path, monkeypatch) -> N
     # data-science-mcp advances the train.
     engine.nodes[job_id]["status"] = "running"
     polled = distill_memory_to_weights(engine, params={"poll_job_id": job_id})
-    assert polled["concept"] == "KG-2.318"
+    assert polled["concept"] == "AU-KG.memory.live-data-science-mcp"
     assert polled["poll"]["status"] == "running"
     assert polled["poll"]["job_id"] == job_id

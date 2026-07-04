@@ -1,4 +1,4 @@
-"""S-NIAH: single needle-in-a-haystack (CONCEPT:AHE-3.32).
+"""S-NIAH: single needle-in-a-haystack (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 O(1) retrieval — a unique fact is buried in a large filler context and must be recovered. Purely
 synthetic and self-contained, so it doubles as the 10M-token / "two-orders-beyond-context" stress

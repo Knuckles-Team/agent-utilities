@@ -1,4 +1,4 @@
-"""Unified write-back core: result, resolver, gate, sink registry (CONCEPT:KG-2.8/2.9)."""
+"""Unified write-back core: result, resolver, gate, sink registry (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9)."""
 
 from __future__ import annotations
 

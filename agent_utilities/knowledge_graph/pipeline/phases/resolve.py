@@ -1,6 +1,6 @@
 """Cross-repository import and dependency resolution (Phase 5).
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Extends the base resolve phase to handle workspace-wide imports across
 multiple repositories.  Builds a ``package_map`` from file nodes to

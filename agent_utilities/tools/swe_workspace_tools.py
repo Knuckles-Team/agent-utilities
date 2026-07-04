@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.47 — SWE workspace tools: the agent's *action* surface over the dev-workspace.
+"""CONCEPT:AU-ORCH.execution.swe-workspace-tools — SWE workspace tools: the agent's *action* surface over the dev-workspace.
 
 These Pydantic-AI tools translate the model's tool calls into typed runtime actions
 (``agent_utilities.runtime.events``) executed inside the agent's :class:`DevWorkspace`

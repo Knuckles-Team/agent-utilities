@@ -1,6 +1,6 @@
 """Tests for dependency-aware SDD parallel task batching.
 
-CONCEPT:ORCH-1.3 — Spec-Driven Development Pipeline
+CONCEPT:AU-ORCH.execution.execution-budget-caps — Spec-Driven Development Pipeline
 
 Covers ``SDDManager.get_parallel_opportunities`` (the real topological batcher)
 and the ``get_sdd_parallel_batches`` tool that delegates to it. Batches are

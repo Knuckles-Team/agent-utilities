@@ -1,9 +1,9 @@
 # Tasks: Recursive Distillation of Test-Time Search (AHE-3.25)
 
-Wire-First order. Build OS-5.34 (corpus harvest) FIRST — this spec consumes its corpus and
-must not re-harvest. Land SAFE-1.4 (corpus collapse guard) with it. Gate behind AHE-3.24.
+Wire-First order. Build AU-OS.scaling.kg-provenance-panel-data (corpus harvest) FIRST — this spec consumes its corpus and
+must not re-harvest. Land AU-OS.safety.model-collapse-guard-self (corpus collapse guard) with it. Gate behind AHE-3.24.
 
-1. **Confirm the OS-5.34 corpus seam.** Read the shared corpus API minted by OS-5.34 (over
+1. **Confirm the AU-OS.scaling.kg-provenance-panel-data corpus seam.** Read the shared corpus API minted by AU-OS.scaling.kg-provenance-panel-data (over
    `agent_utilities/harness/preference_pairs.py` + `agent_utilities/graph/test_time_diversity.py`
    best-of-k + `agent_utilities/harness/verifier.py` scores). Do NOT add a new harvester here.
 
@@ -11,9 +11,9 @@ must not re-harvest. Land SAFE-1.4 (corpus collapse guard) with it. Gate behind 
    `snapshot_corpus()` (freeze + version → `DistillationCorpusSnapshot` node, min-size floor),
    `fine_tune(snapshot)` (delegate to data-science-mcp ML-001..007 via the existing MCP source
    path — never train in-process; degrade to `pending` offline), `promote_if_passes(candidate)`
-   (call the AHE-3.24 `CapabilityRatchet`, promote only on monotone pass, else discard+record).
+   (call the AU-AHE.evaluation.capability-benchmark-regression-ratchet `CapabilityRatchet`, promote only on monotone pass, else discard+record).
 
-3. **Gate the snapshot with SAFE-1.4.** Before fine-tune, run the SAFE-1.4 corpus collapse/provenance
+3. **Gate the snapshot with SAFE-1.4.** Before fine-tune, run the AU-OS.safety.model-collapse-guard-self corpus collapse/provenance
    guard (Wasserstein-1 diversity + synthetic-fraction cap) on the snapshot; abort the cycle if it fails.
 
 4. **Register the tick.** Add `_tick_recursive_distillation` in
@@ -28,7 +28,7 @@ must not re-harvest. Land SAFE-1.4 (corpus collapse guard) with it. Gate behind 
    (`@pytest.mark.concept(id="AHE-3.25")`, stubbed corpus/trainer/ratchet) + a `*_live_path` test that the
    registered tick invokes the loop.
 
-7. **Concept + docs + gates.** Add the `CONCEPT:AHE-3.25` marker in the `RecursiveDistiller` docstring
+7. **Concept + docs + gates.** Add the `CONCEPT:AU-AHE.evaluation.failure-analysis-loop` marker in the `RecursiveDistiller` docstring
    (cite the AlphaZero / agenda-4d arXiv provenance), run `scripts/build_concepts_yaml.py` +
    `scripts/check_concepts.py`, author the per-concept doc section in
    `docs/architecture/in_house_training_substrate.md`, then `pre-commit run --all-files` green.

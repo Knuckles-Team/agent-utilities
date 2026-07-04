@@ -1,6 +1,6 @@
 """Model-server-capacity guard: the aggregate ceiling + circuit breaker.
 
-CONCEPT:ORCH-1.102 (per-endpoint server-capacity ceiling shared by every demand
+CONCEPT:AU-ORCH.dispatch.embedding-fanout (per-endpoint server-capacity ceiling shared by every demand
 source) / ORCH-1.103 (capacity-aware backpressure + circuit breaking) / KG-2.298
 (the ``max_concurrent_requests`` config). Proves the four guarantees:
 

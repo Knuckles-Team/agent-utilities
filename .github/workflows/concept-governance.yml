@@ -46,7 +46,7 @@ jobs:
           # (scripts/build_concepts_yaml.py): a dotless id (SAFE-1), a dotted id
           # (KG-2.101), or a letter-suffix id (KG-2.20g) are all valid.
           NEW_CONCEPTS=$(git diff origin/main...HEAD --unified=0 | \
-            grep -oP '(?<=CONCEPT:)[A-Z]+-\d+(?:\.[0-9A-Za-z]+)?' | \
+            grep -oP '(?<=CONCEPT:)[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9-]+)+' | \
             sort -u || true)
 
           if [ -z "$NEW_CONCEPTS" ]; then

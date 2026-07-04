@@ -1,4 +1,4 @@
-"""Durable inbound-message inbox + retry — nothing goes unanswered (CONCEPT:ECO-4.83).
+"""Durable inbound-message inbox + retry — nothing goes unanswered (CONCEPT:AU-ECO.messaging.durable-inbound-pending).
 
 An inbound chat turn is recorded as a durable ``:InboundMessage`` node BEFORE the reply is
 attempted, and marked ``answered`` only when a reply is actually delivered. A reaper in the
@@ -149,7 +149,7 @@ async def retry_unanswered(
         else:
             # Re-pass the FULL record (not just the counter): the durable backend replaces a
             # node's property blob on upsert, so a bare {attempts} write would wipe the
-            # platform/channel/text the NEXT retry needs to re-send. (CONCEPT:ECO-4.83)
+            # platform/channel/text the NEXT retry needs to re-send. (CONCEPT:AU-ECO.messaging.durable-inbound-pending)
             _set(
                 engine,
                 m["id"],
@@ -167,7 +167,7 @@ async def retry_unanswered(
             )
     if answered:
         logger.info(
-            "[CONCEPT:ECO-4.83] inbox reaper answered %d previously-unanswered turn(s).",
+            "[CONCEPT:AU-ECO.messaging.durable-inbound-pending] inbox reaper answered %d previously-unanswered turn(s).",
             answered,
         )
     return answered

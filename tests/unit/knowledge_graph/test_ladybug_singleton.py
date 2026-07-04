@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Test the process-wide ladybug database and lock singletons.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 """
 
 import threading

@@ -1,6 +1,6 @@
 """Shared ephemeral-backend fixtures for cross-backend parity + profile tests.
 
-CONCEPT:KG-2.0 / KG-2.7 — Vendor-agnostic Graph Backend parity.
+CONCEPT:AU-KG.query.object-graph-mapper / KG-2.7 — Vendor-agnostic Graph Backend parity.
 
 These fixtures stand up a **throwaway** instance of every supported external
 service so both the backend conformance matrix (``backends/``) and the enterprise

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Throughput-per-dollar scaling governor.
 
-CONCEPT:OS-5.35 — cost-and-throughput aware autoscaling that caps scale-up to a configured hourly budget and surfaces a throughput-per-dollar efficiency metric instead of reacting to a single load signal alone
+CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost-and-throughput aware autoscaling that caps scale-up to a configured hourly budget and surfaces a throughput-per-dollar efficiency metric instead of reacting to a single load signal alone
 
 The OS-5.29 autoscaler does per-service target-tracking on one load signal vs.
 static bounds — "add replicas when one metric is hot", with no notion of what the

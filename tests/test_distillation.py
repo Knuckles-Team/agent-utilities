@@ -1,6 +1,6 @@
 """Tests for the Knowledge Distillation Engine.
 
-CONCEPT:KG-2.2 — Knowledge Distillation Engine
+CONCEPT:AU-KG.ingest.engineering-rules — Knowledge Distillation Engine
 
 Covers:
   - IdeaBlock Pydantic model creation and validation

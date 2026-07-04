@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Server-minted request identity for the Knowledge Graph (CONCEPT:OS-5.14).
+"""Server-minted request identity for the Knowledge Graph (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
 Closes the honor-system identity gap: until now the MCP/REST surface built
 :class:`~agent_utilities.security.brain_context.ActorContext` from
@@ -47,7 +47,7 @@ HEALTH_PATHS: frozenset[str] = frozenset(
 
 # Prometheus scrapers cannot mint JWTs; /metrics exposes only aggregate
 # counters (no graph data), so it is exempt like the health probes.
-# (CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening)
+# (CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening)
 UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS | {"/metrics"}
 
 _warned_unauthenticated = False
@@ -63,7 +63,7 @@ def warn_unauthenticated_identity_once() -> None:
         "KG identity is UNAUTHENTICATED (KG_AUTH_REQUIRED=0): caller-supplied "
         "_actor/_roles/_tenant kwargs are trusted as-is. Set KG_AUTH_REQUIRED=1 "
         "and AUTH_JWT_JWKS_URI to enforce server-validated JWT identity. "
-        "(CONCEPT:OS-5.14)"
+        "(CONCEPT:AU-OS.identity.authenticated-identity-enforcement)"
     )
 
 
@@ -71,7 +71,7 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 # Network MCP transports expose graph-os to many clients at once. Serving them
 # without server-validated identity is the "security fails open" condition, so
-# the served profile is enforced for these transports (CONCEPT:OS-5.14).
+# the served profile is enforced for these transports (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 
 
@@ -106,7 +106,7 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
         logger.warning(
             "KG_SERVED_PROFILE=0: serving graph-os over %s WITHOUT enforced "
             "identity. Every caller is trusted as-is — use only for local dev. "
-            "(CONCEPT:OS-5.14)",
+            "(CONCEPT:AU-OS.identity.authenticated-identity-enforcement)",
             transport,
         )
         warn_unauthenticated_identity_once()
@@ -119,7 +119,7 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
             "not configured, so client identity cannot be validated and the "
             "surface would be fail-open. Set AUTH_JWT_JWKS_URI (and AUTH_JWT_"
             "ISSUER/AUDIENCE), or set KG_SERVED_PROFILE=0 to override for local "
-            "dev only. (CONCEPT:OS-5.14)"
+            "dev only. (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)"
         )
 
     # Honor an operator who has explicitly pinned a flag (even to off); only
@@ -137,7 +137,7 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
     logger.warning(
         "graph-os served profile ACTIVE over %s: KG_AUTH_REQUIRED=%s, "
         "KG_BRAIN_ENFORCE=%s, JWKS=%s. Unauthenticated requests are rejected "
-        "and reads/writes are tenant-scoped. (CONCEPT:OS-5.14)",
+        "and reads/writes are tenant-scoped. (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)",
         transport,
         setting("KG_AUTH_REQUIRED"),
         setting("KG_BRAIN_ENFORCE"),
@@ -252,7 +252,7 @@ async def _send_json(send: Any, status: int, payload: dict[str, Any]) -> None:
 class ActorIdentityMiddleware:
     """Pure-ASGI middleware that mints the request's ActorContext from a JWT.
 
-    CONCEPT:OS-5.14 — Authenticated Identity Enforcement.
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — Authenticated Identity Enforcement.
 
     Behaviour matrix:
 

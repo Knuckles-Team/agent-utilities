@@ -1,4 +1,4 @@
-"""Tests for the Grafana observability source extractor (CONCEPT:KG-2.9)."""
+"""Tests for the Grafana observability source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

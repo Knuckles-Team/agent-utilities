@@ -1,5 +1,5 @@
 """
-Strategy Engine — CONCEPT:KG-2.6
+Strategy Engine — CONCEPT:AU-KG.research.research-pipeline-runner
 Lifecycle tracking for trading strategies (Draft -> Backtest -> Paper -> Live).
 Inspired by qlib workflow orchestration and freqtrade strategy patterns.
 """

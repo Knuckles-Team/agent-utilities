@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Self-registering multi-modal READER REGISTRY (CONCEPT:KG-2.66 family).
+"""Self-registering multi-modal READER REGISTRY (CONCEPT:AU-KG.enrichment.multimodal-readers family).
 
 The universal-ingestion funnel needs ONE text-extraction front door so every new
 modality (slides / spreadsheets / audio / scanned images / html …) flows through
@@ -96,7 +96,7 @@ _MIME_TO_EXT = {
 def register_reader(*exts: str) -> Callable[[R], R]:
     """Decorator registering a reader under one or more extensions/MIME types.
 
-    CONCEPT:KG-2.66. Keys are normalised lowercase; an extension is stored with a
+    CONCEPT:AU-KG.enrichment.multimodal-readers. Keys are normalised lowercase; an extension is stored with a
     leading dot (``"csv"`` and ``".csv"`` both register under ``".csv"``); a MIME
     type (contains ``"/"``) is mapped through :data:`_MIME_TO_EXT` to its
     extension so all dispatch is extension-keyed. Idempotent — re-registering the
@@ -144,7 +144,7 @@ def discover() -> dict[str, Reader]:
     """Import the built-in reader modules (and any ``readers`` plugin subpackage)
     so every ``@register_reader`` decorator runs; return the registry map.
 
-    CONCEPT:KG-2.66 — the discovery half of the self-registering pattern, called
+    CONCEPT:AU-KG.enrichment.multimodal-readers — the discovery half of the self-registering pattern, called
     on the live :func:`read_any` path. Idempotent: module imports are cached and
     registration overwrites, so repeated calls are safe.
     """
@@ -194,7 +194,7 @@ def list_readers() -> list[str]:
 def read_any(path: str, *, mime: str | None = None) -> str:
     """Extract text from ``path`` through the registry, with the document fallback.
 
-    CONCEPT:KG-2.66 — the universal text front door. Dispatch order:
+    CONCEPT:AU-KG.enrichment.multimodal-readers — the universal text front door. Dispatch order:
 
     1. The existing :func:`read_document_text` fast path for the document family
        (``.pdf`` / ``.md`` / ``.txt`` / ``.rst`` / ``.json`` / ``.eml``) — one

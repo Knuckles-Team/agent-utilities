@@ -1,4 +1,4 @@
-"""FreshRSS world-model source + relevance gate — CONCEPT:KG-2.115/116/117."""
+"""FreshRSS world-model source + relevance gate — CONCEPT:AU-KG.compute.homelab-rss-reader-as/116/117."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def test_run_gated_ingest_tiers_without_engine():
     assert report.ingested == 3
 
 
-# ── batched dedup (CONCEPT:KG-2.147) ────────────────────────────────────────
+# ── batched dedup (CONCEPT:AU-KG.ingest.instead) ────────────────────────────────────────
 
 
 def test_batch_known_ids_one_round_trip_via_has_batch():
@@ -261,7 +261,7 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
 
 
 def test_ingest_full_enqueues_feed_ingest_task():
-    """CONCEPT:KG-2.121 — relevance-gated full ingest is DECOUPLED: it ENQUEUES a
+    """CONCEPT:AU-KG.ingest.rss-feed-connector — relevance-gated full ingest is DECOUPLED: it ENQUEUES a
     feed_ingest task (the worldview lane) carrying the already-fetched text, rather
     than processing inline, so the sweep returns fast and ingest workers drain in
     parallel. Falls back to inline only when no queue (submit_task) exists."""

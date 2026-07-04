@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:AHE-3.37 Self-Guided Self-Play (SGS, arXiv:2604.20209).
+"""Tests for CONCEPT:AU-AHE.harness.when-task-is-scope Self-Guided Self-Play (SGS, arXiv:2604.20209).
 
 All callables are deterministic stubs — no LLM, no network.
 """

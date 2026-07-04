@@ -1,4 +1,4 @@
-"""Write-path trust/provenance guard tests (CONCEPT:KG-2.6).
+"""Write-path trust/provenance guard tests (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Exercises BrainGuardedBackend directly with a fake inner backend so no daemon or
 real store is needed. Verifies provenance attachment, source-authority

@@ -22,11 +22,11 @@ DELETE. Ours mutates the graph with bi-temporal stamping so prior beliefs remain
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.1 | Tiered Memory & Context (consolidation) | 0.84 | KG-2 |
+| KG-2.1 | Tiered Memory & Context (consolidation) | 0.84 | EG-KG.compute.backend |
 | AHE-3.2 | Agentic Evolution / reflection | 0.73 | AHE-3 |
-| KG-2.11 | Bi-Temporal Memory | 0.71 | KG-2 |
+| KG-2.11 | Bi-Temporal Memory | 0.71 | EG-KG.compute.backend |
 | ORCH-1.27 | Role-Specialized Routing (learner) | 0.58 | ORCH-1 |
-| ECO-4.0 | Memory tier ingestion | 0.55 | ECO-4 |
+| ECO-4.0 | Memory tier ingestion | 0.55 | AU-ECO.connector.plane-provisioning-auth |
 
 ### Extension Analysis
 
@@ -37,7 +37,7 @@ DELETE. Ours mutates the graph with bi-temporal stamping so prior beliefs remain
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:KG-2.13`
+- **Proposed ID**: `CONCEPT:AU-KG.memory.background-learning-engine`
 - **Augments Pillar**: KG (+AHE-3 self-improvement)
 - **15-Phase Pipeline Integration**: Phase 4 (Epistemic — extraction) and Phase 5 (Governance — async evolution).
 - **Justification**: KG-2.1 consolidates by recency decay; KG-2.13 adds an LLM-driven targeted ADD/UPDATE/DELETE editor with concurrency/backoff controls and bi-temporal supersession.

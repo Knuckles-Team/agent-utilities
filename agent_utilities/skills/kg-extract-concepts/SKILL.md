@@ -39,7 +39,7 @@ Analyze unstructured input text to locate relevant architectural or scientific d
 Structure the extracted concepts into standardized ontological nodes and directed relationships:
 - Define node schemas:
   - **Concept Node**:
-    - `id`: Unique UPPERCASE term identifier string (e.g., `CONCEPT:ORCH-1.2`, `CONCEPT:SYS-2.0`).
+    - `id`: Unique UPPERCASE term identifier string (e.g., `CONCEPT:AU-ORCH.adapter.hot-cache-invalidation`, `CONCEPT:AU-KG.ontology.system-definition`).
     - `name`: Clean term label.
     - `description`: Formal synthesized semantic definition.
     - `domain`: Research or technical area identifier.

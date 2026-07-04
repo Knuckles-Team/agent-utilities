@@ -1,4 +1,4 @@
-"""Tests for per-backend send_reaction (CONCEPT:ECO-4.60)."""
+"""Tests for per-backend send_reaction (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction)."""
 
 from __future__ import annotations
 

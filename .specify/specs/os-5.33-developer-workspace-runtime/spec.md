@@ -1,4 +1,4 @@
-# Spec: Developer-Workspace Runtime (OS-5.33 / ORCH-1.46 / KG-2.64)
+# Spec: Developer-Workspace Runtime (AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 / KG-2.64)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
@@ -62,7 +62,7 @@ ActionPolicy, **so that** the runtime inherits the same guardrails as the rest o
 - [ ] Pre-commit hooks pass cleanly.
 - [ ] `docs/pillars/5_agent_os_infrastructure.md` + `1_graph_orchestration.md` +
       `2_epistemic_knowledge_graph.md` updated; CHANGELOG + AGENTS.md + README synced.
-- [ ] `CONCEPT:OS-5.33`, `CONCEPT:ORCH-1.46`, `CONCEPT:KG-2.64` markers added; `concepts.yaml`
+- [ ] `CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating`, `CONCEPT:AU-ORCH.reactive.action-dispatcher`, `CONCEPT:AU-KG.enrichment.atomic-triple-extraction` markers added; `concepts.yaml`
       regenerated; `check_concepts.py` + `check_wiring.py` (≤3-hop) green.
 - [ ] `local` backend is the zero-infra floor (no Docker required) so the runtime works out-of-the-box.
 - [ ] Live-path tests: `tests/runtime/test_workspace_lifecycle.py`, `test_event_protocol.py`,

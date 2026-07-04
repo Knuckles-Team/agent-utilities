@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Executable multi-hop RAG — a program over retrieve()/answer() primitives.
 
-CONCEPT:KG-2.12 — Memory-First Retrieval (executable program mode)
+CONCEPT:AU-KG.retrieval.memory-first-retrieval — Memory-First Retrieval (executable program mode)
 
 Distilled from the PyRAG research (`.specify/specs/research-evolution-20260606/`
 plan b2-03): instead of free-form NL self-reflection, multi-hop RAG is expressed
@@ -166,7 +166,7 @@ def parse_executable_plan(
 
 
 class ExecutableRagProgram:
-    """Deterministic interpreter for an executable RAG plan (CONCEPT:KG-2.12)."""
+    """Deterministic interpreter for an executable RAG plan (CONCEPT:AU-KG.retrieval.memory-first-retrieval)."""
 
     def __init__(
         self,

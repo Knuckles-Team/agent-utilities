@@ -1,13 +1,13 @@
 # Spec: Test-Time Diversity (VPO-derived)
 
-> **Status: PROPOSED.** Concept: new **AHE-3.x**. Source: VPO — *Vector Policy Optimization:
+> **Status: PROPOSED.** Concept: new **AU-AHE.optimization.telemetry-optimization**. Source: VPO — *Vector Policy Optimization:
 > Training for Diversity Improves Test-Time Search* (arXiv:2605.22817). Rank 2 in
 > `COMPARATIVE_ANALYSIS.md`.
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
 - [ ] **KG search completed** — `.specify/design/vpo-test-time-diversity/design.md` exists
-- [ ] **Extension point identified** — extends `reasoning_effort` + subagent fan-out (New Concept: AHE-3.x)
+- [ ] **Extension point identified** — extends `reasoning_effort` + subagent fan-out (New Concept: AU-AHE.optimization.telemetry-optimization)
 - [ ] **C4 diagram created** — diversity-scored fan-out into the test-time-compute topology
 - [ ] **No new CONCEPT: tag** without pillar reference
 - [ ] **`code-enhancer` audit** run against proposed changes

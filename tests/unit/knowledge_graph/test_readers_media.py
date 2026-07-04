@@ -1,4 +1,4 @@
-"""Tests for the media modality readers (CONCEPT:KG-2.74).
+"""Tests for the media modality readers (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Heavy deps (faster-whisper, pytesseract, rapidocr) are optional and absent in CI,
 so these tests assert the registry + dispatch contract and the lazy/no-op/never-

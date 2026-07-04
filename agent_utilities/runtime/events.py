@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.46 — Action/Observation event protocol for the developer-workspace runtime.
+"""CONCEPT:AU-ORCH.reactive.action-observation-protocol — Action/Observation event protocol for the developer-workspace runtime.
 
 The SWE loop (ORCH-1.47) speaks in *typed actions* that each yield a *typed observation*. This
 mirrors OpenHands' action/observation split, but every event here is a first-class,
@@ -95,7 +95,7 @@ class PortExposeAction(_Event):
 
 
 class BrowseAction(_Event):
-    """Optional browser tier (CONCEPT:ECO-4.44) — off the core edit→test critical path."""
+    """Optional browser tier (CONCEPT:AU-ECO.toolkit.browser-agent-tier) — off the core edit→test critical path."""
 
     kind: Literal["browse"] = "browse"
     url: str = ""
@@ -103,7 +103,7 @@ class BrowseAction(_Event):
 
 
 class ComputerUseAction(_Event):
-    """GUI computer-use on a sandbox desktop (CONCEPT:ORCH-1.84).
+    """GUI computer-use on a sandbox desktop (CONCEPT:AU-ORCH.reactive.runtime-events).
 
     One action type with an ``op`` discriminator covering the screen capture plus
     the mouse/keyboard primitives — mirroring the optional ``BrowseAction`` tier but
@@ -226,7 +226,7 @@ class BrowserObservation(_Event):
 
 
 class ScreenObservation(_Event):
-    """A captured desktop frame + its grounded UI elements (CONCEPT:ORCH-1.84).
+    """A captured desktop frame + its grounded UI elements (CONCEPT:AU-ORCH.reactive.runtime-events).
 
     ``image_b64`` is the PNG the model sees; ``elements`` are the AT-SPI/observe_screen
     UI elements (role/name/bbox/id) the agent grounds clicks against. ``session_id``

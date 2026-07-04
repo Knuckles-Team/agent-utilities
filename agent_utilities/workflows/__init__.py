@@ -1,6 +1,6 @@
 """Workflow Catalog & Runner — Externally Consumable Orchestration Flows.
 
-CONCEPT:ORCH-1.24 — Workflow Lifecycle Management
+CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Workflow Lifecycle Management
 
 Provides a unified system for defining, persisting, discovering, and
 executing reusable agent workflows:

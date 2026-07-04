@@ -1,4 +1,4 @@
-"""Shared SQL implementation for usage backends (CONCEPT:ECO-4.39).
+"""Shared SQL implementation for usage backends (CONCEPT:AU-OS.observability.usage-analytics-store).
 
 Holds the analytics/aggregation queries that are identical across SQLite,
 Postgres, and DuckDB (standard SQL). Subclasses supply connection, parameter

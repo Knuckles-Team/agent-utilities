@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.20 — Mementified Context Management (MEM-0..4).
+"""CONCEPT:AU-KG.memory.mementified-context — Mementified Context Management (MEM-0..4).
 
 Covers the judge-refine loop, semantic-boundary segmentation, lossless recoverability, and the
 live block-compress-evict capability (the Wire-First *_live_path test exercises the capability's

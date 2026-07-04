@@ -1,5 +1,5 @@
 """
-Capabilities Manager — CONCEPT:ECO-4.0
+Capabilities Manager — CONCEPT:AU-ECO.messaging.native-backend-abstraction
 Discovers, enriches, and manages agent capabilities within the Knowledge Graph.
 """
 

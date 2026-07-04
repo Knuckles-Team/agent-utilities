@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the provenance-completeness critic gate.
 
-CONCEPT:AHE-3.13
+CONCEPT:AU-AHE.harness.pre-emit-quality-gate
 """
 
 import pytest
@@ -11,7 +11,7 @@ from agent_utilities.harness.provenance_gate import (
     ProvenanceVerdict,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.13")
+pytestmark = pytest.mark.concept("AU-AHE.harness.pre-emit-quality-gate")
 
 
 def test_fully_grounded_answer_accepted():

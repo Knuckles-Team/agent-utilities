@@ -78,14 +78,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## 🏠 Gateway Service Dashboard (CONCEPT:OS-5.9)
+## 🏠 Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard)
 
 The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
 
 > [!NOTE]
 > Synthesized from the former standalone `service-dashboard-core` package into
 > `agent_utilities/gateway/` to eliminate duplicate registries, duplicate XDG path
-> logic, and an orphaned package dependency. See [OS-5.9](5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) for full documentation.
+> logic, and an orphaned package dependency. See [AU-OS.config.gateway-service-dashboard](5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) for full documentation.
 
 ### Key Components
 
@@ -116,7 +116,7 @@ All XDG paths delegate to `core/paths.py`:
 
 ---
 
-## 🔒 Secrets & Authentication (CONCEPT:OS-5.1)
+## 🔒 Secrets & Authentication (CONCEPT:AU-OS.config.secrets-authentication)
 
 ### Session Concurrency Management
 
@@ -162,7 +162,7 @@ Supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and 
 
 ---
 
-## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:OS-5.1)
+## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:AU-OS.config.secrets-authentication)
 
 Sensory verification utilizes declarative tool contracts (`ContractValidator`) enforcing functional pre-conditions and strict schema-validated post-conditions on execution steps. This ensures that agent steps operate strictly within validated environments and return safety-compliant data structures.
 
@@ -201,19 +201,19 @@ sequenceDiagram
 
 ---
 
-## 📈 Telemetry, Observability & Token Usage (CONCEPT:OS-5.1)
+## 📈 Telemetry, Observability & Token Usage (CONCEPT:AU-OS.config.secrets-authentication)
 
 ### Token Usage Tracker
 
 Provides 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, agent breakdown, and budget alerting. Ported from MATE's `token_usage_service.py`. Uses OWL-inferred `highCostAgent` classification.
 *   **Source Code**: `agent_utilities/observability/token_tracker.py`
 
-### Audit Logger (CONCEPT:OS-5.4)
+### Audit Logger (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
 
 Append-only compliance audit trail with 30+ action constants, never-raise semantics, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. Uses OWL-inferred `escalationChain` temporal reasoning.
 *   **Source Code**: `agent_utilities/observability/audit_logger.py`
 
-### Centralized Logging & XDG Path Resolution (CONCEPT:OS-5.22)
+### Centralized Logging & XDG Path Resolution (CONCEPT:AU-OS.config.agent-os-pillar-overview)
 
 To ensure workspace cleanliness, seamless containerization, and standardized troubleshooting, `agent-utilities` employs a centralized logging and path resolution architecture based on the **XDG Base Directory Specification**. All agent packages and downstream tools redirect their execution and debug logs away from workspace folders and into a single, unified log folder.
 
@@ -253,7 +253,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 
 ## 🛡️ Proactive Security & Execution Stability
 
-### Threat Defense Engine (Injection & Jailbreak) (OS-5.4 & OS-5.12)
+### Threat Defense Engine (Injection & Jailbreak) (AU-OS.governance.wasm-micro-agent-sandbox & AU-OS.observability.empty-derive-from-effect)
 *   **Source Code**: `agent_utilities/security/prompt_scanner.py`
 *   **Defense**: Intercepts inputs and tool outputs, scanning against 25+ threat vectors (reverse shells, command injection). Implements a 4-category jailbreak defense taxonomy covering DAN, optimization-based GCG suffixes, context boundary confusion, and role-play escalations.
 
@@ -261,7 +261,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 *   **Source Code**: `agent_utilities/security/topological_scanner.py`
 *   **Defense**: Scans the execution graph planner outputs for untrusted data flows or dependency deadlocks by matching structures against risk subgraphs using the Analogy Engine (KG-2.7).
 
-### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.1 & OS-5.3)
+### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.1 & AU-OS.governance.reactive-multi-axis-budget)
 *   **Source Code**: `agent_utilities/security/execution_stability_engine.py`
 *   **Behavior**: Tracks repeated sequences of tool calls with identical arguments. On loop detection, denies execution and injects corrective guidance into the prompt context to steer the agent towards alternative strategies.
 
@@ -286,7 +286,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 
 ---
 
-## 🪙 Reactive Budget Guardrails (CONCEPT:OS-5.3)
+## 🪙 Reactive Budget Guardrails (CONCEPT:AU-OS.governance.reactive-multi-axis-budget)
 
 To prevent runaway API costs and infinite loops, the system implements a **Reactive Budget Guardrail** framework. It provides real-time, fine-grained tracking of token counts, monetary expenses, and execution step thresholds.
 
@@ -294,7 +294,7 @@ To prevent runaway API costs and infinite loops, the system implements a **React
 
 1. **Preemption Thresholds**: The execution manager continuously monitors active agent session costs. When usage reaches a pre-configured preemption threshold (e.g., 90% of the maximum allotted budget), a reactive event is dispatched.
 2. **Homeostatic Model Downgrades**: Instead of outright killing the agent mid-task, the scheduler triggers a homeostatic model downgrade. For example, routing shifts from a high-cost model (like Claude 3.5 Sonnet) to a low-cost model (like GPT-4o-mini) to complete the final steps of execution within budget.
-3. **Structured Preemption**: If the budget is completely exhausted, the system halts execution, captures a serialized state checkpoint (`CONCEPT:ORCH-1.3`), and yields control back to the orchestrator with a structured `BudgetExceededError`, ensuring no progress is lost.
+3. **Structured Preemption**: If the budget is completely exhausted, the system halts execution, captures a serialized state checkpoint (`CONCEPT:AU-ORCH.execution.execution-budget-caps`), and yields control back to the orchestrator with a structured `BudgetExceededError`, ensuring no progress is lost.
 
 *   **Source Code Paths**:
     *   `agent_utilities/graph/reactive/budget.py`
@@ -302,15 +302,15 @@ To prevent runaway API costs and infinite loops, the system implements a **React
 
 ---
 
-## ⚡ Massive Scale Architecture & WASM Sandbox (CONCEPT:OS-5.4)
+## ⚡ Massive Scale Architecture & WASM Sandbox (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
 
 Scaling to **100,000,000 concurrent agents** requires swapping out local memory queues, resolving GIL contention, and running untrusted agent code in highly secure, low-overhead environments.
 
 ### Key Capabilities
 
-1. **Pluggable Event Fabrics**: Local, in-memory queues are abstracted using a unified `QueueBackend` interface (`CONCEPT:ECO-4.05`). The system supports zero-overhead memory backends, NATS messaging clusters (`NatsQueueBackend`), and distributed Apache Kafka partitions (`KafkaQueueBackend`) for multi-host, high-throughput event sourcing.
-2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans run in the compiled Rust `epistemic-graph` engine (`CONCEPT:KG-2.2`), reached **out-of-process** over a MessagePack/UDS (or TCP) client — there is **no PyO3** in the primary path — substantially reducing analytical overhead.
-3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:ORCH-1.11`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
+1. **Pluggable Event Fabrics**: Local, in-memory queues are abstracted using a unified `QueueBackend` interface (`CONCEPT:AU-ECO.bus.pluggable-event-queue`). The system supports zero-overhead memory backends, NATS messaging clusters (`NatsQueueBackend`), and distributed Apache Kafka partitions (`KafkaQueueBackend`) for multi-host, high-throughput event sourcing.
+2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans run in the compiled Rust `epistemic-graph` engine (`CONCEPT:AU-KG.ingest.engineering-rules`), reached **out-of-process** over a MessagePack/UDS (or TCP) client — there is **no PyO3** in the primary path — substantially reducing analytical overhead.
+3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
 
 *   **Source Code Paths**:
     *   `agent_utilities/core/wasm_runner.py`
@@ -330,7 +330,7 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
    Captures step-by-step agent executions (prompts, tool calls, memory state transitions) and registers them as first-class OWL sub-graphs under the **PROV-O (Provenance Ontology)**. This creates crypotographically immutable, auditable provenance logs.
    * *Source Code*: [replay_engine.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/replay_engine.py)
 
-2. **Hardened WASM Sandbox Executor (`OS-5.7`)**:
+2. **Hardened WASM Sandbox Executor (`AU-OS.deployment.platform-journey`)**:
    Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), executing with microsecond-level process containment.
    * *Source Code*: [sandboxed_executor.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/sandboxed_executor.py)
 
@@ -338,7 +338,7 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
    An advanced CPU/thread scheduler that dynamically calculates the **eigenvector/out-degree centrality** of active agent nodes in the live Knowledge Graph. High-centrality orchestrator blocks are scaled with increased execution quotas, while low-centrality crawler blocks are checkpointed and paged to disk under system load.
    * *Source Code*: [cognitive_scheduler.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/cognitive_scheduler.py)
 
-4. **Ontological Guardrail Engine (`OS-5.3`)**:
+4. **Ontological Guardrail Engine (`AU-OS.governance.reactive-multi-axis-budget`)**:
    Intercepts tool schemas and checks parameter payload arguments using real-time OWL subsumption reasoning. Automatically blocks access to files, network targets, or commands if they inherit from banned policy classes inside the Knowledge Graph.
    * *Source Code*: [tool_guard.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/tool_guard.py)
 
@@ -347,7 +347,7 @@ For a complete architectural analysis, refer to the detailed guide:
 
 ---
 
-## 🔐 Server-Minted Identity & Fail-Closed Permissioning (CONCEPT:OS-5.14)
+## 🔐 Server-Minted Identity & Fail-Closed Permissioning (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
 
 Identity is established **server-side**, never trusted from the client:
 
@@ -367,45 +367,45 @@ Identity is established **server-side**, never trusted from the client:
    (see `docker/engine-shards.compose.yml`).
 
 In sharded deployments the ambient `ActorContext` tenant also drives graph
-placement (KG-2.58). Walkthrough: [identity & JWT example](../examples/identity-jwt.md).
+placement (AU-KG.sharding.tenant-partitioned-sharding-hrw). Walkthrough: [identity & JWT example](../examples/identity-jwt.md).
 
 ---
 
-## 🗄️ Externalized Durable State & Multi-Host Operation (CONCEPT:OS-5.16 / OS-5.17 / OS-5.18)
+## 🗄️ Externalized Durable State & Multi-Host Operation (CONCEPT:AU-OS.state.unified-durable-state-externalization / AU-OS.state.cross-host-daemon-leadership / AU-OS.state.fleet-supervisory-plane-at)
 
 One flag — `STATE_DB_URI` — moves all three durable stores (durable-execution
 checkpoints, sessions/turns/goals, the KG task + staging queue) from per-host
 SQLite onto a shared Postgres (`agent_utilities/core/state_store.py`). Unset,
 behavior is byte-for-byte the zero-infra default.
 
-- **Cross-host queue claims (KG-2.54)**: task claims are atomic
+- **Cross-host queue claims (AU-KG.ingest.cross-host-safe-kg)**: task claims are atomic
   `FOR UPDATE SKIP LOCKED` selections with visibility-timeout recovery, so
   multiple hosts can drain one queue safely.
-- **Daemon leadership (OS-5.17)**: singleton background ticks elect exactly
+- **Daemon leadership (AU-OS.state.cross-host-daemon-leadership)**: singleton background ticks elect exactly
   one leader fleet-wide via Postgres advisory locks
   (`agent_utilities/core/leadership.py`).
-- **Supervisory plane at scale (OS-5.18)**: fleet/session queries are
+- **Supervisory plane at scale (AU-OS.state.fleet-supervisory-plane-at)**: fleet/session queries are
   SQL-aggregated, paginated, and filtered server-side, and desired-state
   pause/kill reconciles across hosts (`core/sessions.py`, `gateway/fleet.py`).
-- **Durable goals (ORCH-1.44)**: goals persist across restarts; stranded runs
+- **Durable goals (AU-ORCH.session.durable-goal-registry-goals)**: goals persist across restarts; stranded runs
   rehydrate as `orphaned` instead of silently vanishing.
 
 Full design: [State Externalization](../architecture/state_externalization.md).
 
 ---
 
-## 📡 Fleet Event Ingress (CONCEPT:OS-5.15)
+## 📡 Fleet Event Ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
 
 `POST /api/fleet/events` (`gateway/fleet_events.py`) is the webhook ingress
 for monitoring systems (Alertmanager, Uptime Kuma, Portainer, …): alerts are
 normalized and persisted as `FleetEvent` KG nodes, and a triage seam
 (`knowledge_graph/adaptation/fleet_event_triage.py`) routes them to registered
-remediation playbooks (OS-5.26). Wiring guide:
+remediation playbooks (AU-OS.host.remediation-playbooks). Wiring guide:
 [fleet events example](../examples/fleet-events-wiring.md).
 
 ---
 
-## 🚦 Gateway Middle-Tier Hardening (CONCEPT:OS-5.23)
+## 🚦 Gateway Middle-Tier Hardening (CONCEPT:AU-OS.observability.no-op-without-metrics)
 
 The Python gateway tier is observable and self-protecting:
 
@@ -438,7 +438,7 @@ walkthrough: [observability example](../examples/observability.md).
 
 ---
 
-## 🤖 Fleet Autonomy Control Plane (CONCEPT:OS-5.24 — OS-5.27, OS-5.29)
+## 🤖 Fleet Autonomy Control Plane (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — AU-OS.config.health-gated-deploy-rollback, OS-5.29)
 
 The layer that lets the platform act on its fleet — restart, scale, deploy,
 remediate — without ever acting outside policy. One decision point, five
@@ -454,7 +454,7 @@ pieces:
    plus runtime KG `governance_rule` overrides. Decisions **fail closed**, are
    audit-logged as `ActionDecision` nodes, and queued approvals surface at
    `GET /api/fleet/approvals` / resolve via `.../grant`.
-2. **Desired-state fleet reconciler (OS-5.25,
+2. **Desired-state fleet reconciler (AU-OS.config.desired-state-fleet-reconciler,
    `orchestration/fleet_reconciler.py`)**: opt-in leader-only tick
    (`FLEET_RECONCILER`, default off) diffing `deploy/mcp-fleet.registry.yml`
    against a pluggable `FleetObserver` and converging each divergence through
@@ -463,13 +463,13 @@ pieces:
    it records intended actions as `ActionExecution` nodes and mutates nothing;
    `FLEET_ACTUATOR=docker` selects the reference docker actuator. Storm guard:
    `FLEET_RECONCILER_MAX_ACTIONS` per tick.
-3. **Remediation playbooks (OS-5.26,
+3. **Remediation playbooks (AU-OS.host.remediation-playbooks,
    `knowledge_graph/adaptation/remediation_playbooks.py`)**: `service_down`
    (confirm → policy-gated restart → durable verification watch → escalate),
    `service_flapping` (back off + escalate), `resource_pressure` (notify +
    propose, never auto-act). Every step outcome lands on the originating
    FleetEvent node.
-4. **Health-gated deploy watch (OS-5.27, `orchestration/deploy_watch.py`)**:
+4. **Health-gated deploy watch (AU-OS.config.health-gated-deploy-rollback, `orchestration/deploy_watch.py`)**:
    every autonomy-triggered deploy/restart schedules a durable `deploy_watch`
    task probing the observer until its deadline (`DEPLOY_WATCH_WINDOW` /
    `DEPLOY_WATCH_POLL`). Sustained green records success; failure invokes the
@@ -488,9 +488,9 @@ Full design: [Fleet Autonomy](../architecture/fleet_autonomy.md); postures:
 
 ---
 
-## 🧭 Shard Topology Visibility (CONCEPT:OS-5.28)
+## 🧭 Shard Topology Visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 
-When the engine tier is sharded (KG-2.58), the topology is observable:
+When the engine tier is sharded (AU-KG.sharding.tenant-partitioned-sharding-hrw), the topology is observable:
 `shard_topology_status()` reports per-shard transport-level reachability and
 breaker state on the unified daemon status, the gateway dashboard exposes it
 at the `daemon/shards` route, and graph-os `GET /health` carries a config-only
@@ -498,7 +498,7 @@ summary. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
 [Engine Sharding](../architecture/engine_sharding.md).
 
-## 🛠️ Developer-Workspace Runtime (CONCEPT:OS-5.33 / ORCH-1.46 / KG-2.64)
+## 🛠️ Developer-Workspace Runtime (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 / KG-2.64)
 
 The substrate a knowledge-grounded software-engineering agent (ORCH-1.47) runs in —
 our answer to OpenHands' Docker runtime, projected onto our architecture. Unlike the
@@ -529,4 +529,4 @@ deps persist across steps.
   (`runtime.action_policy_gate`); the shipped default sets them to `auto` (the sandbox
   is the boundary) and an operator can override any to `approval_required`.
 - **Surface.** `/api/runtime/*` — create a session, post typed actions, and stream the
-  action/observation event log over SSE (consumed by the agent-webui SWE view, OS-5.34).
+  action/observation event log over SSE (consumed by the agent-webui SWE view, AU-OS.scaling.kg-provenance-panel-data).

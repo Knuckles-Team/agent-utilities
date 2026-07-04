@@ -53,7 +53,7 @@ Retrieve the exact topological subgraph for a known concept.
 ```json
 {
   "mode": "concept",
-  "query": "CONCEPT:AUTH-1.0",
+  "query": "CONCEPT:AU-OS.identity.auth-flow",
   "top_k": 1
 }
 ```
@@ -117,7 +117,7 @@ Synthesize an executive summary of a concept's implementation.
 ```json
 {
   "action": "deep_extract",
-  "target": "CONCEPT:ROUTING-3.4",
+  "target": "CONCEPT:AU-ORCH.routing.fallback-logic",
   "query": "Explain how the fallback logic works."
 }
 ```
@@ -166,7 +166,7 @@ Run the TradingAgents swarm debate to vet financial hypotheses.
 }
 ```
 
-**Example 3: Spawn an agent with a curated handoff (CONCEPT:ORCH-1.39/1.39)**
+**Example 3: Spawn an agent with a curated handoff (CONCEPT:AU-ORCH.session.invoker-agent-handoff/1.39)**
 Hand the spawned agent budgeted context, a least-privilege tool allow-list, a credential
 *reference* (resolved to a token at spawn, never logged), and open a message channel. The response
 is `{"output", "mermaid", "channel_id"}`.
@@ -207,9 +207,9 @@ Hot-load a new MCP server without restarting the engine.
 
 ## 8. `mcp_graph-os_graph_context`
 
-**CONCEPT:ORCH-1.39** — store/fetch curated context for an invoker→spawned-agent handoff,
+**CONCEPT:AU-ORCH.session.invoker-agent-handoff** — store/fetch curated context for an invoker→spawned-agent handoff,
 persisted in the epistemic-graph so a *separately*-spawned agent can read it by id. Session-anchored
-(ORCH-1.40): `list` is a reliable single-hop traversal from the `Session` node, isolated per session.
+(AU-ORCH.session.session-anchored-collections-native): `list` is a reliable single-hop traversal from the `Session` node, isolated per session.
 
 **Example 1: Put a context blob**
 ```json
@@ -240,7 +240,7 @@ Returns `{"context_id": "ctx:sess-42:brief", "session_id": "sess-42"}`. Pass tha
 
 ## 9. `mcp_graph-os_graph_message`
 
-**CONCEPT:ORCH-1.40** — a bidirectional, cross-process, ordered message channel between an invoking
+**CONCEPT:AU-ORCH.session.session-anchored-collections-native** — a bidirectional, cross-process, ordered message channel between an invoking
 agent and a spawned agent, over the engine's native Communication Channels (KG-2.0). The channel id
 is deterministic: `orch:{session_id}:{run_id}`.
 

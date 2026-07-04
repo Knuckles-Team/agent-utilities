@@ -7,10 +7,10 @@ papers referenced: Kimi K2 (MuonClip, arXiv 2507.20534), **PARL** (Parallel-Agen
 2602.02276), Mooncake (KVCache-disaggregated serving, arXiv 2407.00079).
 **Target:** `agent-utilities` (primary), enhancing the `graph_orchestrate` (kg_orchestrate) MCP tool.
 **Date:** 2026-06-05.
-**Status: IMPLEMENTED** as **CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm** (SWARM-1…7). See
+**Status: IMPLEMENTED** as **CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm** (SWARM-1…7). See
 `docs/pillars/1_graph_orchestration/ORCH-1.32-KG_Governed_Agent_Swarm.md` and
 `tests/unit/graph/test_orch_1_32_kg_governed_swarm.py`. SWARM-8 (native multi-format rendering)
-deferred to an ECO-4 peripheral.
+deferred to an AU-ECO.connector.plane-provisioning-auth peripheral.
 
 ---
 
@@ -76,7 +76,7 @@ verifiable swarm** where Kimi has raw throughput.
 | **SWARM-5** (P1) | **Retry-with-backoff + failed-agent reassignment** (Kimi 12h fault tolerance). Circuit breaker exists; add exponential backoff + reassign on stall (distinct from breaker's disable). | ORCH-1.8 scheduler | wrap `_execute_agent` | transient failures auto-recover; no run aborted by one agent | 3/2/2 |
 | **SWARM-6** (P1) | **Heterogeneous-model swarm (Claw Groups):** per-`AgentSpec` model role (Opus=plan/verify, light=bulk, local=cost-sensitive) via the existing `ModelRole` routing — the article's model-diversity pattern, KG-routed. | ORCH-1.27 (model roles) + ORCH-1.8 | `AgentSpec.model` → `model_registry` role routing | mixed-model run; cost ↓ vs all-frontier at parity | 4/2/2 |
 | **SWARM-7** (P2) | **Explicit scale ceilings + telemetry:** document/raise `CognitiveScheduler` max_concurrent toward the 300/4,000 envelope; per-wave cost/latency/parallelism telemetry on the result (today UsageGuard caps but doesn't surface per-wave). | ORCH-1.8 | scheduler config + result schema | 300-agent manifest runs within cost guard; telemetry emitted | 3/3/3 |
-| **SWARM-8** (P2, future) | **Native multi-format deliverable rendering** (Kimi's PDF/PPT/Excel/web-in-one-run). Likely an ECO-4 ecosystem peripheral (deck/sheet writers) the synthesis step can emit. Out of scope for the orchestration core; note. | ECO-4 | synthesis emit-hooks | — | 2/4/3 |
+| **SWARM-8** (P2, future) | **Native multi-format deliverable rendering** (Kimi's PDF/PPT/Excel/web-in-one-run). Likely an AU-ECO.connector.plane-provisioning-auth ecosystem peripheral (deck/sheet writers) the synthesis step can emit. Out of scope for the orchestration core; note. | AU-ECO.connector.plane-provisioning-auth | synthesis emit-hooks | — | 2/4/3 |
 
 **Build order:** SWARM-1 → SWARM-2 (the loop the article says "most setups skip") → SWARM-4 ∥ SWARM-6
 ∥ SWARM-3 → SWARM-5 → SWARM-7. SWARM-8 deferred to an ecosystem peripheral.

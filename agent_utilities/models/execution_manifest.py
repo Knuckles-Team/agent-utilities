@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.8 — Parallel Engine Execution Manifest.
+"""CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine Execution Manifest.
 
 The ``ExecutionManifest`` is the single universal input to the
 ``ParallelEngine``. Every execution — from a trivial 1-agent LLM call
@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 class AgentSpec(BaseModel):
     """Specification for a single agent in the execution manifest.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     Each ``AgentSpec`` describes one logical agent invocation. Fan-out
     is expressed via ``partitions``: if set, the agent is invoked once
@@ -60,7 +60,7 @@ class AgentSpec(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     timeout: float | None = None
     memory_channels: list[str] = Field(default_factory=lambda: ["episodic"])
-    # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+    # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm
     # (per-agent swarm fields below; all default to current behaviour):
     success_criteria: str = ""  # SWARM-2: what "done correctly" means (verify gate)
     output_schema: str | None = None  # SWARM-4: JSON schema/shape the agent must return
@@ -74,7 +74,7 @@ class AgentSpec(BaseModel):
 class SynthesisSpec(BaseModel):
     """How to merge outputs from parallel agents.
 
-    CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
+    CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
 
     Strategies:
         - ``auto``: Engine selects based on agent count and output size.
@@ -102,7 +102,7 @@ class SynthesisSpec(BaseModel):
 class ExecutionManifest(BaseModel):
     """Universal execution specification for the Parallel Engine.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     This is the **only** input to the engine. Everything — from a single
     agent query to a 300-agent enterprise swarm — is expressed as a
@@ -161,7 +161,7 @@ class ExecutionManifest(BaseModel):
     ) -> ExecutionManifest:
         """Convert a ``GraphPlan`` into an ``ExecutionManifest``.
 
-        CONCEPT:ORCH-1.8 — GraphPlan → Manifest Bridge
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — GraphPlan → Manifest Bridge
 
         Enables ``WorkflowRunner`` and ``SkillCompiler`` outputs to flow
         directly into ``ParallelEngine`` without re-planning.
@@ -201,7 +201,7 @@ class ExecutionManifest(BaseModel):
 class AgentExecutionResult(BaseModel):
     """Result from a single agent execution within the Parallel Engine.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     Attributes:
         agent_id: Which agent produced this result.
@@ -231,7 +231,7 @@ class AgentExecutionResult(BaseModel):
 class WaveResult(BaseModel):
     """Results from one execution wave.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     A wave is a group of agents that execute concurrently within
     a single scheduling epoch. Multiple waves execute sequentially,
@@ -259,7 +259,7 @@ class WaveResult(BaseModel):
 class ExecutionResult(BaseModel):
     """Complete execution outcome from the Parallel Engine.
 
-    CONCEPT:ORCH-1.8 — Parallel Engine
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
     Attributes:
         manifest_id: ID of the executed manifest.
@@ -284,7 +284,7 @@ class ExecutionResult(BaseModel):
     total_duration_ms: float = 0.0
     synthesis_strategy: str = ""
     success: bool = True
-    # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+    # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm
     # (swarm telemetry & verification fields; additive)
     critical_path_length: int = (
         0  # SWARM-3: longest dependency chain (true wall-clock floor)

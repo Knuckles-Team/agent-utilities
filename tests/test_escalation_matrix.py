@@ -1,10 +1,10 @@
-"""Tests for the HITL Escalation Matrix (CONCEPT:OS-5.12).
+"""Tests for the HITL Escalation Matrix (CONCEPT:AU-OS.observability.empty-derive-from-effect).
 
 Covers the policy unit behavior AND the live wiring into the Ontology Action
 System executor: a high-tier action requires human approval before its handler
 runs; a low-tier one does not.
 
-@pytest.mark.concept("OS-5.12")
+@pytest.mark.concept("AU-OS.observability.empty-derive-from-effect")
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from agent_utilities.observability.escalation_matrix import (
 )
 from agent_utilities.security.permissions_kernel import AgentRole, PermissionsKernel
 
-pytestmark = pytest.mark.concept("OS-5.12")
+pytestmark = pytest.mark.concept("AU-OS.observability.empty-derive-from-effect")
 
 
 # ---------------------------------------------------------------------------

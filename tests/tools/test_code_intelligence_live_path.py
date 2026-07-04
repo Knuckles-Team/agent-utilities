@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.65 — Code-intelligence tools resolve symbols via graph queries.
+"""CONCEPT:AU-KG.compute.code-intelligence-tools — Code-intelligence tools resolve symbols via graph queries.
 
 Exercises the real :class:`CodeIntelligence` core against a backend that records the cypher it
 receives and returns canned rows — asserting both that results parse and that the queries carry

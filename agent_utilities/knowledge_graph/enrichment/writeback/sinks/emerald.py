@@ -1,4 +1,4 @@
-"""Emerald-Exchange write-back sink (CONCEPT:KG-2.9) — HIGH-STAKES / propose-only.
+"""Emerald-Exchange write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — HIGH-STAKES / propose-only.
 
 Emits KG-derived trade intents as **proposed** orders. This sink is
 ``risk_tier="high_stakes"``: even with ``EMERALD_ENABLE_WRITE`` set it never

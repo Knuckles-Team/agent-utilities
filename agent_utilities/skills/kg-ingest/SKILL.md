@@ -22,7 +22,7 @@ metadata:
 
 This skill coordinates bulk data ingestion into the unified Knowledge Graph. It handles retrieving workspace configuration, cloning ad-hoc repositories, ingesting conversation logs from multiple IDEs/agents, and triggering the ingestion pipeline.
 
-## 0. Full Ingest — one trigger, every path at once (CONCEPT:KG-2.9)
+## 0. Full Ingest — one trigger, every path at once (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
 > Triggers: "full ingest", "ingest everything", "ingest all sources", "exercise every
 > ingestion path", or any "ingest the workspace" where the user wants the complete picture.
@@ -110,7 +110,7 @@ When the user asks to download or ingest a research paper using the ScholarX MCP
 2. Once the user confirms the source, you MUST prepend the source prefix to the ID (e.g., `arxiv:2605.12975`) before executing the `sx_search` or `sx_storage` tools.
 3. After the paper is downloaded, you can ingest it by executing `mcp_agent-utilities-kg_kg_ingest` with the local downloaded file path as the `target_path`.
 
-### 7. Infrastructure Topology Ingestion (CONCEPT:OS-5.3)
+### 7. Infrastructure Topology Ingestion (CONCEPT:AU-OS.governance.reactive-multi-axis-budget)
 When ingesting the workspace, you MUST also ingest infrastructure state to fully
 hydrate the Knowledge Graph with the physical and virtual topology:
 
@@ -188,7 +188,7 @@ sources is a no-op.
 | Chats | `conversation` | `"chats"` sentinel | `Thread`/`Message` + per-thread `Concept` |
 | Codebases | `codebase` | a repo path | `Code`/`Test`/`Feature` (CALLS/IMPLEMENTS/COVERS) |
 
-## 8a. Connector fan-out — source → `source_sync` matrix (KG-2.9 / KG-2.151)
+## 8a. Connector fan-out — source → `source_sync` matrix (KG-2.9 / AU-KG.compute.gitlab-api-gitlab-atlassian)
 
 The connector side of a full ingest mirrors the document matrix above, but the
 entrypoint is `source_sync` and the fan-out is laned. The candidate set the
@@ -199,8 +199,8 @@ from three registries — you never list connectors by hand:
 |---|---|---|---|
 | Native feeds | `_DELTA_HANDLERS` (`rss`, `freshrss`) | `rss`, `freshrss` | `connectors` → `worldview` (world-model gated) |
 | Enterprise / tracker / IaC | `_DELTA_HANDLERS` + capability registry (`gitlab`, `leanix`, `jira`, `confluence`, `plane`, `archivebox`, …) | each source id | `connectors` |
-| Ops / platform typed connectors | `_DELTA_HANDLERS` (`dockerhub`, `langfuse`, `technitium`, `tunnel_manager`, `uptime_kuma`, `home_assistant`, `twenty`) — typed OWL entities, MCP-configured (KG-2.155–2.161) | each source id | `connectors` |
-| Media / finance / doc / genealogy connectors | `_DELTA_HANDLERS` (`audiobookshelf`, `firefly_iii`, `paperless_ngx`, `gramps`) — typed OWL entities, MCP-configured (KG-2.163–2.166) | each source id | `connectors` |
+| Ops / platform typed connectors | `_DELTA_HANDLERS` (`dockerhub`, `langfuse`, `technitium`, `tunnel_manager`, `uptime_kuma`, `home_assistant`, `twenty`) — typed OWL entities, MCP-configured (AU-KG.compute.dockerhub-repositories–2.161) | each source id | `connectors` |
+| Media / finance / doc / genealogy connectors | `_DELTA_HANDLERS` (`audiobookshelf`, `firefly_iii`, `paperless_ngx`, `gramps`) — typed OWL entities, MCP-configured (AU-KG.compute.audiobookshelf-libraries-books-authors–2.166) | each source id | `connectors` |
 | **Every `agents/*` connector** | `package_manifest.PACKAGE_PRESETS`, drained by `_sync_fleet_connectors` via the generic `mcp` connector | `fleet_connectors` | `connectors` |
 | Materialize extractors | `enrichment.materialize.MATERIALIZE_SOURCES` (`camunda`, `aris`, `egeria`) | each source id | `connectors` |
 | Fleet capability elevation | `_sync_fleet` (slow MCP re-probe; boot/explicit only, NOT the */20m sweep) | `fleet` | `connectors` |
@@ -234,29 +234,29 @@ whose `type` is promoted to its OWL class (`core/owl_bridge.py` `PROMOTABLE_NODE
 
 | `source` key | Connector / server | Entities ingested | OWL classes (`ontology*.ttl`) | Path |
 |---|---|---|---|---|
-| `jira` | atlassian-mcp | issues, assignees, epics | `:Issue` / `:Person` / `:Goal`(epic) | typed `_sync_jira` (KG-2.124) |
-| `confluence` | atlassian-mcp | wiki pages | `:ConfluencePage` (`:Document`) | doc `_sync_confluence` (KG-2.123) |
-| `plane` | plane-mcp | work items, projects | `:Issue` / `:SoftwareProject` | typed `_sync_plane` (KG-2.125) |
-| `gitlab` | gitlab-mcp / REST | projects, files, symbols, MRs | `:Repository` / `:File` / `:Code` / `:MergeRequest` | typed `_sync_gitlab` (KG-2.9g) |
+| `jira` | atlassian-mcp | issues, assignees, epics | `:Issue` / `:Person` / `:Goal`(epic) | typed `_sync_jira` (AU-KG.compute.jira-first-class-delta) |
+| `confluence` | atlassian-mcp | wiki pages | `:ConfluencePage` (`:Document`) | doc `_sync_confluence` (AU-KG.compute.confluence-first-class-delta) |
+| `plane` | plane-mcp | work items, projects | `:Issue` / `:SoftwareProject` | typed `_sync_plane` (AU-KG.compute.plane-first-class-delta) |
+| `gitlab` | gitlab-mcp / REST | projects, files, symbols, MRs | `:Repository` / `:File` / `:Code` / `:MergeRequest` | typed `_sync_gitlab` (AU-KG.backend.declared-columns-so-schema) |
 | `egeria` | egeria-mcp | metadata, governance, lineage | `:ProcessModel` / `:GovernanceRule` / lineage | materialize `MATERIALIZE_SOURCES` |
 | `camunda` | camunda-mcp | processes, deployments | `:BusinessProcess` / `:ProcessStep` | materialize `MATERIALIZE_SOURCES` |
 | `aris` | aris-mcp | EPC process models | `:ProcessModel` / `:ArchimateElement` | materialize `MATERIALIZE_SOURCES` |
 | `leanix` | leanix-agent | fact sheets (apps, IT components) | `:Application` / `:ITComponent` / `:BusinessCapability` | typed `_sync_leanix` |
 | `rss` | native + scholarx | news/research feed items | `:Document` / `:ResearchInquiry` (gated) | feed `_sync_rss` (KG-2.121) |
-| `freshrss` | freshrss-mcp | curated news/research | `:Document` (world-model gated) | feed `_sync_freshrss` (KG-2.115) |
+| `freshrss` | freshrss-mcp | curated news/research | `:Document` (world-model gated) | feed `_sync_freshrss` (AU-KG.compute.homelab-rss-reader-as) |
 | (scholarx) | scholarx-mcp | research papers | `:Document` + `:Concept` | via `rss` feed + `graph_ingest` |
 | `archivebox` | archivebox-api | preserved web snapshots | `:Document` | typed `_sync_archivebox` (KG-2.7) |
-| **`dockerhub`** | dockerhub-mcp | registry images, repos | **`:Repository` / `:ContainerImage`** (`contains`) | typed `_sync_dockerhub` (**KG-2.155**) |
-| **`langfuse`** | langfuse-mcp | LLM traces, observations, generations | **`:Trace` / `:Observation` / `:Generation`** (`part_of`) | typed `_sync_langfuse` (**KG-2.156**) |
-| **`technitium`** | technitium-dns-mcp | DNS zones + records | **`:DnsZone` / `:DnsRecord`** (`part_of`) | typed `_sync_technitium` (**KG-2.157**) |
-| **`tunnel_manager`** | tunnel-manager-mcp | host inventory, tunnels | **`:Host` / `:Tunnel`** (`connects_via`) | typed `_sync_tunnel_manager` (**KG-2.158**) |
-| **`uptime_kuma`** | uptime-(kuma-)mcp | monitors + heartbeat stats | **`:UptimeMonitor` / `:HeartbeatStat`** (`part_of`) | typed `_sync_uptime_kuma` (**KG-2.159**) |
-| **`home_assistant`** | home-assistant-mcp | devices, entities/states | **`:Device` / `:Entity`** (`part_of`) | typed `_sync_home_assistant` (**KG-2.160**) |
-| **`twenty`** | twenty-mcp | CRM people, companies, opportunities | **`:Person` / `:Company` / `:Opportunity`** (`member_of`/`part_of`) | typed `_sync_twenty` (**KG-2.161**) |
-| **`audiobookshelf`** | audiobookshelf-mcp | libraries, books/audiobooks, authors | **`:Library` / `:Book` / `:Author`** (`part_of`/`authored_by`) | typed `_sync_audiobookshelf` (**KG-2.163**) |
-| **`firefly_iii`** | firefly-iii-mcp | accounts, transactions, budgets | **`:Account` / `:Transaction` / `:Budget`** (`part_of`/`member_of`) | typed `_sync_firefly_iii` (**KG-2.164**) |
-| **`paperless_ngx`** | paperless-ngx-mcp | documents, correspondents, tags | **`:Document` / `:Correspondent` / `:Tag`** (`member_of`/`tagged_with`) | typed `_sync_paperless_ngx` (**KG-2.165**) |
-| **`gramps`** | gramps-mcp | people, families, events | **`:Person` / `:Family` / `:Event`** (`member_of`/`part_of`) | typed `_sync_gramps` (**KG-2.166**) |
+| **`dockerhub`** | dockerhub-mcp | registry images, repos | **`:Repository` / `:ContainerImage`** (`contains`) | typed `_sync_dockerhub` (**AU-KG.compute.dockerhub-repositories**) |
+| **`langfuse`** | langfuse-mcp | LLM traces, observations, generations | **`:Trace` / `:Observation` / `:Generation`** (`part_of`) | typed `_sync_langfuse` (**AU-KG.compute.langfuse-traces-observations**) |
+| **`technitium`** | technitium-dns-mcp | DNS zones + records | **`:DnsZone` / `:DnsRecord`** (`part_of`) | typed `_sync_technitium` (**AU-KG.compute.technitium-dns-zones-records**) |
+| **`tunnel_manager`** | tunnel-manager-mcp | host inventory, tunnels | **`:Host` / `:Tunnel`** (`connects_via`) | typed `_sync_tunnel_manager` (**AU-KG.compute.tunnel-manager-hosts**) |
+| **`uptime_kuma`** | uptime-(kuma-)mcp | monitors + heartbeat stats | **`:UptimeMonitor` / `:HeartbeatStat`** (`part_of`) | typed `_sync_uptime_kuma` (**AU-KG.compute.uptime-kuma-monitors**) |
+| **`home_assistant`** | home-assistant-mcp | devices, entities/states | **`:Device` / `:Entity`** (`part_of`) | typed `_sync_home_assistant` (**AU-KG.compute.home-assistant-states**) |
+| **`twenty`** | twenty-mcp | CRM people, companies, opportunities | **`:Person` / `:Company` / `:Opportunity`** (`member_of`/`part_of`) | typed `_sync_twenty` (**AU-KG.compute.twenty-crm-people-companies**) |
+| **`audiobookshelf`** | audiobookshelf-mcp | libraries, books/audiobooks, authors | **`:Library` / `:Book` / `:Author`** (`part_of`/`authored_by`) | typed `_sync_audiobookshelf` (**AU-KG.compute.audiobookshelf-libraries-books-authors**) |
+| **`firefly_iii`** | firefly-iii-mcp | accounts, transactions, budgets | **`:Account` / `:Transaction` / `:Budget`** (`part_of`/`member_of`) | typed `_sync_firefly_iii` (**AU-KG.compute.firefly-iii-accounts-transactions**) |
+| **`paperless_ngx`** | paperless-ngx-mcp | documents, correspondents, tags | **`:Document` / `:Correspondent` / `:Tag`** (`member_of`/`tagged_with`) | typed `_sync_paperless_ngx` (**AU-KG.compute.paperless-ngx-documents-correspondents**) |
+| **`gramps`** | gramps-mcp | people, families, events | **`:Person` / `:Family` / `:Event`** (`member_of`/`part_of`) | typed `_sync_gramps` (**AU-KG.compute.gramps-web-people-families**) |
 
 The new ops/platform connectors (bold) are **MCP-configured**: each ingests only when its
 `*-mcp` server is registered in `mcp_config.json` (`_MCP_TRACKER_SERVERS`), so the

@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.23 — SWE-failure-driven remediation (the surpass lever).
+"""CONCEPT:AU-AHE.harness.swe-failure-remediation — SWE-failure-driven remediation (the surpass lever).
 
 OpenHands' SWE-bench score is a static number. Here, every *unresolved* instance becomes a
 ``FailureRecord`` → clustered → filed as a ``failure_gap`` Concept via the single shared

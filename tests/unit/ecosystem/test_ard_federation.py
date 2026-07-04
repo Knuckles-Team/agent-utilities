@@ -1,4 +1,4 @@
-"""ARD federation relay tests (CONCEPT:ECO-4.97).
+"""ARD federation relay tests (CONCEPT:AU-ECO.interop.ard-federation-relay).
 
 Offline: peer discovery and the local search are stubbed, so no network or KG is used.
 """

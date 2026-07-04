@@ -1,4 +1,4 @@
-# LeanIX ⇄ Knowledge Graph Integration (CONCEPT:KG-2.9)
+# LeanIX ⇄ Knowledge Graph Integration (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
 Mirror SAP LeanIX (your Enterprise Architecture system-of-record) **natively** into
 the agent-utilities OWL/RDF knowledge graph, keep it in sync with bite-sized deltas,

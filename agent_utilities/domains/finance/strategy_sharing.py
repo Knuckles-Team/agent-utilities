@@ -1,5 +1,5 @@
 """
-Strategy Sharing System — CONCEPT:KG-2.6
+Strategy Sharing System — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides shareable strategy cards with metadata, configuration presets,
 and strategy marketplace primitives.

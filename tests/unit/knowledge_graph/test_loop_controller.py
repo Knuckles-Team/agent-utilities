@@ -1,4 +1,4 @@
-"""Unit tests for the propose-only self-evolution golden loop (CONCEPT:KG-2.7)."""
+"""Unit tests for the propose-only self-evolution golden loop (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_mark_addressed_writes_both_directions():
 def test_run_breadth_self_configures_from_workspace_yml(monkeypatch):
     """Live path: with no KG_BREADTH_* roots, breadth auto-discovers the ecosystem
     from the XDG workspace.yml — so assimilate always has a codebase to compare
-    research against, zero-config (CONCEPT:KG-2.7)."""
+    research against, zero-config (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
     import agent_utilities.core.workspace_config as wc
     import agent_utilities.knowledge_graph.assimilation as assim
     from agent_utilities.knowledge_graph.assimilation.breadth_ingest import (
@@ -91,7 +91,7 @@ def test_run_one_cycle_intake_only_propose_only():
 
 def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
     """Caller-supplied papers trigger the unified intake stage (research-pipeline
-    runner) before assimilate (CONCEPT:KG-2.77)."""
+    runner) before assimilate (CONCEPT:AU-KG.research.research-intelligence-loop)."""
     from types import SimpleNamespace
 
     import agent_utilities.automation.research_pipeline as rp

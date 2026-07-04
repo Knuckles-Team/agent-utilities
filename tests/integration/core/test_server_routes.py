@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.0"""
+"""CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
 """Integration tests for the agent-utilities FastAPI server routes.
 

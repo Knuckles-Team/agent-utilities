@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.0"""
+"""CONCEPT:AU-OS.safety.doom-loop-detection"""
 
 import pytest
 
@@ -52,7 +52,7 @@ def test_initialize_workspace(temp_workspace):
     assert mcp_config.exists()
 
     # The main_agent.json template must be valid JSON in the canonical
-    # StructuredPrompt shape (CONCEPT:ORCH-1.80): task/instructions.core_directive/
+    # StructuredPrompt shape (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical): task/instructions.core_directive/
     # tools replace the legacy name/content/capabilities keys.
     data = json.loads(main_agent.read_text(encoding="utf-8"))
     assert data["task"] == "main-agent"

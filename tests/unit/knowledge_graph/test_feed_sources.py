@@ -1,4 +1,4 @@
-"""Unified feed-source bridge + first-class :FeedSource registry (CONCEPT:KG-2.121/2.122)."""
+"""Unified feed-source bridge + first-class :FeedSource registry (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122)."""
 
 from __future__ import annotations
 

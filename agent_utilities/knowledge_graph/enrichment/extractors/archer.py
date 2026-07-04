@@ -1,4 +1,4 @@
-"""RSA Archer GRC source extractor (CONCEPT:KG-2.9).
+"""RSA Archer GRC source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering extractor that maps **RSA Archer** governance/risk/compliance
 records into the uniform ``ExtractionBatch`` shape (typed ``GraphNode`` +

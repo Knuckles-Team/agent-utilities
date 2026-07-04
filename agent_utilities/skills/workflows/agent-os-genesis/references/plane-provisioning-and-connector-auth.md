@@ -54,7 +54,7 @@ its **remote `.arpa` URL**. Three things must all be true or the sync **silently
 returns 0 nodes** (it degrades to no-auth → the child 401s):
 
 1. **The graph-os host AND server carry the OIDC client-credentials env** so
-   `mcp/client_credentials.bearer_auth` mints a service bearer (CONCEPT:OS-5.32):
+   `mcp/client_credentials.bearer_auth` mints a service bearer (CONCEPT:AU-OS.identity.so-jwt-protected-children):
    `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID=mcp-multiplexer`,
    `OIDC_CLIENT_SECRET=<from OpenBao>`, `OIDC_AUDIENCE=agent-services`,
    `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`.
@@ -87,16 +87,16 @@ above, so set them on `graph-os_graph-os` AND `graph-os_graph-os-host`.
   is the **search-and-reconcile** endpoint (`/search/jql`), which **400s on an unbounded
   JQL** and **omits `key`/fields unless explicitly requested**. The `jira` preset must use
   a bounded fallback JQL (`created >= "1970-01-01" ORDER BY updated DESC`) and pass a
-  `fields` list. (CONCEPT:KG-2.124, `connectors/mcp_tool.py` + `core/source_sync.py`.)
+  `fields` list. (CONCEPT:AU-KG.compute.jira-first-class-delta, `connectors/mcp_tool.py` + `core/source_sync.py`.)
 - **Plane** — the client returns a **custom `Response` model** (`.data` parsed, `.response`
   raw), not a `requests.Response`; MCP tools must (a) be annotated **`-> Any`** (a `-> dict`
   annotation makes FastMCP emit a strict outputSchema → *"outputSchema defined but no
   structured output returned"*), and (b) serialize the model to `{status_code, data}`.
   Also `BaseApiClient._validate_auth` must hit a **key-accessible** endpoint
   (`/workspaces/{slug}/projects/`, not `/workspaces/{slug}/` which 401s for API keys),
-  or the client never constructs (*"Failed to resolve dependency 'client'"*). (CONCEPT:ECO-4.1.)
+  or the client never constructs (*"Failed to resolve dependency 'client'"*). (CONCEPT:AU-ECO.mcp.fastmcp-middleware.)
 - **Eunomia** — `/check/bulk` hard-caps at **100 items**; servers fronting >100 tools
-  (plane) must chunk the bulk authz ≤100. (CONCEPT:ECO-4.88, `mcp/eunomia_principal.py`.)
+  (plane) must chunk the bulk authz ≤100. (CONCEPT:AU-ECO.bus.agent-bus-awareness, `mcp/eunomia_principal.py`.)
 
 ## 4. SSO procedure (Keycloak OIDC) — and the internal-HTTP gotchas
 
@@ -110,7 +110,7 @@ for the `.well-known` fetch (the OIDC spec mandates https) → they dial `keyclo
 → TLS fails. So **`discovery: true` does not work** against this keycloak. Use
 `discovery: false` and supply everything discovery would have — but watch the gaps below.
 
-### GitLab — the VERIFIED working recipe (CONCEPT:ECO-4 / OS-5)
+### GitLab — the VERIFIED working recipe (CONCEPT:AU-ECO.connector.plane-provisioning-auth / OS-5)
 
 Keycloak client `gitlab` (confidential), redirect
 `http://gitlab.arpa/users/auth/openid_connect/callback`. In `GITLAB_OMNIBUS_CONFIG`

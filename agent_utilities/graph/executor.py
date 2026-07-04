@@ -74,7 +74,7 @@ _SPECIALIST_TIER_HINTS: dict[str, str] = {
 
 
 def _specialist_resilience_policy(node_timeout: float) -> ResiliencePolicy:
-    """CONCEPT:ORCH-1.36 — Declarative Resilience Policy for specialist runs.
+    """CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy for specialist runs.
 
     Builds the default policy applied to a single specialist LLM call on the
     live execution path (:func:`_execute_dynamic_mcp_agent`). The policy retries
@@ -100,7 +100,7 @@ def _resolve_access_context(
     step: ExecutionStep,
     results_registry: dict[str, Any],
 ) -> str:
-    """CONCEPT:ORCH-1.3 — Build context string from access_list.
+    """CONCEPT:AU-ORCH.execution.visibility-allow-list — Build context string from access_list.
 
     Filters the results_registry to only include outputs from steps
     specified in the ExecutionStep's access_list.  This prevents
@@ -168,7 +168,7 @@ def pick_specialist_model(
     if registry is None or not getattr(registry, "models", None):
         return ctx_deps.agent_model
 
-    # CONCEPT:ORCH-1.27 — a Conductor-assigned per-step model_id wins over both the
+    # CONCEPT:AU-ORCH.routing.conductor-per-step-model — a Conductor-assigned per-step model_id wins over both the
     # per-turn header override and tier routing (the Conductor explicitly chose it).
     if step_model_id:
         chosen = registry.get_by_id(step_model_id)
@@ -242,7 +242,7 @@ def pick_specialist_model(
     except Exception as e:
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
 
-    # CONCEPT:OS-5.2 — Homeostatic Model Downgrade
+    # CONCEPT:AU-OS.state.homeostatic-model-downgrade — Homeostatic Model Downgrade
     # When the ResourceOptimizer detects budget pressure, autonomously
     # downgrade the tier to reduce cost — the system's "blood pressure"
     # regulation.  The optimizer's select_model_for_step() already knows
@@ -261,7 +261,7 @@ def pick_specialist_model(
                 effective_tier = optimized.get("tier", tier)
                 if effective_tier != tier:
                     logger.info(
-                        "[CONCEPT:OS-5.2] Homeostatic downgrade: '%s' tier %s → %s "
+                        "[CONCEPT:AU-OS.state.homeostatic-model-downgrade] Homeostatic downgrade: '%s' tier %s → %s "
                         "(budget %.0f%% remaining)",
                         node_id,
                         tier,
@@ -272,11 +272,11 @@ def pick_specialist_model(
                     )
                     tier = effective_tier
         except Exception as e:
-            logger.debug(f"CONCEPT:OS-5.2 homeostatic check skipped: {e}")
+            logger.debug(f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}")
 
-    # CONCEPT:ORCH-1.2 — Confidence-Gated Model Router
+    # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Confidence-Gated Model Router
     # Compute a confidence signal from upstream scoring to adaptively
-    # select cheaper or more expensive models.  Composes with CONCEPT:OS-5.2:
+    # select cheaper or more expensive models.  Composes with CONCEPT:AU-OS.state.homeostatic-model-downgrade:
     # budget pressure adjusts the tier first, then confidence further
     # refines within the budget-allowed range.
     confidence_signal: float | None = None
@@ -296,7 +296,7 @@ def pick_specialist_model(
         except Exception:
             pass  # nosec B110
 
-    # Source 2: MemoryRetriever historical proficiency (soft dependency on CONCEPT:KG-2.1)
+    # Source 2: MemoryRetriever historical proficiency (soft dependency on CONCEPT:AU-KG.compute.workspace-attention-scoring)
     historical_confidence = 0.5
     if knowledge_engine is not None:
         try:
@@ -327,7 +327,7 @@ def pick_specialist_model(
 
         if effective_tier != original_tier:
             logger.info(
-                "[CONCEPT:ORCH-1.2] Confidence-gated routing: '%s' tier %s → %s "
+                "[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Confidence-gated routing: '%s' tier %s → %s "
                 "(confidence=%.2f, percentile=%.0f)",
                 node_id,
                 original_tier,
@@ -434,7 +434,7 @@ async def _get_domain_tools(
     agent = next((a for a in registry.agents if a.name == node_id), None)
     skill_tags = agent.capabilities if agent else []
 
-    # CONCEPT:ORCH-1.37 (perf) — capability-gated generic-tool injection.
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — capability-gated generic-tool injection.
     # Previously the 13 developer_tools + 10 sdd_tools were dumped onto EVERY node
     # unconditionally. For an MCP-server node (e.g. "repository-manager-mcp") that drowns
     # the server's real tools in 23 irrelevant ones → wrong-tool selection (rg / SDD) and
@@ -521,7 +521,7 @@ async def _get_domain_tools(
 
 
 def _resolve_invoker_cred(state: Any, deps: GraphDeps) -> str | None:
-    """CONCEPT:ORCH-1.39 (Phase 4) — resolve the invoker's credential REFERENCE to a raw token.
+    """CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 4) — resolve the invoker's credential REFERENCE to a raw token.
 
     The reference (``GraphState.invoker_cred_ref``) names a secret the invoker stored in the
     secrets backend; the raw value is resolved here (deps-build time) and lives only on the
@@ -553,7 +553,7 @@ def agent_deps_from_graph(
     'workspace_path'``. This adapts the graph context into a valid ``AgentDeps`` so both
     the injected tools and the MCP toolsets work. (Wire-First: ORCH-1.21 execution path.)
 
-    CONCEPT:ORCH-1.39 (Phase 4) — when ``state`` carries an invoker credential reference, the
+    CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 4) — when ``state`` carries an invoker credential reference, the
     raw token is resolved here onto the transient AgentDeps.auth_token (never into GraphState).
     """
     from pathlib import Path
@@ -580,12 +580,12 @@ def agent_deps_from_graph(
         auth_token=_resolve_invoker_cred(state, deps),
         message_channel_id=getattr(
             state, "invoker_channel_id", None
-        ),  # CONCEPT:ORCH-1.40
+        ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
     )
 
 
 def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
-    """CONCEPT:ORCH-1.39 — render the invoker's curated context as a budgeted prompt section.
+    """CONCEPT:AU-ORCH.session.invoker-agent-handoff — render the invoker's curated context as a budgeted prompt section.
 
     Returns an empty string when no invoker context was provided, otherwise an
     ``### INVOKER CONTEXT`` block trimmed to a fraction (~15%) of the target model's context
@@ -609,7 +609,7 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
 def apply_tool_scope(
     state: Any, tools: list[Any], toolsets: list[Any]
 ) -> tuple[list[Any], list[Any]]:
-    """CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list.
+    """CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list.
 
     When ``GraphState.invoker_allowed_tools`` is set, function tools are filtered by name and
     MCP/skill toolsets are wrapped with a pydantic-ai ``.filtered()`` predicate so the spawned
@@ -653,7 +653,7 @@ def apply_tool_scope(
 
 
 def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
-    """CONCEPT:ORCH-1.37/1.38 — UsageLimits for a spawned task agent.
+    """CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — UsageLimits for a spawned task agent.
 
     Always bounds requests (default pydantic-ai cap is 50). When the invoking agent granted a
     token budget (``GraphState.invoker_budget_tokens``), also enforce it as
@@ -707,7 +707,7 @@ def get_step_descriptions() -> str:
         "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
         "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
         "recursive_orchestrator": (
-            "CONCEPT:ORCH-1.1 — Recursive graph re-orchestration. Use when the "
+            "CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Recursive graph re-orchestration. Use when the "
             "current plan has failed and needs a fundamentally different approach. "
             "Spawns a nested graph execution with the parent's context and errors "
             "to devise a corrected strategy. Only use for complex multi-step failures."
@@ -824,7 +824,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         f"IMPORTANT: You are currently asked to: {agent_info.description}\n"
         f"Query: {ctx.state.query}"
     )
-    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:ORCH-1.39
+    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
 
     # Include validation feedback if this is a re-dispatch
     if ctx.state.validation_feedback:
@@ -835,7 +835,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             f"Address this feedback in your response by being more thorough or providing the missing data."
         )
 
-    # CONCEPT:ORCH-1.0 — Inject signal board observations from prior adaptive_agent_router
+    # CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Inject signal board observations from prior adaptive_agent_router
     if ctx.state.signal_board:
         signal_lines = []
         for sig_type, messages in ctx.state.signal_board.items():
@@ -849,7 +849,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 + "\nConsider these signals when performing your task."
             )
 
-    # CONCEPT:ORCH-1.3 — Inject access-list-filtered prior results
+    # CONCEPT:AU-ORCH.execution.visibility-allow-list — Inject access-list-filtered prior results
     step_input_for_access = ctx.inputs
     if (
         isinstance(step_input_for_access, ExecutionStep)
@@ -865,7 +865,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 f"Use these results as context for your task."
             )
             logger.info(
-                "[CONCEPT:ORCH-1.1] Injected %d access-list results for '%s'",
+                "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Injected %d access-list results for '%s'",
                 len(step_input_for_access.access_list),
                 agent_name,
             )
@@ -882,7 +882,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         id=getattr(ctx, "node_id", "unknown"),
     )
 
-    # CONCEPT:ORCH-1.2 — Capability Auto-Activation
+    # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Capability Auto-Activation
     # Check if this specialist has registered capabilities (e.g., RLM, critic)
     # and activate them before execution.
     activated_capabilities: list[str] = []
@@ -912,7 +912,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     if should_activate:
                         activated_capabilities.append(cap_type)
                         logger.info(
-                            f"[CONCEPT:ORCH-1.2] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
+                            f"[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
                             f"(handler={handler_module}.{handler_fn})"
                         )
                         emit_graph_event(
@@ -924,7 +924,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         except Exception as e:
             logger.debug(f"Capability auto-activation lookup failed: {e}")
 
-    # CONCEPT:KG-2.1 — WorkspaceAttention scoring for specialist priority
+    # CONCEPT:AU-KG.compute.workspace-attention-scoring — WorkspaceAttention scoring for specialist priority
     attention_score: float | None = None
     if ctx.deps.knowledge_engine:
         try:
@@ -1036,7 +1036,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
 
         from pydantic_ai import DeferredToolRequests
 
-        # CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list (if any).
+        # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
         _scoped_tools, guarded_toolsets = apply_tool_scope(
             ctx.state, [], guarded_toolsets
         )
@@ -1084,11 +1084,11 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         # Build Query
         sub_query = ctx.state.query
         step_input = ctx.inputs
-        # CONCEPT:ORCH-1.1 — Prefer refined subtask over raw query
+        # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Prefer refined subtask over raw query
         if isinstance(step_input, ExecutionStep) and step_input.refined_subtask:
             sub_query = step_input.refined_subtask
             logger.info(
-                "[CONCEPT:ORCH-1.1] Using refined subtask for '%s': '%s'",
+                "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Using refined subtask for '%s': '%s'",
                 agent_info.name,
                 sub_query[:100],
             )
@@ -1136,7 +1136,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     if isinstance(raw_input, str)
                     else raw_input
                 )
-                # CONCEPT:ORCH-1.36 — Declarative Resilience Policy.
+                # CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy.
                 # The single per-node-timeout LLM call is wrapped in the
                 # declarative retry/backoff/timeout policy so transient model
                 # or tool errors (TimeoutError/ConnectionError) are retried with
@@ -1341,7 +1341,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 raise
 
         # Historical outer dispatch backoff min(2**n, 10)s, declaratively
-        # (CONCEPT:ORCH-1.36). This OUTER policy retries the whole specialist
+        # (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating). This OUTER policy retries the whole specialist
         # dispatch (events + run + result handling); it composes with the
         # INNER per-LLM-call policy inside the attempt body.
         dispatch_policy = ResiliencePolicy(
@@ -1493,7 +1493,7 @@ async def _execute_agent_package_logic(
         ctx.state.results_registry[node_uid] = result_str
         ctx.state.results[node_id] = result_str
     else:
-        # CONCEPT:ORCH-1.2: Unified specialist execution
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)
         registry = load_node_agents_registry()
         mcp_agent = next(
@@ -1652,13 +1652,13 @@ async def _execute_specialized_step(
 
     from pydantic_ai import DeferredToolRequests
 
-    # CONCEPT:ORCH-1.27 — honor a Conductor-assigned per-step model_id (ctx.inputs is
+    # CONCEPT:AU-ORCH.routing.conductor-per-step-model — honor a Conductor-assigned per-step model_id (ctx.inputs is
     # the current ExecutionStep/Task); falls back to override/tier routing when unset.
     specialist_model = pick_specialist_model(
         ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
     )
 
-    # CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list (if any).
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
     custom_tools, _scoped_toolsets = apply_tool_scope(
         ctx.state, custom_tools, collected_mcp_toolsets + skill_toolsets
     )
@@ -1671,7 +1671,7 @@ async def _execute_specialized_step(
             f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
             f"### CONTEXT\n{ctx.state.exploration_notes}"
             f"{feedback_section}"
-            f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.39
+            f"{invoker_context_section(ctx.state)}"  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
         ),
         tools=custom_tools,
         toolsets=_scoped_toolsets,
@@ -1713,7 +1713,7 @@ async def _execute_specialized_step(
         ctx.deps, collected_mcp_toolsets + skill_toolsets, state=ctx.state
     )
 
-    # CONCEPT:ORCH-1.37 (perf) — bound per-agent requests. Without this, pydantic-ai's
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — bound per-agent requests. Without this, pydantic-ai's
     # default request_limit=50 lets a confused agent burn 50 model calls before failing
     # (we observed this twice). A specialist answering one question needs only a few.
     try:
@@ -1722,7 +1722,7 @@ async def _execute_specialized_step(
             run_input,
             message_history=prev_messages,
             deps=_agent_deps,
-            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.39 budget
+            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(

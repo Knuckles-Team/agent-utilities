@@ -6,7 +6,7 @@
 ## T1 — swarm: include `mermaid` (AC1, AC2)
 - `agent_utilities/mcp/kg_server.py:2784-2797` — add `"mermaid": pe_result.mermaid,` to the
   returned `json.dumps({...})` dict. `pe_result.mermaid` is `str | None` (null-safe).
-- Tag the change `CONCEPT:ORCH-1.37`.
+- Tag the change `CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid`.
 
 ## T2 — execute_agent: preserve + surface `mermaid` (AC3–AC6)
 - `agent_utilities/orchestration/agent_runner.py:596-605` — pass `streamdown=True` into the

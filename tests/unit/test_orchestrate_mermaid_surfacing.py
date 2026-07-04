@@ -1,4 +1,4 @@
-"""Tests for orchestration flow-diagram surfacing (CONCEPT:ORCH-1.37).
+"""Tests for orchestration flow-diagram surfacing (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid).
 
 Covers the trickiest part of the feature — ``run_agent``'s backward-compatible
 return shaping (AC4/AC5): a bare string by default, a JSON ``{"output","mermaid"}``
@@ -6,7 +6,7 @@ wrapper only when ``return_mermaid=True`` AND a diagram is present. The additive
 ``mermaid`` keys on the swarm/compile/execute_workflow MCP handlers are dict
 additions exercised end-to-end by ``test_workflow_e2e.py``.
 
-@pytest.mark.concept("ORCH-1.37")
+@pytest.mark.concept("AU-ORCH.execution.orchestration-flow-mermaid")
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _patched_run_agent(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.37")
+@pytest.mark.concept("AU-ORCH.execution.orchestration-flow-mermaid")
 async def test_run_agent_default_returns_bare_string(_patched_run_agent):
     """AC5: default (return_mermaid=False) preserves the bare-string contract."""
     out = await agent_runner.run_agent(
@@ -57,7 +57,7 @@ async def test_run_agent_default_returns_bare_string(_patched_run_agent):
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.37")
+@pytest.mark.concept("AU-ORCH.execution.orchestration-flow-mermaid")
 async def test_run_agent_return_mermaid_wraps_when_present(_patched_run_agent):
     """AC4: return_mermaid=True yields a JSON wrapper carrying output + mermaid."""
     out = await agent_runner.run_agent(
@@ -73,7 +73,7 @@ async def test_run_agent_return_mermaid_wraps_when_present(_patched_run_agent):
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.97")
+@pytest.mark.concept("AU-ORCH.execution.rich-result-wrapper")
 async def test_run_agent_no_mermaid_still_surfaces_run_id(monkeypatch):
     """ORCH-1.97: return_mermaid=True ALWAYS wraps to carry the ``run_id`` handle
     (even with no diagram) — the trackable handle for a delegated run's RunTrace +

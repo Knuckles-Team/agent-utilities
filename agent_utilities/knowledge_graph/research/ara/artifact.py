@@ -110,7 +110,7 @@ class ExplorationNode(BaseModel):
 
 
 class ResearchArtifact(BaseModel):
-    """The OWL-native 4-layer Agent-Native Research Artifact (CONCEPT:KG-2.80)."""
+    """The OWL-native 4-layer Agent-Native Research Artifact (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
     article_id: str
     title: str

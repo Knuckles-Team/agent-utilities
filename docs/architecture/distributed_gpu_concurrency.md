@@ -1,7 +1,7 @@
 # Distributed multi-GPU concurrency & optimal planning
 
-> **Concepts:** `CONCEPT:KG-2.143` (per-model static capacity), `CONCEPT:KG-2.145`
-> (per-model adaptive target), `CONCEPT:KG-2.146` (shared-GPU budget — this doc's
+> **Concepts:** `CONCEPT:AU-KG.compute.concurrency-controller-sizing` (per-model static capacity), `CONCEPT:AU-KG.compute.surfaces-universal-latency-signal`
+> (per-model adaptive target), `CONCEPT:AU-KG.compute.pure-config-enumeration-fail` (shared-GPU budget — this doc's
 > headline). Code: `core/model_concurrency.py`, `core/model_capacity_autoscale.py`,
 > `core/gpu_group_budget.py`, `core/config.py`. Sharding precedent:
 > `epistemic_graph/pool.py` (`ShardRouter`, HRW).
@@ -19,15 +19,15 @@ the conservative behaviour of the tier above — never to oversubscription).
 
 ```mermaid
 flowchart TD
-    A["Tier (a): per-model adaptive target<br/>latency-gradient AIMD, KG-2.145<br/>floor = static capacity, ceiling = MODEL_MAX_CONCURRENCY"]
-    B["Tier (b): per-GPU-host shared budget<br/>GpuGroupBudget, KG-2.146<br/>caps Σ member targets, reserves chat's floor"]
+    A["Tier (a): per-model adaptive target<br/>latency-gradient AIMD, AU-KG.compute.surfaces-universal-latency-signal<br/>floor = static capacity, ceiling = MODEL_MAX_CONCURRENCY"]
+    B["Tier (b): per-GPU-host shared budget<br/>GpuGroupBudget, AU-KG.compute.pure-config-enumeration-fail<br/>caps Σ member targets, reserves chat's floor"]
     C["Tier (c): per-deployment aggregate<br/>Σ per-host shares across N GPU hosts<br/>endpoint list + cross-host balancing"]
     A -->|"target(m)"| B
     B -->|"allowed(m) = min of target and group share"| C
     C -->|"per-host slice"| Gate["model_concurrency gate<br/>semaphore / thread pool"]
 ```
 
-### (a) Per-model adaptive target — `CONCEPT:KG-2.145`
+### (a) Per-model adaptive target — `CONCEPT:AU-KG.compute.surfaces-universal-latency-signal`
 
 Each model runs an AIMD controller keyed on client-observed latency (a TCP-Vegas /
 Netflix-adaptive-limits gradient) plus, when present, vLLM `/metrics`
@@ -36,7 +36,7 @@ Netflix-adaptive-limits gradient) plus, when present, vLLM `/metrics`
 `MODEL_MAX_CONCURRENCY`, backing off the instant latency inflates. This discovers
 the real serving capacity of *one* model without any hardcoded ceiling.
 
-### (b) Per-GPU-host shared budget — `CONCEPT:KG-2.146` (the new layer)
+### (b) Per-GPU-host shared budget — `CONCEPT:AU-KG.compute.pure-config-enumeration-fail` (the new layer)
 
 Tier (a) tunes each model in isolation, so two models that **share one physical
 GPU** would each happily ramp and jointly oversubscribe it. The budget tier fixes
@@ -223,7 +223,7 @@ profile — keep both on it but apply the guard so the combined load is bounded:
 
 * both models on **one `gpu_group`** → the joint `GPU_CONCURRENCY_BUDGETS` caps
   their **sum** (tier b), with chat's floor reserved off the top;
-* a per-endpoint **`max_concurrent_requests`** ceiling (KG-2.298) per model;
+* a per-endpoint **`max_concurrent_requests`** ceiling (AU-KG.compute.same-semantics-as) per model;
 * the per-endpoint **circuit breaker** (ORCH-1.102/1.103) backing off on a
   shedding server. See [`llm-server-capacity-guard.md`](llm-server-capacity-guard.md).
 
@@ -249,12 +249,12 @@ fails safe toward the floor.
 | | Today | Target |
 |---|---|---|
 | GPUs | **two**: a dedicated GR1080 embedder (`gr1080-embed.arpa`) + a GB10 generator (10.0.0.18, unified memory) — the split-GPU shape below | N GPU hosts |
-| Model→endpoint | one `base_url` per model, **plus** a `fallback` endpoint on the embedder (KG-2.299) | endpoint **list** per model |
+| Model→endpoint | one `base_url` per model, **plus** a `fallback` endpoint on the embedder (AU-KG.enrichment.each-call-resolves-active) | endpoint **list** per model |
 | Sharing | PRIMARY `bge-m3` dedicated to the GR1080 (`gpu_group="gr1080"`); the GB10 runs the `qwen3.6-27b` generator **and** the FALLBACK `bge-m3` (`gpu_group="gb10"`), which only takes load while the primary's breaker is OPEN | each host its own `gpu_group` + budget |
-| Tier (a) | live (`KG-2.145`) | unchanged |
-| Tier (b) | **live (`KG-2.146`)** — `GPU_CONCURRENCY_BUDGETS={"gr1080": <knee>, "gb10": <knee>}`; on the GB10 the generator's floor is reserved off the top so the fallback embedder yields | per-host budgets, one per GPU |
+| Tier (a) | live (`AU-KG.compute.surfaces-universal-latency-signal`) | unchanged |
+| Tier (b) | **live (`AU-KG.compute.pure-config-enumeration-fail`)** — `GPU_CONCURRENCY_BUDGETS={"gr1080": <knee>, "gb10": <knee>}`; on the GB10 the generator's floor is reserved off the top so the fallback embedder yields | per-host budgets, one per GPU |
 | Tier (c) | n/a (single host per role) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
-| Failover | **live (`KG-2.299/2.300`)** — GR1080 primary → GB10 fallback, capacity-guard inheritance, auto-recovery | per-model endpoint health + balancing |
+| Failover | **live (`AU-KG.enrichment.each-call-resolves-active/2.300`)** — GR1080 primary → GB10 fallback, capacity-guard inheritance, auto-recovery | per-model endpoint health + balancing |
 | Planning | manual knee estimate (embed-4 ≈ 62 %) | profiling sweep per host → budget; AIMD tunes within |
 
 ### Configuration
@@ -277,7 +277,7 @@ fails safe toward the floor.
 }
 ```
 
-## Automatic embedder failover (CONCEPT:KG-2.299 / KG-2.300)
+## Automatic embedder failover (CONCEPT:AU-KG.enrichment.each-call-resolves-active / AU-KG.ingest.keys-off)
 
 The embedding plane runs against a **primary** embedder endpoint and, when that
 endpoint is unreachable, **fails over automatically** to a configured **fallback**
@@ -298,14 +298,14 @@ the failover path too.
 ### How it works
 
 * **Trigger / recovery — the existing circuit breaker.** The primary embedder's
-  per-endpoint breaker (`embedding`, CONCEPT:ORCH-1.103) is fed by the primary embed
+  per-endpoint breaker (`embedding`, CONCEPT:AU-ORCH.routing.load-shedding-backoff) is fed by the primary embed
   fan-out itself. While it is OPEN within its backoff cooldown
   (`ModelCircuitBreaker.is_tripped()`), the router (`core/embedding_failover.py`,
   `active_embedding_endpoint()`) selects the fallback. Once the cooldown elapses the
   router returns to the primary, whose own HALF_OPEN probe confirms recovery (close →
   stay primary) or re-opens (→ fallback again next round). No extra polling.
 * **Transparent to callers.** `create_embedding_model()` builds the client for the
-  active endpoint; the process-scoped client cache (CONCEPT:KG-2.294) keys on the
+  active endpoint; the process-scoped client cache (CONCEPT:AU-KG.compute.config-keyed-embedder-client) keys on the
   resolved `base_url`, so it **swaps** to the fallback's client on failover and back
   on recovery — never a stale primary client. `make_embed_fn` resolves the active
   endpoint per call and gates the fan-out on the active model key.

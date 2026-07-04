@@ -257,7 +257,7 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     # fleet_connectors) whose fake_sync raises "not configured". ``fleet`` is
     # excluded from the sweep, so it never enters any bucket. The MCP-backed
     # trackers (jira/confluence/plane + the other ``*-mcp`` trackers,
-    # CONCEPT:KG-2.154) are NOT candidates here: the hermetic test env has no
+    # CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers) are NOT candidates here: the hermetic test env has no
     # mcp_config, so their servers env-detect as unconfigured and the
     # candidate-builder drops them (no wasted connector_sync task).
     assert out["counts"] == {"synced": 2, "skipped": 5, "errors": 1}
@@ -295,7 +295,7 @@ def _sweep_targets(monkeypatch, servers: list[str]) -> list[str]:
 
 
 def test_sweep_includes_mcp_trackers_when_server_in_config(monkeypatch):
-    """CONCEPT:KG-2.154 — jira/confluence/plane are sweep candidates when their fleet
+    """CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers — jira/confluence/plane are sweep candidates when their fleet
     ``*-mcp`` server is registered in mcp_config (the live remote-routed operator case),
     so a source='all' re-ingest actually enqueues a connector_sync task for each."""
     targets = _sweep_targets(monkeypatch, ["atlassian-mcp", "plane-mcp"])
@@ -440,7 +440,7 @@ def test_fleet_connectors_drains_configured_package(monkeypatch):
     assert out["counts"]["errors"] == 0
 
 
-# ── Ops / platform typed connectors → OWL entities (CONCEPT:KG-2.155–2.161) ──
+# ── Ops / platform typed connectors → OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161) ──
 
 
 class _Rec:

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Test-Time Diversity (VPO) — CONCEPT:AHE-3.16.
+"""Test-Time Diversity (VPO) — CONCEPT:AU-AHE.harness.width-diverse-best-k.
 
 Diversity metric, MMR best-of-k selection, and the effort-derived diverse fan-out
 width on the live ReasoningBudget path.
@@ -14,7 +14,7 @@ from agent_utilities.graph.test_time_diversity import (
 )
 from agent_utilities.harness.reasoning_effort import get_budget
 
-pytestmark = pytest.mark.concept("AHE-3.16")
+pytestmark = pytest.mark.concept("AU-AHE.harness.width-diverse-best-k")
 
 
 def test_mean_pairwise_distance_orthogonal_is_max():

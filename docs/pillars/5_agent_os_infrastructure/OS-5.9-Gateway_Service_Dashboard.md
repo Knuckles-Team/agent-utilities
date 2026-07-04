@@ -1,6 +1,6 @@
-# Gateway Service Dashboard (CONCEPT:OS-5.9)
+# Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard)
 
-> **CONCEPT:OS-5.9** — Gateway Service Dashboard
+> **CONCEPT:AU-OS.config.gateway-service-dashboard** — Gateway Service Dashboard
 >
 > Synthesized from the former standalone `service-dashboard-core` package
 > into `agent_utilities/gateway/` to eliminate duplicate registries,

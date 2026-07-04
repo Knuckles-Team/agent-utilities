@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Task Prioritization Engine — CONCEPT:ORCH-1.1
+"""Task Prioritization Engine — CONCEPT:AU-ORCH.planning.recursion-nesting-depth
 
 Multi-factor task prioritization with dynamic re-scoring, priority
 inheritance from blocking tasks, and capability-based specialist assignment.
@@ -10,7 +10,7 @@ Design-pattern source: Chapter 20 — Prioritization.
 
 OWL: :PrioritizedTask rdfs:subClassOf :Action
      :blocks owl:TransitiveProperty
-See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.1
+See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.planning.recursion-nesting-depth
 """
 
 

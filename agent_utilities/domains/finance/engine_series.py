@@ -1,4 +1,4 @@
-"""Engine-native time-series alignment for finance (CONCEPT:KG-2.252).
+"""Engine-native time-series alignment for finance (CONCEPT:AU-KG.domains.ohlcv-gap-fill).
 
 The finance feature math (rolling/ewm/shift in ``features.py`` / ``alpha_factors.py``)
 operates on *regular, aligned* series where vectorized pandas is already optimal — and
@@ -9,7 +9,7 @@ deliberately left in pandas.
 What pandas does NOT do natively, and where the engine's native tsdb IS the clear win,
 is the *irregular*-series primitives: **gap-fill** onto a fixed grid (LOCF), **ASOF**
 alignment of one series to another's timestamps, and **time-bucketed** aggregation —
-all in-engine over ``client.timeseries.*`` (CONCEPT:KG-2.210/211), needing no
+all in-engine over ``client.timeseries.*`` (CONCEPT:AU-KG.retrieval.god-nodes-communities/211), needing no
 DataFusion. This module routes exactly those, keeping the public feature API in pandas.
 
 A throwaway series is staged in the engine tsdb, the primitive runs server-side, and
@@ -43,7 +43,7 @@ def _client():
 
         return SyncEpistemicGraphClient.connect(**client_connect_kwargs())
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:KG-2.252] engine unavailable for series op: %s", e)
+        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] engine unavailable for series op: %s", e)
         return None
 
 
@@ -82,7 +82,7 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
         vals = [v for _t, v, _f in rows]
         return pd.Series(vals, index=idx, name=series.name)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:KG-2.252] gap_fill_series engine path failed: %s", e)
+        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] gap_fill_series engine path failed: %s", e)
         grid = pd.date_range(
             series.index.min(), series.index.max(), freq=step, tz="UTC"
         )
@@ -119,7 +119,7 @@ def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
         vals = client.timeseries.asof_join(sid, at_ns)
         return pd.Series(vals, index=at, name=series.name)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:KG-2.252] asof_align engine path failed: %s", e)
+        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] asof_align engine path failed: %s", e)
         return series.reindex(series.index.union(at)).ffill().reindex(at)
     finally:
         if own_client:

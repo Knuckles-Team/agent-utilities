@@ -1,4 +1,4 @@
-"""Tests for the universal messaging command registry (CONCEPT:ECO-4.57)."""
+"""Tests for the universal messaging command registry (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher)."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ async def test_non_builtin_falls_through(text: str) -> None:
 
 
 def test_command_specs_surface_filtering() -> None:
-    # CONCEPT:ECO-4.71 — one registry, per-surface views; model is terminal-only.
+    # CONCEPT:AU-ECO.messaging.shared-by-every-messaging — one registry, per-surface views; model is terminal-only.
     from agent_utilities.messaging.commands import command_specs, describe
 
     msg = {s["command"] for s in command_specs("messaging")}

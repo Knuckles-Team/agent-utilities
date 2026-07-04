@@ -3,11 +3,11 @@
 Exercises the new capabilities through the REAL ``IntelligenceGraphEngine`` /
 ``search_*`` entry points (not just the helper modules in isolation):
 
-- CONCEPT:KG-2.85 ScoreGate — ``search_hybrid`` annotates ``_fused_score`` and
+- CONCEPT:AU-KG.retrieval.unset-dependency-free ScoreGate — ``search_hybrid`` annotates ``_fused_score`` and
   adaptively trims via the dual-score gate.
-- CONCEPT:KG-2.86 ChronoID — ``search_hybrid`` annotates ``_time_bucket``; the
+- CONCEPT:AU-KG.query.chronoid-fits-residual-quantization ChronoID — ``search_hybrid`` annotates ``_time_bucket``; the
   ``temporal_semantic_ids`` entry point attaches ``_temporal_sid``.
-- CONCEPT:KG-2.88 ADORE + CONCEPT:KG-2.87 TASR — ``search_adore`` runs the
+- CONCEPT:AU-KG.query.adore-concept-expansion ADORE + CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval TASR — ``search_adore`` runs the
   iterative reformulate→retrieve→judge loop to a stopping decision.
 """
 

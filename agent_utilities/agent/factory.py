@@ -7,7 +7,7 @@ This module provides factory functions for creating and configuring Pydantic AI
 agents. It handles CLI argument parsing, MCP server initialization, toolset
 registration, and system prompt construction.
 
-CONCEPT:OS-5.0 Agent Creation
+CONCEPT:AU-OS.safety.doom-loop-detection Agent Creation
 """
 
 
@@ -282,7 +282,7 @@ def create_agent(
 ) -> tuple[Agent[Any, Any], list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
-    CONCEPT:OS-5.0 Agent Creation
+    CONCEPT:AU-OS.safety.doom-loop-detection Agent Creation
 
     Args:
         provider: LLM provider name.
@@ -508,7 +508,7 @@ def create_agent(
         except Exception as exc:  # noqa: BLE001 — best-effort, never block agent creation
             logger.debug(f"XDG skills dir unavailable: {exc}")
 
-        # CONCEPT:ORCH-1.92 — warm-share the SkillsToolset across the fan-out cohort: the
+        # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
         # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
         # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
         from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
@@ -530,7 +530,7 @@ def create_agent(
         logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
         system_prompt_str = system_prompt
 
-    # CONCEPT:ECO-4.88 — weave AgentBus awareness into EVERY agent's prompt at the one
+    # CONCEPT:AU-ECO.bus.agent-bus-awareness — weave AgentBus awareness into EVERY agent's prompt at the one
     # choke point, so the orchestrator and every spawned swarm/sub-agent natively know they
     # can coordinate with peers (the bus_* tools are registered just below when universal
     # tools are on). Native-by-default: not a separate persona, just how agents work together.
@@ -565,7 +565,7 @@ def create_agent(
             )
         )
 
-    # CONCEPT:KG-2.20 — live Memento block-compress-evict sawtooth (default ON). Where
+    # CONCEPT:AU-KG.memory.memento-compress-evict — live Memento block-compress-evict sawtooth (default ON). Where
     # ContextLimitWarner only *warns* and ToolOutputEviction only handles oversized tool results,
     # this evicts old completed reasoning blocks from the message history, replacing each with a
     # dense memento, when the running context exceeds budget.
@@ -588,7 +588,7 @@ def create_agent(
     if include_teams:
         agent_capabilities.append(TeamCapability())
 
-    # CONCEPT:ORCH-1.58 (v2 synergy) — native provider-side extended thinking. Opt-in
+    # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
     # because reasoning is expensive: enabled via the thinking_effort arg or the
     # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
     # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
@@ -683,7 +683,7 @@ def create_agent(
 
         register_agent_tools(agent, graph_bundle=graph_bundle)
 
-    # CONCEPT:ECO-4.45 — bind tools from declared capability intents (rename/prefix-proof),
+    # CONCEPT:AU-ECO.toolkit.capability-tool-binding — bind tools from declared capability intents (rename/prefix-proof),
     # never from hard-coded names. Blueprints/callers pass `capabilities`; the KG resolves the
     # long tail when an engine is available.
     if capabilities:
@@ -697,7 +697,7 @@ def create_agent(
     if tool_guard_mode != "off":
         apply_tool_guard_approvals(agent)
 
-    # CONCEPT:ORCH-1.58 — task-aware per-call sampling. The static `settings` above is
+    # CONCEPT:AU-ORCH.routing.sampling-profile-selection — task-aware per-call sampling. The static `settings` above is
     # the base floor; this wraps the agent's run path so each call threads a profile
     # (deterministic low-temp for code/extraction, exploratory for brainstorm) as a
     # per-call model_settings override, unless a caller passes one explicitly.

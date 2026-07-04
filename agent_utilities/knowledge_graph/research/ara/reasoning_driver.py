@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""OntologyReasoningDriver — reasoning AS the research engine (CONCEPT:KG-2.79).
+"""OntologyReasoningDriver — reasoning AS the research engine (CONCEPT:AU-KG.research.best-effort-lightweight-never).
 
 The "magical power" of OWL/RDF is *extrapolating new relationships* via reasoning.
 This driver makes that the engine of research: it promotes the Loop's working set
@@ -34,7 +34,7 @@ MAX_HARVEST_TOPICS = 25
 
 @dataclass
 class InferenceHarvest:
-    """What one reasoning pass extrapolated (CONCEPT:KG-2.79)."""
+    """What one reasoning pass extrapolated (CONCEPT:AU-KG.research.best-effort-lightweight-never)."""
 
     stats: dict[str, Any] = field(default_factory=dict)
     #: relationships the reasoner inferred THIS pass (not present before).
@@ -88,7 +88,7 @@ class OntologyReasoningDriver:
         inferences (a research Concept newly linked to an ecosystem node — a
         service/agent/capability/code) become fresh research topics. Best-effort:
         a missing/failing OWL backend yields an empty harvest, never an error to
-        the Loop. (CONCEPT:KG-2.79)
+        the Loop. (CONCEPT:AU-KG.research.best-effort-lightweight-never)
         """
         graph = getattr(self._engine, "graph", None)
         if graph is None:

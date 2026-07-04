@@ -12,7 +12,7 @@ Usage (from the repository root, against a live engine):
 
 In a Camunda deployment this step is the harvest itself — the extractor is fed
 the real camunda-mcp client instead of this file-backed one, and the lift is
-identical (CONCEPT:KG-2.53).
+identical (CONCEPT:AU-KG.ontology.descriptive-process-world-gains).
 """
 
 from __future__ import annotations

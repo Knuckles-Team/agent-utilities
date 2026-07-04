@@ -1,6 +1,6 @@
 """Normalized usage/analytics row + response models.
 
-CONCEPT:ECO-4.39 — Usage analytics store. These pydantic models are the single
+CONCEPT:AU-OS.observability.usage-analytics-store — Usage analytics store. These pydantic models are the single
 shape that both plane A (ingested external agent logs) and plane B (our own
 runtime telemetry) write, and that the gateway API returns. Mirrors the
 agentsview ``sessions``/``messages``/``tool_calls``/``usage_events`` columns,

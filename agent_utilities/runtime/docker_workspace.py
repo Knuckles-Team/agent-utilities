@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 — Docker/Podman developer-workspace backend (isolation tier).
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Docker/Podman developer-workspace backend (isolation tier).
 
 Unlike :class:`~agent_utilities.rlm.sandboxes.docker_backend.DockerSandbox` — which spins up a
 fresh ``--rm`` container *per snippet* — a developer workspace needs a **long-lived** container

@@ -1,6 +1,6 @@
 """In-wave agent retry (SWARM-5) on the declarative ResiliencePolicy.
 
-CONCEPT:ORCH-1.8 / CONCEPT:ORCH-1.36 — the hand-rolled while-loop in
+CONCEPT:AU-ORCH.execution.parallel-engine-visualizer / CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — the hand-rolled while-loop in
 ``ParallelEngine._execute_wave`` migrated onto ``run_with_resilience``.
 These tests pin the preserved semantics: failed results retry up to
 ``max_retries`` extra attempts, the LAST attempt's result is kept on

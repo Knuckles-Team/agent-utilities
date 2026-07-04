@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Agent Config Versioning — Database-Driven Config History (CONCEPT:AHE-3.2).
+"""Agent Config Versioning — Database-Driven Config History (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
 Immutable config snapshots with forward-only rollback. Ported from
 MATE's AgentConfigVersion model and update_agent_config() pattern.
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentConfigSnapshot(BaseModel):
-    """Immutable snapshot of an agent's configuration. CONCEPT:AHE-3.2
+    """Immutable snapshot of an agent's configuration. CONCEPT:AU-AHE.harness.evolutionary-aggregation
 
     Mirrors MATE's AgentConfigVersion model but expressed as a Pydantic
     model for KG persistence via SUPERSEDES edges.
@@ -49,7 +49,7 @@ class AgentConfigSnapshot(BaseModel):
 
 
 class ConfigDiff(BaseModel):
-    """Structured diff between two config versions. CONCEPT:AHE-3.2"""
+    """Structured diff between two config versions. CONCEPT:AU-AHE.harness.evolutionary-aggregation"""
 
     agent_name: str
     from_version: int
@@ -59,7 +59,7 @@ class ConfigDiff(BaseModel):
 
 
 class AgentConfigVersionManager:
-    """Manages versioned agent configurations. CONCEPT:AHE-3.2
+    """Manages versioned agent configurations. CONCEPT:AU-AHE.harness.evolutionary-aggregation
 
     Ported from MATE's agent_manager.py update_agent_config() pattern.
     Key design principles:

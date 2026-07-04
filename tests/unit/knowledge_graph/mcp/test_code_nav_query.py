@@ -1,4 +1,4 @@
-"""Tests for the graph_code_nav Cypher builder (CONCEPT:KG-2.9g).
+"""Tests for the graph_code_nav Cypher builder (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 
 Pure-function tests: the templates are validated without a live engine.
 """

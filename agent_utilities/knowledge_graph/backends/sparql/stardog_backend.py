@@ -3,12 +3,12 @@ from __future__ import annotations
 
 """Stardog SPARQL data backend.
 
-CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction.
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction.
 
 A first-class :class:`SparqlAdapter` for Stardog, so the KG can **push, pull, and
 query instance data** (not just the ontology) against a Stardog triplestore — as a
-standalone backend, a fan-out **mirror** (CONCEPT:KG-2.74), or an ad-hoc connection
-(CONCEPT:KG-2.63). This is distinct from
+standalone backend, a fan-out **mirror** (CONCEPT:AU-KG.backend.mirror-health-repair), or an ad-hoc connection
+(CONCEPT:AU-KG.backend.multi-connection-registry). This is distinct from
 ``backends/owl/stardog_backend.py::StardogBackend``, which is the OWL **reasoning**
 backend (TBox + inference); the two compose — reason over the schema, store/serve
 the data here.

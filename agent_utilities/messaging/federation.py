@@ -1,4 +1,4 @@
-"""BusFederationRelay — forward AgentBus messages across hubs (CONCEPT:ECO-4.86).
+"""BusFederationRelay — forward AgentBus messages across hubs (CONCEPT:AU-ECO.bus.federation-relay).
 
 The single-hub bus (``AgentBus``, ECO-4.84) connects every session pointed at one graph-os.
 The federation relay is the *mesh* layer on top: independent hubs peer over A2A HTTP so a
@@ -15,7 +15,7 @@ Key properties:
 - **Marking-scoped** — only ``commons`` traffic crosses a hub boundary; ``private``/``org``-marked
   messages (KG-2.60) stay home.
 
-CONCEPT:ECO-4.86 — BusFederationRelay: cross-hub forwarding for the agent bus
+CONCEPT:AU-ECO.bus.federation-relay — BusFederationRelay: cross-hub forwarding for the agent bus
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def hub_id() -> str:
 
 
 class BusFederationRelay:
-    """Forwards bus messages to peer hubs and applies inbound forwards. CONCEPT:ECO-4.86."""
+    """Forwards bus messages to peer hubs and applies inbound forwards. CONCEPT:AU-ECO.bus.federation-relay."""
 
     _instance: BusFederationRelay | None = None
 

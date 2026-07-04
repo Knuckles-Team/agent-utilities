@@ -1,6 +1,6 @@
 """Evaluation Engine — Synthesized Evaluation Facade.
 
-CONCEPT:AHE-3.1 — Evaluation Engine
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Evaluation Engine
 
 Provides a single entry point for evaluation-related capabilities:
 - Continuous evaluation pipeline (AHE-3.1 via ``ContinuousEvaluationEngine``)
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class EvaluationEngine:
     """Synthesized evaluation engine.
 
-    CONCEPT:AHE-3.1 — Evaluation Engine
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Evaluation Engine
 
     Combines continuous evaluation (AHE-3.1), reward decomposition
     (AHE-3.10), and trace distillation (KG-2.4) into a unified
@@ -181,12 +181,12 @@ class EvaluationEngine:
             steps: Step list with action/success keys.
             goal_achieved: Whether the goal was achieved.
             reasoning_effort: Continuous reasoning effort level [0.0, 1.0]
-                (CONCEPT:AHE-3.1 — Adaptive Reasoning Effort).
+                (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Adaptive Reasoning Effort).
 
         Returns:
             Dict with decomposed rewards, insights, and reasoning budget.
         """
-        # Resolve reasoning budget (CONCEPT:AHE-3.1)
+        # Resolve reasoning budget (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
         budget_info: dict[str, Any] = {}
         try:
             from .reasoning_effort import get_budget
@@ -225,7 +225,7 @@ class EvaluationEngine:
     ) -> dict[str, Any]:
         """Run disentangled evaluation separating retriever from LLM quality.
 
-        CONCEPT:AHE-3.1 — Disentangled Evaluation (BrowseComp-Plus)
+        CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Disentangled Evaluation (BrowseComp-Plus)
 
         Returns separate scores for:
         - retriever_metrics: precision, recall, nDCG, MRR

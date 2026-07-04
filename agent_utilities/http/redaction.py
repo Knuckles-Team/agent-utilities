@@ -1,6 +1,6 @@
 """Importable log redaction for fleet HTTP clients.
 
-CONCEPT:ECO-4.35 — Fleet HTTP Client Library
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
 Promotes the secret-redaction patterns duplicated across the per-repo
 ``scripts/security_sanitizer.py`` copies (and okta-agent's ``redact_secrets``)

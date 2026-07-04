@@ -1,4 +1,4 @@
-"""prod-trace → dataset → prompt-version closed loop (CONCEPT:AHE-3.68)."""
+"""prod-trace → dataset → prompt-version closed loop (CONCEPT:AU-AHE.evaluation.generationnode-records)."""
 
 from __future__ import annotations
 

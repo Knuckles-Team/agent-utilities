@@ -35,7 +35,7 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "decision": "Decision",
     "observation": "Observation",
     "action": "Action",
-    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    # Ontology Action System — governed verbs (CONCEPT:AU-KG.ontology.ontology-action-system)
     "ontology_action": "OntologyAction",
     "action_invocation": "ActionInvocation",
     "action_parameter": "ActionParameter",
@@ -70,7 +70,7 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "financial_instrument": "FinancialInstrument",
     "financial_transaction": "FinancialTransaction",
     "account": "Account",
-    # AHE Types (CONCEPT:AHE-3.0)
+    # AHE Types (CONCEPT:AU-AHE.harness.harness-evolution)
     "change_manifest": "ChangeManifest",
     "component_edit_record": "ComponentEditRecord",
     "evidence_record": "EvidenceRecord",
@@ -90,14 +90,14 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "businesscapability": "BusinessCapability",
     "applicationevent": "ApplicationEvent",
     "erpnextissue": "ErpNextIssue",
-    # Feedback loop — corrections → rules → eval (CONCEPT:KG-2.8)
+    # Feedback loop — corrections → rules → eval (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "correction": "Correction",
     "governance_rule": "GovernanceRule",
     "voice_rule": "VoiceRule",
     "source_rule": "SourceRule",
     "preference": "Preference",
     "eval_case": "EvalCase",
-    # Operating intelligence distilled from calls/docs (CONCEPT:KG-2.8)
+    # Operating intelligence distilled from calls/docs (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "insight": "Insight",
     "framework": "Framework",
     "playbook": "Playbook",
@@ -148,7 +148,7 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "deployment_prerequisite": "DeploymentPrerequisite",
     "mcp_server_deployment": "MCPServerDeployment",
     "deployment_profile": "DeploymentProfile",
-    # Legal Entity & Compliance domain (CONCEPT:LGC-1.0)
+    # Legal Entity & Compliance domain (CONCEPT:AU-KG.ontology.owl-rdf-bridge)
     "legal_trust": "LegalTrust",
     "trustee_role": "TrusteeRole",
     "settlor_role": "SettlorRole",
@@ -187,7 +187,7 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "observed_by": "observedBy",
     "occurred_during": "occurredDuring",
     "defined_in": "definedIn",
-    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    # Ontology Action System — governed verbs (CONCEPT:AU-KG.ontology.ontology-action-system)
     "acts_on": "actsOn",
     "invokes": "invokes",
     "invoked_by": "invokedBy",
@@ -211,7 +211,7 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "cites_source": "citesSource",
     "has_financial_instrument": "hasFinancialInstrument",
     "executed_transaction": "executedTransaction",
-    # AHE Edges (CONCEPT:AHE-3.0)
+    # AHE Edges (CONCEPT:AU-AHE.harness.harness-evolution)
     "edited_in_round": "editedInRound",
     "predicted_fix": "predictedFix",
     "caused_regression": "causedRegression",
@@ -269,7 +269,7 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "serves_endpoint": "servesEndpoint",
     "uses_profile": "usesProfile",
     "transitioned_to": "transitionedTo",
-    # Legal Entity & Compliance domain edges (CONCEPT:LGC-1.0)
+    # Legal Entity & Compliance domain edges (CONCEPT:AU-KG.ontology.owl-rdf-bridge)
     "has_trustee": "hasTrustee",
     "has_settlor": "hasSettlor",
     "has_beneficiary": "hasBeneficiary",
@@ -336,7 +336,7 @@ class Owlready2Backend(OWLBackend):
         preload: list[Path] = [
             f for f in sorted(parent.glob("ontology*.ttl")) if f != ontology_path
         ]
-        # CONCEPT:KG-2.320 — federation: also pre-load ontology modules contributed
+        # CONCEPT:AU-KG.ontology.federation-provider-leg — federation: also pre-load ontology modules contributed
         # by installed fleet packages (via the ``agent_utilities.ontology_providers``
         # entry-point) so ``owl:imports`` targeting a moved module (e.g. the
         # canonical ontology's import of <http://knuckles.team/kg/servicenow>, now

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the agentic red-team harness.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 import pytest
@@ -13,7 +13,7 @@ from agent_utilities.harness.red_team import (
     RedTeamRunner,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.1")
+pytestmark = pytest.mark.concept("AU-AHE.evaluation.adaptive-reasoning-effort")
 
 
 def test_catalog_is_well_formed():

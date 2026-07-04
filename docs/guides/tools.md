@@ -1,6 +1,6 @@
 # Tools Registry
 
-> CONCEPT:ECO-4.0 — Agent Tool System
+> CONCEPT:AU-ECO.messaging.native-backend-abstraction — Agent Tool System
 
 ## Overview
 

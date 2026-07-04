@@ -41,7 +41,7 @@ flowchart TB
     engine --- corr
 ```
 
-## 1. Gateway ⇄ MCP parity over a shared dispatch (CONCEPT:ECO-4.0)
+## 1. Gateway ⇄ MCP parity over a shared dispatch (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 **Context.** The GraphOS MCP tools and the gateway's REST routes both dispatch
 through the same in-process `_execute_tool()` → `IntelligenceGraphEngine`
@@ -73,7 +73,7 @@ parity (every MCP tool has a mounted REST twin; no phantom routes), so the
 collapsed surfaces can never silently drift; the granular router is additive and
 leaves that contract untouched.
 
-## 2. Native swarm supervisory plane (CONCEPT:OS-5.10)
+## 2. Native swarm supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail)
 
 **Context.** Supervisory data already exists — MASS swarm-health P1–P4
 (`graph/social_system.py`), per-agent circuit breakers, the durable session
@@ -91,7 +91,7 @@ it. Multi-agent containment + recovery are covered end-to-end by
 `tests/integration/test_fleet_chaos.py` (domain pause contains only its domain;
 concurrent goal loops honor pause with zero side effects).
 
-## 3. Durable execution on embedded SQLite (CONCEPT:ORCH-1.36)
+## 3. Durable execution on embedded SQLite (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating)
 
 **Context.** `DurableExecutionManager` persisted to an in-memory mock — it
 survived nothing. While the epistemic-graph engine is the durable authority for
@@ -122,7 +122,7 @@ reachable but uninvoked. It now runs on the real async paths via
 Covered by `tests/test_durable_execution.py` (async exactly-once + restart) and
 `tests/unit/test_goal_loop_durable.py` (live-path replay does not re-run).
 
-## 4. Cross-agent trace correlation (CONCEPT:OS-5.11)
+## 4. Cross-agent trace correlation (CONCEPT:AU-OS.observability.run-wide-correlation-id)
 
 **Context.** `@trace` nests spans within one process via contextvars, but a
 multi-agent run had no shared key and side-effects carried no correlation — "which
@@ -154,7 +154,7 @@ live goal-loop and dispatch paths and, with `state_db_uri`, shares Postgres
 checkpoints across hosts — the concrete first step; broader horizontal scale-out
 is tracked separately.
 
-## Wire contract integrity (CONCEPT:KG-2.19)
+## Wire contract integrity (CONCEPT:EG-KG.query.wire-protocol)
 
 The gateway/engine boundary is out-of-process MessagePack over UDS/TCP — there is
 **no PyO3 / FFI** — so the Python client mirrors the Rust `Method` enum by

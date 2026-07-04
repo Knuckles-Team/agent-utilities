@@ -1,4 +1,4 @@
-# Memory Hygiene (CONCEPT:KG-2.17)
+# Memory Hygiene (CONCEPT:EG-KG.compute.compiled-semantic-reasoner)
 
 ## Overview
 

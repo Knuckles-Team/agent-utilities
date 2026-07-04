@@ -86,14 +86,14 @@ class Orchestrator:
     ) -> str:
         """Execute a single agent against a task.
 
-        CONCEPT:ORCH-1.37 — ``return_mermaid`` forwards to :func:`run_agent` so the MCP
+        CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — ``return_mermaid`` forwards to :func:`run_agent` so the MCP
         layer can surface the routed-graph diagram (off by default for internal callers).
-        CONCEPT:ORCH-1.39 — ``context`` is the invoking agent's curated context, threaded to
+        CONCEPT:AU-ORCH.session.invoker-agent-handoff — ``context`` is the invoking agent's curated context, threaded to
         the spawned agent's prompt (budgeted to the model window).
-        CONCEPT:ECO-4.78 — ``memento_source`` scopes which compressed-memory stream primes
+        CONCEPT:AU-ECO.messaging.universal-graph-agent — ``memento_source`` scopes which compressed-memory stream primes
         the run (defaults to ``agent_name``); a session-scoped caller passes its session key
         so successive turns of one conversation share continuity through the core memory.
-        CONCEPT:ORCH-1.62 — ``execution_profile`` ("chat" vs the default "task") selects the
+        CONCEPT:AU-ORCH.execution.chat-profile-timeouts — ``execution_profile`` ("chat" vs the default "task") selects the
         per-node timeout budget. A chat-budget profile bounds each LLM round to tens of
         seconds (not 300 s) so a slow/degraded backend fails fast inside the chat budget;
         the messaging reply path passes ``"chat"``.
@@ -137,7 +137,7 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 
-        CONCEPT:ORCH-1.95 — close the execution seam. This previously constructed a
+        CONCEPT:AU-ORCH.execution.execution-seam-closure — close the execution seam. This previously constructed a
         generic ``AgentOrchestrationEngine`` whose no-completion-state path ran ONE
         ``dynamic_worker`` agent and never loaded the ingested
         ``WorkflowDefinition``/``WorkflowStep`` DAG — so a stored/ingested workflow

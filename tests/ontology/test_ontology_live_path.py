@@ -16,7 +16,7 @@ plus the cross-cutting wiring: the facade exposes ``ontology``; the OWL bridge
 PROMOTABLE_NODE_TYPES carries the new ontology-system node types; and the
 ``ontology_system.ttl`` declares the promoted classes.
 
-CONCEPT:KG-2.38 / KG-2.39 / KG-2.40 / KG-2.41 / KG-2.47 / KG-2.26.
+CONCEPT:AU-KG.ontology.conformance-check / KG-2.39 / KG-2.40 / KG-2.41 / KG-2.47 / KG-2.26.
 """
 
 from __future__ import annotations

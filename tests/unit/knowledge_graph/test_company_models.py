@@ -1,7 +1,7 @@
 """Tests for Company Operations Pydantic Models.
 
-CONCEPT:KG-2.6 — Company Operations Domain
-CONCEPT:KG-2.1 — Company Intelligence Graph
+CONCEPT:AU-KG.research.research-pipeline-runner — Company Operations Domain
+CONCEPT:AU-KG.memory.tiered-memory-caching — Company Intelligence Graph
 
 Validates all company Pydantic models, their field constraints,
 and OWL ontology alignment.

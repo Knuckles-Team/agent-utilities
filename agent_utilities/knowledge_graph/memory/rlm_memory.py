@@ -1,6 +1,6 @@
 """RLM-based Semantic Memory Extraction.
 
-CONCEPT:KG-2.5 — RLM Memory Extraction Signature
+CONCEPT:AU-KG.memory.rlm-memory-extraction — RLM Memory Extraction Signature
 
 Defines the Pydantic-based RLM signatures for evaluating
 and extracting high-confidence temporal facts from unstructured context.

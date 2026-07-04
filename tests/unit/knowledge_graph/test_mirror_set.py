@@ -1,4 +1,4 @@
-"""Mirror-set construction (CONCEPT:KG-2.74).
+"""Mirror-set construction (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 A single-writer, file-locked mirror (LadybugDB/Kuzu) must be owned by exactly one
 process — the host write daemon. The many client MCP processes share the same

@@ -1,4 +1,4 @@
-"""Phase 3 — ArchiMate bidirectional + Egeria sink (CONCEPT:KG-2.9)."""
+"""Phase 3 — ArchiMate bidirectional + Egeria sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

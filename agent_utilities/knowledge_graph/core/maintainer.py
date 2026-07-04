@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Knowledge Graph Maintenance & Pruning.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 """
 
 import logging

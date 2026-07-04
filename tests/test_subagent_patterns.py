@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ORCH-1.3 — Subagent Lifecycle Patterns."""
+"""Tests for CONCEPT:AU-ORCH.execution.execution-budget-caps — Subagent Lifecycle Patterns."""
 
 import pytest
 from pydantic import ValidationError

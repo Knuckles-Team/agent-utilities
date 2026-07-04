@@ -24,10 +24,10 @@ catching confident-but-wrong first passes Quarq cannot.
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.3 | Unified Retrieval & Graph Integrity | 0.88 | KG-2 |
+| KG-2.3 | Unified Retrieval & Graph Integrity | 0.88 | EG-KG.compute.backend |
 | AHE-3.4 | Query Decomposition (`retrieve_decomposed`) | 0.79 | AHE-3 |
-| KG-2.6 | Retrieval Quality Gate | 0.76 | KG-2 |
-| KG-2.11 | Bi-Temporal Memory (recency) | 0.62 | KG-2 |
+| KG-2.6 | Retrieval Quality Gate | 0.76 | EG-KG.compute.backend |
+| KG-2.11 | Bi-Temporal Memory (recency) | 0.62 | EG-KG.compute.backend |
 | ORCH-1.27 | Role-Specialized Routing (planner) | 0.55 | ORCH-1 |
 
 ### Extension Analysis
@@ -39,7 +39,7 @@ catching confident-but-wrong first passes Quarq cannot.
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:KG-2.12`
+- **Proposed ID**: `CONCEPT:AU-KG.retrieval.memory-first-retrieval`
 - **Augments Pillar**: KG
 - **15-Phase Pipeline Integration**: Phase 3 (Topology/embeddings) for retrieval; query-time orchestration.
 - **Justification**: KG-2.3 covers the hybrid retriever mechanics; KG-2.12 is the multi-stage memory-recall *policy* (HyDE plan + dual threshold + gated two-pass + fidelity ledger) layered atop it.

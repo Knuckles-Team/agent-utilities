@@ -2,11 +2,11 @@
 
 > The architecture-doc form of the canonical `AGENTS.md` discipline
 > *"Delegate to the KG + graph-os — you are the orchestrator + exception-resolver"*.
-> Concepts: KG-2.296 (`:ToolCall` / `RunTrace` provenance) · ORCH-1.98/1.99
-> (resource-priority edict) · ECO-4.99 (full engine MCP/REST surface) · ORCH-1.95/96/97
-> (the execution seam) · ORCH-1.100/1.101 (the `agent-utilities-expert`) · KG-2.297
-> (cross-layer troubleshooting) · KG-2.78 / KG-2.290/2.291 (the Loop engine + evolution
-> state) · OS-5.73 (the spec review-veto gate) · AHE-3.x (the hardening loop).
+> Concepts: KG-2.296 (`:ToolCall` / `RunTrace` provenance) · AU-ORCH.scheduling.resource-priority-edict/1.99
+> (resource-priority edict) · AU-ECO.mcp.full-api-mcp-surface (full engine MCP/REST surface) · ORCH-1.95/96/97
+> (the execution seam) · ORCH-1.100/1.101 (the `agent-utilities-expert`) · AU-KG.retrieval.kg-4
+> (cross-layer troubleshooting) · AU-KG.research.these-properties-carry / AU-KG.research.evolutionstate-live-surface-per/2.291 (the Loop engine + evolution
+> state) · AU-OS.config.autonomous-spec-develop-off (the spec review-veto gate) · AU-AHE.optimization.telemetry-optimization (the hardening loop).
 
 ## The principle
 
@@ -44,12 +44,12 @@ To learn how an area works, where a symbol is used, or what a change impacts, qu
 graph_analyze action=code_context  query="<area/symbol/question>"  target=how|usage|impact
 ```
 
-(REST `POST /graph/analyze/code-context`, CONCEPT:KG-2.134.) `how` returns a definition +
+(REST `POST /graph/analyze/code-context`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer.) `how` returns a definition +
 what it calls + owning CONCEPT + docs + routes; `usage` returns callers (`file:line`) +
-near-clones + the cross-repo usage view (KG-2.135); `impact` returns transitive callers
+near-clones + the cross-repo usage view (AU-KG.retrieval.every-usage-published-symbol); `impact` returns transitive callers
 (blast radius) + git change-coupling. Read only the few `file:line`s you must **edit**,
 not to understand — then close the loop with `graph_feedback correction_type=reads_avoided`
-(AHE-3.61) so the retriever learns which answers replace a read. If an area is uningested,
+(AU-AHE.evaluation.reads-avoided-feedback) so the retriever learns which answers replace a read. If an area is uningested,
 `source_sync source=all mode=delta` first, then fall back to grep. (See
 [`codebase-context.md`](codebase-context.md).)
 
@@ -75,13 +75,13 @@ local vLLM against real MCP tools and writes full provenance. Reach the rest of 
 
 ### 3. Evolve / manage the ecosystem → the loop engine + review-veto
 
-Drive the **Loop engine** (`graph_loops` / `LoopController`, KG-2.78) and the evolution
-flywheel + the AHE-3.x hardening loop — and **review** their proposals rather than
+Drive the **Loop engine** (`graph_loops` / `LoopController`, AU-KG.research.these-properties-carry) and the evolution
+flywheel + the AU-AHE.optimization.telemetry-optimization hardening loop — and **review** their proposals rather than
 hand-doing what the flywheel produces. The research→assimilation→distill→develop pipeline
-turns research/concepts into first-class, queryable `:SpecProposal` nodes (KG-2.292) that
-enter the promotion pipeline **only after the OS-5.73 spec-review checkpoint approves them**
+turns research/concepts into first-class, queryable `:SpecProposal` nodes (AU-KG.research.close-distill-develop-seam) that
+enter the promotion pipeline **only after the AU-OS.config.autonomous-spec-develop-off spec-review checkpoint approves them**
 — propose-and-hold (veto) is the default. Read live `EvolutionState` (`graph_loops
-action=state`, KG-2.290) and the saturation gauge (KG-2.291) to know which direction is
+action=state`, AU-KG.research.evolutionstate-live-surface-per) and the saturation gauge (AU-KG.research.saturation-gauge-aggregates-four) to know which direction is
 exhausted, and approve/veto rather than implement by hand.
 
 ```mermaid
@@ -89,22 +89,22 @@ flowchart TD
     H["Claude / harness<br/>(orchestrator + exception-resolver)"]
     H -->|understand code| KG["graph_analyze code_context<br/>(KG-2.134/135) → cited answer"]
     H -->|do a task| EX["graph_orchestrate execute_agent/execute_workflow<br/>on agent-utilities-expert / an ingested skill (local LLM)"]
-    H -->|evolve/manage| LOOP["graph_loops + evolution flywheel<br/>:SpecProposal → OS-5.73 review-veto"]
-    EX --> ENGINE["engine_&lt;domain&gt; surface (ECO-4.99)<br/>+ multiplexer meta-tools"]
-    EX --> PROV[":ToolCall / RunTrace provenance (KG-2.296)<br/>+ run_id handle (ORCH-1.97)"]
+    H -->|evolve/manage| LOOP["graph_loops + evolution flywheel<br/>:SpecProposal → AU-OS.config.autonomous-spec-develop-off review-veto"]
+    EX --> ENGINE["engine_&lt;domain&gt; surface (AU-ECO.mcp.full-api-mcp-surface)<br/>+ multiplexer meta-tools"]
+    EX --> PROV[":ToolCall / RunTrace provenance (KG-2.296)<br/>+ run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
     PROV -->|query: what did it do?| H
-    PROV -->|on failure| TS["troubleshoot provider (KG-2.297)<br/>read RunTrace → find why"]
+    PROV -->|on failure| TS["troubleshoot provider (AU-KG.retrieval.kg-4)<br/>read RunTrace → find why"]
     TS --> FIX["fix the gap: missing skill / unbound tool /<br/>prompt / ingestion"]
-    FIX -->|re-delegate + harden (AHE-3.x)| EX
-    EDICT["resource-priority edict (ORCH-1.98/99)<br/>orchestration outranks ingestion"] -.guards.- EX
+    FIX -->|re-delegate + harden (AU-AHE.optimization.telemetry-optimization)| EX
+    EDICT["resource-priority edict (AU-ORCH.scheduling.resource-priority-edict/99)<br/>orchestration outranks ingestion"] -.guards.- EX
     EDICT -.guards.- H
 ```
 
-## The full engine surface available to delegates (ECO-4.99)
+## The full engine surface available to delegates (AU-ECO.mcp.full-api-mcp-surface)
 
 agent-utilities **is** the native API/MCP layer for the Rust epistemic-graph engine. The
 curated high-level `graph_*` / `ontology_*` / `object_*` tools cover the synthesized,
-agent-facing operations; **ECO-4.99** adds complete **1:1 coverage of the engine's
+agent-facing operations; **AU-ECO.mcp.full-api-mcp-surface** adds complete **1:1 coverage of the engine's
 low-level capability surface** so no engine method is reachable only from a Python import.
 A delegate (or the harness) reaches it through the multiplexer like any other tool.
 
@@ -113,7 +113,7 @@ A delegate (or the harness) reaches it through the multiplexer like any other to
   `getattr(client.<domain>, action)(**params_json)`, with its REST twin `/engine/<domain>`
   registered in the **same** call (surface-parity gate stays green). Implementation:
   `agent_utilities/mcp/tools/engine_tools.py` → `register_engine_tools`.
-- **Drift-free by introspection (KG-2.278)** — the action set per domain is *discovered*
+- **Drift-free by introspection (AU-KG.compute.engine-surface-manifest)** — the action set per domain is *discovered*
   by introspecting the `epistemic_graph` client sub-client classes (the 19 sub-clients =
   `nodes`, `edges`, `graph`, `analytics`, `lifecycle`, `reasoning`, `ledger`, `channels`,
   `tenants`, `resharding`, `consensus`, `finance`, `datascience`, `query`, `txn`,
@@ -136,13 +136,13 @@ Every delegated run writes its provenance to the epistemic-graph: a run-level `R
 (`trace:<run_id>`) and a first-class `:ToolCall` node per tool call the local LLM made,
 linked `(:RunTrace)-[:MADE_TOOL_CALL]->(:ToolCall)`, capturing `tool_name`, `server`,
 secret-redacted `args`, `result_preview`, `error`, `status`, and `sequence`. The MCP
-`execute_agent` / `execute_workflow` surfaces return a **`run_id`** handle (ORCH-1.97) so a
+`execute_agent` / `execute_workflow` surfaces return a **`run_id`** handle (AU-ORCH.execution.rich-result-wrapper) so a
 delegation is trackable. This is the keystone: **full visibility + steerability is
 guaranteed by design** — query a run over graph-os and see exactly which tools the local
 LLM called, with what args, and what came back. Mechanics in
 [`orchestration-execution-seam.md`](orchestration-execution-seam.md).
 
-### The resource-priority edict (ORCH-1.98/1.99)
+### The resource-priority edict (AU-ORCH.scheduling.resource-priority-edict/1.99)
 
 Interactive / orchestration work **outranks** background ingestion, so your orchestration
 is never starved by the system's own ingestion. The engine keeps a **reserved interactive
@@ -169,7 +169,7 @@ When a delegated run fails, is ungrounded, or the system couldn't self-troublesh
    data/ingestion — fix the one thing that made the local LLM fail.
 4. **Re-delegate**, and **harden** so the system self-handles that case next time: add the
    skill, fix the tool binding, harden the prompt, capture the gotcha via `graph_feedback`
-   — the AHE-3.x hardening loop. Every exception you resolve should make the autonomous
+   — the AU-AHE.optimization.telemetry-optimization hardening loop. Every exception you resolve should make the autonomous
    system one step more autonomous.
 
 The goal is to orchestrate **completely off the harness**: the local LLM + graph-os handle

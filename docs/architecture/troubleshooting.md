@@ -1,9 +1,9 @@
 # Cross-layer deployment troubleshooting — the `troubleshoot` context provider
 
-> CONCEPT:KG-2.297 (deployment-troubleshooting expertise — cross-layer diagnose
-> provider + expert prompt). Builds on the universal context plane (KG-2.136), the
+> CONCEPT:AU-KG.retrieval.kg-4 (deployment-troubleshooting expertise — cross-layer diagnose
+> provider + expert prompt). Builds on the universal context plane (AU-KG.retrieval.route-question-its-domain), the
 > `:RunTrace` / `:ToolCall` provenance (KG-2.296), and the ops diagnosis provider
-> (KG-2.137).
+> (AU-KG.retrieval.ops-context).
 > A per-layer diagnose playbook, surfaced as a **`troubleshoot` context provider** in the
 > universal context plane: when a delegated run fails or a deployment misbehaves, the
 > system **self-diagnoses across every layer — app trace → container → system →
@@ -102,7 +102,7 @@ layer maps a question to the **exact existing tool** (no new logging):
 
 ```mermaid
 flowchart TD
-    S["symptom: failed run / 502 / crashloop / slow"] --> D["graph_analyze action=explain<br/>target=troubleshoot:run|service (KG-2.297)"]
+    S["symptom: failed run / 502 / crashloop / slow"] --> D["graph_analyze action=explain<br/>target=troubleshoot:run|service (AU-KG.retrieval.kg-4)"]
     D --> L1["1 · APP-TRACE<br/>:RunTrace / :ToolCall (KG-2.296)<br/>graph_query · graph_observe trace_rootcause"]
     L1 --> L2["2 · CONTAINER<br/>cm__container_operations action=logs<br/>exit 137=OOM · 143=SIGTERM · 0+restart=healthcheck"]
     L2 --> L3["3 · SYSTEM (host OS)<br/>sm__query_system_logs · sm__list_services<br/>sm__get_process_details · sm__storage_health"]
@@ -112,11 +112,11 @@ flowchart TD
 
 | Layer | Question | Healthy signal | Unhealthy signal & next move |
 |---|---|---|---|
-| **1 · App / agent-run** | What did the delegated run actually do, and where did it fail? | `:RunTrace status=ok`; every `:ToolCall status=ok` | a failing `:ToolCall` — its `tool_name` + `args` + `error` are usually the root. `graph_query` the chain, or `graph_observe action=trace_rootcause` for the Trace/Span/Generation subgraph (OS-5.68); live queue/lane health via `graph_analyze action=explain target="ops:health"` (KG-2.137). |
+| **1 · App / agent-run** | What did the delegated run actually do, and where did it fail? | `:RunTrace status=ok`; every `:ToolCall status=ok` | a failing `:ToolCall` — its `tool_name` + `args` + `error` are usually the root. `graph_query` the chain, or `graph_observe action=trace_rootcause` for the Trace/Span/Generation subgraph (AU-OS.config.model-factory-passthrough); live queue/lane health via `graph_analyze action=explain target="ops:health"` (AU-KG.retrieval.ops-context). |
 | **2 · Container / service** | Is the container crashing, and why (exit code)? | running, healthcheck passing | `cm__container_operations action=logs host=<alias>` (Docker-over-SSH). **Exit 137 = OOM-killed, 143 = SIGTERM, 0-but-restarting = healthcheck failing.** On swarm: `docker service ps <svc> --no-trunc` + `docker service logs <svc>`. |
 | **3 · System / host OS** | Is the host OS the cause (OOM-killer, disk full, failed unit)? | units active, disk healthy, no OOM in dmesg | `sm__query_system_logs` (journald by unit/priority), `sm__list_services` (a failed unit), `sm__get_process_details` (a runaway PID — e.g. an orphaned scanner at 900% CPU), `sm__storage_health` (disk). The dmesg OOM-killer line explains an exit-137 seen at layer 2. |
 | **4 · Host reachability** | Is the **host** down, or only the **service**? (the decisive split) | SSH connects; container present | Resolve the host from the inventory (`cm__list_hosts` / `tm__*`) — an `.arpa` **502 means the edge is up but the upstream isn't**, so SSH the actual upstream, not the edge. Then `tm__remote` / `ssh`: **"No route to host" / timeout = HOST DOWN** (operator/infra — nothing to restart service-side); **connects but the container is stopped/absent/crash-looping = SERVICE DOWN** (restart it, then read layer 2 for the crash cause). |
-| **5 · Cross-cutting** | Is this a fleet-wide pattern (latency, error spike, saturation)? | no firing alerts; breakers closed; queues drained | `lgtm__grafana` (Loki logs / Tempo traces / Mimir+Grafana metrics) + `lgtm__alertmanager`; the gateway `/metrics` series (OS-5.23) — `ENGINE_BREAKER_STATE`, `KG_INGEST_QUEUE_DEPTH`, `DISPATCH_QUEUE_DEPTH`, `MCP_CHILD_BREAKER_STATE` — show breaker/queue/child health at a glance. |
+| **5 · Cross-cutting** | Is this a fleet-wide pattern (latency, error spike, saturation)? | no firing alerts; breakers closed; queues drained | `lgtm__grafana` (Loki logs / Tempo traces / Mimir+Grafana metrics) + `lgtm__alertmanager`; the gateway `/metrics` series (AU-OS.observability.no-op-without-metrics) — `ENGINE_BREAKER_STATE`, `KG_INGEST_QUEUE_DEPTH`, `DISPATCH_QUEUE_DEPTH`, `MCP_CHILD_BREAKER_STATE` — show breaker/queue/child health at a glance. |
 
 ### The host-vs-service split (the most common mistake)
 
@@ -133,7 +133,7 @@ breaks nested single-quotes.)
 The self-test across all layers is **`agent-utilities-doctor`** (CLI, or MCP
 `graph_configure action=system_doctor`, or REST `/graph/configure/doctor`). Its checks —
 `engine`, `graph_backend`, `graph_connections`, `mcp_fleet` (live-probing),
-`ingestion_coverage` (OS-5.47), `skills` (OS-5.52), `bus`, `observability`, `secrets`,
+`ingestion_coverage` (AU-OS.deployment.flagging-repos), `skills` (OS-5.52), `bus`, `observability`, `secrets`,
 `auth` — are the one-shot answer to *which layer is unhealthy*, each with a remediation +
 the skill that fixes it. Run the doctor first, then drill into the failing layer with the
 provider's per-layer tool.
@@ -150,7 +150,7 @@ provider's per-layer tool.
   only at the host/container layer.
 - **Harden after every resolution.** Capture the gotcha via `graph_feedback`, fix the
   binding, add the missing skill — so the system self-troubleshoots that case next time
-  (the AHE-3.x hardening loop).
+  (the AU-AHE.optimization.telemetry-optimization hardening loop).
 - The `agent-utilities-expert` persona (sections 10–11 of its prompt) drives this exact
   playbook, so a delegated expert run already troubleshoots itself across layers — see
   [`agent-utilities-expert.md`](agent-utilities-expert.md).

@@ -1,4 +1,4 @@
-"""Capability write-back sink tests (CONCEPT:KG-2.8).
+"""Capability write-back sink tests (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Fake Archi/LeanIX clients assert only provisional/derived capabilities are pushed,
 existing names are skipped (idempotent), and one failing client never aborts the

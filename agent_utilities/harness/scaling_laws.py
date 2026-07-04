@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Multi-agent scaling-law measurement.
 
-CONCEPT:SAFE-1.2 — a multi-agent scaling-law harness that sweeps collective size over a fixed task and fits capability ~ N^alpha so the platform can measure whether adding agents helps super- or sub-linearly instead of assuming it does
+CONCEPT:AU-OS.scaling.multi-agent-scaling-law — a multi-agent scaling-law harness that sweeps collective size over a fixed task and fits capability ~ N^alpha so the platform can measure whether adding agents helps super- or sub-linearly instead of assuming it does
 
 The paper (§5.4/§7.5) asks the pivotal open question: does collective capability emerge
 *linearly or superlinearly* with the size, density and speed of organised collaboration —

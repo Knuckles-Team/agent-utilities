@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum.
+"""CONCEPT:AU-AHE.evaluation.backtest-harness — Horizon-Aware Task Curriculum.
 
 Strangled by graph/planning/ (Plan 03 Step 4): re-exported via
 ``agent_utilities.graph.planning.curriculum``. This module remains the live
@@ -25,12 +25,12 @@ Key primitives:
   that enables step-level reward attribution.
 
 Integrates with:
-    - CONCEPT:ORCH-1.1 (HTN Planning): Macro-actions as plan step composites
-    - CONCEPT:ORCH-1.4 (Swarm Presets): Curriculum stages as DAG phases
-    - CONCEPT:AHE-3.4 (Heavy Thinking): Trajectory diversity via horizon variants
-    - CONCEPT:AHE-3.1 (Reward Decomposition): Step-level checkpoint rewards
+    - CONCEPT:AU-ORCH.planning.recursion-nesting-depth (HTN Planning): Macro-actions as plan step composites
+    - CONCEPT:AU-ORCH.adapter.kg-graph-materialization (Swarm Presets): Curriculum stages as DAG phases
+    - CONCEPT:AU-AHE.evaluation.backtest-harness (Heavy Thinking): Trajectory diversity via horizon variants
+    - CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort (Reward Decomposition): Step-level checkpoint rewards
 
-See docs/overview.md §CONCEPT:AHE-3.4
+See docs/overview.md §CONCEPT:AU-AHE.evaluation.backtest-harness
 """
 
 
@@ -81,7 +81,7 @@ class PromotionPolicy(StrEnum):
 class MacroAction(BaseModel):
     """A composite action that bundles multiple atomic steps.
 
-    CONCEPT:AHE-3.4 — Macro-actions reduce effective horizon length by
+    CONCEPT:AU-AHE.evaluation.backtest-harness — Macro-actions reduce effective horizon length by
     combining sequential atomic actions into single execution primitives.
 
     Example: In a code-editing agent, the atomic actions ``open_file``,
@@ -117,7 +117,7 @@ class MacroAction(BaseModel):
 class SubgoalCheckpoint(BaseModel):
     """An intermediate milestone within a long-horizon task.
 
-    CONCEPT:AHE-3.4 — Subgoal checkpoints decompose trajectory-level
+    CONCEPT:AU-AHE.evaluation.backtest-harness — Subgoal checkpoints decompose trajectory-level
     goals into step-level verifiable milestones, enabling credit
     assignment at intermediate points rather than only at trajectory end.
 
@@ -175,7 +175,7 @@ class HorizonStageConfig(BaseModel):
 class HorizonCurriculum:
     """Progressive horizon scheduling engine.
 
-    CONCEPT:AHE-3.4 — Implements the key insight from Long-Horizon
+    CONCEPT:AU-AHE.evaluation.backtest-harness — Implements the key insight from Long-Horizon
     Training research: models trained on reduced horizons generalize
     better to longer horizons.  This engine stages task execution through
     progressively longer horizons:
@@ -212,7 +212,7 @@ class HorizonCurriculum:
         self._ema_success: list[float] = [0.0 for _ in self.stages]
 
         logger.info(
-            "[CONCEPT:AHE-3.4] Horizon Curriculum initialized: %d stages, policy=%s",
+            "[CONCEPT:AU-AHE.evaluation.backtest-harness] Horizon Curriculum initialized: %d stages, policy=%s",
             len(self.stages),
             self.promotion_policy.value,
         )
@@ -314,7 +314,7 @@ class HorizonCurriculum:
 
         if promoted:
             logger.info(
-                "[CONCEPT:AHE-3.4] Promoted to stage %s (horizon=%d)",
+                "[CONCEPT:AU-AHE.evaluation.backtest-harness] Promoted to stage %s (horizon=%d)",
                 self.current_stage.stage.value,
                 self.current_stage.max_horizon,
             )
@@ -401,7 +401,7 @@ class HorizonCurriculum:
         self._current_stage_idx = 0
         self._episode_results = [[] for _ in self.stages]
         self._ema_success = [0.0 for _ in self.stages]
-        logger.info("[CONCEPT:AHE-3.4] Curriculum reset to stage MACRO")
+        logger.info("[CONCEPT:AU-AHE.evaluation.backtest-harness] Curriculum reset to stage MACRO")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize curriculum state for persistence or logging.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CONCEPT:AHE-3.12 — LongMemEval-S regression gate.
+"""CONCEPT:AU-AHE.evaluation.longmemeval-regression-gate — LongMemEval-S regression gate.
 
 CI floor check for the memory-first stack. Reads a results JSON (a list of per-question
 ``{"correct": bool, "question_type": str}`` rows, as emitted by ``GET /benchmark/report``'s

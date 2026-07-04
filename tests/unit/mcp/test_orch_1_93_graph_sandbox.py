@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.93 — graph_sandbox operator surface: status/warm/reap on both surfaces."""
+"""CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface — graph_sandbox operator surface: status/warm/reap on both surfaces."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def sandbox_tool():
 
 
 def test_registered_on_both_surfaces():
-    # REST twin auto-generated from the route table (CONCEPT:ORCH-1.93).
+    # REST twin auto-generated from the route table (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface).
     assert kg_server.ACTION_TOOL_ROUTES.get("graph_sandbox") == "/graph/sandbox"
 
 

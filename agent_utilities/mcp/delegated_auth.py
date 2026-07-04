@@ -22,7 +22,7 @@ server layer.  The downstream call uses a service-account credential,
 and the user's identity is logged for auditing.  Use
 :func:`get_user_identity` for this pattern.
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 from __future__ import annotations

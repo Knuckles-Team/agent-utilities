@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Versioned KG Mutations (CONCEPT:KG-2.0 Enhancement).
+"""Versioned KG Mutations (CONCEPT:AU-KG.txn.git-like-versioning Enhancement).
 
 Derived from: Evolving Idea Graphs with Learnable Edits-and-Commits
 for Multi-Agent Scientific Ideation (arXiv:2605.04922v1, Score 11.2)
@@ -34,7 +34,7 @@ class MutationType(StrEnum):
 
 
 class KGMutation(BaseModel):
-    """A single mutation operation on the Knowledge Graph (CONCEPT:KG-2.0)."""
+    """A single mutation operation on the Knowledge Graph (CONCEPT:AU-KG.txn.git-like-versioning)."""
 
     mutation_type: MutationType
     node_id: str = ""
@@ -46,7 +46,7 @@ class KGMutation(BaseModel):
 
 
 class KGTransaction(BaseModel):
-    """A batch of KG mutations to be applied atomically (CONCEPT:KG-2.0).
+    """A batch of KG mutations to be applied atomically (CONCEPT:AU-KG.txn.git-like-versioning).
 
     Example::
         tx = KGTransaction(description="Add research findings")
@@ -105,7 +105,7 @@ class KGTransaction(BaseModel):
 
 
 class KGCommit(BaseModel):
-    """Result of committing a transaction (CONCEPT:KG-2.0)."""
+    """Result of committing a transaction (CONCEPT:AU-KG.txn.git-like-versioning)."""
 
     commit_id: str = Field(
         default_factory=lambda: (
@@ -143,7 +143,7 @@ class KGDiff(BaseModel):
 class KGVersionEngine:
     """Versioned KG mutation engine with commit/rollback semantics.
 
-    CONCEPT:KG-2.0 — Provides git-like transactional mutation for KG evolution.
+    CONCEPT:AU-KG.txn.git-like-versioning — Provides git-like transactional mutation for KG evolution.
 
     Example::
         engine = KGVersionEngine()
@@ -314,7 +314,7 @@ class KGVersionEngine:
 
 
 class SpeculativeGraphBrancher:
-    """Manages speculative graph branches and merges them atomically (CONCEPT:KG-2.7).
+    """Manages speculative graph branches and merges them atomically (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
     Allows creating concurrent speculative branches (representing KGTransactions)
     which execute independently and merge atomically via logical conflict validation.

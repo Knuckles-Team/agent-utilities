@@ -1,5 +1,5 @@
 """
-Research Autopilot — CONCEPT:KG-2.6
+Research Autopilot — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Automated hypothesis → backtest → report loop for overnight
 strategy research and discovery.

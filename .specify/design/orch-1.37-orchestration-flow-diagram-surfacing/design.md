@@ -32,8 +32,8 @@ ingested MCP tools. Trace of where the diagram exists vs. where it is dropped:
 | ORCH-1.8 | Parallel Engine / Visualizer (`WorkflowVisualizer`) | ~0.85 | ORCH-1 |
 | ORCH-1.21 | Execution provenance tracking (KG-to-LLM bridge) | ~0.72 | ORCH-1 |
 | ORCH-1.24 | Workflow Lifecycle Management | ~0.66 | ORCH-1 |
-| KG-2.24 | Live Refreshable Artifact | ~0.55 | KG-2 |
-| ECO-4.x | MCP Tool Exposure | ~0.50 | ECO-4 |
+| KG-2.24 | Live Refreshable Artifact | ~0.55 | EG-KG.compute.backend |
+| ECO-4.x | MCP Tool Exposure | ~0.50 | AU-ECO.connector.plane-provisioning-auth |
 
 ### Extension Analysis
 
@@ -46,7 +46,7 @@ ingested MCP tools. Trace of where the diagram exists vs. where it is dropped:
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:ORCH-1.37`
+- **Proposed ID**: `CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid`
 - **Augments Pillar**: ORCH (sub-concept of ORCH-1.8; wired through ORCH-1.21 provenance / ECO MCP exposure)
 - **15-Phase Pipeline Integration**: Phase 14 (Observability/Reporting) — diagram emitted with the orchestration result.
 - **Justification**: ORCH-1.8 *produces* the flow diagram; ORCH-1.37 adds the orthogonal axis

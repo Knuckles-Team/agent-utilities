@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
 
 
-"""Prompt Injection Scanner (CONCEPT:OS-5.1).
+"""Prompt Injection Scanner (CONCEPT:AU-OS.safety.prompt-injection-scanner).
 
 Pattern-based runtime threat detection for agent tool calls and
 conversation messages.  Adapted from Goose's ``scanner.rs`` and
@@ -35,7 +35,7 @@ Key differences from Goose:
 * **KG-native findings** — detected threats are persisted as
   ``SecurityFindingNode`` instances in the Knowledge Graph, enabling
   OWL transitive risk propagation via ``propagatesRiskTo``
-  (CONCEPT:KG-2.6).
+  (CONCEPT:AU-KG.research.research-pipeline-runner).
 * **PolicyEngine adapter** — ``PromptInjectionPolicy`` plugs directly
   into the existing ``PolicyEngine`` for unified guardrail evaluation.
 """
@@ -289,7 +289,7 @@ _INJECTION_PATTERNS: list[ThreatPattern] = [
     ),
 ]
 
-# -- Jailbreak attack patterns (SoK-derived, CONCEPT:OS-5.1) ---------------
+# -- Jailbreak attack patterns (SoK-derived, CONCEPT:AU-OS.safety.prompt-injection-scanner) ---------------
 # Derived from: SoK: Robustness in LLMs against Jailbreak Attacks
 # (arXiv:2605.05058v1, Score 16.2)
 #
@@ -301,7 +301,7 @@ _INJECTION_PATTERNS: list[ThreatPattern] = [
 
 
 class JailbreakCategory(StrEnum):
-    """Jailbreak attack categories from SoK taxonomy (CONCEPT:OS-5.1)."""
+    """Jailbreak attack categories from SoK taxonomy (CONCEPT:AU-OS.safety.prompt-injection-scanner)."""
 
     TEMPLATE_BASED = "template_based"
     OPTIMIZATION_BASED = "optimization_based"
@@ -482,10 +482,10 @@ class ScanResult(BaseModel):
 class SecurityFindingNode(BaseModel):
     """Knowledge Graph node for persisted security findings.
 
-    CONCEPT:OS-5.1 — Prompt Injection Scanner
+    CONCEPT:AU-OS.safety.prompt-injection-scanner — Prompt Injection Scanner
 
     Detected threats are persisted to the KG so that OWL transitive
-    risk propagation (``propagatesRiskTo``, CONCEPT:KG-2.6) can
+    risk propagation (``propagatesRiskTo``, CONCEPT:AU-KG.research.research-pipeline-runner) can
     track cascading risk across agents and sessions.
     """
 
@@ -509,7 +509,7 @@ class SecurityFindingNode(BaseModel):
 class PromptInjectionScanner:
     """Pattern-based prompt injection and command injection scanner.
 
-    CONCEPT:OS-5.1 — Prompt Injection Scanner
+    CONCEPT:AU-OS.safety.prompt-injection-scanner — Prompt Injection Scanner
 
     Adapted from Goose's ``PromptInjectionScanner`` (Rust) with the
     following design choices:
@@ -718,7 +718,7 @@ class PromptInjectionScanner:
 class PromptInjectionPolicy:
     """PolicyEngine-compatible adapter for the PromptInjectionScanner.
 
-    CONCEPT:OS-5.1 — Prompt Injection Scanner
+    CONCEPT:AU-OS.safety.prompt-injection-scanner — Prompt Injection Scanner
 
     Plugs into the existing :class:`PolicyEngine` from
     ``guardrails.py``.  Evaluates combined input + output text for
@@ -827,7 +827,7 @@ logger = logging.getLogger(__name__)
 
 
 class GuardrailAction(StrEnum):
-    """Action to take when a guardrail is triggered. CONCEPT:OS-5.1"""
+    """Action to take when a guardrail is triggered. CONCEPT:AU-OS.safety.prompt-injection-scanner"""
 
     BLOCK = "block"
     REDACT = "redact"
@@ -836,14 +836,14 @@ class GuardrailAction(StrEnum):
 
 
 class GuardrailPhase(StrEnum):
-    """Phase at which the guardrail runs. CONCEPT:OS-5.1"""
+    """Phase at which the guardrail runs. CONCEPT:AU-OS.safety.prompt-injection-scanner"""
 
     INPUT = "input"
     OUTPUT = "output"
 
 
 class GuardrailRule(BaseModel):
-    """A single guardrail rule definition. CONCEPT:OS-5.1
+    """A single guardrail rule definition. CONCEPT:AU-OS.safety.prompt-injection-scanner
 
     Ported from MATE's guardrail config JSON schema. Each rule
     defines a pattern (regex or keyword), an action, and the phase
@@ -866,7 +866,7 @@ class GuardrailRule(BaseModel):
 
 
 class GuardrailResult(BaseModel):
-    """Result of a single guardrail check. CONCEPT:OS-5.1"""
+    """Result of a single guardrail check. CONCEPT:AU-OS.safety.prompt-injection-scanner"""
 
     rule_id: str = ""
     guardrail_type: str = ""
@@ -880,7 +880,7 @@ class GuardrailResult(BaseModel):
 
 
 class GuardrailCheckSummary(BaseModel):
-    """Aggregated results from checking all guardrail rules. CONCEPT:OS-5.1"""
+    """Aggregated results from checking all guardrail rules. CONCEPT:AU-OS.safety.prompt-injection-scanner"""
 
     phase: GuardrailPhase = GuardrailPhase.INPUT
     total_rules_checked: int = 0
@@ -891,7 +891,7 @@ class GuardrailCheckSummary(BaseModel):
 
 
 class GuardrailEngine:
-    """Push-based guardrail interception engine. CONCEPT:OS-5.1
+    """Push-based guardrail interception engine. CONCEPT:AU-OS.safety.prompt-injection-scanner
 
     Ported from MATE's guardrail_callback.py. Provides automatic
     input/output interception with block, redact, and warn actions.

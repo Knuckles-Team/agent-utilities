@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """CLI: ingest path(s)/URL(s) into the live Knowledge Graph.
 
-CONCEPT:KG-2.7 — A thin process-boundary entry point over the standardized
+CONCEPT:AU-KG.ingest.process-boundary-entrypoint — A thin process-boundary entry point over the standardized
 ``IngestionEngine`` so cross-package tools (e.g. the universal-skills
 ``web-crawler`` / ``skill-graph-builder``) can route content INTO the KG without
 importing agent-utilities — they shell out to::

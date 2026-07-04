@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cross-surface session continuity for the AG-UI / streaming REST gateway.
 
-CONCEPT:ORCH-1.104 — Unified Agent Entrypoint: shared KG memory + provenance for the
+CONCEPT:AU-ORCH.session.session-continuity-entrypoint — Unified Agent Entrypoint: shared KG memory + provenance for the
 streaming surface.
 
 The instrumented seam :func:`agent_utilities.orchestration.agent_runner.run_agent`
@@ -117,7 +117,7 @@ async def persist_session_turn(
     rid = run_id or f"run:{uuid.uuid4().hex[:8]}"
 
     # 1) Provenance parity — record a :RunTrace via the seam's own recorder, then anchor
-    #    it to its Session (mirrors run_agent Step 5 / CONCEPT:ORCH-1.40).
+    #    it to its Session (mirrors run_agent Step 5 / CONCEPT:AU-ORCH.session.session-anchored-collections-native).
     with contextlib.suppress(Exception):
         from agent_utilities.orchestration.agent_runner import _record_execution_trace
 
@@ -145,8 +145,8 @@ async def persist_session_turn(
                 add_edge(snode, f"trace:{rid}", "HAS_RUN")
 
     # 2) Memory parity — compress this turn into a per-session memento via the SAME core
-    #    primitive the messaging path uses (CONCEPT:ECO-4.78), then refresh the session
-    #    cache so the next turn reads it from memory (CONCEPT:KG-2.131).
+    #    primitive the messaging path uses (CONCEPT:AU-ECO.messaging.universal-graph-agent), then refresh the session
+    #    cache so the next turn reads it from memory (CONCEPT:AU-KG.memory.refresh-per-session-memento).
     if not (query or reply):
         return
     with contextlib.suppress(Exception):

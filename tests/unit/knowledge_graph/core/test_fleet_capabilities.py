@@ -1,4 +1,4 @@
-"""Fleet capability elevation: tools → Tool capability nodes (CONCEPT:KG-2.133).
+"""Fleet capability elevation: tools → Tool capability nodes (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
 
 These cover the data half of ontology-native classification — that the served
 multiplexer catalog becomes ``Tool`` capability nodes carrying the schema the
@@ -134,7 +134,7 @@ def test_sync_source_routes_fleet_to_handler():
 
 
 def test_derive_tool_mode_classifies_variant():
-    """CONCEPT:KG-2.133 — condensed = action+params_json schema; verbose = typed params."""
+    """CONCEPT:AU-KG.ontology.capability-node-aliases-lexical — condensed = action+params_json schema; verbose = typed params."""
     from agent_utilities.knowledge_graph.core.source_sync import _derive_tool_mode
 
     assert (

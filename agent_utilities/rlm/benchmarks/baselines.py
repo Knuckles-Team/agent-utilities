@@ -1,4 +1,4 @@
-"""Systems under test for the RLM benchmark: RLM + the paper's scaffolds (CONCEPT:AHE-3.32).
+"""Systems under test for the RLM benchmark: RLM + the paper's scaffolds (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Three comparable systems, all answering the same :class:`TaskCase`:
 

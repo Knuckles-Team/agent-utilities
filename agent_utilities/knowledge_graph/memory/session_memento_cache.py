@@ -1,4 +1,4 @@
-"""Per-session memento pre-prime cache (CONCEPT:KG-2.131).
+"""Per-session memento pre-prime cache (CONCEPT:AU-KG.memory.refresh-per-session-memento).
 
 ``get_recent_mementos(source=session, limit=3)`` is a synchronous backend round-trip.
 Running it inline on the async reply path (inside ``_build_execution_config``) blocked
@@ -6,7 +6,7 @@ the event loop on every chat turn. This module keeps a small per-source LRU cach
 recently-recalled mementos so a turn reads them from memory (zero I/O on the hot path).
 
 The cache is refreshed by the existing background ``_persist_and_enrich`` pass
-(CONCEPT:ECO-4.74): after each turn that pass already *writes* the new memento under the
+(CONCEPT:AU-ECO.messaging.debounce-timer-cancel): after each turn that pass already *writes* the new memento under the
 session source, so it also refreshes this cache for that source — turn ``N+1`` reads turn
 ``N``'s memento from memory, never from a blocking query. A cold miss fetches once (the
 caller does so off the loop via ``to_thread``) and populates.
@@ -30,7 +30,7 @@ DEFAULT_MEMENTO_LIMIT = 3
 
 
 class SessionMementoCache:
-    """Process-local LRU of ``{source -> (mementos, fetched_at)}`` (CONCEPT:KG-2.131).
+    """Process-local LRU of ``{source -> (mementos, fetched_at)}`` (CONCEPT:AU-KG.memory.refresh-per-session-memento).
 
     Thread-safe: the background refresh pass and the reply path touch it concurrently.
     A process-singleton (:func:`instance`) so the reply path and the background enrich
@@ -97,7 +97,7 @@ def refresh_session_memento_cache(
 
     Called from the background ``_persist_and_enrich`` pass (off the reply path), so a
     synchronous fetch here is fine — it never touches the latency-critical turn. Returns
-    the freshly-fetched mementos (also cached). CONCEPT:KG-2.131 / ECO-4.74.
+    the freshly-fetched mementos (also cached). CONCEPT:AU-KG.memory.refresh-per-session-memento / ECO-4.74.
     """
     from agent_utilities.knowledge_graph.memory.memento_compressor import (
         get_recent_mementos,

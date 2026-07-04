@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.30 — Generalizing GEPA (held-out split, AgentSpec, held-out selection)."""
+"""CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — Generalizing GEPA (held-out split, AgentSpec, held-out selection)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _ds(n: int) -> list[GEPAInstance]:
     ]
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_split_dataset_disjoint_and_sized():
     fb, dev = split_dataset(_ds(10), dev_fraction=0.3, seed=1)
     assert len(dev) == 3 and len(fb) == 7
@@ -32,20 +32,20 @@ def test_split_dataset_disjoint_and_sized():
     assert fb_ids | dev_ids == {str(i) for i in range(10)}
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_split_dataset_deterministic():
     a = split_dataset(_ds(10), 0.3, seed=42)
     b = split_dataset(_ds(10), 0.3, seed=42)
     assert [d.id for d in a[1]] == [d.id for d in b[1]]
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_split_dataset_zero_fraction_is_noop():
     fb, dev = split_dataset(_ds(5), dev_fraction=0.0)
     assert len(fb) == 5 and dev == []
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_select_best_on_heldout_picks_max_score():
     cands = [
         Candidate(id="a", prompt_text="A", generation=1, scores={}),
@@ -60,7 +60,7 @@ def test_select_best_on_heldout_picks_max_score():
     assert best_tie.id in ("a", "c")
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_agent_spec_as_prompt_grounds_and_enforces_generalization():
     spec = AgentSpec(
         use_cases=["book a meeting", "pay a friend"],
@@ -74,6 +74,6 @@ def test_agent_spec_as_prompt_grounds_and_enforces_generalization():
     assert "MUST generalize across" in text and "different app/API set" in text
 
 
-@pytest.mark.concept(id="ORCH-1.30")
+@pytest.mark.concept(id="AU-ORCH.optimization.selection-on-unseen-data")
 def test_agent_spec_empty_is_blankish():
     assert "Agent Specification" in AgentSpec().as_prompt()

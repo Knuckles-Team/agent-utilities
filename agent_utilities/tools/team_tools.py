@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agent team coordination tools.
 
-CONCEPT:AHE-3.3
+CONCEPT:AU-AHE.evaluation.interpretability-tests
 
 Exposes team management, task assignment, and P2P messaging to agents,
 backed by the TeamCapability and ACP.

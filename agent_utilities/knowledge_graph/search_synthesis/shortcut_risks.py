@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """The four shortcut-risk detectors, as queries over an evidence graph.
 
-CONCEPT:KG-2.71 — shortcut-risk control
+CONCEPT:AU-KG.retrieval.formulate-adversarially-refine — shortcut-risk control
 
 FORT-Searcher (arXiv:2606.12087, §2.3) formalizes four *actionable shortcut
 risks* that let a multi-constraint search task collapse to a cheaper identifying

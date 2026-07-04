@@ -72,6 +72,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | File | IRI | Role |
 |------|-----|------|
 | `ontology_a2a.ttl` | `…/kg/a2a` | Agent-to-Agent (A2A) protocol entities. |
+| `ontology_concepts.ttl` | `…/kg/concepts` | Generated OKF-CIS governed concepts (`:GovernedConcept`/`:partOf`/`:flatId` + SKOS taxonomy). Built by `scripts/build_concept_rdf.py`. |
 | `ontology_action.ttl` | `…/kg/action` | Ontology action types (KG-2.42). |
 | `ontology_archimate.ttl` | `…/kg/archimate` | ArchiMate enterprise-architecture vocabulary. |
 | `ontology_banking.ttl` | `…/kg/banking` | Banking domain extension. |
@@ -90,7 +91,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_harness.ttl` | `…/kg/harness` | Agentic harness engineering (AHE). |
 | `ontology_hr.ttl` | `…/kg/hr` | Human-resources domain. |
 | `ontology_identity.ttl` | `…/kg/identity` | Identity / IdP / access entities. |
-| `ontology_infrastructure.ttl` | `https://agent-utilities.dev/ontology/infrastructure` | Runtime-agnostic infra topology (OS-5.3). **Note:** legacy `agent-utilities.dev` IRI namespace (not `knuckles.team/kg`) — kept as-is to avoid a cross-graph rename ripple; still imported by the canonical ontology. |
+| `ontology_infrastructure.ttl` | `https://agent-utilities.dev/ontology/infrastructure` | Runtime-agnostic infra topology (AU-OS.governance.reactive-multi-axis-budget). **Note:** legacy `agent-utilities.dev` IRI namespace (not `knuckles.team/kg`) — kept as-is to avoid a cross-graph rename ripple; still imported by the canonical ontology. |
 | `ontology_leanix.ttl` | `…/kg/leanix` | LeanIX EAM integration. |
 | `ontology_legal.ttl` | `…/kg/legal` | Legal domain extension. |
 | `ontology_media.ttl` | `…/kg/media` | Media domain. |
@@ -107,7 +108,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
 | `ontology_wellness.ttl` | `…/kg/wellness` | Wellness domain. |
 
-### Federated (package-contributed) ontologies — CONCEPT:KG-2.320
+### Federated (package-contributed) ontologies — CONCEPT:AU-KG.ontology.federation-provider-leg
 
 Some ontology modules no longer live in this wheel: they are **contributed by fleet
 agent-packages** through the `agent_utilities.ontology_providers` entry-point (the
@@ -134,4 +135,4 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
-| `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:KG-2.252): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
+| `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |

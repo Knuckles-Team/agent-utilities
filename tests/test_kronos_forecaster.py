@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Kronos Foundation Model Forecaster."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Kronos Foundation Model Forecaster."""
 
 import pytest
 

@@ -1,6 +1,6 @@
 """UsageBackend — the storage abstraction for usage/cost analytics.
 
-CONCEPT:ECO-4.39 — Backend-abstracted usage analytics store. Modeled on the
+CONCEPT:AU-OS.observability.usage-analytics-store — Backend-abstracted usage analytics store. Modeled on the
 existing KG ``GraphBackend`` interface so the usage subsystem is not pinned to
 one engine: SQLite+FTS5 is the zero-dependency native default; Postgres
 (``tsvector``) and DuckDB are enterprise-scale options selected by

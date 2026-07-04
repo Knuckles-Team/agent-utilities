@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KG ingestion stress-test harness (CONCEPT:KG-2.7 / KG-2.8).
+"""KG ingestion stress-test harness (CONCEPT:AU-KG.query.vendor-agnostic-traversal / KG-2.8).
 
 Drives the **unified IngestionEngine** (content-typed adaptors) across every
 artifact category — config, prompts, codebases (+ ``.specify`` specs), documents,

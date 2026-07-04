@@ -1,11 +1,11 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Enterprise standards expressed as ontology interface types (CONCEPT:KG-2.49).
+"""Enterprise standards expressed as ontology interface types (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 The north-star question — "do we flatten every org's standard into one superset,
 or let orgs override?" — is answered by reusing the Foundry-parity **interface
-type** layer (``ontology/interfaces.py``, CONCEPT:KG-2.38) verbatim:
+type** layer (``ontology/interfaces.py``, CONCEPT:AU-KG.ontology.conformance-check) verbatim:
 
   - An **enterprise standard IS an** :class:`Interface`. Its required
     :class:`InterfaceProperty` / :class:`InterfaceLinkConstraint` encode the
@@ -50,7 +50,7 @@ ENTERPRISE_STANDARD_NODE = RegistryNodeType.ENTERPRISE_STANDARD.value
 # ── Domain routing ──────────────────────────────────────────────────────────
 # Which assets each standard governs. An asset is routed to a standard by its
 # vendor-neutral ``capability`` tag first (the egeria harvest cross-vendor join
-# key, CONCEPT:EG-009), then by its node ``type`` as a fallback. Lower-cased
+# key, CONCEPT:AU-KG.ingest.then-by-its-node), then by its node ``type`` as a fallback. Lower-cased
 # matching throughout.
 STANDARD_DOMAINS: dict[str, dict[str, set[str]]] = {
     "ManagedApplication": {
@@ -219,7 +219,7 @@ def register_enterprise_standards(registry: InterfaceRegistry) -> None:
     )
 
 
-# CONCEPT:KG-2.49 — populated at import with real built-in standards, never empty.
+# CONCEPT:AU-KG.ontology.populated-at-import-real-3 — populated at import with real built-in standards, never empty.
 ENTERPRISE_STANDARD_REGISTRY = InterfaceRegistry()
 register_enterprise_standards(ENTERPRISE_STANDARD_REGISTRY)
 
@@ -321,7 +321,7 @@ def materialize_standards(engine: Any) -> int:
             "governs_capabilities": sorted(domain.get("capabilities", set())),
             "governs_types": sorted(domain.get("types", set())),
             "shacl_shape": standard.to_owl(registry=ENTERPRISE_STANDARD_REGISTRY),
-            "concept": "KG-2.49",
+            "concept": "AU-KG.ontology.populated-at-import-real-3",
         }
         try:
             add(

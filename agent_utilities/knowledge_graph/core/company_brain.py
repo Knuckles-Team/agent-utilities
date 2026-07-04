@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Company Intelligence Graph (CONCEPT:KG-2.7).
+"""Company Intelligence Graph (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Unified operational state layer that transforms the Knowledge Graph from a
 single-agent brain into a multi-writer, multi-reader, multi-tenant
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 class GraphConcurrencyManager:
     """Graph-level optimistic concurrency control.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Provides version vectors on nodes, Compare-And-Swap (CAS) mutations,
     and configurable lock strategies. Wraps the existing KGVersionEngine
@@ -192,7 +192,7 @@ class GraphConcurrencyManager:
 class TenancyManager:
     """Multi-tenant graph isolation.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Provides tenant-scoped node/edge operations, hierarchical tenant
     trees, and query-time tenant filtering. Supports humans, AI agents,
@@ -322,7 +322,7 @@ class TenancyManager:
 class ConflictResolver:
     """Contradiction detection and resolution engine.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Detects when two actors write conflicting values to the same node
     and applies configurable merge strategies. Supports humans and AIs
@@ -447,7 +447,7 @@ class ConflictResolver:
         return 0.5
 
     def effective_authority(self, source_system: str, age_days: float = 0.0) -> float:
-        """Trust-decayed authority for a source (CONCEPT:KG-2.6).
+        """Trust-decayed authority for a source (CONCEPT:AU-KG.backend.company-brain-write-guard).
 
         Returns ``authority_level * exp(-trust_decay_rate * age_days)`` for the
         matching trust entry, so a high-authority-but-stale source can fall below
@@ -479,7 +479,7 @@ class ConflictResolver:
 class ProvenanceTracker:
     """Mandatory provenance enforcement and trust management.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Wraps write operations with required provenance metadata. Tracks
     read audits, manages trust hierarchies, and enables provenance-gated
@@ -700,7 +700,7 @@ class KafkaStreamAdapter(BaseStreamAdapter):
 class EventStreamIngester:
     """AsyncIO-based event stream consumer with pluggable adapters.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Converts external events (webhooks, Kafka, NATS, CDC) into graph
     mutations with automatic provenance tracking. Supports humans
@@ -856,7 +856,7 @@ class EventStreamIngester:
 class DataLevelPermissions:
     """Node-level ACLs, classification labels, and query-time filtering.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Extends the existing PermissionsKernel (which controls tool access)
     with data-level access control. Humans and AIs are subject to the
@@ -970,7 +970,7 @@ class DataLevelPermissions:
 class CompanyBrain:
     """Unified facade for all Company Brain infrastructure primitives.
 
-    CONCEPT:KG-2.6 — Company Brain Infrastructure
+    CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Composes all six infrastructure primitives into a single entry point.
     The Company Brain is actor-agnostic: humans, AI agents, automated

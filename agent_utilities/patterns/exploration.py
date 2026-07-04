@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Exploration & Discovery Engine — CONCEPT:AHE-3.2
+"""Exploration & Discovery Engine — CONCEPT:AU-AHE.harness.evolutionary-aggregation
 
 Autonomous exploration loop with hypothesis generation, experiment design,
 multi-reviewer evaluation, and KG-native knowledge gap tracking.
@@ -12,7 +12,7 @@ Design-pattern source: Chapter 21 — Exploration and Discovery.
 OWL: :Experiment rdfs:subClassOf :Procedure
      :KnowledgeGap rdfs:subClassOf :Observation
      :testsHypothesis, :exploredGap, :resultedInDiscovery
-See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.2
+See docs/pillars/architecture_c4.md §CONCEPT:AU-AHE.harness.evolutionary-aggregation
 """
 
 

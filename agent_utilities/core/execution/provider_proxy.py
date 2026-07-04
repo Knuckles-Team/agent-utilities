@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 — Provider-Normalizing Stream Proxy.
+"""CONCEPT:AU-ORCH.adapter.byok-provider-proxy — Provider-Normalizing Stream Proxy.
 
 Assimilated from open-design's ``/api/proxy/<provider>/stream`` (chat-routes.ts): normalize each LLM
 provider's native streaming format into one canonical event union ``{start|text_delta|error|end}``,

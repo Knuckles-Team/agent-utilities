@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class FederationMixin:
     """Mixin for external ontology federation and external KG metadata ingestion.
 
-    CONCEPT:KG-2.1 — External Graph Federation
+    CONCEPT:AU-KG.ingest.external-graph-federation — External Graph Federation
     """
 
     def register_external_ontology(self, uri: str, endpoint: str | None = None) -> None:

@@ -1,4 +1,4 @@
-# Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
+# Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
 
 ## Overview
 Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Leverages the Analogy Engine (KG-2.7), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric, defined in `ontology_quant.ttl`).
@@ -9,7 +9,7 @@ Discovers non-obvious functional synergies between the 5 Unified Pillars by anal
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Formal Relations Engine (CONCEPT:KG-2.6)
+# Formal Relations Engine (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4. Provides zero-shot entity resolution by formally defining equivalence sets.
@@ -20,7 +20,7 @@ Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# State Machine Invariant Engine (CONCEPT:KG-2.6)
+# State Machine Invariant Engine (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6. Formally validates transitions against structural invariants, preventing infinite loops. Implemented as the ``FormalStateMachine`` class.
@@ -31,7 +31,7 @@ Deterministic Finite Automata (DFA) abstractions and provable state invariants f
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Markov Transition Forecasting (CONCEPT:KG-2.6)
+# Markov Transition Forecasting (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21. Calculates stationary distribution (Eigenvector) to predict statistical failure nodes.
@@ -52,7 +52,7 @@ The ``MarkovTransitionModel`` provides:
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
 
-# Markov Regime Detection (CONCEPT:KG-2.6)
+# Markov Regime Detection (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Market regime detection and forecasting using Markov Chains for financial time-series analysis. Classifies market states (Bull/Bear/Sideways) from returns data and builds probabilistic transition models for regime forecasting, trading signal generation, and walk-forward backtesting.
@@ -122,6 +122,6 @@ All thresholds are configurable at instantiation.
 - `TradingStrategy -[:GENERATES_SIGNAL]-> RegimeSignal`
 
 ## Service Registry
-Registered as discoverable services in the ``ServiceRegistry`` (CONCEPT:ORCH-1.4):
+Registered as discoverable services in the ``ServiceRegistry`` (CONCEPT:AU-ORCH.adapter.kg-graph-materialization):
 - `markov_regime_detection` (Layer: domain, Domain: finance)
 - `hmm_regime_detection` (Layer: domain, Domain: finance)

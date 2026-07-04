@@ -1,6 +1,6 @@
 # Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)
 
-**CONCEPT:KG-2.7** — extends the unified Ingestion Engine so that *fetching* a web
+**CONCEPT:AU-KG.query.vendor-agnostic-traversal** — extends the unified Ingestion Engine so that *fetching* a web
 page is pluggable and *what we do with it* depends on the content. Throw a
 document, a URL, a PDF, or a research-roundup blog at the engine and it ingests,
 enriches, vectorizes — and for a page that points at research papers it also
@@ -10,7 +10,7 @@ downloads and ingests those papers automatically.
 
 The Ingestion Engine (`knowledge_graph/ingestion/engine.py`) already turns any
 `ContentType` into `Document`/`Chunk`/`Concept` nodes with one enrichment pass and
-ConceptMatcher cross-linking (KG-2.75). Three gaps remained: web fetching was a bare
+ConceptMatcher cross-linking (AU-KG.ingest.world-model-gate). Three gaps remained: web fetching was a bare
 `requests.get` (no crawl4ai, no ArchiveBox); a research roundup was ingested as a
 flat page (its paper links ignored); and the deployed ArchiveBox instance — which
 perfectly preserves pages — was unused. This change closes all three on top of the
@@ -30,7 +30,7 @@ existing spine.
   `DOCUMENT` adaptor, after ingesting a roundup page, downloads + ingests each paper
   and writes a `MENTIONS` edge page→paper. Default ON for roundups; force/disable
   with `metadata["extract_papers"]`.
-- **ArchiveBox source** — an `archivebox` `mcp_tool` source preset (KG-2.59) lists
+- **ArchiveBox source** — an `archivebox` `mcp_tool` source preset (AU-KG.ingest.mcp-tool-connector) lists
   snapshots; `core/source_sync.py:_sync_archivebox` ingests each archived URL
   through the `DOCUMENT` path (so the body is ArchiveBox-served and roundups still
   acquire their papers); the `LoopController` runs it as a default-on background
@@ -49,7 +49,7 @@ flowchart TB
   Fetch --> Unit["_ingest_document_file → Document + Chunks + Concept"]
   Unit --> Profile["extract_paper_links / is_research_roundup"]
   Profile -->|roundup| Papers["acquire_papers (scholarx) → research/papers\n→ recursive ingest_batch(PDFs)"]
-  Papers --> Match["ConceptMatcher (KG-2.75)\nArticle/ResearchPaper RELATES_TO Concept"]
+  Papers --> Match["ConceptMatcher (AU-KG.ingest.world-model-gate)\nArticle/ResearchPaper RELATES_TO Concept"]
   Papers --> Link["MENTIONS edges: page → each paper"]
   Unit --> Match
   subgraph Background tick / on demand

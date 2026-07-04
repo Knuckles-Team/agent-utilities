@@ -1,10 +1,10 @@
-"""Tests for governed golden-loop auto-merge (CONCEPT:AHE-3.14).
+"""Tests for governed golden-loop auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge).
 
 Covers the conservative default (propose-only unless enabled), the quality +
 governance + regression gates, AND the live wiring into the golden-loop cycle:
 a high-score governed proposal auto-merges; a low-score one stays proposal-only.
 
-@pytest.mark.concept("AHE-3.14")
+@pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     MergePolicy,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.14")
+pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 
 
 def _strong_team() -> TeamSpec:

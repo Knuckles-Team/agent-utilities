@@ -1,4 +1,4 @@
-"""Capability ratchet + verified apply→verify→rollback (CONCEPT:AHE-3.24, AHE-3.23).
+"""Capability ratchet + verified apply→verify→rollback (CONCEPT:AU-AHE.evaluation.capability-benchmark-regression-ratchet, CONCEPT:AU-AHE.harness.capability-ratchet).
 
 A published worktree is re-measured against a persisted capability baseline; a
 measured regression (ManifestVerifier ``*_revert`` recommendation, or any tracked
@@ -32,7 +32,7 @@ from agent_utilities.knowledge_graph.research.promotion_governance import (  # n
     PromotionGovernanceValidator,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.24")
+pytestmark = pytest.mark.concept("AU-AHE.evaluation.capability-benchmark-regression-ratchet")
 
 
 class RatchetEngine:
@@ -197,7 +197,7 @@ def _auto_engine() -> FakeEngine:
     return engine
 
 
-@pytest.mark.concept("AHE-3.23")
+@pytest.mark.concept("AU-AHE.harness.capability-ratchet")
 class TestVerifiedRollback:
     def test_capability_regression_abandons_the_branch(self, target_repo, tmp_path):
         engine = _auto_engine()

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""ARA Seal — OWL/SHACL-grounded review of a research artifact (CONCEPT:KG-2.80).
+"""ARA Seal — OWL/SHACL-grounded review of a research artifact (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 
 The paper's ARA-Native Seal reviews an artifact at three escalating levels, withholding
 ``/evidence`` so reviewers (and agents) cannot fabricate-to-pass. We ground each level
@@ -52,7 +52,7 @@ class SealViolation(BaseModel):
 
 
 class SealReport(BaseModel):
-    """The verdict of one Seal review (CONCEPT:KG-2.80)."""
+    """The verdict of one Seal review (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
     article_id: str
     artifact_node: str

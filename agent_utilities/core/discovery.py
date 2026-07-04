@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Cross-IDE Discovery — Unified KG MCP endpoint registration.
 
-CONCEPT:OS-5.0 — Agent OS Infrastructure (Extension)
+CONCEPT:AU-OS.config.agent-os-infrastructure — Agent OS Infrastructure (Extension)
 
 Manages MCP config generation and registration across multiple IDE environments
 so that all agents (Antigravity, Claude Code, OpenCode, Devin) can discover

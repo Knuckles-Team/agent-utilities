@@ -103,7 +103,7 @@ def check_ontological_guardrails(
 ) -> bool:
     """Performs real-time OWL reasoning / classification on tool arguments.
 
-    CONCEPT:OS-5.10 — Ontological Guardrail Engine.
+    CONCEPT:AU-OS.safety.ontological-guardrail — Ontological Guardrail Engine.
     Checks target files, directories, network hosts, or database tables against
     active SecurityPolicyNode classifications in the Knowledge Graph.
     """
@@ -178,7 +178,7 @@ def flag_mcp_tool_definitions(
     return ``DeferredToolRequests`` instead of executing the tool.
 
     The ``approval_required_func`` checks:
-    1. **Identity-based policy** (CONCEPT:OS-5.2): If a ``PermissionsKernel`` and
+    1. **Identity-based policy** (CONCEPT:AU-OS.state.cognitive-scheduler-preemption): If a ``PermissionsKernel`` and
        ``AgentIdentity`` are provided, the kernel's role-based policy
        takes precedence.  DENY → raise, REQUIRE_APPROVAL → True.
     2. **Pattern-based fallback**: If no kernel is available or the
@@ -191,7 +191,7 @@ def flag_mcp_tool_definitions(
         sensitive_names: Pre-built set from :func:`build_sensitive_tool_names`.
             If ``None``, pattern matching alone is used.
         permissions_kernel: Optional ``PermissionsKernel`` for identity-based
-            authorization (CONCEPT:OS-5.1).
+            authorization (CONCEPT:AU-OS.identity.identity-policy-check).
         agent_identity: Optional ``AgentIdentity`` for the calling agent.
         engine: Optional KG engine for ontological guardrails.
 
@@ -218,11 +218,11 @@ def flag_mcp_tool_definitions(
     ) -> bool:
         name = getattr(tool_def, "name", "")
 
-        # CONCEPT:OS-5.10 — Ontological Guardrails (real-time argument analysis)
+        # CONCEPT:AU-OS.safety.ontological-guardrail — Ontological Guardrails (real-time argument analysis)
         if check_ontological_guardrails(name, _tool_args, engine=engine):
             return True
 
-        # CONCEPT:OS-5.1 — Identity-based policy check (highest priority)
+        # CONCEPT:AU-OS.identity.identity-policy-check — Identity-based policy check (highest priority)
         if permissions_kernel and agent_identity:
             try:
                 decision = permissions_kernel.authorize_tool(agent_identity, name)

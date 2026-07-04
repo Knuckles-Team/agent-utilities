@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Knowledge Graph MCP Server — Thin wrapper over IntelligenceGraphEngine.
 
-CONCEPT:ECO-4.0 — Knowledge Graph MCP Exposure
+CONCEPT:AU-ECO.mcp.knowledge-graph-exposure — Knowledge Graph MCP Exposure
 
 Exposes the internal Knowledge Graph as MCP tools for external agents
 (Claude Code, Antigravity IDE, OpenCode, Devin) to query, search, and
@@ -78,7 +78,7 @@ def _build_dummy_request(path_params=None, json_body=None):
     return req
 
 
-# Server-side identity for stdio MCP (CONCEPT:OS-5.14): minted once at startup
+# Server-side identity for stdio MCP (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): minted once at startup
 # from a validated KG_AUTH_TOKEN. None = no validated process identity.
 _PROCESS_ACTOR: Any = None
 
@@ -120,7 +120,7 @@ def _actor_from_mcp_token() -> Any:
 
 
 def _actor_from_kwargs(kwargs: dict) -> Any:
-    """Resolve the actor a tool call runs as (CONCEPT:KG-2.6 / OS-5.14).
+    """Resolve the actor a tool call runs as (CONCEPT:AU-KG.research.research-pipeline-runner / OS-5.14).
 
     Always pops ``_actor``/``_roles``/``_tenant`` so they are not forwarded to
     the tool. Server-minted identity wins over caller-supplied kwargs:
@@ -202,7 +202,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
     actor = _actor_from_kwargs(kwargs)
 
-    # CONCEPT:OS-5.14 — with KG_AUTH_REQUIRED on, an unauthenticated caller
+    # CONCEPT:AU-OS.identity.authenticated-identity-enforcement — with KG_AUTH_REQUIRED on, an unauthenticated caller
     # (stdio without a validated KG_AUTH_TOKEN) is restricted to the read-only
     # tool surface. HTTP callers never reach here unauthenticated — the
     # gateway middleware already rejected them with 401.
@@ -978,7 +978,7 @@ async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='sync_packages'`` (CONCEPT:KG-2.321).
+    """REST twin of ``graph_ontology action='sync_packages'`` (CONCEPT:AU-KG.ontology.federation-runtime).
 
     Federation: load every ontology ``.ttl`` contributed by installed fleet
     packages (``agent_utilities.ontology_providers``) through the shared ontology
@@ -1088,7 +1088,7 @@ async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
 
 
 async def connector_sources_endpoint(request: Request) -> JSONResponse:
-    """List registered document-source connectors (CONCEPT:ECO-4.27)."""
+    """List registered document-source connectors (CONCEPT:AU-ECO.connector.factory-ingestion-adaptor)."""
     try:
         res = await _execute_tool("source_connector", action="list")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
@@ -1097,7 +1097,7 @@ async def connector_sources_endpoint(request: Request) -> JSONResponse:
 
 
 async def connector_run_endpoint(request: Request) -> JSONResponse:
-    """Build + drain a document-source connector into the KG (CONCEPT:ECO-4.25–4.29)."""
+    """Build + drain a document-source connector into the KG (CONCEPT:AU-ECO.connector.document-source-framework–4.29)."""
     try:
         body = await request.json()
     except Exception:
@@ -1346,7 +1346,7 @@ async def graph_analyze_inspect_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=call_graph (CONCEPT:KG-2.100): the
+    """REST twin of graph_analyze action=call_graph (CONCEPT:EG-KG.compute.type-scope-resolved-call): the
     type/scope-resolved call/inheritance graph for a symbol. ``id`` = symbol id;
     ``direction`` = callees | callers | inherits."""
     try:
@@ -1365,7 +1365,7 @@ async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=similar_code (CONCEPT:KG-2.101): a
+    """REST twin of graph_analyze action=similar_code (CONCEPT:EG-KG.compute.model-free-similar-code): a
     symbol's model-free MinHash/LSH near-clone neighbours (embedder-free).
     ``id`` = symbol id; ``top_k`` optional."""
     try:
@@ -1382,7 +1382,7 @@ async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=routes (CONCEPT:KG-2.102): the HTTP route
+    """REST twin of graph_analyze action=routes (CONCEPT:AU-KG.compute.http-route-graph): the HTTP route
     graph — each Route, its handler, and the Service that serves it."""
     try:
         res = await _execute_tool("graph_analyze", action="routes")
@@ -1392,7 +1392,7 @@ async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=change_coupling (CONCEPT:KG-2.104): mine a
+    """REST twin of graph_analyze action=change_coupling (CONCEPT:AU-KG.ingest.mine-git-history-files): mine a
     repo's git history into FILE_CHANGES_WITH edges. Body: ``{repo, min_support?}``."""
     try:
         body = await request.json()
@@ -1411,7 +1411,7 @@ async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONRespon
 
 
 async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=code_evolution (CONCEPT:KG-2.283): query the
+    """REST twin of graph_analyze action=code_evolution (CONCEPT:AU-KG.enrichment.query-ingested-commit-history): query the
     ingested commit-history graph for codebase evolution. Body:
     ``{mode?, target?, top_k?}`` — mode = file|owners|hotspots|coupled,
     target = file path / subsystem path substring."""
@@ -1433,7 +1433,7 @@ async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONRespons
 
 
 async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=adr (CONCEPT:KG-2.105): ADR CRUD. Body:
+    """REST twin of graph_analyze action=adr (CONCEPT:AU-KG.compute.adr-crud): ADR CRUD. Body:
     ``{title?, status?, decision?}`` — title creates, empty lists."""
     try:
         body = await request.json()
@@ -1453,7 +1453,7 @@ async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=harness_gate (CONCEPT:AHE-3.53): validate a
+    """REST twin of graph_analyze action=harness_gate (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard): validate a
     candidate harness-evolution state against the concentration/no-regression/pathology
     SHACL gate. Body: ``{edits:[…], variants?:[…], pathologies?:[…]}``."""
     try:
@@ -1472,7 +1472,7 @@ async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=code_context (CONCEPT:KG-2.134): the
+    """REST twin of graph_analyze action=code_context (CONCEPT:AU-KG.retrieval.synthesized-cited-answer): the
     synthesized, cited codebase Q&A. Body: ``{query, intent?(how|usage|impact),
     node_id?, top_k?, depth?, cross_repo?}``."""
     try:
@@ -1498,7 +1498,7 @@ async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=explain (CONCEPT:KG-2.136): the universal
+    """REST twin of graph_analyze action=explain (CONCEPT:AU-KG.retrieval.route-question-its-domain): the universal
     context plane. Body: ``{query, domain?, intent?, node_id?, top_k?, depth?}`` —
     routes to the domain provider (code | ops | …) and returns the cited answer."""
     try:
@@ -1524,7 +1524,7 @@ async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=cross_repo_usages (CONCEPT:KG-2.135): every
+    """REST twin of graph_analyze action=cross_repo_usages (CONCEPT:AU-KG.retrieval.every-usage-published-symbol): every
     usage of a published symbol across the fleet, grouped by repo. ``symbol`` /
     ``query`` = the symbol name; ``top_k`` optional."""
     try:
@@ -1541,7 +1541,7 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
 
 
 async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=code_metrics (CONCEPT:KG-2.210): Graphify-
+    """REST twin of graph_analyze action=code_metrics (CONCEPT:AU-KG.retrieval.god-nodes-communities): Graphify-
     style god nodes / communities / surprising connections over the :Code subgraph.
     ``scope`` (or ``target``) = optional file_path/source_system substring;
     ``top_k`` = section sizes."""
@@ -1559,7 +1559,7 @@ async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=arch_report (CONCEPT:KG-2.213): the
+    """REST twin of graph_analyze action=arch_report (CONCEPT:AU-KG.retrieval.architecture-report): the
     regenerable architecture report (GRAPH_REPORT.md analog) as Markdown + metrics.
     ``scope`` (or ``target``) = optional substring; ``top_k`` = section sizes."""
     try:
@@ -1833,7 +1833,7 @@ async def graph_orchestrate_compile_workflow_endpoint(request: Request) -> JSONR
 
 
 async def graph_orchestrate_compile_process_endpoint(request: Request) -> JSONResponse:
-    """CONCEPT:ORCH-1.41 — REST twin of graph_orchestrate compile_process."""
+    """CONCEPT:AU-ORCH.planning.compile-process-rest-twin — REST twin of graph_orchestrate compile_process."""
     try:
         body = await request.json()
     except Exception:
@@ -1853,7 +1853,7 @@ async def graph_orchestrate_compile_process_endpoint(request: Request) -> JSONRe
 async def graph_orchestrate_publish_proposal_endpoint(
     request: Request,
 ) -> JSONResponse:
-    """CONCEPT:AHE-3.21 — REST twin of graph_orchestrate publish_proposal."""
+    """CONCEPT:AU-AHE.harness.publish-proposal-rest — REST twin of graph_orchestrate publish_proposal."""
     try:
         body = await request.json()
     except Exception:
@@ -1872,7 +1872,7 @@ async def graph_orchestrate_publish_proposal_endpoint(
 async def graph_orchestrate_distill_skills_endpoint(
     request: Request,
 ) -> JSONResponse:
-    """CONCEPT:KG-2.90/2.83 — REST twin of graph_orchestrate distill_skills.
+    """CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83 — REST twin of graph_orchestrate distill_skills.
 
     Connector → skill synthesis: turn the mapped processes of ALL connected
     systems (egeria/leanix/aris/camunda) into propose-only atomic-skill +
@@ -1983,7 +1983,7 @@ async def graph_configure_secret_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_configure_vault_sync_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_configure action=vault_sync (CONCEPT:OS-5.43)."""
+    """REST twin of graph_configure action=vault_sync (CONCEPT:AU-OS.deployment.vault-first-routine-genesis)."""
     try:
         body = await request.json()
     except Exception:
@@ -2085,7 +2085,7 @@ def _get_engine():
     Thread-safe (double-checked lock): the server now builds the engine in a
     background bootstrap thread so ``mcp.run()`` can start serving immediately
     (under Claude Code's 30s connect deadline); a concurrent first tool call
-    must therefore not race a second engine into existence. (CONCEPT:KG-2.8)
+    must therefore not race a second engine into existence. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
     from agent_utilities.core.paths import ensure_dirs, kg_db_path
     from agent_utilities.knowledge_graph.backends import create_backend
@@ -2109,7 +2109,7 @@ def _get_engine():
         return engine
 
 
-# ── CONCEPT:KG-2.63 — Named multi-connection graph registry ────────────────
+# ── CONCEPT:AU-KG.backend.multi-connection-registry — Named multi-connection graph registry ────────────────
 _CONNECTION_REGISTRY = None
 _REGISTRY_LOCK = threading.Lock()
 
@@ -2119,7 +2119,7 @@ def get_connection_registry():
 
     Seeds its ``"default"`` connection from the legacy ``_get_engine`` singleton
     (so the default is never duplicated) and from ``config.kg_connections``
-    (CONCEPT:KG-2.63) on first build.
+    (CONCEPT:AU-KG.backend.multi-connection-registry) on first build.
     """
     global _CONNECTION_REGISTRY
     if _CONNECTION_REGISTRY is not None:
@@ -2184,7 +2184,7 @@ def _resolve_read_engines(
 ) -> tuple[list[tuple[str, Any]], dict[str, str], bool]:
     """Resolve a READ tool's ``target`` into engines, unioning content graphs.
 
-    CONCEPT:KG-2.269 — preserve unified query under ingestion graph routing. When
+    CONCEPT:AU-KG.ingest.unified-query-routing — preserve unified query under ingestion graph routing. When
     routing is on and the caller did NOT pin an explicit target, content lives
     spread across per-source graphs (``code:*`` / ``src:*`` / …) that the single
     default engine cannot see. This resolver returns one engine per active content
@@ -2212,7 +2212,7 @@ def _resolve_read_engines(
     default_graph = default_graph_name()
     entries: list[tuple[str, Any]] = []
     errors: dict[str, str] = {}
-    # CONCEPT:KG-2.277 — de-duplicate fan-out targets by the engine's actual bound
+    # CONCEPT:AU-KG.backend.fanout-dedup — de-duplicate fan-out targets by the engine's actual bound
     # graph so the SAME backend (e.g. ``__commons__``) is never queried more than
     # once. Without this a query for nodes that live only in the default graph is
     # answered identically by every target, and an aggregation row (no node id to
@@ -2251,7 +2251,7 @@ DEFAULT_FANOUT_TIMEOUT_S = 30.0
 def fanout_execute(entries, fn, *, timeout=None):
     """Run ``fn(name, engine)`` for every fan-out target CONCURRENTLY under a shared
     per-target wall-clock timeout, so one slow/unreachable backend can't stall the
-    others (CONCEPT:KG-2.63).
+    others (CONCEPT:AU-KG.backend.multi-connection-registry).
 
     Returns ``(results, errors)`` keyed by connection name. A target that exceeds the
     budget (or raises) lands in ``errors`` while the rest still return — the
@@ -2436,7 +2436,7 @@ def _ingest_capabilities(engine):
     except Exception as e:
         logger.error(f"Failed to ingest skills: {e}")
 
-    # 4. Fleet MCP-server tools → Tool capability nodes (CONCEPT:KG-2.133).
+    # 4. Fleet MCP-server tools → Tool capability nodes (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
     # Steps 1-3 ingest graph-os's OWN servers/native-tools/skills; the ~62 fleet
     # MCP servers' tools were never elevated, so the KG lacked the fleet
     # capability vocabulary the classification gate and dispatcher specialist
@@ -2453,7 +2453,7 @@ def _ingest_capabilities(engine):
 def _mint_stdio_identity() -> None:
     """Resolve the process identity for a directly-served MCP server.
 
-    CONCEPT:OS-5.14 — stdio has no Authorization header, so when
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — stdio has no Authorization header, so when
     ``KG_AUTH_REQUIRED`` is on the identity comes from a validated JWT in the
     MCP server's environment (``KG_AUTH_TOKEN``, validated against
     ``AUTH_JWT_JWKS_URI`` exactly like a gateway request). Without a valid
@@ -2516,7 +2516,7 @@ def _build_server(bootstrap: bool = True):
         # can list tools) immediately — engine init is ~30s and was blocking the
         # MCP handshake past Claude Code's 30s connect deadline. Tools are
         # registered below regardless; the first tool call's _get_engine() (now
-        # lock-safe) returns the same singleton the bootstrap builds. (CONCEPT:KG-2.8)
+        # lock-safe) returns the same singleton the bootstrap builds. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
         def _bootstrap_engine() -> None:
             try:
                 engine = _get_engine()
@@ -2529,7 +2529,7 @@ def _build_server(bootstrap: bool = True):
                 ):
                     engine.start_task_workers()
                 _ingest_capabilities(engine)
-                # CONCEPT:KG-2.321 — federation: load every ontology contributed by
+                # CONCEPT:AU-KG.ontology.federation-runtime — federation: load every ontology contributed by
                 # installed fleet packages into the live reasoner at boot, alongside
                 # the bundled TBox distribution. Failure-isolated so a bad or absent
                 # provider never blocks engine bootstrap.
@@ -2588,7 +2588,7 @@ def _build_server(bootstrap: bool = True):
     # healthchecks). Does not touch the engine so it stays fast and lock-free;
     # the shard summary is config-only (no probe) — full per-shard
     # reachability lives on the gateway's /daemon/shards route and in the
-    # unified daemon status. (CONCEPT:OS-5.28)
+    # unified daemon status. (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
         from agent_utilities.core.config import config as _config
@@ -2606,7 +2606,7 @@ def _build_server(bootstrap: bool = True):
             }
         )
 
-    # ARD registry surface (CONCEPT:ECO-4.95/ECO-4.97) — the graph-os twin of the
+    # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the
     # gateway routes in server/routers/ard.py. This is the container the deploy
     # mechanic restarts, so it must answer the well-known + search paths too. Both
     # delegate into the same ecosystem.ard_* core to stay in lockstep with the gateway.
@@ -2688,7 +2688,7 @@ def register_graphos_verbose_tools(mcp) -> None:
     action core as the condensed ``graph_*`` tools and the REST gateway (no second
     implementation). Operations come from the generated
     ``_graphos_action_manifest.GRAPHOS_ACTIONS``; each is tagged ``{"verbose", <tool>}``
-    so the visibility transform can slice them. CONCEPT:ECO-4.82.
+    so the visibility transform can slice them. CONCEPT:AU-ECO.mcp.tool-mode-standardization.
     """
     import json as _json
 
@@ -2704,7 +2704,7 @@ def register_graphos_verbose_tools(mcp) -> None:
     skip_single_op = tool_mode() == "both"
 
     def _make(tool_name: str, action: str | None):
-        # The low-level engine_<domain> tools (CONCEPT:ECO-4.99) are generic
+        # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
         # action-routed dispatchers that take method kwargs as a single
         # ``params_json`` string (they cannot accept **kwargs — FastMCP rejects
         # VAR_KEYWORD). So forward params_json verbatim instead of spreading it.
@@ -2869,7 +2869,7 @@ class CentralizedCypherMiddleware:
                     # Matches deleting all nodes or relations without bounds
                     raise ValueError(
                         "Query rejected: Global DETACH/DELETE without WHERE filters "
-                        "is banned by epistemic safety guardrails (CONCEPT:OS-5.1)."
+                        "is banned by epistemic safety guardrails (CONCEPT:AU-OS.config.secrets-authentication)."
                     )
 
             logger.info(
@@ -3040,7 +3040,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/write/bulk", graph_write_bulk_endpoint, ["POST"])
     route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
     route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
-    # CONCEPT:KG-2.321 — federation: explicit twin for ontology package-sync.
+    # CONCEPT:AU-KG.ontology.federation-runtime — federation: explicit twin for ontology package-sync.
     route(
         "/graph/ontology/sync-packages",
         graph_ontology_sync_packages_endpoint,
@@ -3291,7 +3291,7 @@ def mcp_server() -> None:
     from agent_utilities.security.request_identity import apply_served_security_profile
 
     # Network transports serve many clients at once: enforce server-validated
-    # identity + tenant scoping, or fail loud (CONCEPT:OS-5.14). No-op for stdio.
+    # identity + tenant scoping, or fail loud (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). No-op for stdio.
     apply_served_security_profile(transport)
 
     if transport == "stdio":

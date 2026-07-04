@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Feature lifecycle ledger + assimilation close-out (CONCEPT:KG-2.7).
+"""Feature lifecycle ledger + assimilation close-out (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The durable record of *what we shipped*, so the loop never re-opens it. Three jobs:
 
@@ -110,7 +110,7 @@ def close_out(
     assim_props: dict[str, Any] = {
         "_rel": "ASSIMILATED_INTO",
         "status": status,
-        "concept": "KG-2.7",
+        "concept": "AU-KG.query.vendor-agnostic-traversal",
     }
     if assimilation_date:
         assim_props["assimilation_date"] = assimilation_date
@@ -119,7 +119,7 @@ def close_out(
             feature_id,
             src,
             RegistryEdgeType.DERIVED_FROM_RESEARCH,
-            properties={"_rel": "DERIVED_FROM_RESEARCH", "concept": "KG-2.7"},
+            properties={"_rel": "DERIVED_FROM_RESEARCH", "concept": "AU-KG.query.vendor-agnostic-traversal"},
         )
         report.derived_from += 1
         if cb:

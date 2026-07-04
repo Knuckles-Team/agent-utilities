@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Synergy bundles + leverage ranking (CONCEPT:KG-2.7 / KG-2.5).
+"""Synergy bundles + leverage ranking (CONCEPT:AU-KG.query.vendor-agnostic-traversal / KG-2.5).
 
 Two graph operations that turn a deduped, gap-analysed feature graph into a
 prioritised work-list:
@@ -76,7 +76,7 @@ def _feature_nodes(
     if graph is None:
         return {}
     wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
-    # SCOPED (CONCEPT:KG-2.193): fetch only the requested ids per-id — avoids the
+    # SCOPED (CONCEPT:AU-KG.ingest.fetch-only-requested-ids): fetch only the requested ids per-id — avoids the
     # whole-graph node pull that makes per-cohort synthesis O(graph) not O(cohort).
     if restrict_to is not None:
         scoped: dict[str, dict] = {}
@@ -100,7 +100,7 @@ def _feature_nodes(
             }
         except TypeError:  # pragma: no cover
             return {}
-    # Unrestricted: BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a
+    # Unrestricted: BOUNDED per-label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.264) — never a
     # whole-graph ``GetNodes`` dump (refused as RESULT_TOO_LARGE at scale).
     return dict(iter_typed_nodes(graph, feature_types))
 
@@ -108,7 +108,7 @@ def _feature_nodes(
 #: above this many ids, one bulk edge traversal amortizes better than per-node
 #: round-trips; at/below it, per-node ``out_edges`` is BOUNDED — it touches only the
 #: ids' own edges, never the whole-graph edge list (which on a 166K-node engine is a
-#: gigabyte-scale payload that overloads the connection). (CONCEPT:KG-2.193)
+#: gigabyte-scale payload that overloads the connection). (CONCEPT:AU-KG.ingest.fetch-only-requested-ids)
 _ADJ_BULK_THRESHOLD = 1000
 
 
@@ -199,7 +199,7 @@ def synergy_bundles(
 
     ``restrict_to`` scopes detection to a specific feature set (e.g. one research
     cohort), so synergy among the cohort's own sources is found without an O(graph)
-    pull (CONCEPT:KG-2.193).
+    pull (CONCEPT:AU-KG.ingest.fetch-only-requested-ids).
     """
     nodes = _feature_nodes(engine, feature_types, restrict_to=restrict_to)
     report = SynergyReport()
@@ -224,7 +224,7 @@ def synergy_bundles(
                         ordered[i],
                         ordered[j],
                         RegistryEdgeType.HAS_SYNERGY_WITH,
-                        properties={"_rel": "HAS_SYNERGY_WITH", "concept": "KG-2.7"},
+                        properties={"_rel": "HAS_SYNERGY_WITH", "concept": "AU-KG.query.vendor-agnostic-traversal"},
                     )
                     report.edges_written += 1
     return report
@@ -267,7 +267,7 @@ def rank_features(
     """Rank open gaps by leverage = ``source_count × (1 + centrality)``.
 
     When ``feature_ids`` is given, node collection is SCOPED to those ids
-    (CONCEPT:KG-2.193) so ranking a cohort never pulls the whole graph.
+    (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so ranking a cohort never pulls the whole graph.
     """
     scope = set(feature_ids) if feature_ids is not None else None
     nodes = _feature_nodes(engine, feature_types, restrict_to=scope)

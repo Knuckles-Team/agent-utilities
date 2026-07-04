@@ -1,4 +1,4 @@
-"""Git-SHA pre-skip for the always-on breadth codebase loop (CONCEPT:KG-2.8).
+"""Git-SHA pre-skip for the always-on breadth codebase loop (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 An always-on LoopController breadth tick must not re-enqueue (or stat-walk) a repo
 that is still at the HEAD we last ingested. ``_default_codebase_ingest`` mirrors the
@@ -75,7 +75,7 @@ def test_submits_non_git(monkeypatch):
     assert len(e.calls) == 1
 
 
-# ── CONCEPT:KG-2.150 — dirty self-repo scoped to git-status-modified files ──
+# ── CONCEPT:AU-KG.ingest.agent-utilities-checkout — dirty self-repo scoped to git-status-modified files ──
 
 import agent_utilities.knowledge_graph.assimilation.breadth_ingest as bi
 

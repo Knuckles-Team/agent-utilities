@@ -1,4 +1,4 @@
-"""Nextcloud write-back sink (CONCEPT:KG-2.9).
+"""Nextcloud write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Backfeeds the KG into Nextcloud — schedules calendar events from inferences
 (e.g. a review when a TRM end-of-life approaches, or a change window from a

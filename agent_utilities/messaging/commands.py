@@ -1,4 +1,4 @@
-"""Universal messaging command registry (CONCEPT:ECO-4.57).
+"""Universal messaging command registry (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher).
 
 ONE command spec, surfaced identically across every messaging service — registered on each
 platform via its native mechanism (Telegram ``setMyCommands``, Slack/Mattermost slash
@@ -6,7 +6,7 @@ commands) and importable by agent-terminal-ui — so the user gets the **same** 
 everywhere instead of per-platform menus. Built-in commands are answered here; anything
 else (``/claude``, ``/skill``, unknown) falls through to the messaging agent.
 
-CONCEPT:ECO-4.57 — Universal cross-platform messaging command registry
+CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher — Universal cross-platform messaging command registry
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ class MessagingCommand:
     name: str
     description: str
     builtin: bool
-    # Which surfaces expose this command (CONCEPT:ECO-4.71). Both by default; terminal-ui
+    # Which surfaces expose this command (CONCEPT:AU-ECO.messaging.shared-by-every-messaging). Both by default; terminal-ui
     # consumes the same registry so chat and TUI commands stay in lockstep.
     surfaces: tuple[str, ...] = ("messaging", "terminal")
 
 
-# The single source of truth (CONCEPT:ECO-4.71) — shared by every messaging platform AND
+# The single source of truth (CONCEPT:AU-ECO.messaging.shared-by-every-messaging) — shared by every messaging platform AND
 # agent-terminal-ui so the same commands mean the same thing on every surface.
 COMMANDS: tuple[MessagingCommand, ...] = (
     MessagingCommand("help", "Show what this assistant can do and list commands", True),
@@ -59,7 +59,7 @@ COMMANDS: tuple[MessagingCommand, ...] = (
 
 
 def command_specs(surface: str | None = None) -> list[dict[str, str]]:
-    """Command specs for a surface (``messaging``/``terminal``), or all (CONCEPT:ECO-4.71).
+    """Command specs for a surface (``messaging``/``terminal``), or all (CONCEPT:AU-ECO.messaging.shared-by-every-messaging).
 
     Used for per-platform registration (Telegram setMyCommands) and agent-terminal-ui help.
     """
@@ -90,7 +90,7 @@ def _parse(content: str) -> tuple[str, str] | None:
 async def handle_command(content: str, *, service: Any) -> str | None:
     """Handle a built-in command and return its reply, or None to fall through to the agent.
 
-    CONCEPT:ECO-4.57 — the single inbound command dispatcher used by every platform.
+    CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher — the single inbound command dispatcher used by every platform.
     """
     parsed = _parse(content)
     if parsed is None:
@@ -119,7 +119,7 @@ async def handle_command(content: str, *, service: Any) -> str | None:
 
 
 def _capability_summary(service: Any) -> str:
-    """Summarize available MCP servers + skills FROM THE KG (CONCEPT:ECO-4.64).
+    """Summarize available MCP servers + skills FROM THE KG (CONCEPT:AU-ECO.messaging.eco-2).
 
     Counts the ingested ``Server``/``Tool``/``Skill`` catalog in the shared graph and names
     a few examples — so the agent answers "what can you do" from the KG without loading

@@ -1,4 +1,4 @@
-"""Git change-coupling → FILE_CHANGES_WITH edges (CONCEPT:KG-2.104).
+"""Git change-coupling → FILE_CHANGES_WITH edges (CONCEPT:AU-KG.ingest.mine-git-history-files).
 
 Two files that keep changing in the same commits are *coupled* even when nothing
 in the AST connects them — a hidden dependency the call graph can't see. We mine
@@ -28,7 +28,7 @@ def parse_change_coupling(
 
     Emits one symmetric ``FILE_CHANGES_WITH`` edge per file pair co-changed in
     ≥ ``min_support`` commits, with a ``support`` (count) property. Endpoints are
-    ``file:<path>`` ids, matching the engine's file nodes (CONCEPT:KG-2.104)."""
+    ``file:<path>`` ids, matching the engine's file nodes (CONCEPT:AU-KG.ingest.mine-git-history-files)."""
     pair_support: dict[tuple[str, str], int] = {}
     for files in commits:
         uniq = sorted(set(f for f in files if f))

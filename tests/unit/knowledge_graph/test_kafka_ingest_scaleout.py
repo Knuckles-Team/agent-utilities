@@ -1,4 +1,4 @@
-"""Tranche-3 ingest scale-out tests (CONCEPT:KG-2.55 / KG-2.56 / KG-2.57).
+"""Tranche-3 ingest scale-out tests (CONCEPT:AU-KG.backend.selectable-queue-backend / KG-2.56 / KG-2.57).
 
 Covers fail-loud queue selection, keyed partitions + idempotent topic
 provisioning, the decoupled ``kg-ingest`` consumer loop (idempotent claims,
@@ -570,7 +570,7 @@ class _DepthHarness:
     def query_cypher(self, q, params=None):
         return self._rows
 
-    # The :Task count now reads the isolated control plane (CONCEPT:KG-2.148);
+    # The :Task count now reads the isolated control plane (CONCEPT:AU-KG.backend.schedule-on-control-graph);
     # here it shares the same fake rows.
     def _control_cypher(self, q, params=None):
         return self._rows

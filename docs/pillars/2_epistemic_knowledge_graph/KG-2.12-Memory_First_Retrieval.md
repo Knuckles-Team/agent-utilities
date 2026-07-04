@@ -1,4 +1,4 @@
-# Memory-First Retrieval (CONCEPT:KG-2.12)
+# Memory-First Retrieval (CONCEPT:AU-KG.retrieval.memory-first-retrieval)
 
 ## Overview
 

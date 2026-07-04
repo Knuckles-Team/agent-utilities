@@ -1,6 +1,6 @@
 """Circuit breaker for the epistemic-graph engine client path.
 
-CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening.
+CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening.
 
 Every Python-side engine call goes through
 :class:`~agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine`,
@@ -59,7 +59,7 @@ class CircuitBreaker:
     Reusable beyond the engine client: subclasses may override ``error_cls``
     (the typed fail-fast exception), ``subject`` (log/message wording), and
     ``_export_state`` (which gauge carries the state) — the MCP multiplexer's
-    per-child breaker (CONCEPT:ECO-4.34) does exactly that."""
+    per-child breaker (CONCEPT:AU-ECO.mcp.profile-differences-from-client) does exactly that."""
 
     #: Raised on short-circuited calls; a ``ConnectionError`` subclass so
     #: existing ``except ConnectionError`` handlers keep working.
@@ -101,7 +101,7 @@ class CircuitBreaker:
             return
         log = logger.warning if state == "open" else logger.info
         log(
-            "%s circuit breaker %s -> %s (endpoint=%s, failures=%d). (CONCEPT:OS-5.23)",
+            "%s circuit breaker %s -> %s (endpoint=%s, failures=%d). (CONCEPT:AU-OS.observability.no-op-without-metrics)",
             self.subject,
             self._state,
             state,
@@ -196,12 +196,12 @@ _PASSTHROUGH_TYPES = (str, bytes, int, float, bool, dict, list, tuple, set)
 
 
 def _record_outcome(breaker: CircuitBreaker, op: str, outcome: str) -> None:
-    """Count one engine call by op AND by shard endpoint (CONCEPT:OS-5.28)."""
+    """Count one engine call by op AND by shard endpoint (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)."""
     ENGINE_REQUESTS.labels(op=op, outcome=outcome).inc()
     ENGINE_SHARD_REQUESTS.labels(endpoint=breaker.endpoint, outcome=outcome).inc()
 
 
-# Adaptive transient-retry (CONCEPT:KG-2.262). A single dropped connection
+# Adaptive transient-retry (CONCEPT:AU-KG.compute.single-dropped-connection). A single dropped connection
 # (``ConnectionReset``/``BrokenPipe`` mid-op) is TRANSIENT: the client transparently
 # re-establishes the socket on its next call (``client._reconnect``). Without a retry
 # here, that first failed call propagated AND counted toward the breaker — so a brief

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ECO-4.0 — Self-Describing Function Registry."""
+"""Tests for CONCEPT:AU-ECO.messaging.native-backend-abstraction — Self-Describing Function Registry."""
 
 import pytest
 

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Docker/Podman sandbox: full-isolation escalation tier with a host bridge.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Docker/Podman sandbox: full-isolation escalation tier with a host bridge.
 
 This is where code that monty can't run (third-party libs, classes, full stdlib) goes. The
 previous ``_execute_container`` had three gaps this backend closes:

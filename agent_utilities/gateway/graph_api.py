@@ -1,6 +1,6 @@
 """Centralized Knowledge Graph REST surface for the API gateway.
 
-CONCEPT:ECO-4.0 — Knowledge Graph API Gateway
+CONCEPT:AU-ECO.mcp.knowledge-graph-exposure — Knowledge Graph API Gateway
 
 The full Knowledge Graph REST API (``/graph/*``, ``/sessions``, ``/goals``,
 ``/tools``) is now owned by this gateway rather than the ``graph-os`` MCP server,
@@ -134,7 +134,7 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     except Exception as exc:  # pragma: no cover - best-effort, never fatal
         logger.warning("Could not attach CentralizedCypherMiddleware: %s", exc)
 
-    # Per-tenant token-bucket rate limiting (CONCEPT:OS-5.23). Added BEFORE
+    # Per-tenant token-bucket rate limiting (CONCEPT:AU-OS.observability.no-op-without-metrics). Added BEFORE
     # the identity middleware so it sits INSIDE it (Starlette: last added =
     # outermost) — the server-minted ActorContext is already in scope when
     # the bucket key (tenant → actor → client IP) is resolved. Disabled by
@@ -146,7 +146,7 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
         app.add_middleware(GatewayRateLimitMiddleware)
 
-    # Server-minted JWT identity (CONCEPT:OS-5.14). Added AFTER the cypher
+    # Server-minted JWT identity (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Added AFTER the cypher
     # middleware so it sits OUTSIDE it — the lock-bypassing ``POST /cypher``
     # fast path is identity-scoped too. Validates ``Authorization: Bearer`` via
     # the existing JWKS machinery, scopes the request to an authenticated
@@ -161,7 +161,7 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     if not config.kg_auth_required:
         warn_unauthenticated_identity_once()
 
-    # Python-tier Prometheus metrics (CONCEPT:OS-5.23). Added LAST so the
+    # Python-tier Prometheus metrics (CONCEPT:AU-OS.observability.no-op-without-metrics). Added LAST so the
     # metrics middleware is OUTERMOST — auth rejections (401) and rate-limit
     # rejections (429) are counted too. GET /metrics is exempt from the
     # identity middleware (scrapers cannot mint JWTs). Both the gateway and
@@ -189,13 +189,13 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     kg_server._mount_rest_routes(app, prefix=prefix)
 
-    # Local SPARQL endpoint (CONCEPT:KG-2.7) — served over the OWL/RDF bridge with
+    # Local SPARQL endpoint (CONCEPT:AU-KG.query.vendor-agnostic-traversal) — served over the OWL/RDF bridge with
     # ZERO external dependencies (rdflib materialization of the live LPG + OWL
     # inferences); an external Fuseki/Stardog is optional enterprise scale-out, not
     # required. Works in the zero-dep tiny profile.
     _mount_sparql_route(app, prefix=prefix)
 
-    # Native swarm supervisory plane (CONCEPT:OS-5.10): /fleet/* + approvals.
+    # Native swarm supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail): /fleet/* + approvals.
     from agent_utilities.gateway.fleet import mount_fleet_routes
 
     mount_fleet_routes(app, prefix=prefix)
@@ -207,7 +207,7 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     register_ontology_routes(app, prefix=prefix)
 
     # Granular, typed research surface (ARA over the one ontology-driven KG,
-    # CONCEPT:KG-2.79/2.80) — dispatches through the same research_artifact MCP tool.
+    # CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80) — dispatches through the same research_artifact MCP tool.
     from agent_utilities.gateway.research_api import register_research_routes
 
     register_research_routes(app, prefix=prefix)

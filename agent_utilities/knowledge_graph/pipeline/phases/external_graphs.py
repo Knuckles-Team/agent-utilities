@@ -3,7 +3,7 @@
 
 Phase — Registers external knowledge graph references (SPARQL, LPG) into the local knowledge graph.
 
-CONCEPT:KG-2.1 — External Graph Federation
+CONCEPT:AU-KG.ingest.external-graph-federation — External Graph Federation
 """
 
 import logging

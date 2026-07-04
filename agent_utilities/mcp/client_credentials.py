@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""OIDC client-credentials token provider for the MCP multiplexer (CONCEPT:OS-5.32).
+"""OIDC client-credentials token provider for the MCP multiplexer (CONCEPT:AU-OS.identity.so-jwt-protected-children).
 
 The multiplexer aggregates many child MCP servers. When a child enforces JWT auth
 (``AUTH_TYPE=jwt``), the multiplexer must present a valid bearer token or its calls
@@ -65,10 +65,10 @@ def _derive_token_url() -> str | None:
     explicit = setting("OIDC_TOKEN_URL", None)
     if explicit:
         return explicit
-    # Provider-agnostic (CONCEPT:OS-5.46): resolve the token endpoint from the issuer's
+    # Provider-agnostic (CONCEPT:AU-OS.identity.resolve-token-endpoint-from): resolve the token endpoint from the issuer's
     # OIDC discovery doc instead of a vendor-specific path. ``OIDC_ISSUER`` is the
     # canonical var; fall back to the JWT issuer. For multi-issuer trust (comma list,
-    # CONCEPT:OS-5.45) the service mints from its primary (first) issuer.
+    # CONCEPT:AU-OS.identity.native-multi-realm-jwt) the service mints from its primary (first) issuer.
     issuer = setting("OIDC_ISSUER", None) or setting(
         "FASTMCP_SERVER_AUTH_JWT_ISSUER", None
     )

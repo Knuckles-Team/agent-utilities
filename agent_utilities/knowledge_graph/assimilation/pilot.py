@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Pilot harness — validate the assimilation engine on a known corpus (CONCEPT:KG-2.7).
+"""Pilot harness — validate the assimilation engine on a known corpus (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The acceptance test for the whole reframe: run the engine over the existing corpus
 and confirm it (a) **does not re-propose already-implemented features** — the

@@ -1,10 +1,10 @@
-"""Failure-read surface on the trace backends (CONCEPT:AHE-3.18).
+"""Failure-read surface on the trace backends (CONCEPT:AU-AHE.harness.failure-evolution).
 
 Verifies LangfuseTraceBackend wires the new read methods onto the right
 LangfuseApi calls/params, and that FileTraceBackend serves the same surface
 from JSON fixtures for offline runs.
 
-@pytest.mark.concept("AHE-3.18")
+@pytest.mark.concept("AU-AHE.harness.failure-evolution")
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from agent_utilities.harness.trace_backend import (
     LangfuseTraceBackend,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.18")
+pytestmark = pytest.mark.concept("AU-AHE.harness.failure-evolution")
 
 
 class _FakeApi:

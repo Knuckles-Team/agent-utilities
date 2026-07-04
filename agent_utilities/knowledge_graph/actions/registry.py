@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — registry (CONCEPT:KG-2.25).
+"""Ontology Action System — registry (CONCEPT:AU-KG.ontology.ontology-action-system).
 
 The :class:`ActionRegistry` is the discovery surface for governed verbs: it
 binds an :class:`~agent_utilities.knowledge_graph.actions.models.OntologyAction`
@@ -23,7 +23,7 @@ ActionHandler = Callable[[dict[str, Any]], Any]
 
 
 class ActionRegistry:
-    """Registry of governed ontology actions and their handlers. CONCEPT:KG-2.25."""
+    """Registry of governed ontology actions and their handlers. CONCEPT:AU-KG.ontology.ontology-action-system."""
 
     def __init__(self) -> None:
         self._actions: dict[str, OntologyAction] = {}

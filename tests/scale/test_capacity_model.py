@@ -134,7 +134,7 @@ def test_kafka_partition_floor():
     assert cm.kafka_partitions_for(0, 0.02) == cm.MIN_KAFKA_PARTITIONS
 
 
-# --- Agent bus capacity (CONCEPT:ECO-4.84/ECO-4.87) ------------------------- #
+# --- Agent bus capacity (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent/ECO-4.87) ------------------------- #
 
 
 def test_bus_message_rate_anchored_to_single_connection():

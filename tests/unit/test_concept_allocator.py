@@ -1,4 +1,4 @@
-"""Unit tests for the concept-ID allocator (CONCEPT:OS-5.42).
+"""Unit tests for the concept-ID allocator (CONCEPT:AU-OS.governance.atomic-concept-id-reservation).
 
 Covers the next-id math, the ledger round-trip, reconcile transitions, and the
 core proof: two concurrent reservers on the same ledger get distinct ids.
@@ -24,8 +24,8 @@ def repo(tmp_path: Path) -> Path:
         yaml.safe_dump(
             {
                 "concepts": [
-                    {"id": "KG-2.100", "pillar": "KG-2"},
-                    {"id": "KG-2.101", "pillar": "KG-2"},
+                    {"id": "EG-KG.compute.type-scope-resolved-call", "pillar": "EG-KG.compute.backend"},
+                    {"id": "EG-KG.compute.model-free-similar-code", "pillar": "EG-KG.compute.backend"},
                     {"id": "KEY-003", "pillar": "KEY"},
                 ]
             }
@@ -39,17 +39,17 @@ def repo(tmp_path: Path) -> Path:
 # next_id math
 # --------------------------------------------------------------------------- #
 def test_next_id_pillar_dotted():
-    taken = {"KG-2.100", "KG-2.101", "KG-2.20g"}
-    assert ca.next_id("KG-2", taken) == "KG-2.102"
+    taken = {"EG-KG.compute.type-scope-resolved-call", "EG-KG.compute.model-free-similar-code", "EG-KG.domains.forensic-accounting-kernels"}
+    assert ca.next_id("EG-KG.compute.backend", taken) == "AU-KG.compute.http-route-graph"
 
 
 def test_next_id_letter_suffix_does_not_inflate():
     # KG-2.20g must count as sub-index 20, not block .21.
-    assert ca.next_id("KG-2", {"KG-2.20g"}) == "KG-2.21"
+    assert ca.next_id("EG-KG.compute.backend", {"EG-KG.domains.forensic-accounting-kernels"}) == "AU-KG.memory.working-set-eviction"
 
 
 def test_next_id_package_zero_padded():
-    assert ca.next_id("KEY", {"KEY-001", "KEY-003"}) == "KEY-004"
+    assert ca.next_id("KEY", {"AU-KG.ontology.package-scoped-concept", "KEY-003"}) == "KEY-004"
 
 
 def test_next_id_fresh_namespace():
@@ -68,23 +68,23 @@ def test_unknown_namespace_rejected():
 def test_reserve_unions_registry_and_code(repo: Path):
     # Registry already has KG-2.101; a code marker pushes the floor higher.
     (repo / "agent_utilities" / "mod.py").write_text(
-        "# CONCEPT:KG-2.150 something\n", encoding="utf-8"
+        "# CONCEPT:AU-KG.ingest.agent-utilities-checkout something\n", encoding="utf-8"
     )
-    rec = ca.reserve_concept_id("KG-2", session_id="s1", repo_root=repo)
-    assert rec["id"] == "KG-2.151"
+    rec = ca.reserve_concept_id("EG-KG.compute.backend", session_id="s1", repo_root=repo)
+    assert rec["id"] == "AU-KG.compute.gitlab-api-gitlab-atlassian"
     assert rec["status"] == "reserved"
     # Persisted to the ledger, one line per reservation.
     text = ca.ledger_path(repo).read_text(encoding="utf-8")
-    assert "KG-2.151" in text
+    assert "AU-KG.compute.gitlab-api-gitlab-atlassian" in text
     body = [ln for ln in text.splitlines() if ln.startswith("- ")]
     assert len(body) == 1
 
 
 def test_open_reservation_is_counted(repo: Path):
-    first = ca.reserve_concept_id("KG-2", session_id="s1", repo_root=repo)
-    second = ca.reserve_concept_id("KG-2", session_id="s2", repo_root=repo)
-    assert first["id"] == "KG-2.102"
-    assert second["id"] == "KG-2.103"  # the open reservation was counted
+    first = ca.reserve_concept_id("EG-KG.compute.backend", session_id="s1", repo_root=repo)
+    second = ca.reserve_concept_id("EG-KG.compute.backend", session_id="s2", repo_root=repo)
+    assert first["id"] == "AU-KG.compute.http-route-graph"
+    assert second["id"] == "AU-KG.enrichment.read-them-here-so"  # the open reservation was counted
 
 
 def test_release_frees_the_id(repo: Path):
@@ -101,7 +101,7 @@ def test_release_frees_the_id(repo: Path):
 # reconcile transitions
 # --------------------------------------------------------------------------- #
 def test_reconcile_marks_landed(repo: Path):
-    rec = ca.reserve_concept_id("KG-2", session_id="s1", repo_root=repo)
+    rec = ca.reserve_concept_id("EG-KG.compute.backend", session_id="s1", repo_root=repo)
     # Author lands the marker in code.
     (repo / "agent_utilities" / "feature.py").write_text(
         f"# CONCEPT:{rec['id']} the feature\n", encoding="utf-8"
@@ -113,13 +113,13 @@ def test_reconcile_marks_landed(repo: Path):
 
 
 def test_reconcile_expires_stale(repo: Path):
-    ca.reserve_concept_id("KG-2", session_id="s1", repo_root=repo, ttl_seconds=-1)
+    ca.reserve_concept_id("EG-KG.compute.backend", session_id="s1", repo_root=repo, ttl_seconds=-1)
     out = ca.reconcile(repo_root=repo)
-    assert out["expired"] == ["KG-2.102"]
+    assert out["expired"] == ["AU-KG.compute.http-route-graph"]
     # An expired reservation no longer holds the slot.
     assert (
-        ca.reserve_concept_id("KG-2", session_id="s2", repo_root=repo)["id"]
-        == "KG-2.102"
+        ca.reserve_concept_id("EG-KG.compute.backend", session_id="s2", repo_root=repo)["id"]
+        == "AU-KG.compute.http-route-graph"
     )
 
 
@@ -138,7 +138,7 @@ def test_concurrent_reservers_get_distinct_ids(repo: Path):
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
     procs = [
-        ctx.Process(target=_reserve_worker, args=(str(repo), "KG-2", q))
+        ctx.Process(target=_reserve_worker, args=(str(repo), "EG-KG.compute.backend", q))
         for _ in range(2)
     ]
     for p in procs:
@@ -147,6 +147,6 @@ def test_concurrent_reservers_get_distinct_ids(repo: Path):
         p.join(timeout=30)
         assert p.exitcode == 0
     ids = {q.get(timeout=5), q.get(timeout=5)}
-    assert ids == {"KG-2.102", "KG-2.103"}  # distinct, contiguous
+    assert ids == {"AU-KG.compute.http-route-graph", "AU-KG.enrichment.read-them-here-so"}  # distinct, contiguous
     # And both survive in the ledger (no overwrite).
     assert len(ca.read_ledger(repo)) == 2

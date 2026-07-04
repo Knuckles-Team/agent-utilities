@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.14 — Ground-Truth Context Authority.
+"""CONCEPT:AU-KG.memory.ground-truth-preamble-declaring — Ground-Truth Context Authority.
 
 Verifies the authority tier classification, the priority boost for authoritative (durable,
 injected) memory, and the Ground-Truth Hierarchy preamble that tells the agent injected memory is
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.memory.memory_engine import (
 )
 
 
-@pytest.mark.concept(id="KG-2.14")
+@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")
 def test_authority_classification():
     assert _authority_for("profile", "Preferences") == AUTHORITY_AUTHORITATIVE
     assert _authority_for("team", "Team: core") == AUTHORITY_AUTHORITATIVE
@@ -30,7 +30,7 @@ def test_authority_classification():
     assert _authority_for("active", "Misc Notes") == AUTHORITY_STANDARD
 
 
-@pytest.mark.concept(id="KG-2.14")
+@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")
 def test_startup_chunk_has_authority_field_default():
     c = StartupChunk(source="x", heading="h", body="b", handle="hd", priority=4)
     assert c.source_authority == AUTHORITY_STANDARD
@@ -45,7 +45,7 @@ def test_startup_chunk_has_authority_field_default():
     assert c2.source_authority == AUTHORITY_AUTHORITATIVE
 
 
-@pytest.mark.concept(id="KG-2.14")
+@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")
 def test_chunk_priority_boosts_authoritative():
     # Bypass __init__ (no engine needed for _chunk_priority).
     b = StartupContextBuilder.__new__(StartupContextBuilder)
@@ -61,7 +61,7 @@ def test_chunk_priority_boosts_authoritative():
     assert auth - plain >= AUTHORITY_BOOST
 
 
-@pytest.mark.concept(id="KG-2.14")
+@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")
 def test_authority_preamble_present_and_names_sources():
     b = StartupContextBuilder.__new__(StartupContextBuilder)
     text = b._build_authority_preamble(["profile", "agents_md"])
@@ -71,7 +71,7 @@ def test_authority_preamble_present_and_names_sources():
     assert "user profile" in text and "project rules" in text.lower()
 
 
-@pytest.mark.concept(id="KG-2.14")
+@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")
 def test_authority_preamble_empty_when_no_authoritative_sources():
     b = StartupContextBuilder.__new__(StartupContextBuilder)
     assert b._build_authority_preamble([]) == ""

@@ -1,6 +1,6 @@
 """Phase-2/3 autonomy + economics: adaptive model router, autonomy ramp, goal SLA.
 
-CONCEPT:ORCH-1.79 (router), OS-5.49 (autonomy ramp), ORCH-1.78 (goals-as-contracts).
+CONCEPT:AU-ORCH.routing.adaptive-role-routing (router), OS-5.49 (autonomy ramp), ORCH-1.78 (goals-as-contracts).
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class _FakeRegistry:
         return f"model@{complexity}:{confidence_signal:.2f}"
 
 
-@pytest.mark.concept("ORCH-1.79")
+@pytest.mark.concept("AU-ORCH.routing.adaptive-role-routing")
 def test_router_confidence_starts_neutral_and_learns():
     reset = model_router.reset_routes
     reset()
@@ -62,7 +62,7 @@ def test_router_confidence_starts_neutral_and_learns():
     reset()
 
 
-@pytest.mark.concept("ORCH-1.79")
+@pytest.mark.concept("AU-ORCH.routing.adaptive-role-routing")
 def test_pick_adaptive_feeds_learned_confidence():
     model_router.reset_routes()
     reg = _FakeRegistry()
@@ -77,7 +77,7 @@ def test_pick_adaptive_feeds_learned_confidence():
     model_router.reset_routes()
 
 
-@pytest.mark.concept("ORCH-1.79")
+@pytest.mark.concept("AU-ORCH.routing.adaptive-role-routing")
 def test_pick_adaptive_none_without_registry():
     assert model_router.pick_adaptive(None, "planner") is None
 
@@ -88,14 +88,14 @@ def test_pick_adaptive_none_without_registry():
 
 
 # ── OS-5.49 autonomy ramp ─────────────────────────────────────────────────────
-@pytest.mark.concept("OS-5.49")
+@pytest.mark.concept("AU-OS.governance.autonomy-change-proposer")
 def test_assess_trust_predicate():
     assert assess_trust(20, 19, min_samples=20, threshold=0.9) is True
     assert assess_trust(20, 17, min_samples=20, threshold=0.9) is False  # 85% < 90%
     assert assess_trust(5, 5, min_samples=20, threshold=0.9) is False  # too few samples
 
 
-@pytest.mark.concept("OS-5.49")
+@pytest.mark.concept("AU-OS.governance.autonomy-change-proposer")
 def test_record_trust_and_clears_ramp():
     reset_trust()
     for _ in range(19):
@@ -106,7 +106,7 @@ def test_record_trust_and_clears_ramp():
     reset_trust()
 
 
-@pytest.mark.concept("OS-5.49")
+@pytest.mark.concept("AU-OS.governance.autonomy-change-proposer")
 def test_action_policy_graduates_only_allowlisted_and_trusted(monkeypatch):
     from agent_utilities.orchestration.action_policy import (
         TIER_APPROVAL,
@@ -141,7 +141,7 @@ def test_action_policy_graduates_only_allowlisted_and_trusted(monkeypatch):
 
 
 # ── ORCH-1.78 goals-as-contracts SLA ──────────────────────────────────────────
-@pytest.mark.concept("ORCH-1.78")
+@pytest.mark.concept("AU-ORCH.session.escalate-breached-goals")
 def test_assess_goal_sla_states():
     base = _NOW.timestamp()
     # open 30s with a 3600s SLA -> on_track
@@ -164,7 +164,7 @@ def test_assess_goal_sla_states():
     )
 
 
-@pytest.mark.concept("ORCH-1.78")
+@pytest.mark.concept("AU-ORCH.session.escalate-breached-goals")
 def test_evaluate_goal_slas_collects_breaches():
     base = _NOW.timestamp()
 

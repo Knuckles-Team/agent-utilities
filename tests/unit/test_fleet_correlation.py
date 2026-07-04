@@ -1,4 +1,4 @@
-"""Queryable cross-agent correlation / blast-radius (CONCEPT:OS-5.11).
+"""Queryable cross-agent correlation / blast-radius (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
 Correlation ids were emitted into outbound headers but never persisted on the
 durable effect nodes, so "which agents touched resource X" was answerable only

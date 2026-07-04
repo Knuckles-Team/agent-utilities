@@ -1,4 +1,4 @@
-"""OntologyLifecycle.delete → physical engine retract (CONCEPT:KG-2.266).
+"""OntologyLifecycle.delete → physical engine retract (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 KG-2.265 unloaded an ontology by dropping the registry record only; KG-2.266 wires it
 to the engine's ``remove_triples`` retract op so the axioms physically leave the
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.ontology.lifecycle import (
     reset_registry,
 )
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 PETS_TTL = """
 @prefix : <http://example.org/pets#> .

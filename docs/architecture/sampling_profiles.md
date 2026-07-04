@@ -1,4 +1,4 @@
-# Task-Aware Sampling Profiles (CONCEPT:ORCH-1.58 / AHE-3.38 / KG-2.94–2.96)
+# Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)
 
 > The router already decides **which model** answers a question. Sampling profiles
 > decide **how to sample from it** — temperature, top_p, top_k, min_p,
@@ -39,7 +39,7 @@ flowchart LR
     P -.->|"projected"| OWL[("OWL: InferenceProfile / Model")]
 ```
 
-## Layer A — per-call threading (CONCEPT:ORCH-1.58)
+## Layer A — per-call threading (CONCEPT:AU-ORCH.routing.sampling-profile-selection)
 
 `SamplingProfile.to_model_settings(base)` builds the per-call override **from** the
 agent's static base settings — because pydantic-ai *replaces* (does not deep-merge)
@@ -76,7 +76,7 @@ RLM (`rlm/repl.py`) threads a depth-tiered profile explicitly: the root is the s
 proposer (`rlm-proposer` → reasoning profile), recursive sub-calls are deterministic
 executors (`rlm-executor` → code profile).
 
-## Layer B — task-aware selection (CONCEPT:ORCH-1.58)
+## Layer B — task-aware selection (CONCEPT:AU-ORCH.routing.sampling-profile-selection)
 
 `ModelRegistry` (`models/model_registry.py`) carries curated `task_class_profiles`
 (module constants — no env flags) and `pick_profile_for_task` / `pick_profile_for_role`
@@ -98,7 +98,7 @@ Hand-tuned seeds (evolution refines them in place):
 | `brainstorm` | 1.0 | 1.0 | presence_penalty 0.3 | spread |
 | `default` | (inherit) | (inherit) | — | zero-change fallback |
 
-## Layer C — evolution (CONCEPT:AHE-3.38)
+## Layer C — evolution (CONCEPT:AU-AHE.harness.evolvable-sampling-profiles)
 
 The `VariantPool` (AHE-3.2) docstring always named "mutating configuration parameters
 (temperature, …)" as a parametric dimension — now it is a live loop. `evolve_profile`
@@ -120,7 +120,7 @@ flowchart TD
     PROMO -->|"process-global registry"| LIVE["router/factory pick it next run"]
 ```
 
-## Layer D — ontology mapping (CONCEPT:KG-2.94 / 2.95 / 2.96)
+## Layer D — ontology mapping (CONCEPT:AU-KG.ontology.sampling-profile-coupling / 2.95 / 2.96)
 
 Models, profiles, and the sampling knobs are first-class in the one OWL/RDF ontology
 (reached only via `kg.ontology`), so OWL reasoning can extrapolate which profile fits
@@ -144,7 +144,7 @@ flowchart TD
 - **Interfaces (KG-2.94, `ontology/interfaces.py`)** — `InferenceProfile` (shape) and
   `SamplingConfigurable` (a `Model` object type implements it, declaring a `HAS_PROFILE`
   link). `inference_owl_ttl()` projects the registry's models + profiles to OWL.
-- **Links (KG-2.96, `ontology/links.py`)** — `HAS_PROFILE`/`PROFILE_OF`, `TUNED_FOR`,
+- **Links (AU-KG.ontology.typed-ontology-links-binding, `ontology/links.py`)** — `HAS_PROFILE`/`PROFILE_OF`, `TUNED_FOR`,
   `BOUND_TO_ROLE`, `USES_PROFILE`.
 
 ## Layer E — two surfaces

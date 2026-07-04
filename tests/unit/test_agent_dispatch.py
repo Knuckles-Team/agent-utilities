@@ -1,4 +1,4 @@
-"""Queue-driven agent dispatch (CONCEPT:ORCH-1.45).
+"""Queue-driven agent dispatch (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch).
 
 Covers the envelope contract, the session-first partition-key precedence, the
 inline-default seam (existing behavior byte-for-byte), the queue-mode job
@@ -57,7 +57,7 @@ class FakeDispatchQueue:
 
 
 class _GoalEngine:
-    """Fake KG engine — the goal Loop-node store (CONCEPT:KG-2.78)."""
+    """Fake KG engine — the goal Loop-node store (CONCEPT:AU-KG.research.these-properties-carry)."""
 
     def __init__(self):
         self.nodes: dict[str, dict] = {}
@@ -177,7 +177,7 @@ def test_envelope_carries_references_not_bodies():
 
 
 def test_envelope_prio_bucket_unified_with_tasks():
-    """Dispatch priority is the SAME 0..3 bucket as a :Task (CONCEPT:KG-2.113).
+    """Dispatch priority is the SAME 0..3 bucket as a :Task (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
     The string-only path is gone — every spec (legacy string, int, numeric
     string) is coerced through the single shared normalizer, identical to how
@@ -216,7 +216,7 @@ def test_partition_key_session_beats_tenant():
     actor = ActorContext("u1", ActorType.HUMAN, tenant_id="acme")
     with use_actor(actor):
         # Per-session serial execution is REQUIRED for turn coherence —
-        # session outranks the ambient tenant (CONCEPT:ORCH-1.45).
+        # session outranks the ambient tenant (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch).
         assert partition_key_for(item) == "session:sess-42"
     # And without the ambient actor too.
     assert partition_key_for(item) == "session:sess-42"

@@ -1,4 +1,4 @@
-"""Multi-agent scaling-law harness (CONCEPT:SAFE-1.2).
+"""Multi-agent scaling-law harness (CONCEPT:AU-OS.scaling.multi-agent-scaling-law).
 
 Hold a task fixed, sweep collective size, fit capability ~ N^alpha to recover whether
 adding agents helps super- or sub-linearly — instead of assuming it does.
@@ -14,7 +14,7 @@ from agent_utilities.harness.scaling_laws import (
     fit_scaling_law,
 )
 
-pytestmark = pytest.mark.concept("SAFE-1.2")
+pytestmark = pytest.mark.concept("AU-OS.scaling.multi-agent-scaling-law")
 
 
 class _Engine:

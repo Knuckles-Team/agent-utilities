@@ -1,4 +1,4 @@
-"""Egeria write-back sink (CONCEPT:KG-2.9).
+"""Egeria write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Catalogs KG-derived entities into the Egeria open-metadata estate as governed
 assets — the first-class write-back twin of the Egeria harvest, now on the unified

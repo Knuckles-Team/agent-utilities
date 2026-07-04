@@ -1,4 +1,4 @@
-"""Infrastructure-as-Code extraction → Resource nodes (CONCEPT:KG-2.103).
+"""Infrastructure-as-Code extraction → Resource nodes (CONCEPT:AU-KG.enrichment.read-them-here-so).
 
 A service's code is only half its definition; the other half is the IaC that
 deploys it — the Dockerfile that builds its image, the Kubernetes manifests that
@@ -59,7 +59,7 @@ def _is_iac_file(p: Path) -> bool:
 def extract_iac(
     files: list[tuple[str, str]],
 ) -> tuple[list[GraphNode], list[EnrichmentEdge]]:
-    """Parse IaC files into ``Resource`` nodes (CONCEPT:KG-2.103).
+    """Parse IaC files into ``Resource`` nodes (CONCEPT:AU-KG.enrichment.read-them-here-so).
 
     ``files`` is ``[(path, text), ...]``. Returns the Resource nodes; edges is
     reserved for intra-IaC links (empty for now)."""
@@ -106,7 +106,7 @@ def link_resources_to_service(
     resources: list[GraphNode], service_id: str
 ) -> list[EnrichmentEdge]:
     """Link each ``Resource`` to the deployed ``Service`` it provisions
-    (``provisions``) — the IaC↔topology bridge (CONCEPT:KG-2.103)."""
+    (``provisions``) — the IaC↔topology bridge (CONCEPT:AU-KG.enrichment.read-them-here-so)."""
     if not service_id:
         return []
     return [

@@ -3,8 +3,8 @@
 > A single `source_sync(source=X, mode="full")` on a **large** corpus is no longer a
 > long blocking call. It is normalized into a self-continuing stream of paginated,
 > capacity-guarded background batch-tasks ("waves"), and you watch it finish with the
-> `source_drain` status tool. Concepts: **CONCEPT:KG-2.301** (chunked async drain) and
-> **CONCEPT:KG-2.302** (connector-declared page drainer). Source of truth:
+> `source_drain` status tool. Concepts: **CONCEPT:AU-KG.ontology.single-source-full-drain** (chunked async drain) and
+> **CONCEPT:AU-KG.compute.connector-declared-page-drainer** (connector-declared page drainer). Source of truth:
 > `agent_utilities/knowledge_graph/core/chunked_drain.py`.
 
 This page builds on [Ingestion throughput](ingestion_throughput.md) (the lanes,
@@ -27,11 +27,11 @@ That has two failure modes:
 2. **It monopolizes the worker / engine write path.** One giant inline fetch-and-
    ingest hogs a worker and funnels a flood of writes into the engine while it runs,
    starving the interactive / orchestration work that the resource-priority edict
-   (CONCEPT:ORCH-1.98/1.99) is supposed to protect.
+   (CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99) is supposed to protect.
 
 The fix makes a full re-ingest **cooperative and non-blocking**: the one call
 becomes many small, bounded, background page-tasks, each subject to the same
-priority edict and the GB10 server-capacity guard (CONCEPT:ORCH-1.102/1.103) as
+priority edict and the GB10 server-capacity guard (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) as
 every other ingest unit — so it can neither time out the request nor OOM the box.
 
 ## How it works
@@ -42,7 +42,7 @@ every other ingest unit — so it can neither time out the request nor OOM the b
 delta handlers run:
 
 ```python
-# CONCEPT:KG-2.301 — a single-source FULL drain of a LARGE corpus must NOT run inline.
+# CONCEPT:AU-KG.ontology.single-source-full-drain — a single-source FULL drain of a LARGE corpus must NOT run inline.
 if mode == "full" and hasattr(engine, "submit_task"):
     if chunked_drain_enabled() and supports_chunked_drain(source):
         return start_chunked_drain(engine, source, mode="full")
@@ -95,7 +95,7 @@ blob, then calls `run_drain_page`. That function (in `chunked_drain.py`):
 
 Two safety properties make this robust: it is **idempotent + resumable** (each
 page-task replays from its carried checkpoint, and the write-layer content-hash
-delta of CONCEPT:KG-2.9 skips unchanged items so a re-drain is cheap), and it has a
+delta of CONCEPT:AU-KG.ingest.enterprise-source-extractor skips unchanged items so a re-drain is cheap), and it has a
 **defensive page backstop** (`KG_DRAIN_MAX_PAGES`, default 5000) so a connector that
 falsely reports `has_more` forever cannot loop unbounded.
 
@@ -104,7 +104,7 @@ flowchart TD
     A["source_sync(source=X, mode='full')"] --> B{"single-source full<br/>+ drainer registered<br/>+ KG_CHUNKED_DRAIN on?"}
     B -- no --> INL["inline delta handler<br/>(fast path, returns result)"]
     B -- yes --> C["start_chunked_drain()<br/>write :SourceDrain · enqueue page 0<br/>RETURN handle immediately"]
-    C --> Q["connectors lane (ORCH-1.75)<br/>background priority + capacity guard"]
+    C --> Q["connectors lane (AU-ORCH.execution.two-level-fair-rotation)<br/>background priority + capacity guard"]
     Q --> P0["connector_drain page 0<br/>poll() one page → ingest_page()"]
     P0 -->|has_more| P1["enqueue page 1<br/>(advanced checkpoint)"]
     P1 --> Pn["… page N …"]
@@ -114,7 +114,7 @@ flowchart TD
     SD --> ST["source_drain (action=status, drain_id)<br/>+ live :Task per-status breakdown"]
 ```
 
-### Connector-declared pagination (KG-2.302) — the `PageDrainer` registry
+### Connector-declared pagination (AU-KG.compute.connector-declared-page-drainer) — the `PageDrainer` registry
 
 The driver is **not** FreshRSS-specific. A source opts into chunked drain by
 registering a frozen `PageDrainer` dataclass via `register_page_drainer(...)`,
@@ -130,7 +130,7 @@ exhaustion. The flagship registration is FreshRSS: `_freshrss_build_connector` b
 **no `newer_than`** in `full` mode (so `poll` walks the entire GReader backlog via
 the `continuation` cursor, with `batch_size` = the page size), and
 `_freshrss_ingest_page` routes each page through the world-model relevance gate
-(`WorldModelPipelineRunner`, CONCEPT:KG-2.116) — so even a full backlog drain is
+(`WorldModelPipelineRunner`, CONCEPT:AU-KG.ingest.news-finance-tech-sibling) — so even a full backlog drain is
 relevance-gated, returning `{items, ingested, relevant, marginal, research,
 skipped_unchanged}` per page. `list_chunked_sources()` enumerates the registered set.
 
@@ -164,16 +164,16 @@ exact query is handed back in the `start_chunked_drain` `watch.task_query` field
 `connector_drain` is mapped onto the **`connectors` lane** in `core/task_lanes.py`
 (alongside `connector_sync` and `feed_sweep`). That placement is the whole point:
 
-- It inherits the **background-ingestion priority edict** (CONCEPT:ORCH-1.98/1.99):
+- It inherits the **background-ingestion priority edict** (CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99):
   every page-task is enqueued at `priority=3` (the background bucket), so it yields to
   interactive / orchestration work and can never starve the harness.
-- It inherits the **GB10 server-capacity guard** (CONCEPT:ORCH-1.102/1.103) that all
+- It inherits the **GB10 server-capacity guard** (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) that all
   ingestion shares, so the drain throttles to available LLM/embedding capacity rather
   than overrunning it.
 - It is bounded by the `connectors` lane **soft timeout** (180s,
-  `LANE_SOFT_TIMEOUT_SEC`, CONCEPT:KG-2.286) — each page is sized to complete well
+  `LANE_SOFT_TIMEOUT_SEC`, CONCEPT:AU-KG.compute.lane-bound-task) — each page is sized to complete well
   inside that bound, and a hung page is cancelled and retried via the
-  retry→backoff→dead_letter machinery (CONCEPT:KG-2.113) without pinning a worker.
+  retry→backoff→dead_letter machinery (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task) without pinning a worker.
 
 So a full re-ingest of an 11k-item backlog drains as ~110 small background page-tasks
 that interleave with everything else, instead of one inline call that times out the
@@ -211,7 +211,7 @@ Source-specific knobs still apply to the page ingest — e.g. FreshRSS's
 
 **It composes with the existing lane/throughput system rather than bypassing it.**
 The page-tasks are ordinary `:Task` rows on the `connectors` lane, so the
-best-effort cap, the interactive reservation (CONCEPT:KG-2.289), the per-hop
+best-effort cap, the interactive reservation (CONCEPT:AU-KG.compute.interactive-lane-floor), the per-hop
 profiler (`graph_ingest action=profile`), and `agent-utilities-doctor`'s
 `ingestion_coverage` check all see and govern them like any other ingest. After a
 drain completes, subsequent `mode="delta"` syncs are cheap because the watermark

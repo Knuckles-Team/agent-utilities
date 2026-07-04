@@ -1,6 +1,6 @@
 # Genesis standard private repos + CI (per profile)
 
-> **CONCEPT:OS-5.74 / OS-5.75.** What private repos (and CI/runners) genesis provisions
+> **CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75.** What private repos (and CI/runners) genesis provisions
 > for you, per profile — so your environment lives in *your* repos + XDG config, never
 > in the public agent-utilities repo.
 
@@ -44,7 +44,7 @@ your config at deploy time — and committed. Generalized CI templates (`stages.
 `agent-package-ci.yml`, `service-deploy.yml`) and `runner_plan(profile)` runners are
 seeded for non-tiny profiles.
 
-## Generalized, reusable CI (CONCEPT:OS-5.75)
+## Generalized, reusable CI (CONCEPT:AU-OS.deployment.concept-2)
 
 For non-`tiny` profiles, genesis also seeds a set of **generalized** GitLab CI templates
 (`CI_TEMPLATES` in `repo_templates.py`, generalized from `gitlab-pipelines/*`). They are

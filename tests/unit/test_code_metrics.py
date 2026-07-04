@@ -1,4 +1,4 @@
-"""Tests for code-scoped graph analytics (CONCEPT:KG-2.210 / KG-2.213).
+"""Tests for code-scoped graph analytics (CONCEPT:AU-KG.retrieval.god-nodes-communities / KG-2.213).
 
 Exercises the Graphify-style god-node / community / surprising-connection analytics
 and the architecture report offline via a fake engine whose backend returns the

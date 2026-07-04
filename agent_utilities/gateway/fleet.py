@@ -1,6 +1,6 @@
-"""Native swarm supervisory plane (CONCEPT:OS-5.10).
+"""Native swarm supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail).
 
-CONCEPT:OS-5.18 — Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and desired-state pause and kill reconciliation across hosts
+CONCEPT:AU-OS.state.fleet-supervisory-plane-at — Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and desired-state pause and kill reconciliation across hosts
 
 A single pane of glass over the running fleet, exposed through the API gateway —
 no separate supervisor service. Everything here surfaces state the ecosystem
@@ -8,15 +8,15 @@ no separate supervisor service. Everything here surfaces state the ecosystem
 
 * **topology / health** — the durable session registry and goal registry in
   :mod:`agent_utilities.core.sessions` (per-host SQLite by default, the shared
-  Postgres state store when ``state_db_uri`` is set — CONCEPT:OS-5.16).
+  Postgres state store when ``state_db_uri`` is set — CONCEPT:AU-OS.state.unified-durable-state-externalization).
   Aggregations run in SQL (``COUNT``/``GROUP BY``) and listings are paginated
   + status-filterable, so the handlers stay O(page), not O(fleet)
-  (CONCEPT:OS-5.18).
+  (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
 * **pause / kill** — emergency containment as *desired-state writes*: targets
   local to this gateway are cancelled in-process (fast path) and finalized;
   sessions owned by another host get ``pause_requested``/``kill_requested``,
   which the owning host's goal loop reconciles on its next tick
-  (CONCEPT:OS-5.18).
+  (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
 * **approvals** — pending mutation/risk approvals stored as ``Task`` graph nodes,
   read and granted through the parity-covered ``graph_query`` / ``graph_orchestrate``
   tools.
@@ -47,7 +47,7 @@ def _domain_sql(dialect: str) -> str:
 
     Mirrors the old per-row Python ``_domain_of`` (domain → team → tenant →
     'default') so aggregation can run in the database on both backends
-    (CONCEPT:OS-5.18). Malformed/empty metadata degrades to 'default'.
+    (CONCEPT:AU-OS.state.fleet-supervisory-plane-at). Malformed/empty metadata degrades to 'default'.
     """
     if dialect == "postgres":
 
@@ -81,7 +81,7 @@ def _tenant_sql(dialect: str) -> str:
 def _tenant_scope(dialect: str) -> tuple[str, list[Any]]:
     """Return an ``(sql_predicate, params)`` restricting rows to the caller's org.
 
-    The tenant-scoped supervisory plane (CONCEPT:OS-5.10 + OS-5.14): an org's
+    The tenant-scoped supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail + OS-5.14): an org's
     caller sees only its own sessions/agents; a platform admin (``admin``/
     ``system`` role) sees the whole fleet. Returns ``("", [])`` — unfiltered —
     for privileged callers, and for the legacy/local path where no tenant is in
@@ -241,7 +241,7 @@ async def fleet_topology(request: Request) -> JSONResponse:
             }
         )
 
-    # Totals from SQL aggregates, not the returned page (CONCEPT:OS-5.18).
+    # Totals from SQL aggregates, not the returned page (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
     conn = _sessions._connect_db()
     try:
         cur = conn.cursor()
@@ -256,7 +256,7 @@ async def fleet_topology(request: Request) -> JSONResponse:
     finally:
         conn.close()
 
-    # Queue-driven dispatch placement (CONCEPT:ORCH-1.45): live agent-dispatch
+    # Queue-driven dispatch placement (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch): live agent-dispatch
     # workers (fresh heartbeats in this same store) — which host runs what.
     try:
         from agent_utilities.orchestration.agent_dispatch import (
@@ -392,9 +392,9 @@ async def fleet_approvals(request: Request) -> JSONResponse:
 
     Two sources share this single human queue: ``Task`` graph nodes awaiting a
     decision (orchestrator jobs) and ``ActionApproval`` nodes filed by the
-    operational ActionPolicy gate (CONCEPT:OS-5.24 — restart/scale/deploy
+    operational ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — restart/scale/deploy
     proposals the policy routed to a human; the fleet reconciler executes them
-    once granted, CONCEPT:OS-5.25).
+    once granted, CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
     """
     from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
 
@@ -436,7 +436,7 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
 
     ``ActionApproval`` ids (``action_approval:...``) resolve in place — the
     decision is stamped on the node and the reconciler's approved-action drain
-    executes it on the next tick (CONCEPT:OS-5.24/OS-5.25). Anything else
+    executes it on the next tick (CONCEPT:AU-OS.deployment.fleet-lifecycle-control/OS-5.25). Anything else
     falls through to the orchestrator's ``grant_approval``.
     """
     from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
@@ -482,7 +482,7 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
 
 
 async def fleet_trace(request: Request) -> JSONResponse:
-    """Swarm-wide cross-agent correlation query (CONCEPT:OS-5.11).
+    """Swarm-wide cross-agent correlation query (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
     ``GET /api/fleet/trace?correlation_id=<cid>`` returns every durable node
     stamped with that correlation id — fleet events, executed tasks, and any
@@ -518,7 +518,7 @@ async def fleet_trace(request: Request) -> JSONResponse:
 
 
 async def fleet_touched(request: Request) -> JSONResponse:
-    """Blast-radius query: which agents/events touched a resource (CONCEPT:OS-5.11).
+    """Blast-radius query: which agents/events touched a resource (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
     ``GET /api/fleet/touched?resource=<id>`` returns the fleet events whose
     subject is that resource, with their correlation ids and originating
@@ -561,7 +561,7 @@ async def fleet_touched(request: Request) -> JSONResponse:
 
 def mount_fleet_routes(app, prefix: str = "") -> None:
     """Mount the supervisory plane onto a Starlette/FastAPI ``app``."""
-    # Webhook ingress for monitoring events (CONCEPT:OS-5.15) — sibling module
+    # Webhook ingress for monitoring events (CONCEPT:AU-OS.config.fleet-event-ingress) — sibling module
     # so alert normalization/persistence stays out of the supervisory handlers.
     from agent_utilities.gateway.fleet_events import fleet_events_receive
 

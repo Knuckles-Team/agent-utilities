@@ -5,14 +5,14 @@ Three live-path defects observed through the ``graph_orchestrate`` MCP tool:
 * **Symptom 1** — ``execute_workflow`` hung to the caller's 300s timeout because a
   spawned agent awaiting an unresponsive MCP tool advances zero ``max_steps`` yet
   blocks the fan-out ``asyncio.gather`` forever. Fixed by a per-spawn wall-clock
-  budget (CONCEPT:ORCH-1.24).
+  budget (CONCEPT:AU-ORCH.execution.workflow-lifecycle-management).
 * **Symptom 2** — a remote MCP child failure surfaced as the opaque
   "unhandled errors in a TaskGroup (1 sub-exception)" because anyio wraps it in a
   ``BaseExceptionGroup``. Fixed by flattening the group to the real leaf messages
-  (CONCEPT:ORCH-1.21).
+  (CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap).
 * **Symptom 3** — bound ``allowed_tools`` must reach the agent as a real callable
   toolset; a ``.filtered()`` failure or an empty toolset must fail loudly rather
-  than yielding a zero-tool agent that hallucinates (CONCEPT:ORCH-1.39 / ORCH-1.21).
+  than yielding a zero-tool agent that hallucinates (CONCEPT:AU-ORCH.session.invoker-agent-handoff / ORCH-1.21).
 """
 
 from __future__ import annotations

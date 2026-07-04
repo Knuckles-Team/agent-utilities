@@ -1,6 +1,6 @@
 """MCP (Model Context Protocol) subsystem for agent-utilities.
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 
 This package provides:
 - KG Server (graph-os) — Knowledge Graph MCP server exposing CRUD + search tools

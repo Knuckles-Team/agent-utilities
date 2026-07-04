@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Autonomous code-synthesis stage for promoted proposals.
 
-CONCEPT:AHE-3.22 — autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted proposal so the deployed evolution loop emits code instead of only a prose plan
+CONCEPT:AU-AHE.harness.single-file-code-synthesis — autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted proposal so the deployed evolution loop emits code instead of only a prose plan
 
 The genotypic-RSI *generator*: the deployed self-evolution loop can already
 promote, govern, sandbox-validate and branch a ``kind="code"`` change — but
@@ -95,7 +95,7 @@ def _strip_code_fence(text: str) -> str:
 class LLMCodeSynthesizer:
     """Default generator: rewrite one file with the configured chat model.
 
-    Backed by the shared ``make_lite_llm_fn`` completion fn (CONCEPT:KG-2.8), which
+    Backed by the shared ``make_lite_llm_fn`` completion fn (CONCEPT:EG-KG.storage.nonblocking-checkpoint), which
     returns ``""`` when no model is reachable — so ``generate`` yields ``None`` and
     the caller falls back to prose. No LLM is required to construct this object.
     """

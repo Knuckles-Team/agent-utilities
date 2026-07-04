@@ -1,8 +1,8 @@
 #!/usr/bin/python
-# CONCEPT:KG-2.74 - Concurrent N-way mirrored graph backend: one configurable authority store serves reads and acks writes synchronously while every mutation fans out, lossless, to any set of durable mirrors (Postgres/AGE, Neo4j, FalkorDB, LadybugDB) via a durable per-mirror outbox with replay-on-reconnect and a reconcile drift-repair backstop.
+# CONCEPT:AU-KG.backend.mirror-health-repair - Concurrent N-way mirrored graph backend: one configurable authority store serves reads and acks writes synchronously while every mutation fans out, lossless, to any set of durable mirrors (Postgres/AGE, Neo4j, FalkorDB, LadybugDB) via a durable per-mirror outbox with replay-on-reconnect and a reconcile drift-repair backstop.
 """Fan-out (N-way mirror) graph backend.
 
-CONCEPT:KG-2.74 — Concurrent Multi-Store Mirroring.
+CONCEPT:AU-KG.backend.mirror-health-repair — Concurrent Multi-Store Mirroring.
 
 The **one-authority, N-mirror** store: a single configurable **authority** backend
 serves every read and acks every write synchronously, and each write is then
@@ -15,7 +15,7 @@ The shape, and why each piece is here:
   ``semantic_search`` go there, and a write returns as soon as the authority
   commits **and** the mutation is durably enqueued for the mirrors. Reads are
   therefore always consistent; mirrors are eventually-consistent (seconds of lag).
-* **Async hand-off — the ack never waits on the mirror enqueue (CONCEPT:KG-2.273).**
+* **Async hand-off — the ack never waits on the mirror enqueue (CONCEPT:AU-KG.backend.authority-has-already-acked).**
   The authority commit is the source of truth; a write returns the instant the
   authority acks. The mirror fan-out is a **non-blocking hand-off**: the write puts
   the mutation onto a bounded in-memory ring and returns — it does **not** wait on
@@ -46,7 +46,7 @@ The shape, and why each piece is here:
 
 Selected via ``GRAPH_BACKEND=fanout`` with ``graph_authority`` +
 ``graph_mirror_targets`` naming connections declared in ``kg_connections``
-(CONCEPT:KG-2.63). The zero-infra default is unchanged: this backend is only
+(CONCEPT:AU-KG.backend.multi-connection-registry). The zero-infra default is unchanged: this backend is only
 built when an operator configures a mirror set.
 """
 
@@ -71,7 +71,7 @@ def _auto_handoff_capacity() -> int:
     """Auto-size the in-memory mirror hand-off ring from the host's core count.
 
     The ring absorbs a write burst while the single persister thread drains it to
-    the durable outbox (CONCEPT:KG-2.273). Bigger boxes get a deeper ring (more
+    the durable outbox (CONCEPT:AU-KG.backend.authority-has-already-acked). Bigger boxes get a deeper ring (more
     in-flight writes tolerated before backpressure); a Pi stays capped so memory is
     bounded. No knob — config discipline says auto-size, don't expose a flag.
     """
@@ -141,7 +141,7 @@ def _is_permanent_apply_error(exc: BaseException) -> bool:
     syntax error) fails deterministically on every replay, so retrying it forever
     only blocks the mirror and floods the log. A transient outage (connection
     refused, timeout, mirror restarting) is NOT permanent and keeps retrying. Used by
-    the drainer to drop a poison entry instead of stalling (CONCEPT:KG-2.74)."""
+    the drainer to drop a poison entry instead of stalling (CONCEPT:AU-KG.backend.mirror-health-repair)."""
     msg = str(exc).lower()
     return any(marker in msg for marker in _PERMANENT_APPLY_ERROR_MARKERS)
 
@@ -185,7 +185,7 @@ class FanOutBackend(GraphBackend):
         self._authority_writes = 0
         self._stop = threading.Event()
         self._outbox: GraphOutbox | None = None
-        # Async mirror hand-off (CONCEPT:KG-2.273): the write path PUTs onto this
+        # Async mirror hand-off (CONCEPT:AU-KG.backend.authority-has-already-acked): the write path PUTs onto this
         # bounded ring and returns; one persister thread drains it into the durable
         # outbox. ``_inflight`` counts ring items not yet durably persisted, so a
         # convergence wait (flush_mirrors) can tell when the durable hand-off caught
@@ -225,7 +225,7 @@ class FanOutBackend(GraphBackend):
     def _enqueue(self, op: str, payload: dict[str, Any]) -> None:
         """Hand a mutation off to the mirror fan-out **without blocking the ack**.
 
-        CONCEPT:KG-2.273. The authority has already acked; this must not wait on the
+        CONCEPT:AU-KG.backend.authority-has-already-acked. The authority has already acked; this must not wait on the
         durable outbox ``append``. So it PUTs the mutation onto the bounded in-memory
         ring (O(1), never the sqlite write lock) and returns — the persister thread
         lands it durably. The only time this touches sqlite synchronously is the
@@ -253,7 +253,7 @@ class FanOutBackend(GraphBackend):
             self._inflight += 1
 
     def _persist_handoff(self) -> None:
-        """Drain the in-memory ring into the durable outbox (CONCEPT:KG-2.273).
+        """Drain the in-memory ring into the durable outbox (CONCEPT:AU-KG.backend.authority-has-already-acked).
 
         One thread, so the global outbox ``seq`` order matches the hand-off order. It
         coalesces a burst into one batch (amortizing the sqlite commit), appends each
@@ -297,7 +297,7 @@ class FanOutBackend(GraphBackend):
 
         Called on ``close`` after the persister has stopped, so a graceful shutdown
         loses nothing: every handed-off-but-not-yet-persisted mutation lands durably
-        before the outbox is closed (CONCEPT:KG-2.273)."""
+        before the outbox is closed (CONCEPT:AU-KG.backend.authority-has-already-acked)."""
         if self._handoff is None or self._outbox is None:
             return
         drained = 0
@@ -456,7 +456,7 @@ class FanOutBackend(GraphBackend):
                     # SKIP it (advance the cursor) so the mirror keeps draining instead
                     # of blocking + spamming the log forever. Transient outages fall
                     # through and replay after backoff as before. reconcile() repairs
-                    # any dropped mutation (CONCEPT:KG-2.74).
+                    # any dropped mutation (CONCEPT:AU-KG.backend.mirror-health-repair).
                     if _is_permanent_apply_error(exc):
                         if st.poison_seq == entry.seq:
                             st.poison_count += 1
@@ -510,7 +510,7 @@ class FanOutBackend(GraphBackend):
         import time
 
         deadline = time.monotonic() + timeout
-        # Convergence has TWO stages now (CONCEPT:KG-2.273): the in-memory ring must
+        # Convergence has TWO stages now (CONCEPT:AU-KG.backend.authority-has-already-acked): the in-memory ring must
         # be drained into the durable outbox (``_inflight == 0``), then every mirror
         # cursor must catch up to the outbox tail (``lag == 0``). The first stage
         # matters because the async hand-off means a just-acked write may not be in
@@ -580,7 +580,7 @@ class FanOutBackend(GraphBackend):
             "authority": type(self._authority).__name__,
             "authority_writes": self._authority_writes,
             "outbox_depth": self._outbox.depth() if self._outbox is not None else 0,
-            # Async hand-off backlog (CONCEPT:KG-2.273): ring items the write path
+            # Async hand-off backlog (CONCEPT:AU-KG.backend.authority-has-already-acked): ring items the write path
             # handed off but the persister has not yet landed in the durable outbox.
             "handoff_inflight": inflight,
             "mirrors": mirrors,
@@ -636,7 +636,7 @@ class FanOutBackend(GraphBackend):
     def close(self) -> None:
         # Stop the persister + drainers first so they don't touch a closing
         # outbox/backend. Then flush any ring items still in memory to the durable
-        # outbox so a graceful shutdown loses nothing (CONCEPT:KG-2.273).
+        # outbox so a graceful shutdown loses nothing (CONCEPT:AU-KG.backend.authority-has-already-acked).
         self._stop.set()
         if self._persister is not None:
             try:

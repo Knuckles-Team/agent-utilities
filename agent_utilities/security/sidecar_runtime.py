@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.35 / OS-5.5 — Sidecar runtime: typed process stamps + per-run UDS isolation.
+"""CONCEPT:AU-ORCH.execution.held-turn-registry-mid / OS-5.5 — Sidecar runtime: typed process stamps + per-run UDS isolation.
 
 Assimilated from open-design's sidecar-proto 5-field stamp (app/mode/namespace/ipc/source) and
 socket-path isolation. Each run/agent gets a unique stamp that deterministically resolves to a UDS

@@ -1,12 +1,12 @@
 # Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)
 
-> **Concept:** `CONCEPT:ORCH-1.105` — a per-call decision engine that decides,
+> **Concept:** `CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy` — a per-call decision engine that decides,
 > for **each** LLM chat execution, whether its KV-cache is worth **storing** into
 > the decoupled LMCache layer — instead of a hard, global on/off.
 >
-> **Related:** `CONCEPT:ORCH-1.58` (the per-call sampling seam this rides on) ·
-> `CONCEPT:KG-2.306` (`EpistemicGraphKVBackend`, the L2 store) ·
-> `CONCEPT:EG-185/186/187` (tiered, content-addressed engine KV-cache) ·
+> **Related:** `CONCEPT:AU-ORCH.routing.sampling-profile-selection` (the per-call sampling seam this rides on) ·
+> `CONCEPT:AU-KG.backend.kvcache-vllm-connector` (`EpistemicGraphKVBackend`, the L2 store) ·
+> `CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187` (tiered, content-addressed engine KV-cache) ·
 > [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md).
 
 ## Why

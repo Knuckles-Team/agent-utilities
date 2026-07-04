@@ -1,4 +1,4 @@
-"""Per-target timeout for graph fan-out (CONCEPT:KG-2.63 follow-up).
+"""Per-target timeout for graph fan-out (CONCEPT:AU-KG.backend.multi-connection-registry follow-up).
 
 A slow/hung backend must not stall a ``target='all'`` fan-out: ``fanout_execute``
 runs each target concurrently under a per-target wall-clock budget, returning the
@@ -14,7 +14,7 @@ import pytest
 
 from agent_utilities.mcp.kg_server import fanout_execute
 
-pytestmark = pytest.mark.concept("KG-2.63")
+pytestmark = pytest.mark.concept("AU-KG.backend.multi-connection-registry")
 
 
 def _fast(name, _engine):

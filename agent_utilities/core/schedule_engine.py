@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.44 — Unified scheduling engine, one intelligent scheduler for all recurring work.
+"""CONCEPT:AU-OS.state.unified-scheduling-one-intelligent — Unified scheduling engine, one intelligent scheduler for all recurring work.
 
 Collapses the four historical scheduling surfaces — fixed-interval maintenance
 ticks, the static ``deploy/schedules.yml`` cron, the loop-cycle tick, and the
@@ -49,7 +49,7 @@ _ADAPTIVE_MAX_BACKOFF_MULT = 16
 
 
 def _control_backend(engine: Any) -> Any:
-    """The engine's isolated control-plane backend (CONCEPT:KG-2.148).
+    """The engine's isolated control-plane backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
 
     The scheduler operates on :Schedule and :Task nodes — the CONTROL plane —
     which live on the dedicated ``__control__`` engine graph so they never
@@ -141,7 +141,7 @@ class ScheduleSpec:
     consecutive_failures: int = 0
     backoff_until: float = 0.0
     description: str = ""
-    # CONCEPT:KG-2.153 — the queue task type the scheduler enqueues for this
+    # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — the queue task type the scheduler enqueues for this
     # schedule, which selects the FUNCTIONAL LANE the tick runs in (see
     # :mod:`agent_utilities.knowledge_graph.core.task_lanes`). Defaults to
     # ``scheduled_job`` (the ``maint`` lane). A high-volume schedule whose work is
@@ -192,7 +192,7 @@ class ScheduleSpec:
 def _upsert(engine: Any, spec: ScheduleSpec) -> None:
     """Upsert a ``:Schedule`` node via the engine-native O(1)-by-id ``add_node``.
 
-    PERF (CONCEPT:OS-5.44): a write-Cypher ``MATCH (s:Schedule {id: $id}) SET …``
+    PERF (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): a write-Cypher ``MATCH (s:Schedule {id: $id}) SET …``
     forces the L1 engine to scan the whole graph to locate the node (no write-path
     id index) — ~5s per call on the live graph. The scheduler upserts ~27 schedules
     every boot, so that scan-per-upsert blocked the single-threaded maintenance loop
@@ -203,7 +203,7 @@ def _upsert(engine: Any, spec: ScheduleSpec) -> None:
     (:func:`register_schedule`/:func:`seed_schedules`) already merge live runtime
     state into ``spec`` before upserting. So one fast write, no scan, no read.
 
-    CONCEPT:KG-2.148 — :Schedule is CONTROL plane → write it to the isolated
+    CONCEPT:AU-KG.backend.schedule-on-control-graph — :Schedule is CONTROL plane → write it to the isolated
     ``__control__`` graph (the control backend), never the content graph.
     """
     backend = _control_backend(engine)
@@ -213,7 +213,7 @@ def _upsert(engine: Any, spec: ScheduleSpec) -> None:
 
 
 def _load_all(engine: Any) -> list[ScheduleSpec]:
-    # CONCEPT:KG-2.148 — :Schedule lives on the control graph; read it from there.
+    # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Schedule lives on the control graph; read it from there.
     backend = _control_backend(engine)
     if backend is None:
         return []
@@ -237,7 +237,7 @@ def _load_all(engine: Any) -> list[ScheduleSpec]:
 
 
 def _load_one(engine: Any, name: str) -> ScheduleSpec | None:
-    # CONCEPT:KG-2.148 — :Schedule lives on the control graph; read it from there.
+    # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Schedule lives on the control graph; read it from there.
     backend = _control_backend(engine)
     if backend is None:
         return None
@@ -297,7 +297,7 @@ def seed_schedules(engine: Any) -> int:
             prio_bucket=int(entry.get("prio_bucket", 2)),
             enabled=bool(entry.get("enabled", True)),
             description=entry.get("description", ""),
-            # CONCEPT:KG-2.153 — YAML schedules may pick their own lane via task_type.
+            # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — YAML schedules may pick their own lane via task_type.
             task_type=entry.get("task_type") or "scheduled_job",
         )
         existing = _load_one(engine, name)
@@ -327,7 +327,7 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
         spec.next_run_unix = existing.next_run_unix
         spec.consecutive_failures = existing.consecutive_failures
         spec.backoff_until = existing.backoff_until
-        # Idempotent (CONCEPT:OS-5.44): once runtime state is merged in, if the
+        # Idempotent (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): once runtime state is merged in, if the
         # persisted node already equals the desired state there is NOTHING to
         # write. Re-upserting ~27 unchanged schedules on every boot needlessly
         # contended with ingestion on the engine write lock and blocked the
@@ -337,12 +337,12 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
     _upsert(engine, spec)
 
 
-# ── Stale-tick collapse (CONCEPT:OS-5.53) ────────────────────────────────────
+# ── Stale-tick collapse (CONCEPT:AU-OS.state.stale-tick-collapse) ────────────────────────────────────
 # The active statuses an un-consumed scheduler tick can hold.
 _ACTIVE_TICK_STATUSES = ("pending", "scheduled", "blocked")
 # The task types the scheduler enqueues for a due :Schedule. ``scheduled_job`` is
 # the default (maint lane); a schedule may pick its own to land in a dedicated lane
-# (CONCEPT:KG-2.153, e.g. ``enrichment_backfill``). Both are interval ticks subject
+# (CONCEPT:AU-KG.ontology.capability-card-backfill-lane, e.g. ``enrichment_backfill``). Both are interval ticks subject
 # to stale-tick collapse.
 _SCHEDULED_TICK_TYPES = ("scheduled_job", "enrichment_backfill")
 
@@ -366,7 +366,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     has ≤1 active tick it issues only the read probes and no writes. Best-effort —
     it must never raise into the scheduler tick.
 
-    CONCEPT:KG-2.148 — operates on :Task ticks via the CONTROL backend (the ticks
+    CONCEPT:AU-KG.backend.schedule-on-control-graph — operates on :Task ticks via the CONTROL backend (the ticks
     live on the isolated ``__control__`` graph); ``engine.query_cypher`` already
     routes those :Task reads there too.
     """
@@ -380,7 +380,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     # transpiler supports), carrying each tick's id so we cancel by id — never the
     # terminal-tick history.
     by_schedule: dict[str, list[str]] = {}
-    # CONCEPT:KG-2.153 — collapse every scheduler-enqueued tick TYPE, not just
+    # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — collapse every scheduler-enqueued tick TYPE, not just
     # ``scheduled_job``: a schedule can now land its tick in a dedicated lane via a
     # custom task type (e.g. ``enrichment_backfill`` for OWL card backfill), and
     # those interval ticks must also never accumulate a stale backlog.
@@ -414,7 +414,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     if not over:
         return {"schedules_collapsed": 0, "cancelled": 0}
     # Cancel every active tick of an over-subscribed schedule by id via the
-    # engine-native O(1) compare-and-set (CONCEPT:KG-2.141) — NOT a write-Cypher
+    # engine-native O(1) compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library) — NOT a write-Cypher
     # ``MATCH … SET`` (which forces an O(N) full-graph scan on L1 and, run per
     # (schedule, status), contended with ingestion on the engine write lock). The
     # due-evaluation that follows re-enqueues exactly one fresh tick per due
@@ -474,7 +474,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         engine._schedules_seeded = True
 
     # Curb/recover any duplicate interval-tick backlog before evaluating due
-    # schedules (CONCEPT:OS-5.53). Cheap no-op once every schedule has ≤1 active
+    # schedules (CONCEPT:AU-OS.state.stale-tick-collapse). Cheap no-op once every schedule has ≤1 active
     # tick; never raises into the tick.
     try:
         collapse_stale_ticks(engine)
@@ -504,7 +504,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         # this, a slow/stalled consumer (e.g. an engine outage) accumulates an
         # unbounded backlog of duplicate ticks (one per due-minute, per schedule).
         # Cheap top-level ``schedule``-property probe (not the O(N) metadata
-        # dedupe scan). (CONCEPT:OS-5.44)
+        # dedupe scan). (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
         try:
             pend = engine.query_cypher(
                 "MATCH (t:Task) WHERE t.schedule = $name AND t.status IN "
@@ -522,7 +522,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 target_path=f"schedule:{spec.name}",
                 is_codebase=False,
                 provenance={"schedule": spec.name},
-                # CONCEPT:KG-2.153 — the task type selects the functional lane; most
+                # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — the task type selects the functional lane; most
                 # schedules use ``scheduled_job`` (the maint lane), but a throughput
                 # backfill (OWL card enrichment) overrides it to run in its own lane.
                 task_type=spec.task_type or "scheduled_job",
@@ -541,7 +541,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
 
 
 def record_schedule_result(engine: Any, name: str, ok: bool) -> None:
-    """Update a schedule's failure backoff after its job ran (CONCEPT:OS-5.44).
+    """Update a schedule's failure backoff after its job ran (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
     Called by the worker after ``run_scheduled_job`` so an ``adaptive`` schedule
     widens its interval on repeated failure and a failing job is throttled.
@@ -573,7 +573,7 @@ def _dispatch_liveness(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _dispatch_memory_lifecycle(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    """CONCEPT:KG-2.307 — drive one agent-native-memory lifecycle cycle.
+    """CONCEPT:AU-KG.memory.drive-one-agent-native — drive one agent-native-memory lifecycle cycle.
 
     Selects a localized working set, summarises+consolidates a ripe episodic
     cluster, and runs decay+evict maintenance via the engine primitives. Gated
@@ -598,7 +598,7 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute one scheduled job's payload — the worker calls this.
 
     The single dispatcher for every recurring job, routed by ``payload['kind']``
-    so the routing lives in exactly one place (CONCEPT:OS-5.44).
+    so the routing lives in exactly one place (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
     """
     kind = payload.get("kind", "skill")
     if kind == "maint":
@@ -610,7 +610,7 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
         tick()
         return {"status": "ok"}
     if kind in ("research_feed", "feed_sweep"):
-        # Unified feed sweep (CONCEPT:KG-2.121): native RSS + ScholarX arXiv through
+        # Unified feed sweep (CONCEPT:AU-KG.ingest.rss-feed-connector): native RSS + ScholarX arXiv through
         # the one world-model gate, plus the FreshRSS delta — all converge on the same
         # research/news routing. (Supersedes the scholarx-only run_rss_feed_screen.)
         from agent_utilities.knowledge_graph.core.source_sync import sync_source
@@ -674,7 +674,7 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     return {"status": "skipped", "reason": f"unknown_kind:{kind}"}
 
 
-# ── Runtime control — enable/disable/reprioritize/retune, surfaced via MCP + REST (CONCEPT:OS-5.44)
+# ── Runtime control — enable/disable/reprioritize/retune, surfaced via MCP + REST (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
 def set_enabled(engine: Any, name: str, enabled: bool) -> dict[str, Any]:
     spec = _load_one(engine, name)
     if spec is None:

@@ -1,6 +1,6 @@
 """Chunked async drain — single big source_sync(full) → capacity-guarded waves.
 
-CONCEPT:KG-2.301 (chunked drain) / KG-2.302 (connector-declared page drainer).
+CONCEPT:AU-KG.ontology.single-source-full-drain (chunked drain) / KG-2.302 (connector-declared page drainer).
 
 Proves: (a) a single-source FULL sync ENQUEUES a paginated batch-task and returns a handle
 immediately (no inline drain-to-completion); (b) the page-tasks walk the connector cursor to

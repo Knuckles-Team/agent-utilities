@@ -1,4 +1,4 @@
-"""Extraction (Rust ParseFile → entities) + classification (CONCEPT:KG-2.8)."""
+"""Extraction (Rust ParseFile → entities) + classification (CONCEPT:EG-KG.storage.nonblocking-checkpoint)."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def _isym(node_id, name, file_path, sym_type="Function"):
 
 def test_entities_from_index_result_maps_symbols_and_resolved_edges():
     """One merged IndexResult → per-file entities + resolved CALLS/INHERITS edges
-    bound to entity ids, carrying strategy/confidence (CONCEPT:KG-2.100)."""
+    bound to entity ids, carrying strategy/confidence (CONCEPT:EG-KG.compute.type-scope-resolved-call)."""
     index = {
         "nodes": [
             _isym("symbol:caller", "caller", "app.py"),

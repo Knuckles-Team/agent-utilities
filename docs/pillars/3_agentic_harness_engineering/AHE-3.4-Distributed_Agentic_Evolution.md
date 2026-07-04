@@ -1,4 +1,4 @@
-# Distributed Agentic Evolution (CONCEPT:AHE-3.4)
+# Distributed Agentic Evolution (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 ## Overview
 Autonomous skill synthesis, community telemetry tracking, and upstream PR generation via `genius-agent`.

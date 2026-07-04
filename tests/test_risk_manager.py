@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Risk Management Engine."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Risk Management Engine."""
 
 import pytest
 
@@ -164,7 +164,7 @@ class TestRiskManagerFacade:
 
 
 class TestVaRCalculatorEngineLivePath:
-    """Live-path test (CONCEPT:KG-2.20): VaRCalculator.historical routes to the
+    """Live-path test (CONCEPT:AU-KG.memory.mementified-context): VaRCalculator.historical routes to the
     Rust epistemic-graph engine when reachable. Auto-skips when the engine is
     not running so offline/unit environments are unaffected."""
 

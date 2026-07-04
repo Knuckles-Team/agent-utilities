@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SPARQL HTTP Endpoint.
 
-CONCEPT:KG-2.6 — W3C SPARQL Protocol HTTP Endpoint
+CONCEPT:AU-KG.query.sparql-http-endpoint — W3C SPARQL Protocol HTTP Endpoint
 
 Provides a standards-compliant SPARQL endpoint that other agent-utilities
 deployments can consume via HTTP. Backed by rdflib materialization from
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class SPARQLEndpoint:
     """W3C SPARQL Protocol endpoint backed by rdflib.
 
-    CONCEPT:KG-2.6 — SPARQL HTTP Endpoint
+    CONCEPT:AU-KG.query.sparql-http-endpoint — SPARQL HTTP Endpoint
 
     Provides GET and POST handlers for SPARQL queries. The endpoint
     materializes the LPG into an rdflib Graph (via OWLBridge) and
@@ -62,7 +62,7 @@ class SPARQLEndpoint:
             return {"error": f"Unsupported format: {result_format}"}
 
         try:
-            # CONCEPT:KG-2.242 — go through query_sparql so the query runs on the
+            # CONCEPT:AU-KG.query.sparql-http-passthrough — go through query_sparql so the query runs on the
             # engine's native SPARQL surface (live graph) by default, with the rdflib
             # materialization only as a no-engine last resort.
             raw_results = self._bridge.query_sparql(query)

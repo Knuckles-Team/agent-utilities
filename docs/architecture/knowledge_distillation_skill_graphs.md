@@ -1,7 +1,7 @@
 # Knowledge Distillation → Skill-Graphs
 
-> **CONCEPT:KG-2.7** (standardized ingestion) · **CONCEPT:AHE-3.9** (physical distillation)
-> **CONCEPT:KG-2.90** (connector → skill synthesis) · **CONCEPT:KG-2.91** (skill-synthesis ontology links)
+> **CONCEPT:AU-KG.query.vendor-agnostic-traversal** (standardized ingestion) · **CONCEPT:AU-AHE.optimization.physical-distillation-engine** (physical distillation)
+> **CONCEPT:AU-KG.ontology.connector-agnostic-proposal** (connector → skill synthesis) · **CONCEPT:AU-KG.compute.automates** (skill-synthesis ontology links)
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
@@ -137,7 +137,7 @@ docs (skill-graph) *and* the how-to-act (skill-workflow), versioned together.
 
 ## 4a. Connector → skill synthesis (propose-only)
 
-> **CONCEPT:KG-2.90** (the distiller) · **CONCEPT:KG-2.91** (the ontology links)
+> **CONCEPT:AU-KG.ontology.connector-agnostic-proposal** (the distiller) · **CONCEPT:AU-KG.compute.automates** (the ontology links)
 > **Module:** `agent_utilities/knowledge_graph/distillation/skill_synthesizer.py`
 > (`ConnectorSkillDistiller`)
 
@@ -178,7 +178,7 @@ flowchart LR
     classDef c fill:#eef,stroke:#88a;
 ```
 
-**Ontology additions (KG-2.91):** `SkillProposal` / `SkillWorkflowProposal`
+**Ontology additions (AU-KG.compute.automates):** `SkillProposal` / `SkillWorkflowProposal`
 interfaces (`ontology/interfaces.py`) + node types + the object properties
 `AUTOMATES` (skill/workflow → process/capability), `DERIVED_FROM` (proposal →
 source node, inverse `:derives`), `COMPOSES` (workflow → atomic skills,

@@ -1,4 +1,4 @@
-"""Caddy reverse-proxy source extractor (CONCEPT:KG-2.9).
+"""Caddy reverse-proxy source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 HTTP server routes → :Service (the reverse-proxy front door for an app). Stamped
 externalToolId + domain="caddy". Client injected; tolerant of the Caddy JSON config.

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Functions-on-Objects (CONCEPT:KG-2.41).
+"""Functions-on-Objects (CONCEPT:AU-KG.ontology.default-runtime-bound-import).
 
 Palantir Foundry ``functions/overview`` defines *Functions-on-Objects*: typed
 functions that read an object's properties, traverse its links, and aggregate
@@ -73,7 +73,7 @@ def _run(graph: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]
 
 
 class ObjectFunctionContext:
-    """Read/traverse/aggregate primitives for Functions-on-Objects. CONCEPT:KG-2.41.
+    """Read/traverse/aggregate primitives for Functions-on-Objects. CONCEPT:AU-KG.ontology.default-runtime-bound-import.
 
     Constructed over a :class:`KnowledgeGraph` facade (or, when omitted, a fresh
     default facade — which still degrades cleanly with no backend). Every method

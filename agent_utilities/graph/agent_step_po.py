@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agent-Step Policy Optimization (ARPO).
 
-CONCEPT:AHE-3.15 — ARPO (arXiv:2507.19849)
+CONCEPT:AU-AHE.reward.this-is-read-back — ARPO (arXiv:2507.19849)
 
 For multi-turn tool agents the decisive uncertainty is at *intermediate* tool/
 decision steps, not the final answer. ARPO (a) branches extra rollouts at

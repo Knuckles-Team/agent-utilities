@@ -1,6 +1,6 @@
 """Unified DSPy optimization subsystem — metric, registry, driver, targets, surface.
 
-Covers CONCEPT:AHE-3.39 (metric), AHE-3.40 (registry/driver/dispatch), AHE-3.43 (demo
+Covers CONCEPT:AU-AHE.optimization.real-optimization-metric (metric), AHE-3.40 (registry/driver/dispatch), AHE-3.43 (demo
 refine), AHE-3.44 (extraction), AHE-3.45 (concept-match/routing), AHE-3.46 (scheduled
 sweep + promotion gate). The LLM-gated DSPy compile itself is exercised by the live
 evolution path; here we test the wiring, the real metric, and the self-supervised

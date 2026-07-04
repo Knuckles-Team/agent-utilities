@@ -1,4 +1,4 @@
-"""Harness-foundry ontology wiring (CONCEPT:KG-2.107).
+"""Harness-foundry ontology wiring (CONCEPT:AU-KG.ontology.harness-ontology).
 
 The harness, its edits, isolated variants, the 9-dim taxonomy, and RL pathologies
 are modelled as OWL so HarnessX's "operational mirror" (an admitted heuristic)

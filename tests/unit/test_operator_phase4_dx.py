@@ -1,6 +1,6 @@
 """Phase-4 DX: gotchas-in-KG, governed self-deploy, scaffolder/validate scripts.
 
-CONCEPT:KG-2.140 (gotchas), OS-5.50 (self-deploy), OS-5.51 (invisible coordination).
+CONCEPT:AU-KG.ingest.gotcha-feedback-capture (gotchas), OS-5.50 (self-deploy), OS-5.51 (invisible coordination).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class _GotchaBackend:
         self.nodes[node_id] = props
 
 
-@pytest.mark.concept("KG-2.140")
+@pytest.mark.concept("AU-KG.ingest.gotcha-feedback-capture")
 def test_record_gotcha_pins_node_with_normalized_path():
     backend = _GotchaBackend()
     svc = FeedbackService(backend=backend)
@@ -46,7 +46,7 @@ def test_record_gotcha_pins_node_with_normalized_path():
     assert "hangs" in node["note"]
 
 
-@pytest.mark.concept("KG-2.140")
+@pytest.mark.concept("AU-KG.ingest.gotcha-feedback-capture")
 def test_code_context_surfaces_gotchas_in_how():
     _CANON = "/home/apps/workspace/agent-packages/agent-utilities/x.py"
 
@@ -79,20 +79,20 @@ def test_code_context_surfaces_gotchas_in_how():
 
 
 # ── OS-5.51 governed self-deploy ──────────────────────────────────────────────
-@pytest.mark.concept("OS-5.50")
+@pytest.mark.concept("AU-OS.deployment.os-2")
 def test_plan_redeploy_is_safe_and_complete():
     plan = plan_redeploy("graph-os")
     assert plan["service"] == "graph-os"
     assert "restart" in plan and "verify" in plan and "rollback" in plan
 
 
-@pytest.mark.concept("OS-5.50")
+@pytest.mark.concept("AU-OS.deployment.os-2")
 def test_execute_redeploy_dry_run_by_default():
     res = execute_redeploy("graph-os")
     assert res["status"] == "planned" and res["executed"] is False
 
 
-@pytest.mark.concept("OS-5.50")
+@pytest.mark.concept("AU-OS.deployment.os-2")
 def test_execute_redeploy_confirm_blocks_without_restart_mechanic(monkeypatch):
     # Fake an allowing policy so we reach the restart-mechanic gate.
     import agent_utilities.orchestration.action_policy as ap
@@ -116,7 +116,7 @@ def test_execute_redeploy_confirm_blocks_without_restart_mechanic(monkeypatch):
 
 
 # ── OS-5.51-dx scripts smoke ──────────────────────────────────────────────────
-@pytest.mark.concept("OS-5.50")
+@pytest.mark.concept("AU-OS.deployment.os-2")
 @pytest.mark.parametrize(
     "script",
     ["validate_change.py", "scaffold_graph_action.py", "reserve_concepts_hook.py"],

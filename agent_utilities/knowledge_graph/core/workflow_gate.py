@@ -1,6 +1,6 @@
 """Execution-time workflow ontology gate.
 
-CONCEPT:ORCH-1.42 — Ontology Validation on the Execution Path
+CONCEPT:AU-ORCH.execution.ontology-validation-execution-path — Ontology Validation on the Execution Path
 
 Until now the ontology (SHACL shapes, permission ACLs) governed *ingestion*
 (pipeline ``shacl_gate``) and *reads* (OS-5.14 secured reads), but workflow
@@ -202,7 +202,7 @@ def _validate_workflow_shape(
 def gate_workflow_execution(
     engine: Any, workflow_name: str, actor: Any = None
 ) -> dict[str, Any]:
-    """Validate a stored workflow before dispatch (CONCEPT:ORCH-1.42).
+    """Validate a stored workflow before dispatch (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path).
 
     Args:
         engine: The IntelligenceGraphEngine.

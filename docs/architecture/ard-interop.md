@@ -22,11 +22,11 @@ types: `application/mcp-server+json`, `application/mcp-server-card+json`,
 
 | Concept | What |
 |---|---|
-| **ECO-4.95** | Publish registry — `build_ai_catalog` + `ard_search` core (`ecosystem/ard_registry.py`), served REST + graph-os routes |
-| **ECO-4.96** | Consume connector — `@register_source("ard")` (`protocols/source_connectors/connectors/ard.py`) |
-| **ECO-4.97** | Federation relay — `ArdFederationRelay` (`ecosystem/ard_federation.py`) |
-| **KG-2.188** | Materialization — `_sync_ard` + `_DELTA_HANDLERS["ard"]` (`knowledge_graph/core/source_sync.py`) + ontology terms |
-| **OS-5.60** | Ed25519 datapoint signing/verification (`security/ard_signing.py`) |
+| **AU-ECO.mcp.eco-serves-two-ard** | Publish registry — `build_ai_catalog` + `ard_search` core (`ecosystem/ard_registry.py`), served REST + graph-os routes |
+| **AU-ECO.connector.ingest-external-ard-registry** | Consume connector — `@register_source("ard")` (`protocols/source_connectors/connectors/ard.py`) |
+| **AU-ECO.interop.ard-federation-relay** | Federation relay — `ArdFederationRelay` (`ecosystem/ard_federation.py`) |
+| **AU-KG.ingest.source-sync-canonical** | Materialization — `_sync_ard` + `_DELTA_HANDLERS["ard"]` (`knowledge_graph/core/source_sync.py`) + ontology terms |
+| **AU-OS.identity.ard-datapoint-signing** | Ed25519 datapoint signing/verification (`security/ard_signing.py`) |
 
 ## Publish — become a registry
 
@@ -74,12 +74,12 @@ flowchart LR
 
   subgraph au[agent-utilities]
     direction TB
-    R["ard_registry<br/>build_ai_catalog / ard_search<br/>(ECO-4.95)"]
-    F["ArdFederationRelay<br/>(ECO-4.97)"]
-    Sign["ard_signing Ed25519<br/>(OS-5.60)"]
+    R["ard_registry<br/>build_ai_catalog / ard_search<br/>(AU-ECO.mcp.eco-serves-two-ard)"]
+    F["ArdFederationRelay<br/>(AU-ECO.interop.ard-federation-relay)"]
+    Sign["ard_signing Ed25519<br/>(AU-OS.identity.ard-datapoint-signing)"]
     Mux["MCPMultiplexer<br/>discover_tools / probe_catalog"]
-    Conn["@register_source ard<br/>(ECO-4.96)"]
-    Sync["_sync_ard → KG nodes<br/>(KG-2.188)"]
+    Conn["@register_source ard<br/>(AU-ECO.connector.ingest-external-ard-registry)"]
+    Sync["_sync_ard → KG nodes<br/>(AU-KG.ingest.source-sync-canonical)"]
     KG[("Knowledge Graph<br/>:MCPServer :Skill<br/>:ResourceRegistry :ServiceCapability")]
     Routes["REST: server/routers/ard.py<br/>graph-os: @mcp.custom_route"]
   end

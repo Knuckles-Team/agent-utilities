@@ -1,6 +1,6 @@
 # Spec-Driven Development (SDD) Orchestrator
 
-> CONCEPT:AHE-3.0 — Spec-Driven Development
+> CONCEPT:AU-AHE.harness.harness-evolution — Spec-Driven Development
 
 ## Overview
 
@@ -14,14 +14,14 @@ The SDD orchestrator (`sdd/orchestrator.py`) implements a **specification-first 
 graph TD
     subgraph Phase1 [1. Specification Ingestion]
         direction TB
-        Req[ORCH-1.5: requirements.md] --> ORCH-1.5: Spec[Spec]
-        Cons[ORCH-1.5: constraints.md] --> Spec
-        Acc[ORCH-1.5: acceptance.md] --> Spec
+        Req[AU-ORCH.planning.legal-automation-roadmap: requirements.md] --> AU-ORCH.planning.legal-automation-roadmap: Spec[Spec]
+        Cons[AU-ORCH.planning.legal-automation-roadmap: constraints.md] --> Spec
+        Acc[AU-ORCH.planning.legal-automation-roadmap: acceptance.md] --> Spec
     end
 
     subgraph Phase2 [2. Plan Generation]
         Spec --> PlanAgent[ORCH-1.2: Planning Agent]
-        PlanAgent --> ImplPlan[ORCH-1.5: Implementation Plan]
+        PlanAgent --> ImplPlan[AU-ORCH.planning.legal-automation-roadmap: Implementation Plan]
     end
 
     subgraph Phase3 [3. Task Decomposition]
@@ -86,8 +86,8 @@ Dispatches independent tasks to specialist agents:
 
 The SDD pipeline is deeply integrated with the core architecture:
 
-- **HSM Dispatcher**: Task execution is routed through the main Hierarchical State Machine (CONCEPT:ORCH-1.0). Each task is mapped to a Specialist Superstate (e.g., Python Coder) which enters its own execution loop.
-- **Knowledge Graph (CONCEPT:ORCH-1.0)**: The generated Spec, Implementation Plan, and individual Tasks are persisted into the Knowledge Graph as nodes. This provides long-term context, allowing the system to reference past design decisions during future tasks.
+- **HSM Dispatcher**: Task execution is routed through the main Hierarchical State Machine (CONCEPT:AU-ORCH.execution.inject-signal-board-observations). Each task is mapped to a Specialist Superstate (e.g., Python Coder) which enters its own execution loop.
+- **Knowledge Graph (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)**: The generated Spec, Implementation Plan, and individual Tasks are persisted into the Knowledge Graph as nodes. This provides long-term context, allowing the system to reference past design decisions during future tasks.
 
 ## Real-World Usage Example
 

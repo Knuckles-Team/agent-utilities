@@ -1,4 +1,4 @@
-"""Discover + evolve the pydantic-graph orchestration graph (CONCEPT:KG-2.10)."""
+"""Discover + evolve the pydantic-graph orchestration graph (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)."""
 
 from __future__ import annotations
 

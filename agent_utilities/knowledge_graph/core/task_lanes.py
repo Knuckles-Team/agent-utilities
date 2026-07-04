@@ -1,4 +1,4 @@
-"""Functional task lanes — fair, observable scheduling + per-LLM routing (CONCEPT:ORCH-1.75).
+"""Functional task lanes — fair, observable scheduling + per-LLM routing (CONCEPT:AU-ORCH.execution.two-level-fair-rotation).
 
 The KG task queue used ONE strict priority order across ALL task types, so a slow/backed-up
 type could head-of-line-block another: codebase ingestion sat at 75-pending / 0-processed
@@ -35,7 +35,7 @@ TASK_LANES: dict[str, dict] = {
                 "content_url",
                 "diff",
                 "skill_workflows",
-                # CONCEPT:KG-2.272 — remote chat/session bundle uploads land in
+                # CONCEPT:AU-KG.ingest.drain-session-bundle — remote chat/session bundle uploads land in
                 # the usage store off the request path; a bulk write, so it rides
                 # the ingestion lane (not the best-effort maint lane).
                 "session_upload",
@@ -43,7 +43,7 @@ TASK_LANES: dict[str, dict] = {
         ),
         "model_role": "lite",
     },
-    # CONCEPT:ORCH-1.77 — external connector delta syncs (gitlab/servicenow/atlassian/egeria/…)
+    # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — external connector delta syncs (gitlab/servicenow/atlassian/egeria/…)
     # as their OWN lane: the */20m fleet sweep enqueues one connector_sync task per connector,
     # so they fan out in parallel here instead of one slow connector blocking the rest inline,
     # and never contend with codebase/document indexing in the ingestion lane.
@@ -52,7 +52,7 @@ TASK_LANES: dict[str, dict] = {
         # FreshRSS sweep run OFF the request path (it fetches+gates+enqueues the
         # per-article worldview/research tasks, so it must not ride the 300s MCP
         # call). Both are sweep PRODUCERS, kept off the ingestion lane. (KG-2.121)
-        # connector_drain = ONE paginated page of a chunked full-corpus drain (CONCEPT:KG-2.301):
+        # connector_drain = ONE paginated page of a chunked full-corpus drain (CONCEPT:AU-KG.ontology.single-source-full-drain):
         # a single ``source_sync(full)`` of a large source (freshrss's ~11k backlog) fans out as a
         # self-continuing chain of these, draining the whole corpus under this lane's background
         # priority + the GB10 capacity guard so it can't time out or OOM.
@@ -60,7 +60,7 @@ TASK_LANES: dict[str, dict] = {
         "model_role": "lite",
     },
     "research": {
-        # CONCEPT:KG-2.172 — the research-cohort barrier gate (cohort_synthesize) lives
+        # CONCEPT:AU-KG.coordination.research-cohort-barrier — the research-cohort barrier gate (cohort_synthesize) lives
         # HERE, not the best-effort maint lane: under heavy cohort ingestion the maint
         # floor-cap starved the gate so the matrix never synthesized. Research is a real
         # throughput lane, so the gate is reliably claimed once its members drain.
@@ -69,7 +69,7 @@ TASK_LANES: dict[str, dict] = {
         ),
         "model_role": "learner",
     },
-    # CONCEPT:KG-2.121 — the WORLDVIEW stream: relevance-gated news/world-event
+    # CONCEPT:AU-KG.ingest.worldview-stream — the WORLDVIEW stream: relevance-gated news/world-event
     # articles (feed_ingest) build the world model. Its OWN lane so it drains in
     # parallel with — and never head-of-line-blocks behind — research-paper fetch
     # (which feeds agent-utilities-evolution) or the heavy codebase backlog. The
@@ -78,7 +78,7 @@ TASK_LANES: dict[str, dict] = {
         "task_types": frozenset({"feed_ingest"}),
         "model_role": "lite",
     },
-    # CONCEPT:ORCH-1.76 — the LLM-extraction / deep-analysis phase is its OWN lane (heavy model
+    # CONCEPT:AU-ORCH.scheduling.analysis-lane — the LLM-extraction / deep-analysis phase is its OWN lane (heavy model
     # work), kept off the file-ingestion lane so a slow extraction can't head-of-line-block a
     # fast codebase/diff index. (Vectorization already runs in its own _embed_backfill_thread,
     # off the queue entirely; connector-sync + enrichment become lanes once they are task types.)
@@ -86,7 +86,7 @@ TASK_LANES: dict[str, dict] = {
         "task_types": frozenset({"deep_extract", "deep_analysis"}),
         "model_role": "learner",
     },
-    # CONCEPT:KG-2.153 — OWL capability-card backfill is its OWN throughput lane,
+    # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — OWL capability-card backfill is its OWN throughput lane,
     # NOT a maint interval tick. It used to ride the ``maint`` lane as a generic
     # ``scheduled_job`` and so was capped at the best-effort floor (1 worker, shared
     # round-robin with ~17 other maint ticks), which left ~85k Code symbols
@@ -119,7 +119,7 @@ TASK_LANES: dict[str, dict] = {
 LANE_NAMES: tuple[str, ...] = tuple(TASK_LANES)
 DEFAULT_LANE = "maint"
 
-# CONCEPT:KG-2.289 — INTERACTIVE lanes: latency-sensitive work that must ALWAYS
+# CONCEPT:AU-KG.compute.interactive-lane-floor — INTERACTIVE lanes: latency-sensitive work that must ALWAYS
 # have a free host worker, even when ingestion saturates the pool. The scheduler's
 # AdmissionPolicy reserves a worker floor that NON-interactive lanes
 # (codebase/document/connector/maint) can never claim, so an interactive call is
@@ -128,7 +128,7 @@ DEFAULT_LANE = "maint"
 # responsive because the host is never 100%-consumed by ingestion workers.
 INTERACTIVE_LANES: frozenset[str] = frozenset({"queries"})
 
-# CONCEPT:KG-2.286 — per-lane SOFT execution timeout (seconds). A claimed task
+# CONCEPT:AU-KG.compute.lane-soft-timeout — per-lane SOFT execution timeout (seconds). A claimed task
 # whose execution exceeds its lane's bound is cancelled and routed through the
 # existing KG-2.113 retry→backoff→dead_letter machinery, so a hung connector or
 # maint tick frees its worker FAST instead of pinning it until the reaper's 2h
@@ -152,12 +152,12 @@ DEFAULT_SOFT_TIMEOUT_SEC: float = 1800.0
 
 
 def lane_soft_timeout(lane: str | None) -> float:
-    """The soft execution-timeout bound (seconds) for ``lane`` (CONCEPT:KG-2.286)."""
+    """The soft execution-timeout bound (seconds) for ``lane`` (CONCEPT:AU-KG.compute.lane-soft-timeout)."""
     return LANE_SOFT_TIMEOUT_SEC.get(lane or "", DEFAULT_SOFT_TIMEOUT_SEC)
 
 
 def task_soft_timeout(task_type: str | None) -> float:
-    """The soft execution-timeout bound (seconds) for a task TYPE (CONCEPT:KG-2.286).
+    """The soft execution-timeout bound (seconds) for a task TYPE (CONCEPT:AU-KG.compute.lane-soft-timeout).
 
     Resolves the type's lane and returns that lane's bound, so the cancel-and-retry
     watchdog is sized by functional domain without a per-type table to drift.
@@ -165,7 +165,7 @@ def task_soft_timeout(task_type: str | None) -> float:
     return lane_soft_timeout(lane_for_task_type(task_type))
 
 
-# CONCEPT:ORCH-1.82 — "best-effort" lanes: low-value, high-volume periodic work
+# CONCEPT:AU-ORCH.scheduling.low-value-high-volume — "best-effort" lanes: low-value, high-volume periodic work
 # (the maint interval ticks) that must be GUARANTEED its minimum coverage but must
 # NEVER expand into spare workers. Without this, a backlog of cheap scheduled-job
 # ticks (one per due-minute, per schedule) crowds the worker pool — the rotation
@@ -173,7 +173,7 @@ def task_soft_timeout(task_type: str | None) -> float:
 # throughput lanes (ingestion/worldview/research) of all but their minimum. The
 # AdmissionPolicy caps a best-effort lane at its per-lane floor (see
 # :meth:`AdmissionPolicy.decide`). Pairs with the scheduler's stale-tick collapse
-# (CONCEPT:OS-5.53), which keeps the backlog itself small.
+# (CONCEPT:AU-OS.state.stale-tick-collapse), which keeps the backlog itself small.
 BEST_EFFORT_LANES: frozenset[str] = frozenset({"maint"})
 
 _TYPE_TO_LANE: dict[str, str] = {
@@ -188,7 +188,7 @@ def lane_for_task_type(task_type: str | None) -> str:
 
 def lane_task_types(lane: str) -> list[str]:
     """The task types a lane owns, in deterministic order — for per-TYPE fair claiming WITHIN
-    the lane (CONCEPT:ORCH-1.76) so a fast type (diff/document) isn't stuck behind a slow one
+    the lane (CONCEPT:AU-ORCH.scheduling.analysis-lane) so a fast type (diff/document) isn't stuck behind a slow one
     (a big codebase batch) sharing the lane."""
     return sorted(TASK_LANES.get(lane, {}).get("task_types", ()))
 

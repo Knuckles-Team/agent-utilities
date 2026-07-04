@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.64 — Workspace-Action Provenance Graph.
+"""CONCEPT:AU-KG.temporal.workspace-action-provenance — Workspace-Action Provenance Graph.
 
 Every workspace action/observation is mirrored into the KG so a run is *replayable* and
 *attributable*. The surpassing move over a flat event log: a file edit is grounded to the

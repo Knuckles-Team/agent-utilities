@@ -1,4 +1,4 @@
-"""invoke_specialized_agent is a thin wrapper onto the orchestration core (CONCEPT:ECO-4.77).
+"""invoke_specialized_agent is a thin wrapper onto the orchestration core (CONCEPT:AU-ECO.toolkit.unified-delegation-surface).
 
 One delegation surface: ``invoke_specialized_agent`` and ``graph_orchestrate(action=
 "execute_agent")`` both converge on ``Orchestrator.execute_agent`` — there is no separate

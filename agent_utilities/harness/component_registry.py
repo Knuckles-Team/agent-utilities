@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Harness Component Registry.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Component Observability)
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Component Observability)
 
 Tracks which filesystem paths correspond to which AHE component types,
 enabling file-level version tracking and granular git rollbacks.

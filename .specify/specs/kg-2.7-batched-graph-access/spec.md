@@ -1,6 +1,6 @@
 # Spec: Batched Graph Access for the Assimilation Gap/Rank Stages
 
-> CONCEPT:KG-2.7 (assimilation refinement — no new concept id). Surfaced by the
+> CONCEPT:AU-KG.query.vendor-agnostic-traversal (assimilation refinement — no new concept id). Surfaced by the
 > first live run of the assimilation engine against the production KG.
 
 ## Finding (what we observed)

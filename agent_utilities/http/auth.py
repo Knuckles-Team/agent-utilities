@@ -1,6 +1,6 @@
 """Auth header injection strategies for fleet HTTP clients.
 
-CONCEPT:ECO-4.35 — Fleet HTTP Client Library
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
 The fleet's connectors authenticate in four recurring ways; each is one
 strategy here instead of a hand-rolled ``_build_headers`` per repo:

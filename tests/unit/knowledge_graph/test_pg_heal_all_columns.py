@@ -1,4 +1,4 @@
-"""Auto-DDL must heal EVERY column an INSERT references in one pass (CONCEPT:KG-2.8).
+"""Auto-DDL must heal EVERY column an INSERT references in one pass (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Regression: PostgreSQL reports only the first missing column per attempt, so healing
 one column per retry exhausted ``max_retries=3`` when a node carried several

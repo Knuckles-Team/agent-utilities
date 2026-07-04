@@ -1,5 +1,5 @@
 """Auto-generate the ``mcp_config.json`` **examples** in a README + sync the real
-``mcp_config*.json`` ``env`` blocks (CONCEPT:OS-5.72).
+``mcp_config*.json`` ``env`` blocks (CONCEPT:AU-OS.config.env-var-drift-guard).
 
 The README env-var table (:mod:`readme_env_vars`) and MCP-tools table
 (:mod:`readme_tools`) are regenerated on every commit, but the ``mcp_config.json``

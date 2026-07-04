@@ -1,6 +1,6 @@
 """Model pricing catalog — the single source of token cost.
 
-CONCEPT:ECO-4.40 — Unified model pricing catalog.
+CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Replaces the scattered hard-coded dicts (``models/usage.py`` defaults, the
 agent-terminal-ui ``DEFAULT_PRICING`` table). Prices are stored per-million

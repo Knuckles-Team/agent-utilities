@@ -1,4 +1,4 @@
-# CONCEPT:OS-5.2 — Cognitive Scheduler
+# CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler
 
 > Priority-aware preemptive scheduling with context paging and token quota enforcement.
 
@@ -7,9 +7,9 @@
 The Cognitive Scheduler (`agent_utilities/core/cognitive_scheduler.py`) manages competing agent demands in real-time. Unlike the existing cron-based `scheduler.py` (which runs periodic jobs), the Cognitive Scheduler manages **live agent processes** — tracking their priority, token usage, and execution state.
 
 It composes three existing primitives into a kernel-level orchestration layer:
-- **CONCEPT:OS-5.2 (Resource Optimizer)**: Token budget tracking per specialist
-- **CONCEPT:OS-5.2 (Checkpointing)**: Context snapshot/restore for preempted agents
-- **CONCEPT:OS-5.2 (Eviction)**: Context paging under memory pressure
+- **CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Resource Optimizer)**: Token budget tracking per specialist
+- **CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Checkpointing)**: Context snapshot/restore for preempted agents
+- **CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Eviction)**: Context paging under memory pressure
 
 ## Architecture
 
@@ -27,9 +27,9 @@ flowchart TB
     end
 
     subgraph Integrations
-        RO["ResourceOptimizer<br>CONCEPT:OS-5.2"] -.-> QE
-        CP["Checkpointing<br>CONCEPT:OS-5.2"] -.-> CKP
-        EV["Eviction<br>CONCEPT:OS-5.2"] -.-> CKP
+        RO["ResourceOptimizer<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> QE
+        CP["Checkpointing<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> CKP
+        EV["Eviction<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> CKP
     end
 ```
 

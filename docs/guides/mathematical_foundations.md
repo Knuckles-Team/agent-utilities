@@ -1,6 +1,6 @@
 # Mathematical Foundations & Financial Engineering Reference
 
-> **CONCEPT Registry**: KG-2.41 through KG-2.46
+> **CONCEPT Registry**: AU-KG.ontology.default-runtime-bound-import through AU-KG.ontology.redact-object-materialize-restricted
 >
 > This document provides full explanations of all mathematical, probabilistic,
 > and financial engineering terms introduced by the comparative analysis
@@ -10,17 +10,17 @@
 
 ## Table of Contents
 
-1. [Graph Theory Foundations (KG-2.41)](#graph-theory-foundations-kg-241)
+1. [Graph Theory Foundations (AU-KG.ontology.default-runtime-bound-import)](#graph-theory-foundations-kg-241)
 2. [Embedding Alignment Diagnostics (KG-2.42)](#embedding-alignment-diagnostics-kg-242)
 3. [Structural Causal Reasoning (KG-2.43)](#structural-causal-reasoning-kg-243)
-4. [Latent Space Regularization (KG-2.44)](#latent-space-regularization-kg-244)
+4. [Latent Space Regularization (AU-KG.ontology.batch-incremental-sync-live)](#latent-space-regularization-kg-244)
 5. [Probabilistic Graph Reasoning (KG-2.45)](#probabilistic-graph-reasoning-kg-245)
-6. [Optimal Execution & Market Making (KG-2.46)](#optimal-execution--market-making-kg-246)
+6. [Optimal Execution & Market Making (AU-KG.ontology.redact-object-materialize-restricted)](#optimal-execution--market-making-kg-246)
 7. [Source Materials](#source-materials)
 
 ---
 
-## Graph Theory Foundations (KG-2.41)
+## Graph Theory Foundations (AU-KG.ontology.default-runtime-bound-import)
 
 **Source**: *Mathematics for Computer Science* (Lehman, Leighton, Meyer — MIT 6.042J)
 
@@ -239,7 +239,7 @@ parents of Y (potential confounders).
 
 ---
 
-## Latent Space Regularization (KG-2.44)
+## Latent Space Regularization (AU-KG.ontology.batch-incremental-sync-live)
 
 **Source**: *LeWorldModel* (arXiv:2603.19312v2)
 
@@ -350,7 +350,7 @@ High surprise = frequently visited but far away = novel connection.
 
 ---
 
-## Optimal Execution & Market Making (KG-2.46)
+## Optimal Execution & Market Making (AU-KG.ontology.redact-object-materialize-restricted)
 
 **Source**: *High-Frequency Trading* lecture notes (Drissi, Oxford-Man Institute, 2024)
 

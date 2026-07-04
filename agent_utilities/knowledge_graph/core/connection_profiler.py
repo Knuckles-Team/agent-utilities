@@ -1,4 +1,4 @@
-# CONCEPT:KG-2.63 - Profile / imprint / ontology-map a registered external graph.
+# CONCEPT:AU-KG.ontology.external-graph-profiling - Profile / imprint / ontology-map a registered external graph.
 """Profile a registered external graph connection, imprint its schema into our KG,
 and map its labels onto our ontology.
 

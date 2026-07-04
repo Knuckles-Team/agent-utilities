@@ -321,11 +321,11 @@ class TestCitationTracker:
 
     def test_extract_concept_refs(self):
         tracker = self._tracker()
-        text = "This implements CONCEPT:KG-2.3 and CONCEPT:AHE-3.1"
+        text = "This implements CONCEPT:AU-KG.memory.auto-similarity-memory-graph and CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort"
         citations = tracker.extract_citations(text)
         ids = {c.source_id for c in citations}
-        assert "KG-2.3" in ids
-        assert "AHE-3.1" in ids
+        assert "AU-KG.memory.auto-similarity-memory-graph" in ids
+        assert "AU-AHE.evaluation.adaptive-reasoning-effort" in ids
 
     def test_extract_urls(self):
         tracker = self._tracker()

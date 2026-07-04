@@ -1,4 +1,4 @@
-"""FanOut durable-mirror dialect + resilience regressions (CONCEPT:KG-2.74).
+"""FanOut durable-mirror dialect + resilience regressions (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Covers two live mirror bugs (observed repeating 200+ times in graph-os logs) and the
 poison-entry safety net that stops the runaway retry:

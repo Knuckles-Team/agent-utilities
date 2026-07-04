@@ -58,7 +58,7 @@ The relevant processes (console scripts from `pyproject.toml
 | `graph-os` | MCP tool surface (stdio default; `--transport streamable-http --port <p>` for HTTP; compose: `docker/mcp.compose.yml`, port 8004) |
 | `graph-os-daemon` | Standalone KG host daemon: holds the flock host lock, drains the durable task queue, runs all maintenance/autonomy ticks. `--status` and `--drain-queue` flags. It serves no HTTP. |
 | `python -m agent_utilities` | The REST gateway (FastAPI agent server): `/health`, `/api/graph/*`, `/api/sessions`, `/api/goals`, `/api/fleet/*`, `/api/dashboard/*`, `/metrics`. Binds `HOST`:`PORT` (defaults `0.0.0.0`:`9000`). `GATEWAY_WORKERS` pre-forks it. When it runs, it hosts the KG daemon itself (flock-elected) — you do not also need `graph-os-daemon`. |
-| `kg-ingest-worker` | Decoupled ingest consumer (`kg-ingest` group), engine client only (KG-2.57) |
+| `kg-ingest-worker` | Decoupled ingest consumer (`kg-ingest` group), engine client only (AU-KG.ingest.decoupled-kg-ingest-consumer) |
 | `agent-dispatch-worker` | Stateless agent-turn consumer (`agent-dispatch` group), engine client only (ORCH-1.45) |
 
 ---
@@ -129,7 +129,7 @@ Even with zero configuration, engine traffic is authenticated: when
 `GRAPH_SERVICE_AUTH_SECRET` is unset, a per-install HMAC secret is minted once
 and persisted at `~/.local/share/agent-utilities/engine_secret` (mode 0600,
 `knowledge_graph/core/graph_compute.py`), and every local process — including
-any engine this install spawns — agrees on it (CONCEPT:OS-5.14).
+any engine this install spawns — agrees on it (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 `KG_ENGINE_INSECURE=1` is the explicit dev opt-out.
 
 ### Verify
@@ -169,7 +169,7 @@ identity required on the KG surface, and fail-closed node-level permission
 enforcement. **What you don't get:** durability beyond this host, scale-out,
 autonomy.
 
-The pieces (all CONCEPT:OS-5.14, validated in
+The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, validated in
 `agent_utilities/security/auth.py` and
 `agent_utilities/security/request_identity.py`):
 
@@ -262,7 +262,7 @@ wiring against your IdP once per environment. Worked example:
 process — and the schema/locking groundwork for multi-host. One flag,
 `STATE_DB_URI`, externalizes ALL durable platform state (durable-execution
 checkpoints, sessions/turns/goals, the KG task + staging queue) onto one
-shared Postgres through a single connection pool (CONCEPT:OS-5.16–5.18,
+shared Postgres through a single connection pool (CONCEPT:AU-OS.state.unified-durable-state-externalization–5.18,
 [state externalization](../architecture/state_externalization.md)). The engine
 remains the graph authority; turning on `GRAPH_BACKEND=fanout` with a
 `GRAPH_DB_URI` adds an asynchronous Postgres/pg-age **mirror** for interop and DR
@@ -278,12 +278,12 @@ What turns on, with no further flags:
   queue claims with `FOR UPDATE SKIP LOCKED` (at-least-once, 600 s visibility
   timeout). Setting `TASK_QUEUE_BACKEND=postgres` *explicitly* makes an
   unreachable database a fail-loud startup error instead of a logged SQLite
-  fallback (CONCEPT:KG-2.55).
+  fallback (CONCEPT:AU-KG.backend.selectable-queue-backend).
 - **Daemon leadership** — `DaemonLeadership` (`core/leadership.py`) holds a
   Postgres session advisory lock per role; maintenance ticks (analysis,
   golden loop, failure ingest, fuseki publish, reconciler, autoscaler) become
   leader-only fleet-wide. A crashed leader's lock releases server-side and a
-  follower takes over within one tick (CONCEPT:OS-5.17). Under SQLite this is
+  follower takes over within one tick (CONCEPT:AU-OS.state.cross-host-daemon-leadership). Under SQLite this is
   a no-op (single host).
 
 ### Compose
@@ -313,7 +313,7 @@ AUTH_JWT_ISSUER=https://keycloak.example.internal/realms/agents
 AUTH_JWT_AUDIENCE=agent-utilities
 KG_BRAIN_ENFORCE=1
 
-# ---- plus: durable state (OS-5.16) + async graph mirror ----
+# ---- plus: durable state (AU-OS.state.unified-durable-state-externalization) + async graph mirror ----
 
 # ONE flag moves checkpoints + sessions/turns/goals + the KG task queue
 # onto shared Postgres (unset = the per-host SQLite files of rungs a/b)
@@ -422,14 +422,14 @@ KAFKA_BOOTSTRAP_SERVERS=kafka.example.internal:9092
 AGENT_DISPATCH_BACKEND=queue        # turns return a job handle; workers execute
 #AGENT_TURNS_PARTITIONS=6           # default; bounds concurrent-session parallelism
 
-# ---- plus: engine shards (KG-2.58 / OS-5.14) ----
+# ---- plus: engine shards (AU-KG.sharding.tenant-partitioned-sharding-hrw / OS-5.14) ----
 # Comma-separated or JSON list. The list must be IDENTICAL (verbatim strings)
 # on every client; order does not matter (HRW hashing).
 GRAPH_SERVICE_ENDPOINTS=tcp://kg-shard-1.example.internal:9101,tcp://kg-shard-2.example.internal:9102,tcp://kg-shard-3.example.internal:9103
 GRAPH_SERVICE_AUTH_SECRET=<the one shared secret>
 #KG_DEFAULT_GRAPH=__bus__           # default; tenant-mapped before HRW routing
 
-# ---- plus: gateway scale + observability (OS-5.23) ----
+# ---- plus: gateway scale + observability (AU-OS.observability.no-op-without-metrics) ----
 GATEWAY_WORKERS=4                   # pre-forked workers on ONE listen socket;
                                     # the flock elects ONE KG host among them
 #GATEWAY_METRICS=true               # default: /metrics on the gateway
@@ -574,7 +574,7 @@ KG_LOOP=true
 KG_GOLDEN_AUTO_MERGE=false          # default; keep merges human-gated
 #EVOLUTION_WORKTREE_ROOT=           # default: data_dir()/evolution_worktrees
 
-# -- Failure-driven evolution (AHE-3.18): Langfuse failures -> remediation --
+# -- Failure-driven evolution (AU-AHE.harness.failure-evolution): Langfuse failures -> remediation --
 KG_FAILURE_EVOLUTION=true
 #KG_FAILURE_EVOLUTION_INTERVAL=3600 # default, seconds
 #KG_FAILURE_EVOLUTION_WINDOW=86400  # default: telemetry look-back, seconds
@@ -583,7 +583,7 @@ LANGFUSE_HOST=https://langfuse.example.internal
 LANGFUSE_PUBLIC_KEY=pk-lf-REDACTED
 LANGFUSE_SECRET_KEY=sk-lf-REDACTED
 
-# -- Fleet reconciler (OS-5.25): desired state vs observed, policy-gated --
+# -- Fleet reconciler (AU-OS.config.desired-state-fleet-reconciler): desired state vs observed, policy-gated --
 FLEET_RECONCILER=true
 #FLEET_RECONCILER_INTERVAL=120      # default, seconds
 #FLEET_RECONCILER_MAX_ACTIONS=5     # default: storm guard per tick
@@ -608,7 +608,7 @@ ACTION_POLICY_PATH=/etc/agent-utilities/action-policy.yml
 # only diagnose/observe/notify/record_dry_run auto. KG governance_rule
 # overrides (scope: action_policy) win over file rules either way.
 
-# -- Monitoring webhook ingress (OS-5.15) --
+# -- Monitoring webhook ingress (AU-OS.config.fleet-event-ingress) --
 FLEET_EVENTS_TOKEN=<openssl rand -hex 32>
 # Shared secret for POST /api/fleet/events (header X-Fleet-Events-Token,
 # constant-time compare, re-read per request so rotation needs no restart).

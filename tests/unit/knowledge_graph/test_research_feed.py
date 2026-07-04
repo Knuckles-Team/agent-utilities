@@ -1,4 +1,4 @@
-"""Unified feed research path — grade + prioritized enqueue (CONCEPT:KG-2.114/2.121).
+"""Unified feed research path — grade + prioritized enqueue (CONCEPT:AU-KG.research.scholarx-rss-research-feed/2.121).
 
 The scholarx-only ``run_rss_feed_screen`` was collapsed into the one world-model
 gate: research items from ANY feed (native RSS, ScholarX, FreshRSS-arXiv) go through

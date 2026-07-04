@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Knowledge Base Pydantic Models.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Defines type-safe Pydantic models used throughout the KB system:
 - Structured extraction results (used by Pydantic AI agents)

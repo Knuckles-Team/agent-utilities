@@ -1,7 +1,7 @@
-"""CONCEPT:KG-2.309 — Episodic→procedural memory distillation (AU-side).
+"""CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation — Episodic→procedural memory distillation (AU-side).
 
 The parametric-memory module of the agent-native-memory paper. Where the lifecycle
-loop (CONCEPT:KG-2.307, :mod:`agent_utilities.knowledge_graph.memory.lifecycle`)
+loop (CONCEPT:AU-KG.memory.drive-one-agent-native, :mod:`agent_utilities.knowledge_graph.memory.lifecycle`)
 drives the engine's summarize/consolidate/maintain primitives over EPISODIC memory,
 this is the *distillation* phase: it mines RECURRING clusters of related
 episodic/semantic memories — a routine that keeps happening — and distills them into
@@ -107,7 +107,7 @@ _DISTILL_SYSTEM_PROMPT = (
 
 @dataclass
 class ProceduralArtifact:
-    """A distilled reusable procedure (CONCEPT:KG-2.309).
+    """A distilled reusable procedure (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation).
 
     The parametric-memory output: a named routine with ordered steps and the
     preconditions under which it applies, plus the provenance (source memory ids)
@@ -143,7 +143,7 @@ class ProceduralArtifact:
 
 @dataclass
 class MemoryDistillerConfig:
-    """Policy knobs for the distillation phase (CONCEPT:KG-2.309).
+    """Policy knobs for the distillation phase (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation).
 
     Additive + conservative; ``enabled`` gates the whole phase off by default so the
     component is inert until an operator opts in.
@@ -245,7 +245,7 @@ class MemoryDistiller:
     ) -> list[list[dict[str, Any]]]:
         """Return recurring clusters ripe for distillation, largest first.
 
-        A *recurring* cluster (CONCEPT:KG-2.309) is a group of ACTIVE
+        A *recurring* cluster (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation) is a group of ACTIVE
         episodic/semantic memories on the same ``cluster_key`` (→ ``category`` →
         ``general``) whose member count reaches ``min_recurrence`` — evidence of a
         routine the agent keeps performing. Members within each cluster are ordered
@@ -396,7 +396,7 @@ class MemoryDistiller:
         extra_props: dict[str, Any] = {
             "artifact_name": artifact.name,
             "capability_id": capability_id,
-            "concept": "KG-2.309",
+            "concept": "AU-KG.memory.episodic-procedural-memory-distillation",
             "source": "memory_distiller",
             "step_count": len(artifact.steps),
             "source_count": len(artifact.source_ids),
@@ -422,7 +422,7 @@ class MemoryDistiller:
 
     # ── Distill one cluster ───────────────────────────────────────────────────
     def distill(self, cluster: list[dict[str, Any]]) -> dict[str, Any]:
-        """Distill one recurring cluster into a procedural artifact (CONCEPT:KG-2.309).
+        """Distill one recurring cluster into a procedural artifact (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation).
 
         LLM-generates the artifact, records it as procedural memory, and (if
         enabled) registers it with the reward-EMA flywheel. Never raises: a missing
@@ -514,7 +514,7 @@ def run_memory_distillation(
     now: datetime | None = None,
     config: MemoryDistillerConfig | None = None,
 ) -> dict[str, Any]:
-    """CLI/daemon/lifecycle entry for one distillation cycle (CONCEPT:KG-2.309).
+    """CLI/daemon/lifecycle entry for one distillation cycle (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation).
 
     Gated off unless ``AGENT_UTILITIES_MEMORY_DISTILL`` is set, so it is inert even
     if a (default-disabled) schedule is turned on. Callable from the KG-2.307

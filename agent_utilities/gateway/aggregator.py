@@ -1,6 +1,6 @@
 """Async Data Aggregator — parallel fetching across all active widgets.
 
-CONCEPT:OS-5.9 — Gateway Service Dashboard
+CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
 Designed for all three frontends:
   - WebUI: Called by FastAPI endpoint, returns JSON

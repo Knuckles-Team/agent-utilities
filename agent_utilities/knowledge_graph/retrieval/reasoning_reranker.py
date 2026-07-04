@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Reasoning-aware reranking of retrieved candidates.
 
-CONCEPT:KG-2.6 — Retrieval Quality (reranking stage)
+CONCEPT:AU-KG.retrieval.retrieval-quality-assessment — Retrieval Quality (reranking stage)
 
 A second-stage reranker that reorders an over-fetched candidate pool by
 query-relevance before it is capped to the context window, so the nodes that
@@ -76,7 +76,7 @@ class LexicalRelevanceScorer:
     instruction-term coverage when an instruction is supplied (instruction
     awareness). No model or network — always available.
 
-    CONCEPT:KG-2.6
+    CONCEPT:AU-KG.retrieval.retrieval-quality-assessment
     Concept: retrieval-reranking
     """
 
@@ -116,7 +116,7 @@ class LexicalRelevanceScorer:
 
 
 def _auto_scorer() -> RerankScorer:
-    """Default rerank scorer: the dependency-free lexical scorer (CONCEPT:KG-2.85).
+    """Default rerank scorer: the dependency-free lexical scorer (CONCEPT:AU-KG.retrieval.unset-dependency-free).
 
     All heavy inference runs on the remote vllm endpoint (embeddings/LLM); the reranker does
     NOT load a local model by default — a bundled cross-encoder both pins a GPU/CPU baseline
@@ -165,7 +165,7 @@ class ReasoningAwareReranker:
     continuous blend; each is annotated with ``_rerank_score`` (continuous) and
     ``_rerank_level`` (calibrated five-level) for downstream thresholding.
 
-    CONCEPT:KG-2.6
+    CONCEPT:AU-KG.retrieval.retrieval-quality-assessment
     Concept: retrieval-reranking
     """
 

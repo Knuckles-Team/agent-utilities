@@ -1,6 +1,6 @@
 """Unified durable-state externalization layer.
 
-CONCEPT:OS-5.16 — Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store over the per-host SQLite default
+CONCEPT:AU-OS.state.unified-durable-state-externalization — Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store over the per-host SQLite default
 
 One config flag — ``state_db_uri`` (``STATE_DB_URI``) — selects where the
 platform's durable state lives:
@@ -66,7 +66,7 @@ def state_db_uri() -> str | None:
 
 
 def postgres_state_enabled() -> bool:
-    """True when durable state is externalized to Postgres (CONCEPT:OS-5.16)."""
+    """True when durable state is externalized to Postgres (CONCEPT:AU-OS.state.unified-durable-state-externalization)."""
     return state_db_uri() is not None
 
 
@@ -147,7 +147,7 @@ def advisory_key(name: str) -> int:
 
 @contextmanager
 def state_claim_guard(name: str) -> Iterator[None]:
-    """Cross-host critical section for claim operations (CONCEPT:OS-5.16).
+    """Cross-host critical section for claim operations (CONCEPT:AU-OS.state.unified-durable-state-externalization).
 
     Under Postgres state, holds a session advisory lock (``pg_advisory_lock``)
     for the duration so claims are atomic across N hosts. Under the SQLite

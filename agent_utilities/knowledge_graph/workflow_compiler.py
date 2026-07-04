@@ -1,6 +1,6 @@
 """Natural Language → Workflow Compiler.
 
-CONCEPT:ORCH-1.23 — NL Workflow Compilation
+CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — NL Workflow Compilation
 
 Compiles natural language workflow descriptions into executable
 ``GraphPlan`` objects and persists them in the Knowledge Graph.
@@ -132,7 +132,7 @@ _AGENT_MATCH_TYPES = frozenset(
 class WorkflowCompiler:
     """Compiles natural language descriptions into GraphPlan flows.
 
-    CONCEPT:ORCH-1.23 — NL Workflow Compilation
+    CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — NL Workflow Compilation
 
     Uses the KG's agent/tool registry and semantic search to match
     natural language step descriptions to registered capabilities,
@@ -168,7 +168,7 @@ class WorkflowCompiler:
     ) -> GraphPlan:
         """Compile a natural language workflow description into a GraphPlan.
 
-        CONCEPT:ORCH-1.23 — NL Compilation Pipeline
+        CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — NL Compilation Pipeline
 
         Steps:
             1. Parse the NL description into discrete step intents
@@ -246,7 +246,7 @@ class WorkflowCompiler:
     ) -> str:
         """Compile and persist a workflow in one step.
 
-        CONCEPT:ORCH-1.23 — Compile + Store Pipeline
+        CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Compile + Store Pipeline
 
         Args:
             name: Human-readable workflow name.
@@ -274,7 +274,7 @@ class WorkflowCompiler:
     def find_and_load(self, query: str) -> GraphPlan | None:
         """Find a stored workflow by semantic similarity and load it.
 
-        CONCEPT:ORCH-1.23 — Semantic Workflow Retrieval
+        CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Semantic Workflow Retrieval
 
         Searches stored workflows by description similarity and
         returns the best match as a GraphPlan.
@@ -299,7 +299,7 @@ class WorkflowCompiler:
     def _parse_steps(self, description: str) -> list[dict[str, Any]]:
         """Parse a natural language description into discrete step intents.
 
-        CONCEPT:ORCH-1.23 — Step Extraction
+        CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Step Extraction
 
         Uses heuristic patterns and keyword detection to split
         free-text into ordered steps with parallel/sequential flags.
@@ -402,7 +402,7 @@ class WorkflowCompiler:
     ) -> tuple[str, list[str]]:
         """Match a step description to a KG-registered agent or tool.
 
-        CONCEPT:ORCH-1.23 — Agent Resolution
+        CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Agent Resolution
 
         Uses the KG's semantic search and direct queries to find
         the best agent for a given step description.

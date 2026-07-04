@@ -1,4 +1,4 @@
-"""Generic text → concepts extraction (CONCEPT:KG-2.8).
+"""Generic text → concepts extraction (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 A single entrypoint that turns ANY text (a chat thread, a prompt, an arbitrary
 snippet) into canonical ``Concept`` nodes + ``MENTIONS`` edges from the source.

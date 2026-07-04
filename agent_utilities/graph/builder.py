@@ -93,7 +93,7 @@ logger = logging.getLogger(__name__)
 
 
 class _BuiltGraphCache:
-    """Process-local bounded LRU of structural graph builds (CONCEPT:ORCH-1.64).
+    """Process-local bounded LRU of structural graph builds (CONCEPT:AU-ORCH.routing.structural-build-reuse).
 
     ``create_graph_agent`` rebuilt the entire topology + ``discover_agents()`` on EVERY
     turn. The topology is a pure function of (tag_prompts, models, routing strategy, sub
@@ -143,7 +143,7 @@ def _graph_cache_key(
     sub_agents: dict[str, Any] | None,
     custom_nodes: list[Any] | None,
 ) -> str:
-    """A stable hash of the STRUCTURAL graph inputs (CONCEPT:ORCH-1.64).
+    """A stable hash of the STRUCTURAL graph inputs (CONCEPT:AU-ORCH.routing.structural-build-reuse).
 
     Keys on what changes the built graph's identity: the graph ``name`` (which the
     builder stamps onto the returned graph, so two same-topology graphs with
@@ -212,7 +212,7 @@ def initialize_graph_from_workspace(
 
     Args:
         mcp_config: Filename or path to the MCP configuration file.
-        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:ECO-4.0).
+        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:AU-ECO.interop.a2a-agent-sync).
         router_model: Optional override for the router's LLM model ID.
         agent_model: Optional override for the specialist agents' LLM model ID.
         api_key: Optional API key for the LLM provider.
@@ -307,7 +307,7 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # --- CONCEPT:ECO-4.0: A2A Agent Sync ---
+    # --- CONCEPT:AU-ECO.interop.a2a-agent-sync: A2A Agent Sync ---
     from agent_utilities.core.config import config as app_config
 
     _a2a_config = a2a_config or app_config.a2a_config
@@ -486,7 +486,7 @@ def create_agent(
     if tag_env_vars is None:
         tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
 
-    # CONCEPT:ORCH-1.64 — cache the built graph TOPOLOGY per routing-config. The topology +
+    # CONCEPT:AU-ORCH.routing.structural-build-reuse — cache the built graph TOPOLOGY per routing-config. The topology +
     # ``discover_agents()`` are a pure function of (tag_prompts, models, routing strategy,
     # sub-agents, custom nodes), rebuilt on EVERY turn before this. We memoize the structural
     # build keyed by a hash of that config, so a turn reuses a warm graph. Toolset *connections*
@@ -511,7 +511,7 @@ def create_agent(
     _toolset_free = _cacheable
     _cached = _GRAPH_CACHE.get(_cache_key) if _cacheable else None
     if _cached is not None:
-        # Warm graph hit (CONCEPT:ORCH-1.64): reuse the structural topology + node registry
+        # Warm graph hit (CONCEPT:AU-ORCH.routing.structural-build-reuse): reuse the structural topology + node registry
         # + registry engine; build only the cheap per-run config. No toolsets on this path
         # (toolset-free by the cache guard above), so connections never get reused.
         logger.debug("create_agent: reusing cached graph topology (key=%s)", _cache_key)
@@ -546,14 +546,14 @@ def create_agent(
             )
 
             ws = get_agent_workspace()
-            # Engine-only (CONCEPT:KG-2.245): the registry graph persists as
+            # Engine-only (CONCEPT:AU-KG.compute.graph-builder): the registry graph persists as
             # nodes/edges ON THE ONE epistemic-graph engine authority — never a
             # local ladybug ``registry_graph.db`` beside it. Resolve the engine
             # backend (the OS-5.63 resolver auto-starts the pi-tier engine in prod;
             # the KG-2.238 fixture provides a real ephemeral one in tests), raising
             # a clear error if the engine is genuinely unreachable.
             active_backend = require_engine_authority_backend(
-                "agent registry graph (CONCEPT:KG-2.245)"
+                "agent registry graph (CONCEPT:AU-KG.compute.graph-builder)"
             )
             reg_config = PipelineConfig(
                 workspace_path=str(ws),
@@ -817,7 +817,7 @@ def create_agent(
         g.edge_from(g.start_node).label("Query").to(_usage_guard),
         g.edge_from(_usage_guard).label("Policy OK").to(_router),
         g.edge_from(_router).label("Plan").to(_dispatcher),
-        # CONCEPT:ORCH-1.68 — the router has a SINGLE outgoing edge (→ dispatcher). It must NOT
+        # CONCEPT:AU-ORCH.routing.single-router-edge — the router has a SINGLE outgoing edge (→ dispatcher). It must NOT
         # have a second edge to the end node: pydantic-graph turns two edges from one node into
         # a BROADCAST FORK (router → {end, dispatcher}), which terminated every full-graph turn
         # via the end branch. A direct-completion turn never reaches the router — it is answered
@@ -916,7 +916,7 @@ def create_agent(
         f"create_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
     )
 
-    # CONCEPT:ORCH-1.64 — store the toolset-free structural build for reuse next turn.
+    # CONCEPT:AU-ORCH.routing.structural-build-reuse — store the toolset-free structural build for reuse next turn.
     if _toolset_free:
         _GRAPH_CACHE.put(
             _cache_key,
@@ -948,7 +948,7 @@ def _build_graph_config(
     routing_strategy: str,
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build the per-run execution config dict (CONCEPT:ORCH-1.64).
+    """Build the per-run execution config dict (CONCEPT:AU-ORCH.routing.structural-build-reuse).
 
     The config is cheap and per-run (carries the run's toolsets / models / timeouts); only
     the graph TOPOLOGY is cached. Extracted so the cache-hit and cache-miss paths build the

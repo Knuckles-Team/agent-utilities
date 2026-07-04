@@ -3,7 +3,7 @@
 ## What this demonstrates
 
 A working Prometheus scrape configuration for the two metric surfaces — the
-gateway's Python-tier `/metrics` endpoint (CONCEPT:OS-5.23) and the engine
+gateway's Python-tier `/metrics` endpoint (CONCEPT:AU-OS.observability.no-op-without-metrics) and the engine
 shards' native listeners — plus ready-to-paste Grafana panel queries over the
 headline series.
 
@@ -23,7 +23,7 @@ pip install "agent-utilities[metrics]"   # prometheus-client
 Without it the middleware degrades to a no-op and `GET /metrics` returns a
 self-describing placeholder (still HTTP 200). The endpoint is controlled by
 `GATEWAY_METRICS` (default on) and is **exempt from the identity middleware**
-— scrapers cannot mint JWTs (CONCEPT:OS-5.23).
+— scrapers cannot mint JWTs (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
 ## 1. Scrape targets
 

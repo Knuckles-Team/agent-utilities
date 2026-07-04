@@ -1,4 +1,4 @@
-"""Generic outcome-learned choice router (CONCEPT:ORCH-1.71).
+"""Generic outcome-learned choice router (CONCEPT:AU-ORCH.execution.shape-policy-learning).
 
 ONE mechanism for *"pick a choice per task-class, learn from the run outcome"*, factored from
 the patterns the KG-2.68 ``ReasonerRouter`` (``knowledge_graph/core/reasoner.py``) and the
@@ -84,7 +84,7 @@ class OutcomeRouter:
 
 
 def outcome_reward(*, success: bool, latency_s: float, budget_s: float = 30.0) -> float:
-    """Map a run outcome to a reward in [0, 1] (CONCEPT:ORCH-1.71).
+    """Map a run outcome to a reward in [0, 1] (CONCEPT:AU-ORCH.execution.shape-policy-learning).
 
     A success is rewarded, discounted by how much of the latency budget it spent (faster is
     better), so the learner prefers the *cheapest shape that still succeeds*; a failure is 0.

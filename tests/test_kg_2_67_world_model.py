@@ -1,4 +1,4 @@
-"""Action-conditioned world model (CONCEPT:KG-2.67).
+"""Action-conditioned world model (CONCEPT:AU-KG.compute.first-class-action-conditioned).
 
 Wraps the graph's Markov transition kernel with a composite state|action key + a
 reward table so an agent can roll a policy forward over predicted next-states and
@@ -13,7 +13,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.world_model import Transition, WorldModel
 
-pytestmark = pytest.mark.concept("KG-2.67")
+pytestmark = pytest.mark.concept("AU-KG.compute.first-class-action-conditioned")
 
 
 class WMEngine:

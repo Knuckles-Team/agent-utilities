@@ -1,4 +1,4 @@
-"""Git commit-history → Knowledge Graph (CONCEPT:KG-2.282).
+"""Git commit-history → Knowledge Graph (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also).
 
 A repo's commit history *is* a graph: commits → authors → files, evolving over
 time — which fits the KG natively. Tools like Gource / SourceTree only *render*
@@ -263,7 +263,7 @@ def ingest_commit_history(
     max_count: int = DEFAULT_MAX_COMMITS,
     since: str | None = None,
 ) -> dict[str, Any]:
-    """Ingest a repo's commit history into the KG as a graph (CONCEPT:KG-2.282).
+    """Ingest a repo's commit history into the KG as a graph (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also).
 
     Fast: ONE ``git log`` pass, batch-written through the engine bulk path.
     Delta: commits already present (``existing_shas``) are skipped; a re-ingest
@@ -403,7 +403,7 @@ def ingest_commit_history(
     }
 
 
-# ── Evolution query surface (CONCEPT:KG-2.283) ───────────────────────────────
+# ── Evolution query surface (CONCEPT:AU-KG.enrichment.query-ingested-commit-history) ───────────────────────────────
 
 
 def _rows(backend: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:

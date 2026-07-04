@@ -1,4 +1,4 @@
-# CONCEPT:OS-5.1 — Permissions Kernel
+# CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel
 
 > Identity-based governance with signed agent tokens and role-based tool access policies.
 
@@ -13,7 +13,7 @@ Every specialist agent receives a **signed identity** (HMAC-SHA256) when spawned
 ```mermaid
 flowchart LR
     subgraph Identity Lifecycle
-        SPAWN[ORCH-1.20: Agent Spawned] --> ISSUE[OS-5.1: issue_identity]
+        SPAWN[AU-ORCH.execution.service-registry-initialization: Agent Spawned] --> ISSUE[OS-5.1: issue_identity]
         ISSUE --> SIGN[OS-5.1: HMAC Sign]
         SIGN --> ID[OS-5.1: AgentIdentity]
     end

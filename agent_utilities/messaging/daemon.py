@@ -1,4 +1,4 @@
-"""Standalone messaging inbound daemon (CONCEPT:ECO-4.73).
+"""Standalone messaging inbound daemon (CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs).
 
 Runs the messaging ``InboundRouter`` in its OWN process — isolated from the KG host
 daemon's CPU-bound maintenance (codebase ingestion, relevance sweeps, enrichment) so an
@@ -37,7 +37,7 @@ async def _serve(engine: Any, platforms: list[str]) -> None:
         if backend is None:
             continue
         svc.register_connected(backend)
-        # Publish OUR universal command set (CONCEPT:ECO-4.57) where the platform supports
+        # Publish OUR universal command set (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher) where the platform supports
         # a runtime menu; a no-op elsewhere.
         try:
             await backend.register_commands(command_specs("messaging"))
@@ -45,7 +45,7 @@ async def _serve(engine: Any, platforms: list[str]) -> None:
             logger.warning("messaging: register_commands(%s) failed: %s", pid, exc)
         router.register_backend(backend)
     router.set_default_handler(await create_planner_handler(engine))
-    logger.info("[CONCEPT:ECO-4.73] messaging daemon serving backends %s", platforms)
+    logger.info("[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging daemon serving backends %s", platforms)
     await router.start()  # blocks on the per-backend listener tasks
 
 
@@ -143,7 +143,7 @@ def _load_fleet_auth() -> None:
 
 
 def main() -> None:
-    """Run the isolated messaging inbound daemon (CONCEPT:ECO-4.73)."""
+    """Run the isolated messaging inbound daemon (CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs)."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
@@ -151,7 +151,7 @@ def main() -> None:
     # (sweeps/ingestion) stays in the gateway host daemon; this process only handles chat.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
-    # CONCEPT:ECO-4.75 — make fleet credentials present in THIS process env so the MCP
+    # CONCEPT:AU-ECO.messaging.make-fleet-credentials-present — make fleet credentials present in THIS process env so the MCP
     # multiplexer the chat agent spawns (and every nested agent graph_orchestrate spawns,
     # via _spawn_auth_headers) can authenticate to the jwt-protected fleet.
     _load_fleet_auth()
@@ -182,7 +182,7 @@ def main() -> None:
             pass
 
     serve_task = loop.create_task(_serve(engine, platforms))
-    logger.info("[CONCEPT:ECO-4.73] isolated messaging daemon started.")
+    logger.info("[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started.")
     try:
         loop.run_until_complete(stop)
     finally:

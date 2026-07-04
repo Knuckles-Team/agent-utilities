@@ -1,4 +1,4 @@
-"""Parser registry + collector tests (CONCEPT:ECO-4.38 / ECO-4.42)."""
+"""Parser registry + collector tests (CONCEPT:AU-ECO.connector.agent-source-ingestion / ECO-4.42)."""
 
 from __future__ import annotations
 

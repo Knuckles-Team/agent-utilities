@@ -10,8 +10,8 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
-from .prompts import build_system_prompt  # CONCEPT:ORCH-1.54
-from .sandboxes import (  # CONCEPT:ORCH-1.38
+from .prompts import build_system_prompt  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client
+from .sandboxes import (  # CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
     HELPER_NAMES,
     LocalSandbox,
     SandboxEnv,
@@ -19,8 +19,8 @@ from .sandboxes import (  # CONCEPT:ORCH-1.38
 )
 from .sandboxes.registry import default_sandboxes
 from .sandboxes.router import SandboxRouter
-from .schema import SchemaContract  # CONCEPT:ORCH-1.12 — structured subagent contracts
-from .telemetry import (  # CONCEPT:ORCH-1.29
+from .schema import SchemaContract  # CONCEPT:AU-ORCH.session.structured-subagent-contracts — structured subagent contracts
+from .telemetry import (  # CONCEPT:AU-ORCH.execution.typed-failure-classification
     RunTrace,
     SandboxFatalError,
     classify_failure,
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _accumulate_root_usage(usage: Any, res: Any) -> None:
-    """Fold one pydantic-ai run's token usage into the RunTrace ``usage`` (CONCEPT:AHE-3.32).
+    """Fold one pydantic-ai run's token usage into the RunTrace ``usage`` (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
     Best-effort and version-tolerant: maps request/input tokens → ``prompt_tokens`` and
     response/output tokens → ``completion_tokens``. A missing usage object is a no-op.
@@ -68,7 +68,7 @@ class RecursionLimitError(Exception):
 class RLMEnvironment:
     """A persistent Python REPL environment for Recursive Language Models.
 
-    CONCEPT:ORCH-1.1 — RLM Execution
+    CONCEPT:AU-ORCH.execution.rlm-execution — RLM Execution
 
     Implements Algorithm 1 from Zhang et al. (2025): the user prompt is
     loaded as a variable inside the REPL — the root LLM receives only
@@ -114,13 +114,13 @@ class RLMEnvironment:
         self.inputs_keys = inputs_keys or []
         self.outputs_keys = outputs_keys or []
         self.tool_sources = tool_sources or {}
-        # CONCEPT:ORCH-1.12 (subagent fan-out) — a single-value structured-output
+        # CONCEPT:AU-ORCH.session.structured-subagent-contracts (subagent fan-out) — a single-value structured-output
         # contract for this (sub)agent. When set, FINAL is validated/coerced
         # against it and the JSON schema is shown to the model at REPL startup.
         self.output_contract = output_contract
         self._stdout_counter = 0
-        # CONCEPT:ORCH-1.29 — the most recent RunTrace (set when run_full_rlm runs). Holds token
-        # usage (root + folded-in sub-call usage) so callers can surface cost (CONCEPT:AHE-3.32).
+        # CONCEPT:AU-ORCH.execution.typed-failure-classification — the most recent RunTrace (set when run_full_rlm runs). Holds token
+        # usage (root + folded-in sub-call usage) so callers can surface cost (CONCEPT:AU-AHE.rlm.long-context-benchmark).
         self.last_run_trace: Any = None
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
@@ -156,7 +156,7 @@ class RLMEnvironment:
     def _absorb_sub_usage(self, sub_env: "RLMEnvironment") -> None:
         """Fold a recursive sub-call's total token usage into this run's ``sub_lm_tokens``.
 
-        CONCEPT:AHE-3.32 — lets the root surface a complete cost figure (root + recursion) so the
+        CONCEPT:AU-AHE.rlm.long-context-benchmark — lets the root surface a complete cost figure (root + recursion) so the
         benchmark can compare against the paper's per-query cost. No-op if either trace is absent.
         """
         parent = self.last_run_trace
@@ -313,7 +313,7 @@ class RLMEnvironment:
         raw JSON-Schema dict), the sub-RLM's ``FINAL`` is validated and coerced
         against it and a *typed* value is returned — not a free-form string. This
         lets the parent route on a clean structured value instead of re-parsing
-        prose (CONCEPT:ORCH-1.12, structured subagent contracts).
+        prose (CONCEPT:AU-ORCH.session.structured-subagent-contracts, structured subagent contracts).
         """
         if self.depth >= self.max_depth:
             raise RecursionLimitError(
@@ -335,7 +335,7 @@ class RLMEnvironment:
         result = await sub_env.run_full_rlm(prompt)
         self._absorb_sub_usage(
             sub_env
-        )  # CONCEPT:AHE-3.32 — fold sub-call tokens into our trace
+        )  # CONCEPT:AU-AHE.rlm.long-context-benchmark — fold sub-call tokens into our trace
         return result
 
     async def run_parallel_sub_calls(self, calls: list[dict[str, Any]]) -> list[Any]:
@@ -343,7 +343,7 @@ class RLMEnvironment:
         Run multiple sub-calls in parallel.
         calls is a list of dicts: ``{"prompt": "...", "context": Any, "schema": Any}``.
         ``schema`` is optional and per-call — when present, that sub-agent must
-        return a value conforming to it (structured fan-out, CONCEPT:ORCH-1.12).
+        return a value conforming to it (structured fan-out, CONCEPT:AU-ORCH.session.structured-subagent-contracts).
         """
         if not self.config.async_enabled:
             results = []
@@ -372,7 +372,7 @@ class RLMEnvironment:
             result = await sub_env.run_full_rlm(item["prompt"])
             self._absorb_sub_usage(
                 sub_env
-            )  # CONCEPT:AHE-3.32 — fold sub-call tokens in
+            )  # CONCEPT:AU-AHE.rlm.long-context-benchmark — fold sub-call tokens in
             return result
         else:
             # Fallback to normal specialist at the recursion floor. The contract
@@ -418,7 +418,7 @@ class RLMEnvironment:
         """Lazily build (and cache) this environment's router over the available backends."""
         router = getattr(self, "_sandbox_router", None)
         if router is None:
-            # CONCEPT:ORCH-1.91 — feed the per-rung reward EMA so a persistently failing rung is
+            # CONCEPT:AU-ORCH.sandbox.rung-reward-ema — feed the per-rung reward EMA so a persistently failing rung is
             # routed around (bounded; steady-state order is unchanged).
             from .sandboxes.reward import SandboxRewardTracker
 
@@ -429,7 +429,7 @@ class RLMEnvironment:
         return router
 
     async def execute(self, code: str) -> tuple[dict[str, Any], str]:
-        """Execute LLM-generated code via the tiered sandbox router (CONCEPT:ORCH-1.38).
+        """Execute LLM-generated code via the tiered sandbox router (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox).
 
         Builds the escalation chain for this snippet (cheapest capable backend first), then
         runs each in order:
@@ -468,7 +468,7 @@ class RLMEnvironment:
                 )
                 continue
             except SandboxFatalError:
-                # Irreversible infra death on this rung (CONCEPT:ORCH-1.91): penalise its reward
+                # Irreversible infra death on this rung (CONCEPT:AU-ORCH.sandbox.rung-reward-ema): penalise its reward
                 # so the router prefers a healthier capable rung next time, then fast-fail the run
                 # (ORCH-1.29 semantics unchanged — still not swallowed).
                 rewards.record(backend.name, success=False)
@@ -641,14 +641,14 @@ class RLMEnvironment:
             else self.config.sub_llm_model_small
         )
 
-        # CONCEPT:ORCH-1.54 — family-aware system prompt (the paper's "one prompt fails across
+        # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — family-aware system prompt (the paper's "one prompt fails across
         # model families" failure mode); 'auto' infers the family from the root model id.
         agent = Agent(
             model=model_id,
             system_prompt=build_system_prompt(self.config.prompt_family, model_id),
         )
 
-        # CONCEPT:ORCH-1.58 — depth-tiered sampling. The root is the strong proposer/reasoner
+        # CONCEPT:AU-ORCH.routing.depth-tiered-sampling — depth-tiered sampling. The root is the strong proposer/reasoner
         # (higher temperature for exploration); recursive sub-calls are deterministic executors
         # writing/running code (low temp + tight top_k). Mirrors the model_id depth split above.
         from agent_utilities.agent.sampling_profile import resolve_sampling_profile
@@ -661,7 +661,7 @@ class RLMEnvironment:
         history: list[Any] = []
         max_turns = self.max_turns
 
-        # CONCEPT:ORCH-1.29 — populate a structured RunTrace as the live loop runs, so the GEPA
+        # CONCEPT:AU-ORCH.execution.typed-failure-classification — populate a structured RunTrace as the live loop runs, so the GEPA
         # proposer gets classified per-iteration feedback (not just the free-text ReasoningTraceNode).
         run_trace = RunTrace()
         self.last_run_trace = run_trace
@@ -673,7 +673,7 @@ class RLMEnvironment:
         else:
             initial_prompt = prompt
 
-        # CONCEPT:ORCH-1.12 (structured subagent contracts) — show the output
+        # CONCEPT:AU-ORCH.session.structured-subagent-contracts (structured subagent contracts) — show the output
         # contract before any code is written, so the model knows the exact
         # shape it must return via FINAL_VAR.
         if self.output_contract is not None:
@@ -702,7 +702,7 @@ class RLMEnvironment:
             history = res.all_messages()
             _accumulate_root_usage(
                 run_trace.usage, res
-            )  # CONCEPT:AHE-3.32 cost capture
+            )  # CONCEPT:AU-AHE.rlm.long-context-benchmark cost capture
 
             output_text = res.output
 
@@ -713,7 +713,7 @@ class RLMEnvironment:
 
             if code_blocks:
                 code_to_run = code_blocks[0]
-                # CONCEPT:ORCH-1.29 — record this iteration; classify + re-raise on failure (fatal
+                # CONCEPT:AU-ORCH.execution.typed-failure-classification — record this iteration; classify + re-raise on failure (fatal
                 # sandbox death still fast-fails) so the RunTrace captures the failure class.
                 try:
                     _, stdout = await self.execute(code_to_run)
@@ -805,7 +805,7 @@ class RLMEnvironment:
                         )
                         continue
 
-                    run_trace.final_status = "success"  # CONCEPT:ORCH-1.29
+                    run_trace.final_status = "success"  # CONCEPT:AU-ORCH.execution.typed-failure-classification
                     return self._final_value(final_var_name, stdout)
 
                 # Feed stdout back as metadata (Algorithm 1 alignment)

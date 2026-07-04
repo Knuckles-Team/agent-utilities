@@ -1,5 +1,5 @@
 """
-Microstructure quantitative methodologies (CONCEPT:KG-2.6).
+Microstructure quantitative methodologies (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Contains models for High-Frequency Micro-Price, Order Book Imbalance (OBI),
 and consensus logic (Convergence Filter, Brier Score Validator).

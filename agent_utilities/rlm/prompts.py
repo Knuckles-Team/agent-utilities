@@ -1,4 +1,4 @@
-"""Model-family-aware RLM REPL system prompt (CONCEPT:ORCH-1.54).
+"""Model-family-aware RLM REPL system prompt (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client).
 
 Zhang et al. (2025) report that a single fixed RLM system prompt fails to transfer across model
 families (a documented failure mode). This module keeps the shared REPL contract in one place and

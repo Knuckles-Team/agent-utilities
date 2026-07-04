@@ -1,4 +1,4 @@
-# Spec: Corpus Collapse / Synthetic-Degeneration Guard (SAFE-1.4)
+# Spec: Corpus Collapse / Synthetic-Degeneration Guard (AU-OS.safety.model-collapse-guard-self)
 
 > Status: **proposed**. Closes part of the AGI→ASI "data wall" (paper §5.5 / §7.4(c),(d)):
 > self-generated data is the main data-wall countermeasure but risks model-collapse
@@ -14,8 +14,8 @@
 - [x] **Extension target identified.** Detector = `graph/population_drift.py` (`wasserstein1`,
   `PopulationDriftMonitor`); gate hop = `research/auto_merge.py:244` `GovernedAutoMerger.evaluate`.
   Self-generated corpora producers verified: `harness/preference_pairs.py`
-  (`reliability_filter` only drops `chosen==rejected`, line 204) and AHE-3.18 `failure_gap` Concepts.
-- [x] **New CONCEPT:SAFE-1.4 justified.** AHE-3.2 (`population_drift`) watches the *agent population's
+  (`reliability_filter` only drops `chosen==rejected`, line 204) and AU-AHE.harness.failure-evolution `failure_gap` Concepts.
+- [x] **New CONCEPT:AU-OS.safety.model-collapse-guard-self justified.** AHE-3.2 (`population_drift`) watches the *agent population's
   score* distribution; KG-2.36 notes "collapsed embeddings → degenerate clusters" but only inside
   memory optimization. Nothing watches the self-generated **corpus** (preference pairs / failure_gap
   Concepts / eval additions) for diversity loss or synthetic over-saturation before it re-enters the
@@ -46,17 +46,17 @@
 - **AC4**: `GovernedAutoMerger.evaluate` accepts an optional `corpus_reading` (the US-1 reading); when
   it is `collapsed`, `evaluate()` appends a `"corpus diversity collapsed: …"` / `"synthetic fraction …"`
   failure to `MergeEvaluation.failures` (so `eligible` is false), gated by a `MergePolicy` flag that
-  **defaults to the prior behavior** (no reading supplied → unchanged, per the AHE-3.x opt-in rule).
+  **defaults to the prior behavior** (no reading supplied → unchanged, per the AU-AHE.optimization.telemetry-optimization opt-in rule).
 - **AC5**: `harness/preference_pairs.reliability_filter` exposes provenance/diversity inputs the monitor
   can consume from exported pairs (the corpus already distinguishes human-correction vs synthetic
   preference nodes) — no new connector, no bespoke corpus store.
 
 ## Non-Functional Requirements
-- `tests/unit/graph/test_safe_1_4_corpus_collapse_guard.py` tagged `@pytest.mark.concept(id="SAFE-1.4")`,
+- `tests/unit/graph/test_safe_1_4_corpus_collapse_guard.py` tagged `@pytest.mark.concept(id="AU-OS.safety.model-collapse-guard-self")`,
   ≤60s, no live engine/LLM (pure monitor + a stub spec through `evaluate`); asserts both the live-path
   gating (a collapsed reading yields non-empty `evaluate().failures`) and the isolated monitor.
 - `pre-commit run --all-files` green; `docs/concepts.yaml` regenerated via `scripts/build_concepts_yaml.py`
-  and `scripts/check_concepts.py` passes; per-concept doc authored (docstring `CONCEPT:SAFE-1.4` +
+  and `scripts/check_concepts.py` passes; per-concept doc authored (docstring `CONCEPT:AU-OS.safety.model-collapse-guard-self` +
   one-paragraph note citing paper §5.5 / §7.4(c),(d) and Shumailov 2024 in `docs/`).
 - Opt-in / default-unchanged: with no `corpus_reading`, `GovernedAutoMerger.evaluate` behaves exactly as
   today (Wire-First + No-Legacy: extend the live gate, no parallel path).

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Autonomous overnight knowledge swarm over a local-first markdown vault.
 
-CONCEPT:KG-2.84
+CONCEPT:AU-KG.research.run-one-autonomous-night
 
 Operationalizes the "second brain night-shift" — the scheduled overnight swarm
 of the *"How To Build a Second Brain That Runs Itself"* article — directly over a
@@ -18,7 +18,7 @@ and leave a morning briefing behind:
     Editor      weave threads + briefing   → ``3-threads/`` + ``briefings/``
 
 The Critic role is delegated to the existing explicit node-vs-node
-:class:`~..adaptation.contradiction_detector.ContradictionDetector` (CONCEPT:KG-2.83):
+:class:`~..adaptation.contradiction_detector.ContradictionDetector` (CONCEPT:AU-KG.research.explicit-node-node-contradiction):
 when a *new* atom contradicts an existing one the swarm attaches a **[FRICTION]**
 note pointing at the conflicting belief — it proposes, it never arbitrates. Like
 :mod:`..research.loop_controller`, the whole shift is **propose-only**: it adds
@@ -135,7 +135,7 @@ class ShiftReport:
 
 
 class NightShiftSwarm:
-    """Autonomous overnight knowledge swarm over a local markdown vault (CONCEPT:KG-2.84)."""
+    """Autonomous overnight knowledge swarm over a local markdown vault (CONCEPT:AU-KG.research.run-one-autonomous-night)."""
 
     def __init__(
         self,
@@ -367,7 +367,7 @@ class NightShiftSwarm:
     def critique(self, atoms: list[AtomNote]) -> list[str]:
         """Surface [FRICTION] where a new atom contradicts an existing belief.
 
-        Runs the explicit :class:`ContradictionDetector` (CONCEPT:KG-2.83) over
+        Runs the explicit :class:`ContradictionDetector` (CONCEPT:AU-KG.research.explicit-node-node-contradiction) over
         the new atoms' claims against the existing belief set. Each contradiction
         is recorded as a ``[FRICTION]`` note on the *new* atom pointing at the
         conflicting one and persisted to frontmatter. Propose-only: the swarm

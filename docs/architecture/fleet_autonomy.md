@@ -1,4 +1,4 @@
-# Fleet Autonomy Control Plane (OS-5.24 — OS-5.27, OS-5.29)
+# Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)
 
 The Tranche-3 autonomy build: the layer that lets the platform *act* on its
 fleet — restart, scale, deploy, remediate — without ever acting outside
@@ -103,7 +103,7 @@ tier queues the same `ActionApproval` the AHE-3.21 publication bridge
 consumes (deduped per kind+target), and `auto`/`auto_notify` tiers proceed.
 See [Autonomous Evolution](../guides/autonomous-evolution.md).
 
-## OS-5.25 — Desired-state fleet reconciler
+## AU-OS.config.desired-state-fleet-reconciler — Desired-state fleet reconciler
 
 `orchestration/fleet_reconciler.py`, registered as the leader-only
 `fleet_reconciler` maintenance tick (opt-in: `FLEET_RECONCILER=1`, interval
@@ -115,7 +115,7 @@ See [Autonomous Evolution](../guides/autonomous-evolution.md).
   per-service `replicas` / `desired: running|stopped` / `version`.
 * **Observed state** — the `FleetObserver` protocol
   (`orchestration/fleet_observation.py`). Default = `KGFleetObserver`
-  (folds the OS-5.15 FleetEvent stream into per-service status + flap
+  (folds the AU-OS.config.fleet-event-ingress FleetEvent stream into per-service status + flap
   counts) composed with `DockerFleetObserver` when a docker CLI exists.
   Deployments inject richer observers (Portainer, Prometheus) via
   `set_fleet_observer()`.
@@ -129,22 +129,22 @@ See [Autonomous Evolution](../guides/autonomous-evolution.md).
   nothing — safe to enable fleet-wide before any real actuator is wired.
   `FLEET_ACTUATOR=docker` selects the reference docker CLI actuator;
   Portainer/Swarm actuation is deployment-wired via `set_fleet_actuator()`.
-* Restart/deploy executions schedule an OS-5.27 health watch; granted
+* Restart/deploy executions schedule an AU-OS.config.health-gated-deploy-rollback health watch; granted
   `ActionApproval` entries are drained and executed each tick; a storm guard
   caps actions per tick (`FLEET_RECONCILER_MAX_ACTIONS`); each pass writes a
   `ReconcileReport` node.
 
-## OS-5.26 — Remediation playbooks (on the OS-5.15 seam)
+## AU-OS.host.remediation-playbooks — Remediation playbooks (on the AU-OS.config.fleet-event-ingress seam)
 
 `knowledge_graph/adaptation/remediation_playbooks.py`, registered through
 the existing `register_playbook()` seam for critical/error events from
-alertmanager / uptime-kuma / portainer / generic (warnings keep the OS-5.15
+alertmanager / uptime-kuma / portainer / generic (warnings keep the AU-OS.config.fleet-event-ingress
 default playbook). The dispatcher still runs the default playbook first, so
 correlation + `failure_gap` golden-loop escalation are preserved.
 
 | Playbook | Steps |
 |---|---|
-| `service_down` | confirm via observer (recovered ⇒ stop) → ActionPolicy → actuate restart → schedule OS-5.27 verification watch → escalate on deny/failure |
+| `service_down` | confirm via observer (recovered ⇒ stop) → ActionPolicy → actuate restart → schedule AU-OS.config.health-gated-deploy-rollback verification watch → escalate on deny/failure |
 | `service_flapping` | ≥3 down-events in the observer window ⇒ back off (no restart even on an `auto` tier) + escalate a restart proposal to a human |
 | `resource_pressure` | disk/memory/CPU markers ⇒ **never auto-act**: notify + queue an `investigate_resource_pressure` proposal |
 
@@ -155,7 +155,7 @@ seam (`actions/dispatch.send_notification` — journaled by default; a
 deployment registers a real Slack/email `Notifier` via
 `set_default_notifier`).
 
-## OS-5.27 — Health-gated deploy + rollback
+## AU-OS.config.health-gated-deploy-rollback — Health-gated deploy + rollback
 
 `orchestration/deploy_watch.py` — the safety net every mutating action ends
 in. `watch_deploy(engine, service, version, window_s, ...)` enqueues a
@@ -203,7 +203,7 @@ Because `deploy/mcp-fleet.registry.yml` is machine-generated, the normal home
 for scaling blocks is the `FLEET_DESIRED_STATE_PATH` override (same shape,
 layered on top; `scaling: null` explicitly disables). Validation is strict —
 `max >= min >= 0`, `signal`/`target`/`max` explicit — and an invalid block is
-**dropped with a warning** (the service keeps the static OS-5.25 reconcile);
+**dropped with a warning** (the service keeps the static AU-OS.config.desired-state-fleet-reconciler reconcile);
 a typo never produces surprise scaling.
 
 **Signal hierarchy — pluggable, no hard Prometheus dependency**
@@ -216,7 +216,7 @@ a typo never produces surprise scaling.
    against `/api/v1/query` (plain `httpx` GET, no client lib). Well-known
    signals use shipped PromQL; a custom signal is sent verbatim as PromQL
    with a `{service}` placeholder.
-3. **Local (default, zero-infra)** — this process's own OS-5.23/KG-2.55
+3. **Local (default, zero-infra)** — this process's own AU-OS.observability.no-op-without-metrics/KG-2.55
    gauges: `queue_depth` → `agent_utilities_kg_ingest_queue_depth`,
    `consumer_lag` → `agent_utilities_kg_ingest_consumer_lag`; other names
    resolve verbatim in the local registry.
@@ -255,7 +255,7 @@ action budget reuses `FLEET_RECONCILER_MAX_ACTIONS`.
 — `approval_required` under the shipped default policy, so enabling
 `FLEET_AUTOSCALER` out of the box only *queues* scale proposals for a human.
 Allowed actions run through the FleetActuator seam; a successful scale-up
-schedules an OS-5.27 deploy watch, and scale-downs do too when the policy
+schedules an AU-OS.config.health-gated-deploy-rollback deploy watch, and scale-downs do too when the policy
 file opts in:
 
 ```yaml
@@ -273,7 +273,7 @@ fast (`_AUTOSCALE_REACTIVE_INTERVAL`, 5 s) `fleet_autoscale_reactive` tick polls
 durable engine **change-feed subscription** over control-plane `:Task` mutations —
 `fleet_autoscale_subscription(engine)`, built on the one
 `agent_utilities.graph.reactive.subscribe` primitive (the engine's native
-CDC/`watch`, engine concepts KG-2.229/230). The poll is cheap and non-blocking
+CDC/`watch`, engine concepts EG-KG.query.streaming-cdc-subscriptions/230). The poll is cheap and non-blocking
 (O(new `:Task` changes), not a full re-scan) and short-circuits when nothing
 changed, so it can run far more often than the metric-poll interval. When the
 engine pushes a queue-depth-moving `:Task` change, it runs ONE `autoscale_fleet`
@@ -297,7 +297,7 @@ The dormant `AutoHealingEngine` shell (disabled by default, never-wired
 Its one useful bit — threshold-counted repeated-failure escalation — is
 absorbed into `graph/parallel_engine.py`
 (`_escalate_repeated_failure`), which now files a `failure_gap` Concept
-topic through the live AHE-3.18 propose-only remediation chain at the same
+topic through the live AU-AHE.harness.failure-evolution propose-only remediation chain at the same
 3-failure threshold.
 
 ## Flags
@@ -305,14 +305,14 @@ topic through the live AHE-3.18 propose-only remediation chain at the same
 | Flag | Default | Concept |
 |---|---|---|
 | `ACTION_POLICY_PATH` | shipped conservative default | OS-5.24 |
-| `FLEET_RECONCILER` | `false` (opt-in) | OS-5.25 |
-| `FLEET_RECONCILER_INTERVAL` | `120` s | OS-5.25 |
-| `FLEET_RECONCILER_MAX_ACTIONS` | `5` / tick | OS-5.25 |
-| `FLEET_REGISTRY_PATH` | `deploy/mcp-fleet.registry.yml` | OS-5.25 |
-| `FLEET_DESIRED_STATE_PATH` | unset | OS-5.25 |
-| `FLEET_ACTUATOR` | `dryrun` | OS-5.25 |
-| `DEPLOY_WATCH_WINDOW` | `300` s | OS-5.27 |
-| `DEPLOY_WATCH_POLL` | `15` s | OS-5.27 |
+| `FLEET_RECONCILER` | `false` (opt-in) | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_RECONCILER_INTERVAL` | `120` s | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_RECONCILER_MAX_ACTIONS` | `5` / tick | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_REGISTRY_PATH` | `deploy/mcp-fleet.registry.yml` | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_DESIRED_STATE_PATH` | unset | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_ACTUATOR` | `dryrun` | AU-OS.config.desired-state-fleet-reconciler |
+| `DEPLOY_WATCH_WINDOW` | `300` s | AU-OS.config.health-gated-deploy-rollback |
+| `DEPLOY_WATCH_POLL` | `15` s | AU-OS.config.health-gated-deploy-rollback |
 | `FLEET_AUTOSCALER` | `false` (opt-in) | OS-5.29 |
 | `FLEET_AUTOSCALER_INTERVAL` | `60` s | OS-5.29 |
 | `SCALING_PROMETHEUS_URL` | unset (local gauges) | OS-5.29 |

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.35 — Held-turn registry for mid-turn tool-result injection.
+"""CONCEPT:AU-ORCH.execution.held-turn-registry-mid — Held-turn registry for mid-turn tool-result injection.
 
 Assimilated from open-design's keep-stdin-open loop (``/api/runs/:id/tool-result``): when a step pauses
 on a ``tool_use``, the run is registered as *waiting* for a host answer; a later POST resolves it and

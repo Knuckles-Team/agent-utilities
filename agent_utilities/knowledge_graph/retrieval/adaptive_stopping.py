@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Training-free adaptive stopping for iterative retrieval / RAG loops.
 
-CONCEPT:KG-2.87 — Adaptive Stopping for Iterative Retrieval
+CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval — Adaptive Stopping for Iterative Retrieval
 
 Distilled from "TASR: Training-Free Adaptive Stopping for Iterative Retrieval"
 (arXiv 2606.x). An iterative retrieve→answer loop normally runs a fixed number of
@@ -112,7 +112,7 @@ class IterativeStopper:
 
     Drive it one round at a time with :meth:`update`. It tracks the round count,
     the previous answer, the cumulative set of seen evidence ids, and a saturation
-    streak, and returns a :class:`StopDecision` each call (CONCEPT:KG-2.87).
+    streak, and returns a :class:`StopDecision` each call (CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval).
     """
 
     def __init__(

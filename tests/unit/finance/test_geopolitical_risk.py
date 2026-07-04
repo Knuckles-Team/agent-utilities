@@ -1,4 +1,4 @@
-"""Geopolitical Risk Scoring tests — CONCEPT:KG-2.30.
+"""Geopolitical Risk Scoring tests — CONCEPT:AU-KG.domains.geopolitical-risk-scoring.
 
 Overlap-based exposure scoring, the "which holdings are exposed to risk X" query,
 KG/OWL fact persistence, and LIVE-PATH wiring into the existing StressTestEngine
@@ -36,7 +36,7 @@ class _FakeBackend:
 
     # The KG persist path now writes via the materialization core's UNWIND
     # MERGE batches (write_batch -> write_entities -> execute_batch,
-    # CONCEPT:KG-2.9), so decode those into the same (id, type, props) /
+    # CONCEPT:AU-KG.ingest.enterprise-source-extractor), so decode those into the same (id, type, props) /
     # (src, tgt, rel) shape the assertions inspect.
     def execute(self, query, params=None):
         return []  # content-hash prefetch -> nothing stored -> full write

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.2 — Entity-Claim Extraction for MAGMA Epistemic View.
+"""CONCEPT:AU-KG.enrichment.entity-claim-extraction — Entity-Claim Extraction for MAGMA Epistemic View.
 
 Extends the knowledge base pipeline to extract entities, claims, and
 implicit relationships (BUILDS_ON, CONTRADICTS, EXEMPLIFIES) from
@@ -21,7 +21,7 @@ Usage::
     result = await extractor.extract_from_article(article_node)
     # result.entities, result.claims, result.relationships
 
-See docs/pillars/architecture_c4.md §CONCEPT:KG-2.2
+See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.enrichment.entity-claim-extraction
 """
 
 
@@ -197,7 +197,7 @@ def extract_deterministic(
 class EntityClaimExtractor:
     """Extracts entities, claims, and epistemic relationships from documents.
 
-    CONCEPT:KG-2.2 — Entity-Claim Extraction / MAGMA Epistemic View
+    CONCEPT:AU-KG.enrichment.entity-claim-extraction — Entity-Claim Extraction / MAGMA Epistemic View
 
     Two-phase extraction inspired by Understand-Anything's article-analyzer:
       1. **Deterministic**: Regex-based entity extraction (citations, links, assertions)
@@ -214,7 +214,7 @@ class EntityClaimExtractor:
         self.engine = engine
         # The active schema pack drives zero-LLM link inference; resolve the
         # process-active pack when not supplied so ingestion honours it without
-        # every call site threading it (CONCEPT:KG-2.33).
+        # every call site threading it (CONCEPT:AU-KG.research.zero-llm-pack-link).
         if schema_pack is None:
             try:
                 from agent_utilities.models.schema_pack_loader import get_active_pack
@@ -245,7 +245,7 @@ class EntityClaimExtractor:
         # Phase 1: Deterministic extraction
         result = extract_deterministic(content, source_id)
 
-        # Phase 1b: Zero-LLM, pack-driven typed-edge extraction (CONCEPT:KG-2.33).
+        # Phase 1b: Zero-LLM, pack-driven typed-edge extraction (CONCEPT:AU-KG.research.zero-llm-pack-link).
         # The active pack's regex link-inference rules (ReDoS-bounded) materialise
         # domain edges (e.g. research-state supports/weakens/cites/uses_dataset).
         if self.schema_pack and getattr(self.schema_pack, "link_inference", None):
@@ -317,7 +317,7 @@ class EntityClaimExtractor:
             "exemplifies": RegistryEdgeType.EXEMPLIFIES,
             "cites": RegistryEdgeType.CITES,
             "authored_by": RegistryEdgeType.AUTHORED_BY,
-            # Research-state / pack link-inference edges (CONCEPT:KG-2.33 / KG-2.37)
+            # Research-state / pack link-inference edges (CONCEPT:AU-KG.research.zero-llm-pack-link / KG-2.37)
             "supports_belief": RegistryEdgeType.SUPPORTS_BELIEF,
             "contradicts_belief": RegistryEdgeType.CONTRADICTS_BELIEF,
             "weakens": RegistryEdgeType.WEAKENS,
@@ -350,7 +350,7 @@ class EntityClaimExtractor:
                 )
 
         logger.info(
-            "[CONCEPT:KG-2.2] Extracted %d entities, %d claims, %d relationships from %s",
+            "[CONCEPT:AU-KG.enrichment.entity-claim-extraction] Extracted %d entities, %d claims, %d relationships from %s",
             len(result.entities),
             len(result.claims),
             len(result.relationships),

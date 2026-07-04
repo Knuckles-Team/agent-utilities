@@ -1,4 +1,4 @@
-# Design Document: Memory Consolidation Loop (CONCEPT:KG-2.1)
+# Design Document: Memory Consolidation Loop (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 > Every feature begins with a design document. This gates creation through
 > the Knowledge Graph to enforce the **Extend-Before-Invent** principle.
@@ -19,12 +19,12 @@
 |---|---|---|---|
 | `KG-2.1` | Tiered Memory & Context | 0.95 | KG |
 | `KG-2.2` | Ontology & Epistemics | 0.65 | KG |
-| `AHE-3.5` | Heavy Thinking & Background Intelligence | 0.55 | AHE |
+| `AU-AHE.harness.self-evolution-narrative` | Heavy Thinking & Background Intelligence | 0.55 | AHE |
 | `ORCH-1.2` | Specialist Routing & Discovery | 0.40 | ORCH |
 
 ### Extension Analysis
 
-- **Primary Extension Point**: `CONCEPT:KG-2.1` — Tiered Memory & Context
+- **Primary Extension Point**: `CONCEPT:AU-KG.memory.tiered-memory-caching` — Tiered Memory & Context
 - **Extension Strategy**: `augment` — adds synthesis loop + decay scoring to existing memory system
 - **New Concept Required?**: No — extends KG-2.1 with three new synthesis rules
 

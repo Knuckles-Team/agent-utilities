@@ -1,5 +1,5 @@
 """
-Multi-Platform Strategy Export — CONCEPT:KG-2.6
+Multi-Platform Strategy Export — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Generates platform-specific trading strategy code from a universal
 strategy specification: Pine Script v6 (TradingView), MQL5 (MetaTrader 5),

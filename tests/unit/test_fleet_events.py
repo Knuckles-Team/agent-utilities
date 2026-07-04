@@ -1,11 +1,11 @@
-"""Fleet events webhook ingress + triage (CONCEPT:OS-5.15).
+"""Fleet events webhook ingress + triage (CONCEPT:AU-OS.config.fleet-event-ingress).
 
 Covers payload normalization for all three sender formats (Alertmanager v4,
 Uptime Kuma, generic/Portainer), KG persistence + durable triage enqueue,
 shared-secret token enforcement, the per-source storm cap, and the daemon-side
 triage handler (correlation, failure_gap escalation, playbook dispatch seam).
 
-@pytest.mark.concept("OS-5.15")
+@pytest.mark.concept("AU-OS.config.fleet-event-ingress")
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import pytest
 from agent_utilities.gateway import fleet_events
 from agent_utilities.knowledge_graph.adaptation import fleet_event_triage
 
-pytestmark = pytest.mark.concept("OS-5.15")
+pytestmark = pytest.mark.concept("AU-OS.config.fleet-event-ingress")
 
 
 # ---------------------------------------------------------------------------

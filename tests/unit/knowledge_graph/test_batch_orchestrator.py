@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Enterprise-scale repository batch ingestion (CONCEPT:KG-2.19 / KG-2.49).
+"""Enterprise-scale repository batch ingestion (CONCEPT:EG-KG.query.wire-protocol / KG-2.49).
 
 Covers idempotent prefilter (manifest-hit skip), crash-resume re-skip, archived
 filtering, and in-flight backpressure capping.
@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.ingestion.batch_orchestrator import (
 )
 from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
 
-pytestmark = pytest.mark.concept("KG-2.19")
+pytestmark = pytest.mark.concept("EG-KG.query.wire-protocol")
 
 
 class _FakeEngine:

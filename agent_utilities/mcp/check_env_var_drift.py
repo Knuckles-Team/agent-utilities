@@ -1,6 +1,6 @@
 """Detect env-var / config drift in an agent package — the code is the source of truth.
 
-CONCEPT:OS-5.72 — Env-var drift guard.
+CONCEPT:AU-OS.config.env-var-drift-guard — Env-var drift guard.
 
 A connector documents its env vars in several places: ``.env.example``, every
 ``mcp_config*.json`` ``env`` block, ``docker/*compose*.yml`` ``environment:``, and the

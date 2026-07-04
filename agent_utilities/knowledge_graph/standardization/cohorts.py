@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Consolidation candidate adapter (CONCEPT:KG-2.49).
+"""Consolidation candidate adapter (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 Reads the three already-materialized graph structures that signal redundancy and
 normalizes them into one :class:`CandidateGroup` shape the decision engine ranks:
@@ -30,7 +30,7 @@ from ..assimilation.dedup import _clusters, iter_all_edges
 from .standards import applicable_standard
 
 # The engine's own output node types — never scored/grouped as governed assets
-# (else a re-run would treat its own recommendations as consolidatable, CONCEPT:KG-2.49).
+# (else a re-run would treat its own recommendations as consolidatable, CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 _ENGINE_OUTPUT_TYPES = {
     RegistryNodeType.ENTERPRISE_STANDARD.value,
     RegistryNodeType.CONSOLIDATION_RECOMMENDATION.value,

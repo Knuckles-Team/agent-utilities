@@ -1,4 +1,4 @@
-"""OntologyReasoningDriver — reasoning-as-engine harvest (CONCEPT:KG-2.79)."""
+"""OntologyReasoningDriver — reasoning-as-engine harvest (CONCEPT:AU-KG.research.best-effort-lightweight-never)."""
 
 from __future__ import annotations
 

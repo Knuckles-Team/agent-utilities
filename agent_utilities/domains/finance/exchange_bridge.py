@@ -1,5 +1,5 @@
 """
-Exchange Bridge — CONCEPT:KG-2.6
+Exchange Bridge — CONCEPT:AU-KG.research.research-pipeline-runner
 Unified exchange connectivity and execution routing backend.
 Inspired by freqtrade's exchange layer. Supports equities (Alpaca) and crypto (Binance).
 """

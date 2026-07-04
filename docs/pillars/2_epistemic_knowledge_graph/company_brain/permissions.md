@@ -6,7 +6,7 @@
 
 ## Beyond Tool-Level Permissions
 
-The existing `PermissionsKernel` (CONCEPT:OS-5.1) controls **which tools agents can call**. This is necessary but insufficient for a Company Brain — we also need to control **which data actors can see**.
+The existing `PermissionsKernel` (CONCEPT:AU-OS.config.secrets-authentication) controls **which tools agents can call**. This is necessary but insufficient for a Company Brain — we also need to control **which data actors can see**.
 
 Data-level permissions provide:
 - **Node-level ACLs** — Per-node access control lists

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +18,7 @@ def temp_db_dir(tmp_path):
 
 
 def test_ladybug_auto_creates_tables_for_arbitrary_labels(temp_db_dir):
-    """CONCEPT:KG-2.74 — an arbitrary KG (labels/rels beyond the declared SCHEMA)
+    """CONCEPT:AU-KG.backend.mirror-health-repair — an arbitrary KG (labels/rels beyond the declared SCHEMA)
     mirrors into Kuzu losslessly: unknown node labels auto-create a generic table,
     unknown rel types auto-create / extend their REL table, and ad-hoc props fold
     into the ``metadata`` column. Without this, every undeclared-label node/edge is
@@ -216,7 +216,7 @@ def test_ladybug_backend_escaped_properties(temp_db_dir):
     # (fixed typed tables) an undeclared property like ``order`` has no column, so it
     # MUST fold into the ``metadata`` JSON column — a bare ``n.`order` = $order``
     # would Binder-error and drop the node. Declared/generic columns (``name``) are
-    # still SET, backtick-escaped. (CONCEPT:KG-2.74)
+    # still SET, backtick-escaped. (CONCEPT:AU-KG.backend.mirror-health-repair)
     engine.add_node("node1", "MemoryNode", {"order": 5, "name": "Test Node"})
     assert mock_backend.execute.call_count >= 1
 

@@ -1,4 +1,4 @@
-"""Nextcloud source extractor — calendar events + contacts (CONCEPT:KG-2.9).
+"""Nextcloud source extractor — calendar events + contacts (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The *entity* side of the Nextcloud integration (documents flow through the
 document pipeline via the ``nextcloud-files`` source preset, not here). Maps

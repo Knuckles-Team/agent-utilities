@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Media transcription bridge — speech → text via faster-whisper.
 
-CONCEPT:ECO-4.31 — Media Transcription Bridge
+CONCEPT:AU-ECO.toolkit.media-transcription-bridge — Media Transcription Bridge
 
 A thin client for the ``faster-whisper`` service (``fedirz/faster-whisper-server``),
 which exposes an **OpenAI-compatible** transcription API. This gives the harness
 speech-to-text to complement the speech *generation* in :mod:`gateway`
-(CONCEPT:ECO-4.30); transcribed text can then flow into the KG through the
+(CONCEPT:AU-ECO.toolkit.media-gateway-failure-path); transcribed text can then flow into the KG through the
 document-source connector framework like any other document.
 
 ``httpx`` is lazy; ``WHISPER_URL`` (or ``FASTER_WHISPER_URL``) sets the endpoint;
@@ -93,5 +93,5 @@ class Transcriber:
 
 
 def transcribe(audio: bytes, *, language: str | None = None) -> str:
-    """Convenience: transcribe ``audio`` bytes to text (CONCEPT:ECO-4.31)."""
+    """Convenience: transcribe ``audio`` bytes to text (CONCEPT:AU-ECO.toolkit.media-transcription-bridge)."""
     return Transcriber().transcribe(audio, language=language)

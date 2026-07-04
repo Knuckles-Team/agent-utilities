@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""SHACL Ingestion Gate Pipeline Phase (CONCEPT:KG-2.8).
+"""SHACL Ingestion Gate Pipeline Phase (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Runs ``pyshacl.validate`` against the bundled governance SHACL shapes
 *before* the commit/persist phase (``sync``).  Nodes whose focus-node
@@ -73,7 +73,7 @@ def _class_iri(node_type: str) -> str:
 
 
 def _data_graph_from_engine_triples(graph: Any) -> Any | None:
-    """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:KG-2.242).
+    """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
     Routes the SHACL *graph source* to the engine: pulls ``[s, p, o]`` triples from
     the engine's native ``get_triples`` op (one round-trip over the live graph) and
@@ -121,7 +121,7 @@ def build_data_graph(graph: Any) -> Any:
     """Materialize the LPG into an rdflib Graph in the kg# namespace.
 
     The data SHACL validates is sourced from the ENGINE's RDF projection first
-    (``get_triples`` -- one round-trip over the live graph, CONCEPT:KG-2.242); when no
+    (``get_triples`` -- one round-trip over the live graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl); when no
     engine is reachable this falls back to per-node iteration of the LPG.
 
     Each node becomes ``kg:<id> rdf:type kg:<Class>`` plus its string/numeric
@@ -172,7 +172,7 @@ def validate_graph(
     shapes_graph = rdflib.Graph()
     shapes_graph.parse(shapes_path, format="turtle")
 
-    # CONCEPT:KG-2.39 — also load value-type-generated SHACL shapes so value-type
+    # CONCEPT:AU-KG.ontology.value-type-shacl-load — also load value-type-generated SHACL shapes so value-type
     # constraints (EmailAddress, Percentage, …) are enforced alongside the bundled
     # governance shapes. Best-effort: a malformed/absent fragment must not break
     # the gate (the parse is isolated in try/except).

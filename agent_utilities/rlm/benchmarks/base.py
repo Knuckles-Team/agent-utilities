@@ -1,4 +1,4 @@
-"""Task contract + result model for the RLM long-context benchmark (CONCEPT:AHE-3.32)."""
+"""Task contract + result model for the RLM long-context benchmark (CONCEPT:AU-AHE.rlm.long-context-benchmark)."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def _choice_hit(ref: str, pred: str) -> bool:
 
 
 class BenchResult(BaseModel):
-    """Aggregated outcome of running one system over one task at one scale (CONCEPT:AHE-3.32)."""
+    """Aggregated outcome of running one system over one task at one scale (CONCEPT:AU-AHE.rlm.long-context-benchmark)."""
 
     task: str
     complexity: str

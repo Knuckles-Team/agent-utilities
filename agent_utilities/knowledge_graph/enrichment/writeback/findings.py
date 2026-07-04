@@ -1,4 +1,4 @@
-"""KG findings → issue tickets (CONCEPT:KG-2.9).
+"""KG findings → issue tickets (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The inference→action loop: turn KG-derived risk findings (TRM TechnologyRisk nodes
 — end-of-life, vulnerabilities, risk ratings) into filed tickets in an issue

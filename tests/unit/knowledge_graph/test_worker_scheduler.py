@@ -1,4 +1,4 @@
-"""Reserved-worker fair admission scheduler (CONCEPT:ORCH-1.81).
+"""Reserved-worker fair admission scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
 The KG worker pool drains one lane-partitioned queue. The admission policy keeps a
 hot spare, caps the heavy ``codebase`` type, and guarantees per-lane minimum
@@ -69,7 +69,7 @@ def test_reservation_keeps_at_least_one_free():
 
 def test_reservation_relaxed_to_cover_uncovered_pending_lane():
     """The hot spare is spent to cover an uncovered pending lane rather than starve
-    it — but only down to the interactive floor (CONCEPT:KG-2.289), never into the
+    it — but only down to the interactive floor (CONCEPT:AU-KG.compute.interactive-lane-floor), never into the
     reserved interactive worker (that boundary is exercised in
     test_ingest_tail_optimization)."""
     policy, reg = _policy(worker_count=5, reserved=1)
@@ -127,7 +127,7 @@ def test_derived_codebase_cap_leaves_room_for_other_lanes():
 
 
 def test_shard_floor_lifts_collapsed_codebase_cap():
-    """CONCEPT:KG-2.279 — the derived cap collapses to ~1 on a busy box (many
+    """CONCEPT:AU-KG.ingest.floor-codebase-admission-cap — the derived cap collapses to ~1 on a busy box (many
     pending lanes), which would idle K-1 of the engine's K durable shard writers.
     The shard floor lifts it back to ``min(K, workers - reserved)`` so K concurrent
     codebase ingests (→ K distinct per-repo graphs → K distinct redb shards) keep
@@ -166,7 +166,7 @@ def test_shard_floor_respects_explicit_redb_shards_env(monkeypatch):
     assert worker_scheduler.durable_shard_writers() == 3
 
 
-# ── CONCEPT:KG-2.281 — resolve the engine's REAL K (split-storage) ────────────
+# ── CONCEPT:AU-KG.compute.resolve — resolve the engine's REAL K (split-storage) ────────────
 
 
 class _FakeResharding:
@@ -200,7 +200,7 @@ class _FakeBackend:
 
 def test_resolve_engine_shard_writers_uses_engine_K(monkeypatch):
     """Split-storage: the host has 16 cpus (→ cpu estimate 8) but the REMOTE engine
-    only has K=4 writers. The floor must reflect the engine's actual K (CONCEPT:KG-2.281)."""
+    only has K=4 writers. The floor must reflect the engine's actual K (CONCEPT:AU-KG.compute.resolve)."""
     from agent_utilities.knowledge_graph.core import worker_scheduler
 
     worker_scheduler.set_engine_shard_writers(None)
@@ -279,7 +279,7 @@ def test_content_url_admitted_while_codebase_saturates_pool():
 def test_content_url_in_own_lane_jumps_saturated_codebase():
     """A dedicated bursty channel (its OWN lane, uncovered + pending) jumps ahead of
     saturated codebase — admitted from spare capacity above the interactive floor
-    (CONCEPT:KG-2.289), rather than waiting behind heavy jobs."""
+    (CONCEPT:AU-KG.compute.interactive-lane-floor), rather than waiting behind heavy jobs."""
     policy, reg = _policy(worker_count=5, reserved=1, per_lane_min=1)
     for i in range(3):
         reg.start(f"w{i}", INGEST_LANE, "codebase")
@@ -304,7 +304,7 @@ def test_never_pull_last_worker_off_sole_covered_pending_lane():
     assert policy.admit(QUERIES_LANE, "conversation", pending) is True
 
 
-# --- Best-effort lane cap (CONCEPT:ORCH-1.82) ------------------------------
+# --- Best-effort lane cap (CONCEPT:AU-ORCH.scheduling.low-value-high-volume) ------------------------------
 def test_maint_lane_capped_at_floor_never_expands():
     """A best-effort lane (maint) gets its floor coverage but is refused beyond it,
     so a periodic-tick backlog can't expand into the many free workers."""
@@ -339,7 +339,7 @@ def test_maint_backlog_does_not_starve_throughput_lanes():
     assert policy.admit("worldview", "feed_ingest", pending) is True
 
 
-# --- Dedicated enrichment lane (CONCEPT:KG-2.153) --------------------------
+# --- Dedicated enrichment lane (CONCEPT:AU-KG.ontology.capability-card-backfill-lane) --------------------------
 ENRICH_LANE = lane_for_task_type("enrichment_backfill")  # "enrichment"
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontological Team Sharing (CONCEPT:KG-2.6).
+"""Ontological Team Sharing (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Serializes dynamically created TeamCompositions into shareable
 semantic formats (OWL/Turtle) for export/import across instances.
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class OntologicalTeamExporter:
     """Exports and imports team compositions as OWL/Turtle.
 
-    CONCEPT:KG-2.6
+    CONCEPT:AU-KG.research.research-pipeline-runner
     """
 
     @staticmethod
@@ -60,7 +60,7 @@ class OntologicalTeamExporter:
             lines.append("")
 
         logger.info(
-            "[CONCEPT:KG-2.6] Exported team %s to Turtle format", composition.team_id
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Exported team %s to Turtle format", composition.team_id
         )
         return "\n".join(lines)
 
@@ -68,7 +68,7 @@ class OntologicalTeamExporter:
     def import_from_turtle(ttl_content: str) -> dict:
         """Parse Turtle back into a TeamComposition dict structure."""
         logger.debug("Importing TTL content length: %d", len(ttl_content))
-        logger.info("[CONCEPT:KG-2.6] Importing team from Turtle format")
+        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Importing team from Turtle format")
 
         try:
             import rdflib

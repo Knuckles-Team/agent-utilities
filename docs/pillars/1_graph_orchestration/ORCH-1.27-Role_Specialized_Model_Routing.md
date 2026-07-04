@@ -1,4 +1,4 @@
-# Role-Specialized Model Routing (CONCEPT:ORCH-1.27)
+# Role-Specialized Model Routing (CONCEPT:AU-ORCH.routing.conductor-per-step-model)
 
 ## Overview
 
@@ -64,9 +64,9 @@ flowchart TD
 ```
 
 > No dedicated concept ID — the behaviour is documented in the `create_model`
-> docstring and rides the per-call tracing chokepoint (CONCEPT:OS-5.68).
+> docstring and rides the per-call tracing chokepoint (CONCEPT:AU-OS.config.model-factory-passthrough).
 
-## RLM-GEPA extension (CONCEPT:ORCH-1.28–1.31)
+## RLM-GEPA extension (CONCEPT:AU-ORCH.adapter.composable-skills-environment–1.31)
 
 The registry also carries the RLM-GEPA roles — `rlm-executor` / `rlm-sublm` (cheap, run the skill) and
 `rlm-proposer` (strong, reflects on traces and rewrites the skill). A skill optimized with a cheap

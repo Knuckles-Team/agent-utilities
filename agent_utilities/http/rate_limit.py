@@ -1,6 +1,6 @@
 """Rate-limit telemetry for fleet HTTP clients.
 
-CONCEPT:ECO-4.35 — Fleet HTTP Client Library
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
 Parses the two rate-limit header families used across the fleet's upstream
 APIs into one typed snapshot:

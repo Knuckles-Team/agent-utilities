@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """KB Ingestion Engine.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Orchestrates the full ingestion pipeline:
   parse → extract (Pydantic AI) → embed → write to graph backend → update index
@@ -338,7 +338,7 @@ class KBIngestionEngine:
         from ..core.bounded_read import iter_nodes_by_types
 
         kbs = []
-        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        # Bounded per-label fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never a whole-graph node pull.
         for n, data in iter_nodes_by_types(self.graph, RegistryNodeType.KNOWLEDGE_BASE):
             kbs.append(
                 {
@@ -429,7 +429,7 @@ class KBIngestionEngine:
 
     def get_article(self, article_id: str) -> dict | None:
         """Retrieve a specific article by ID."""
-        # Per-id fetch (CONCEPT:KG-2.261) — never scan the whole graph to find one node.
+        # Per-id fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never scan the whole graph to find one node.
         from ..core.bounded_read import get_node_data
 
         data = get_node_data(self.graph, article_id)

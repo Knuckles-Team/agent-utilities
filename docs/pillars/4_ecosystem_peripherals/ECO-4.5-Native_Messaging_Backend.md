@@ -1,6 +1,6 @@
-# ECO-4.5 — Native Messaging Backend Abstraction
+# AU-ECO.toolkit.journey-map-milestones — Native Messaging Backend Abstraction
 
-> **CONCEPT:ECO-4.0** | Pillar 4: Ecosystem & Peripherals
+> **CONCEPT:AU-ECO.messaging.native-backend-abstraction** | Pillar 4: Ecosystem & Peripherals
 >
 > Provides a pluggable, transport-agnostic messaging framework enabling agents
 > to send and receive messages across 17+ platforms with full KG integration.
@@ -60,8 +60,8 @@ graph TB
         NC[nextcloud.py] --> BASE
     end
 
-    ROUTER -->|"route to"| PLANNER["Planner Graph Agent<br/>(CONCEPT:ORCH-1.1)"]
-    KGI -->|"store_memory()"| KG["Knowledge Graph<br/>(CONCEPT:KG-2.1)"]
+    ROUTER -->|"route to"| PLANNER["Planner Graph Agent<br/>(CONCEPT:AU-ORCH.planning.recursion-nesting-depth)"]
+    KGI -->|"store_memory()"| KG["Knowledge Graph<br/>(CONCEPT:AU-KG.memory.tiered-memory-caching)"]
     PLANNER -->|"recall_memory()"| KG
 ```
 
@@ -132,7 +132,7 @@ All messaging configuration is managed through the unified XDG config file:
 ~/.config/agent-utilities/config.json
 ```
 
-> **See:** [ECO-4.5 Messaging Configuration Guide](ECO-4.5-Messaging_Configuration_Guide.md)
+> **See:** [AU-ECO.toolkit.journey-map-milestones Messaging Configuration Guide](ECO-4.5-Messaging_Configuration_Guide.md)
 > for the complete per-platform reference with all keys and env var mappings.
 
 ### Config Priority Chain
@@ -222,18 +222,18 @@ Set `messaging_whatsapp_use_business_api` to `false` (default) for the
 
 | Module | Purpose | CONCEPT |
 |---|---|---|
-| `messaging/__init__.py` | Public API surface | ECO-4.5 |
-| `messaging/base.py` | `MessagingBackend` ABC | ECO-4.5 |
-| `messaging/models.py` | Pydantic data models | ECO-4.5 |
-| `messaging/registry.py` | Entry-point backend discovery | ECO-4.5 |
-| `messaging/capabilities.py` | Platform capability matrix | ECO-4.5 |
-| `messaging/router.py` | Inbound → Planner Graph Agent | ECO-4.5 + ORCH-1.1 |
-| `messaging/kg_ingest.py` | KG auto-ingest | ECO-4.5 + KG-2.1 |
-| `messaging/backends/*.py` | 17 platform implementations | ECO-4.5 |
+| `messaging/__init__.py` | Public API surface | AU-ECO.toolkit.journey-map-milestones |
+| `messaging/base.py` | `MessagingBackend` ABC | AU-ECO.toolkit.journey-map-milestones |
+| `messaging/models.py` | Pydantic data models | AU-ECO.toolkit.journey-map-milestones |
+| `messaging/registry.py` | Entry-point backend discovery | AU-ECO.toolkit.journey-map-milestones |
+| `messaging/capabilities.py` | Platform capability matrix | AU-ECO.toolkit.journey-map-milestones |
+| `messaging/router.py` | Inbound → Planner Graph Agent | AU-ECO.toolkit.journey-map-milestones + ORCH-1.1 |
+| `messaging/kg_ingest.py` | KG auto-ingest | AU-ECO.toolkit.journey-map-milestones + KG-2.1 |
+| `messaging/backends/*.py` | 17 platform implementations | AU-ECO.toolkit.journey-map-milestones |
 
 ---
 
-## KG Integration (CONCEPT:KG-2.1)
+## KG Integration (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 Inbound messages are automatically ingested as `episodic` memory nodes:
 
@@ -256,15 +256,15 @@ engine.store_memory(
 )
 ```
 
-Both leverage the existing `MemoryDecayConfig` (CONCEPT:KG-2.3) for
+Both leverage the existing `MemoryDecayConfig` (CONCEPT:AU-KG.memory.auto-similarity-memory-graph) for
 Ebbinghaus-curve-based relevance decay over time.
 
 ---
 
 ## Cross-References
 
-- **CONCEPT:ORCH-1.1** — Planner Graph Agent receives routed messages
-- **CONCEPT:KG-2.1** — Tiered Memory for conversation persistence
-- **CONCEPT:KG-2.3** — Memory decay for message relevance scoring
-- **CONCEPT:ECO-4.0** — Plugin registry pattern for backend discovery
-- **CONCEPT:OS-5.0** — XDG paths for session/config storage
+- **CONCEPT:AU-ORCH.planning.recursion-nesting-depth** — Planner Graph Agent receives routed messages
+- **CONCEPT:AU-KG.memory.tiered-memory-caching** — Tiered Memory for conversation persistence
+- **CONCEPT:AU-KG.memory.auto-similarity-memory-graph** — Memory decay for message relevance scoring
+- **CONCEPT:AU-ECO.messaging.native-backend-abstraction** — Plugin registry pattern for backend discovery
+- **CONCEPT:AU-OS.safety.doom-loop-detection** — XDG paths for session/config storage

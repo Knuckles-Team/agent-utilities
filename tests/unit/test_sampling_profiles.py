@@ -1,6 +1,6 @@
 """Task-aware / evolvable / ontology-mapped sampling profiles.
 
-Covers all five layers of CONCEPT:ORCH-1.58 + AHE-3.38 + KG-2.94/2.94/2.95:
+Covers all five layers of CONCEPT:AU-ORCH.routing.sampling-profile-selection + AHE-3.38 + KG-2.94/2.94/2.95:
 A per-call threading, B task-aware selection, C evolution, D ontology, E surfaces.
 """
 

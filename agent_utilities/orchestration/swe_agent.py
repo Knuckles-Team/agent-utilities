@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.47 — KG-grounded software-engineering agent (CodeAct equivalent).
+"""CONCEPT:AU-ORCH.execution.swe-agent-system-prompt — KG-grounded software-engineering agent (CodeAct equivalent).
 
 The loop *is* Pydantic-AI's own tool-calling loop: a focused :class:`pydantic_ai.Agent` bound to
 the code-intelligence (graph) tools (KG-2.65) and the SWE workspace (action) tools that execute

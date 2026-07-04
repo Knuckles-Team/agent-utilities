@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.0"""
+"""CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
 from unittest.mock import MagicMock
 
@@ -114,7 +114,7 @@ async def test_verifier_step_success(mock_deps):
 async def test_verifier_step_retry(mock_deps):
     """A very low validation score with partial results re-dispatches cheaply.
 
-    CONCEPT:ORCH-1.37 (perf): re-planning is the most expensive action and is
+    CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf): re-planning is the most expensive action and is
     reserved for runs with NO salvageable partial results; with partial output
     in the registry a failing quality gate re-dispatches the existing plan
     instead. The plan needs >1 step so the proportional-verification fast-path

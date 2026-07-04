@@ -11,15 +11,15 @@ now also fences the IDE harness.
 
 Modules:
 
-- :mod:`claude_fence` (CONCEPT:OS-5.40) — derive a hardened Claude Code
+- :mod:`claude_fence` (CONCEPT:AU-OS.deployment.governance-derived-claude-code) — derive a hardened Claude Code
   ``settings.json`` permission fence (``allow``/``ask``/``deny`` +
   ``defaultMode``) and a ``.claudeignore`` from the live ``ActionPolicy`` plus
   the known-secret patterns. Self-updating: a new ``forbidden`` rule propagates
   into the static deny on the next run.
-- :mod:`pretooluse_gate` (CONCEPT:OS-5.41) — the runtime PreToolUse hook body.
+- :mod:`pretooluse_gate` (CONCEPT:AU-OS.deployment.dynamic-two-fail-closed) — the runtime PreToolUse hook body.
   Two layers: an always-on static secret/irreversible deny, then the live
   ``ActionPolicy.decide()`` governed verdict. Fail-closed (deny on any error).
-- :mod:`overnight_runner` (CONCEPT:ECO-4.47) — the testable core the
+- :mod:`overnight_runner` (CONCEPT:AU-AHE.harness.overnight-loop-driver) — the testable core the
   ``unattended-loop-driver`` skill leans on: drive ``LoopController`` cycles,
   commit per productive cycle, and write a morning summary into ``MEMORY.md``.
 

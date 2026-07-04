@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unit tests for the neural cross-encoder reranker (CONCEPT:KG-2.85).
+"""Unit tests for the neural cross-encoder reranker (CONCEPT:AU-KG.retrieval.unset-dependency-free).
 
 These tests must run with NO ML dependencies installed (no torch /
 sentence-transformers). The cross-encoder is exercised through an INJECTED fake

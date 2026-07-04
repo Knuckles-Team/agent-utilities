@@ -1,4 +1,4 @@
-"""Single-GPU-slot inference scheduler (CONCEPT:KG-2.65).
+"""Single-GPU-slot inference scheduler (CONCEPT:AU-KG.compute.code-intelligence-tools).
 
 The durable Kafka ingest queue (KG-2.55–2.57) fans work out *across hosts*; this
 scheduler governs the **one** scarce resource a host actually contends on — its
@@ -113,7 +113,7 @@ class GpuSlotScheduler:
 
     #: Kinds that run in the preemptible **background tier** — they always yield the
     #: slot to a fresh foreground submission and auto-backfill when it frees.
-    #: Training jobs (CONCEPT:ML-011) join inference ``"auto"`` here, so an
+    #: Training jobs (CONCEPT:AU-AHE.trainer.join-inference) join inference ``"auto"`` here, so an
     #: interactive request preempts a long training run, which checkpoints and
     #: resumes from where it left off.
     BACKGROUND_KINDS: tuple[str, ...] = ("auto", "training")

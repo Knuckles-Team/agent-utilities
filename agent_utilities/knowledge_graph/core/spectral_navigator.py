@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Spectral Cluster Navigator.
 
-CONCEPT:KG-2.5 — Spectral Cluster Navigator
+CONCEPT:AU-KG.compute.spectral-cluster-navigator — Spectral Cluster Navigator
 
 Provides tuning-free spectral clustering using the normalized Laplacian
 eigengap heuristic for automatic k-selection. Adapted from contextplus's
@@ -51,7 +51,7 @@ class ClusterResult:
 class SpectralClusterNavigator:
     """Tuning-free spectral clustering with OWL integration.
 
-    CONCEPT:KG-2.5 — Spectral Cluster Navigator
+    CONCEPT:AU-KG.compute.spectral-cluster-navigator — Spectral Cluster Navigator
 
     Performs spectral clustering using the normalized Laplacian and
     eigengap heuristic. No hyperparameter tuning is needed — the
@@ -323,7 +323,7 @@ class SpectralClusterNavigator:
     ) -> list[ClusterResult]:
         """Detect market regimes via spectral clustering on price embeddings.
 
-        CONCEPT:KG-2.5 — Financial regime detection extension.
+        CONCEPT:AU-KG.compute.spectral-cluster-navigator — Financial regime detection extension.
 
         Applies spectral clustering to financial time-series embeddings
         to discover distinct market regimes (bull/bear/sideways/volatile).

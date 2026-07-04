@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ingestion coverage + freshness SLA assessment (CONCEPT:OS-5.47).
+"""Ingestion coverage + freshness SLA assessment (CONCEPT:AU-OS.deployment.flagging-repos).
 
 Backs the ``agent-utilities doctor`` ingestion-coverage check: compare the repos
 the platform is *expected* to know (the ``agent-packages`` subtree of

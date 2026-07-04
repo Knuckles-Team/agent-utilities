@@ -3,9 +3,9 @@ from __future__ import annotations
 
 """Multi-perspective inquiry — STORM made native to the research fan-out.
 
-CONCEPT:KG-2.127 — Perspectival inquiry engine
-CONCEPT:KG-2.128 — Contradiction / agreement / blind-spot as first-class KG structures
-CONCEPT:KG-2.129 — Peer-review / self-critique closing the loop
+CONCEPT:AU-KG.research.perspectival-inquiry — Perspectival inquiry engine
+CONCEPT:AU-KG.research.contradiction-agreement-blind-spot — Contradiction / agreement / blind-spot as first-class KG structures
+CONCEPT:AU-KG.research.peer-review-self-critique — Peer-review / self-critique closing the loop
 
 Stanford's STORM (NAACL 2024) showed that researching a topic from *several distinct
 expert lenses* — each asking different questions — then mapping where they disagree,
@@ -108,7 +108,7 @@ class PerspectiveInquiry:
     def to_entities(
         self,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Render the inquiry as typed KG entities + relationships (CONCEPT:KG-2.128)."""
+        """Render the inquiry as typed KG entities + relationships (CONCEPT:AU-KG.research.contradiction-agreement-blind-spot)."""
         root = f"inquiry:{self.topic_id}"
         entities: list[dict[str, Any]] = [
             {
@@ -414,7 +414,7 @@ class PerspectiveEngine:
     # -- materialize ---------------------------------------------------------- #
     def materialize(self, inquiry: PerspectiveInquiry) -> dict[str, Any]:
         """Persist the inquiry as typed KG nodes and submit its frontier question as
-        the next research loop (closing the STORM self-critique loop, CONCEPT:KG-2.129)."""
+        the next research loop (closing the STORM self-critique loop, CONCEPT:AU-KG.research.peer-review-self-critique)."""
         engine = self.engine
         if engine is None:
             return {"materialized": False}

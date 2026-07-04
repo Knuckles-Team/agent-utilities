@@ -1,12 +1,12 @@
 """Engine-only round-trip tests for the consolidated store migrations.
 
-CONCEPT:KG-2.244 (card cache), KG-2.245 (registry predicate), KG-2.246 (timeseries
+CONCEPT:AU-KG.backend.cache-lives-as (card cache), KG-2.245 (registry predicate), KG-2.246 (timeseries
 engine arm), KG-2.247 (writeback proposals), KG-2.248 (code-health baselines).
 
 USER DIRECTIVE: there is NO SQLite/JSON/file fallback — the consolidated stores
 route to the ONE epistemic-graph engine authority unconditionally. So these tests
 validate against the **REAL ephemeral engine** the session fixture deploys
-(CONCEPT:KG-2.238): each store test requests the conftest ``engine_graph`` (a fresh
+(CONCEPT:AU-KG.memory.provides-real-ephemeral-one): each store test requests the conftest ``engine_graph`` (a fresh
 per-test tenant on the running engine), binds an ``EpistemicGraphBackend`` to that
 tenant, and asserts the store round-trips through the engine's ``execute()`` Cypher
 surface. The previously-SQLite/JSON tests are deleted with the fallback code.
@@ -32,7 +32,7 @@ from agent_utilities.knowledge_graph.backends.base import (
 def engine_backend(engine_graph):
     """An ``EpistemicGraphBackend`` bound to the per-test REAL engine tenant.
 
-    CONCEPT:KG-2.238 — gives the consolidated stores a live engine-authority
+    CONCEPT:AU-KG.memory.provides-real-ephemeral-one — gives the consolidated stores a live engine-authority
     ``backend.execute()`` over the fresh ``engine_graph`` tenant, so a round-trip
     actually exercises the shipped database (no mock, no SQLite).
     """

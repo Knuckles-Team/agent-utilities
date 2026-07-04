@@ -1,6 +1,6 @@
-"""Tests for CONCEPT:KG-2.6 — Multi-Agent Trading Swarm.
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Multi-Agent Trading Swarm.
 
-CONCEPT:KG-2.6 — Quant Orchestration (Debate/Fusion)
+CONCEPT:AU-KG.research.research-pipeline-runner — Quant Orchestration (Debate/Fusion)
 """
 
 import pytest

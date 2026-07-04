@@ -1,4 +1,4 @@
-"""Operational ActionPolicy decision point (CONCEPT:OS-5.24).
+"""Operational ActionPolicy decision point (CONCEPT:AU-OS.deployment.fleet-lifecycle-control).
 
 Covers: shipped-default conservatism (mutating ⇒ approval, diagnostics ⇒
 auto), file-rule tiers (auto / auto_notify / forbidden), durable rate-limit
@@ -6,7 +6,7 @@ and blast-radius accounting via the ActionDecision ledger, maintenance-window
 downgrade, KG governance_rule overrides beating file rules, approval-queue
 dedup, fail-closed decisions, and shipped-YAML ⇄ embedded-default parity.
 
-@pytest.mark.concept("OS-5.24")
+@pytest.mark.concept("AU-OS.deployment.fleet-lifecycle-control")
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from agent_utilities.orchestration.action_policy import (
 
 from .fleet_autonomy_fakes import CaptureNotifier, FakeEngine, write_policy
 
-pytestmark = pytest.mark.concept("OS-5.24")
+pytestmark = pytest.mark.concept("AU-OS.deployment.fleet-lifecycle-control")
 
 
 @pytest.fixture

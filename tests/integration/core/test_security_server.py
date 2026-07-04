@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.1"""
+"""CONCEPT:AU-OS.config.secrets-authentication"""
 
 from unittest.mock import MagicMock, patch
 

@@ -1,4 +1,4 @@
-"""Unit tests for the LMCache ``native_plugin`` L2 connector (CONCEPT:KG-2.311).
+"""Unit tests for the LMCache ``native_plugin`` L2 connector (CONCEPT:AU-KG.backend.lmcache-native-connector).
 
 Exercises :class:`EpistemicGraphL2Connector` — the native-client half of the
 EG-187 L2 adapter — against a MOCK EG-187 ``/kv`` surface
