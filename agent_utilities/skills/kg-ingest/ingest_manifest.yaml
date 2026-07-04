@@ -48,6 +48,18 @@ families:
     lane: connectors
     source_registry: PACKAGE_PRESETS
 
+  - id: native_push
+    description: >-
+      Package-side NATIVE ingestion (complements the hub-side pull): every agents/*
+      connector writes its own data into the ONE engine as it works, in three
+      modalities — typed OWL nodes, documents, and raw BLOBS/attachments — via the
+      shared primitive agent_utilities/knowledge_graph/memory/native_ingest.py. Not a
+      hub trigger: it fires from the connector's own fetch/download flow (default-on,
+      auto-no-op without an engine). See SKILL.md Section 8c.
+    tool: native_ingest                    # ingest_entities / ingest_documents / media_store
+    lane: connectors
+    source_registry: "<pkg>/kg_ingest.py + <pkg>/kg_media.py (thin mappers)"
+
 # The single declarative connector trigger: source="all" fans `source_sync` out as
 # one laned connector_sync task PER candidate in the union of every registry above
 # (including rss, freshrss, fleet_connectors, the capability sources, and the
