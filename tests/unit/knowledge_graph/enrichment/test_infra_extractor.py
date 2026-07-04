@@ -1,4 +1,4 @@
-"""Tests for the infra source extractor (CONCEPT:KG-2.9).
+"""Tests for the infra source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Verifies inventory hosts → Server nodes, Docker services → Service nodes, and
 RUNS_ON edges, plus self-registration and FakeBackend persistence (mirroring the

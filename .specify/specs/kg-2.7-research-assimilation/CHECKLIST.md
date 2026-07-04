@@ -1,4 +1,4 @@
-# Verification Checklist: Spec: Research Assimilation Tracking (CONCEPT:KG-2.6)
+# Verification Checklist: Spec: Research Assimilation Tracking (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Functional Requirements Verification
 

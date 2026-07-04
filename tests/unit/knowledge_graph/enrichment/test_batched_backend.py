@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.8/2.16 — buffered backend batches per-node writes into bulk RPCs (#1)."""
+"""CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.16 — buffered backend batches per-node writes into bulk RPCs (#1)."""
 
 from __future__ import annotations
 

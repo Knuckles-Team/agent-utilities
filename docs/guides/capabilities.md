@@ -1,6 +1,6 @@
 # Capabilities (Self-Healing Patterns)
 
-> CONCEPT:ORCH-1.2 — Resilient Agent Capabilities
+> CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Resilient Agent Capabilities
 
 ## Overview
 
@@ -64,13 +64,13 @@ Detects when an agent is repeating the same actions without progress:
 
 - **Shared task management**: A shared todo list (`SharedTodoItem`) coordinated across team members
 - **P2P messaging**: `message_member()` routes messages to a team member over ACP, falling back to A2A
-- **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
+- **TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
 
 ---
 
-## AgentCapability Type System (CONCEPT:ORCH-1.2)
+## AgentCapability Type System (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
-> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:ORCH-1.2 deep-dive.
+> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:AU-ORCH.adapter.hot-cache-invalidation deep-dive.
 
 The AgentCapability system extends the static tool-binding model with dynamic, condition-based capability activation. Capabilities are modeled as first-class Knowledge Graph nodes (`AgentCapabilityNode`) with trigger conditions that are evaluated at execution time.
 
@@ -90,7 +90,7 @@ The AgentCapability system extends the static tool-binding model with dynamic, c
 
 ---
 
-## Registry Hot Cache (CONCEPT:ORCH-1.2)
+## Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
 > See also: [Registry Cache Deep-Dive](registry-cache.md) for the complete architecture.
 

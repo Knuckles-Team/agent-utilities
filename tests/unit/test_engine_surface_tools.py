@@ -1,6 +1,6 @@
 """Unit tests for the KG-2.310 engine-surface MCP tools.
 
-CONCEPT:KG-2.310 — MCP surface for the new epistemic-graph v2.2.0 engine ops
+CONCEPT:AU-KG.coordination.engine-message-broker — MCP surface for the new epistemic-graph v2.2.0 engine ops
 (broker / kvcache / federated-search / promql / traces / gis). These tests assert
 that each new tool (a) registers on both the MCP tool table and the REST route
 table, (b) dispatches its action + params into a MOCK engine client / KV backend
@@ -70,7 +70,7 @@ _EXPECTED_ROUTES = {
 
 
 def test_kg_2_310_all_tools_registered_with_rest_twins(tools):
-    """CONCEPT:KG-2.310 — every new tool is on the MCP table AND has a REST twin."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — every new tool is on the MCP table AND has a REST twin."""
     for name, route in _EXPECTED_ROUTES.items():
         assert name in tools, f"{name} not registered as MCP tool"
         assert kg_server.REGISTERED_TOOLS.get(name) is not None
@@ -79,7 +79,7 @@ def test_kg_2_310_all_tools_registered_with_rest_twins(tools):
 
 # ── graph_broker ─────────────────────────────────────────────────────────────
 def test_kg_2_310_broker_dispatches_to_client(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_broker publish routes into client.broker.publish."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_broker publish routes into client.broker.publish."""
     calls: list = []
     broker = SimpleNamespace(publish=_recording_method(calls, "publish"))
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_kg_2_310_broker_dispatches_to_client(monkeypatch, tools):
 
 
 def test_kg_2_310_broker_degrades_when_surface_absent(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_broker degrades cleanly when no broker surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_broker degrades cleanly when no broker surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_broker"](
@@ -160,7 +160,7 @@ class _FakeKV:
 
 
 def test_kg_2_310_kvcache_get_hit_and_miss(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_kvcache get returns base64 hit / clean miss."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_kvcache get returns base64 hit / clean miss."""
     kv = _FakeKV({"k1": b"abc"})
     monkeypatch.setattr(engine_surface_tools, "_kv_backend", lambda: kv)
 
@@ -175,7 +175,7 @@ def test_kg_2_310_kvcache_get_hit_and_miss(monkeypatch, tools):
 
 
 def test_kg_2_310_kvcache_put_and_stats(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_kvcache put stores bytes; stats reports counters."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_kvcache put stores bytes; stats reports counters."""
     kv = _FakeKV()
     monkeypatch.setattr(engine_surface_tools, "_kv_backend", lambda: kv)
 
@@ -192,7 +192,7 @@ def test_kg_2_310_kvcache_put_and_stats(monkeypatch, tools):
 
 
 def test_kg_2_310_kvcache_contains(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_kvcache contains/exists probe the backend."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_kvcache contains/exists probe the backend."""
     kv = _FakeKV({"k": b"v"})
     monkeypatch.setattr(engine_surface_tools, "_kv_backend", lambda: kv)
     out = json.loads(tools["graph_kvcache"](action="contains", key="k", value_b64=""))
@@ -201,7 +201,7 @@ def test_kg_2_310_kvcache_contains(monkeypatch, tools):
 
 # ── graph_federated_search ───────────────────────────────────────────────────
 def test_kg_2_310_federated_search_dispatches(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_federated_search routes into a search sub-client."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_federated_search routes into a search sub-client."""
     calls: list = []
     search = SimpleNamespace(
         federated_search=_recording_method(calls, "federated_search")
@@ -227,7 +227,7 @@ def test_kg_2_310_federated_search_dispatches(monkeypatch, tools):
 
 
 def test_kg_2_310_federated_search_degrades(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_federated_search degrades when absent."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_federated_search degrades when absent."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_federated_search"](
@@ -239,7 +239,7 @@ def test_kg_2_310_federated_search_degrades(monkeypatch, tools):
 
 # ── graph_promql ─────────────────────────────────────────────────────────────
 def test_kg_2_310_promql_instant_and_range(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_promql routes instant/range to the right method."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_promql routes instant/range to the right method."""
     calls: list = []
     obs = SimpleNamespace(
         promql=_recording_method(calls, "promql"),
@@ -279,7 +279,7 @@ def test_kg_2_310_promql_instant_and_range(monkeypatch, tools):
 
 
 def test_kg_2_310_promql_degrades(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_promql degrades when no metrics surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_promql degrades when no metrics surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_promql"](
@@ -298,7 +298,7 @@ def test_kg_2_310_promql_degrades(monkeypatch, tools):
 
 # ── graph_traces ─────────────────────────────────────────────────────────────
 def test_kg_2_310_traces_search_and_get(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_traces routes search/get to the trace surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_traces routes search/get to the trace surface."""
     calls: list = []
     obs = SimpleNamespace(
         search_traces=_recording_method(calls, "search_traces"),
@@ -338,7 +338,7 @@ def test_kg_2_310_traces_search_and_get(monkeypatch, tools):
 
 
 def test_kg_2_310_traces_degrades(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_traces degrades when no trace surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_traces degrades when no trace surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_traces"](
@@ -357,7 +357,7 @@ def test_kg_2_310_traces_degrades(monkeypatch, tools):
 
 # ── graph_gis ────────────────────────────────────────────────────────────────
 def test_kg_2_310_gis_dispatches(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_gis routes an action into client.gis.<action>."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_gis routes an action into client.gis.<action>."""
     calls: list = []
     gis = SimpleNamespace(route=_recording_method(calls, "route"))
     monkeypatch.setattr(
@@ -375,7 +375,7 @@ def test_kg_2_310_gis_dispatches(monkeypatch, tools):
 
 
 def test_kg_2_310_gis_degrades(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_gis degrades when no GIS surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_gis degrades when no GIS surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
     assert out["degraded"] is True
@@ -383,7 +383,7 @@ def test_kg_2_310_gis_degrades(monkeypatch, tools):
 
 # ── graph_memory (EG-318) ────────────────────────────────────────────────────
 def test_kg_2_310_memory_trajectory_dispatches(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_memory append_step routes into client.trajectory."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_memory append_step routes into client.trajectory."""
     calls: list = []
     trajectory = SimpleNamespace(append_step=_recording_method(calls, "append_step"))
     monkeypatch.setattr(
@@ -404,7 +404,7 @@ def test_kg_2_310_memory_trajectory_dispatches(monkeypatch, tools):
 
 
 def test_kg_2_310_memory_create_summary_dispatches(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_memory create_summary routes into client.memory."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_memory create_summary routes into client.memory."""
     calls: list = []
     memory = SimpleNamespace(create_summary=_recording_method(calls, "create_summary"))
     monkeypatch.setattr(
@@ -422,7 +422,7 @@ def test_kg_2_310_memory_create_summary_dispatches(monkeypatch, tools):
 
 
 def test_kg_2_310_memory_read_by_action_name(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — an unlisted read action probes the three sub-clients."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — an unlisted read action probes the three sub-clients."""
     calls: list = []
     scene = SimpleNamespace(get_scene=_recording_method(calls, "get_scene"))
     monkeypatch.setattr(
@@ -436,7 +436,7 @@ def test_kg_2_310_memory_read_by_action_name(monkeypatch, tools):
 
 
 def test_kg_2_310_memory_degrades(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — graph_memory degrades when no memory surface."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — graph_memory degrades when no memory surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_memory"](action="consolidate", params_json="{}", graph="")
@@ -447,7 +447,7 @@ def test_kg_2_310_memory_degrades(monkeypatch, tools):
 
 # ── transport failure ────────────────────────────────────────────────────────
 def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
-    """CONCEPT:KG-2.310 — an unreachable engine is surfaced as data, not raised."""
+    """CONCEPT:AU-KG.coordination.engine-message-broker — an unreachable engine is surfaced as data, not raised."""
 
     def _boom(graph):
         raise ConnectionError("engine down")

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Per-package ontology federation — CONCEPT:KG-2.320.
+"""Per-package ontology federation — CONCEPT:AU-KG.ontology.federation-provider-leg.
 
 The third leg of the fleet-federation mechanism (skills + prompts already exist in
 :mod:`agent_utilities.core.providers`). Any installed agent-package may contribute
@@ -59,7 +59,7 @@ def registered_federated_iris() -> set[str]:
     """Return the set of known package-owned (federated) ontology IRIs.
 
     These are IRIs the canonical bundle may import even when the owning package is
-    not installed — a superset no-op, not a dangling reference (CONCEPT:KG-2.320).
+    not installed — a superset no-op, not a dangling reference (CONCEPT:AU-KG.ontology.federation-provider-leg).
     """
     return set(REGISTERED_FEDERATED_IRIS)
 
@@ -96,7 +96,7 @@ def discover_provider_ontologies() -> list[tuple[str, Path]]:
 
 
 def resolve_provider_ontologies() -> list[tuple[str, Path]]:
-    """XDG-first provider-ontology resolution (CONCEPT:OS-5.78).
+    """XDG-first provider-ontology resolution (CONCEPT:AU-OS.deployment.unified-install-tree).
 
     Prefer the materialized unified tree (``$XDG.../ontologies/<provider>/*.ttl``,
     written by ``agent-utilities install``); fall back to live entry-point discovery
@@ -149,6 +149,6 @@ def discover_provider_ontology_dirs() -> list[tuple[str, Path]]:
 
     Thin pass-through to :func:`iter_provider_dirs` for callers (IRI→file
     resolution, the unified installer) that need the directory rather than the
-    flattened TTL list (CONCEPT:KG-2.320).
+    flattened TTL list (CONCEPT:AU-KG.ontology.federation-provider-leg).
     """
     return iter_provider_dirs(ONTOLOGY_PROVIDER_GROUP)

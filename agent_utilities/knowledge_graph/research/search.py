@@ -1,6 +1,6 @@
 """Research acquisition — find sources that address a KG topic.
 
-CONCEPT:KG-2.7 — Research assimilation (acquire stage of the golden loop).
+CONCEPT:AU-KG.research.self-evolution-convergence — Research assimilation (acquire stage of the golden loop).
 
 For a given topic, gather candidate "addressing" sources. The reliable,
 always-available substrate is **semantic search over the local KG** (existing
@@ -125,7 +125,7 @@ def acquire_for_topic_perspectival(
     embed_fn: Any = None,
     timeout: float | None = None,
 ) -> list[str]:
-    """Multi-perspective acquire — STORM made native (CONCEPT:KG-2.127).
+    """Multi-perspective acquire — STORM made native (CONCEPT:AU-KG.research.perspectival-inquiry).
 
     Instead of one semantic probe of the topic name, fan :func:`acquire_for_topic`
     across questions asked from several expert lenses, derive the contradiction /

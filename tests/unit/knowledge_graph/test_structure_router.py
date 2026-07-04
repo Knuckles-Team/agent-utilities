@@ -1,4 +1,4 @@
-"""Tests for the structure router (CONCEPT:KG-2.74).
+"""Tests for the structure router (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Covers ``classify_text`` (prose/structured/mixed) and ``route_for_extraction``
 (records vs. prose split) across JSON, CSV/TSV, markdown tables, key:value

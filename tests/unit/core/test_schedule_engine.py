@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.44 — unified scheduling engine.
+"""CONCEPT:AU-OS.state.unified-scheduling-one-intelligent — unified scheduling engine.
 
 The one durable, dynamic scheduler: ``:Schedule`` nodes (cron | interval |
 adaptive) evaluated by a single tick that ENQUEUES ``scheduled_job`` tasks
@@ -108,7 +108,7 @@ def test_interval_schedule_fires_then_waits() -> None:
 
 
 def test_tick_coalesces_unconsumed_prior() -> None:
-    # CONCEPT:OS-5.44 — an interval/cron tick must NOT pile a new task while the
+    # CONCEPT:AU-OS.state.unified-scheduling-one-intelligent — an interval/cron tick must NOT pile a new task while the
     # previous tick for the same schedule is still un-consumed. Otherwise a slow
     # or stalled consumer (e.g. an engine outage) accumulates an unbounded
     # backlog of stale ticks (the file_watch/enrichment/analysis backlog leak).
@@ -149,7 +149,7 @@ def test_disabled_schedule_does_not_fire() -> None:
 
 
 def test_schedule_task_type_round_trips_and_lanes_the_enqueue() -> None:
-    """CONCEPT:KG-2.153 — a schedule may pick its own task type (=lane). It must
+    """CONCEPT:AU-KG.ontology.capability-card-backfill-lane — a schedule may pick its own task type (=lane). It must
     persist on the :Schedule node and be the type the scheduler enqueues, so OWL
     card backfill lands in the dedicated enrichment lane, not capped maint."""
     eng = _FakeEngine()
@@ -225,7 +225,7 @@ def test_set_enabled_and_run_now() -> None:
 
 class _CollapseEngine:
     """Engine whose active-tick reads + by-id cancels are driven by an in-memory
-    task list, for the CONCEPT:OS-5.53 stale-tick collapse."""
+    task list, for the CONCEPT:AU-OS.state.stale-tick-collapse stale-tick collapse."""
 
     def __init__(self, tasks: list[dict]):
         self.tasks = tasks
@@ -235,7 +235,7 @@ class _CollapseEngine:
 
     def query_cypher(self, _q, params=None):
         st = (params or {}).get("status")
-        # CONCEPT:KG-2.153 — collapse now scans per tick TYPE; honor the tkind
+        # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — collapse now scans per tick TYPE; honor the tkind
         # filter (a task defaults to scheduled_job) so each tick is counted once.
         tk = (params or {}).get("tkind", "scheduled_job")
         return [

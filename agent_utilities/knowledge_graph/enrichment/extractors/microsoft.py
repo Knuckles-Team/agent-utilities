@@ -1,4 +1,4 @@
-"""Microsoft 365 source extractor (CONCEPT:KG-2.9).
+"""Microsoft 365 source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The *entity* side of the M365 integration: calendar events → :CalendarEvent and
 directory users → :Person (the same canonical classes the Nextcloud extractor

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the dual-score statistical fusion gate (CONCEPT:KG-2.85)."""
+"""Tests for the dual-score statistical fusion gate (CONCEPT:AU-KG.retrieval.unset-dependency-free)."""
 
 from agent_utilities.knowledge_graph.retrieval.score_gate import (
     fuse_scores,

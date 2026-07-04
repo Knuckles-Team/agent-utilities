@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Trust/provenance-guarded backend wrapper (CONCEPT:KG-2.6).
+"""Trust/provenance-guarded backend wrapper (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 A transparent proxy around any concrete ``GraphBackend`` that activates the
 dormant Company Brain on the **write** path without editing the dozens of
@@ -56,7 +56,7 @@ _PROV_KEYS = {"_source_system", "_actor_id", "_confidence", "_ts", "_field_prov"
 
 
 def _stamp_ownership(properties: dict[str, Any], actor: Any) -> None:
-    """Stamp private-by-default owner/scope markers (CONCEPT:KG-2.60).
+    """Stamp private-by-default owner/scope markers (CONCEPT:AU-KG.compute.data-is-private-its).
 
     Lazy-imported so the backend layer never hard-depends on the sharing module;
     any failure is non-fatal (ownership is additive metadata, not correctness).

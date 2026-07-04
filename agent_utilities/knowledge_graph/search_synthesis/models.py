@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Data model for shortcut-resistant search-task synthesis.
 
-CONCEPT:KG-2.70 — evidence-graph workspace
+CONCEPT:AU-KG.retrieval.evidence-graph-workspace — evidence-graph workspace
 
 Distilled from FORT-Searcher (arXiv:2606.12087). An :class:`EvidenceGraph` is the
 construction workspace FORT calls ``G``: real-world entities (nodes) connected by

@@ -1,6 +1,6 @@
 # Tenant-Partitioned Engine Sharding
 
-> CONCEPT:KG-2.58 (sharding) · CONCEPT:OS-5.28 (topology visibility)
+> CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw (sharding) · CONCEPT:AU-OS.scaling.shard-topology-visibility-per (topology visibility)
 
 Stage-2 scaling for the epistemic-graph compute tier: run **N independent
 engine processes ("shards")** and let every client route to the right one —
@@ -16,7 +16,7 @@ tenant  →  named graph  →  HRW (rendezvous hash)  →  shard endpoint
   string-keyed named-graph registry; a graph lives wholly on exactly one
   shard, so single-graph operations never need cross-shard coordination.
 - **Tenancy enters only by choosing the graph name.** When a caller does not
-  target an explicit graph and the ambient `ActorContext` (CONCEPT:OS-5.14)
+  target an explicit graph and the ambient `ActorContext` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
   carries a tenant, the default graph is mapped to
   `tenant__<tenant>__<base>` by `tenant_graph_name()`
   (`knowledge_graph/core/shard_topology.py`, also exported from
@@ -49,14 +49,14 @@ explicit schemes.
   engine only for a local (`unix://`) endpoint. In sharded mode an
   unreachable remote (`tcp://`) shard is a **fail-loud `ConnectionError`**
   naming the shard, the graph it owns, and the remediation — the same
-  hard-contract convention as the CONCEPT:KG-2.55 task queue. Auto-starting a
+  hard-contract convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task queue. Auto-starting a
   local stand-in would silently split that shard's graphs into invisible
   islands.
 - **The flock host role is per-host.** `host_lock.py` elects ONE daemon owner
   per host for the *local* engine; remote shards are reported by the status
   surfaces, never managed.
 - **Auth is fleet-wide.** All shards and all clients must share ONE
-  `GRAPH_SERVICE_AUTH_SECRET` (CONCEPT:OS-5.14). Set it explicitly in
+  `GRAPH_SERVICE_AUTH_SECRET` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Set it explicitly in
   multi-host deployments — the auto-generated per-install secret only covers
   one host.
 
@@ -77,7 +77,7 @@ manually with the existing snapshot tooling:
 Durable mirrors (e.g. pg-age) are unaffected — they are not partitioned by this
 mechanism.
 
-## Topology visibility (CONCEPT:OS-5.28)
+## Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 
 - `shard_topology_status()` → shard mode, per-endpoint transport-level
   reachability probe, locality, and circuit-breaker state. Surfaced on:
@@ -86,7 +86,7 @@ mechanism.
   - the gateway dashboard route `GET /daemon/shards`;
   - graph-os `GET /health` (cheap config-only summary: `shard_mode`,
     `shard_count` — no probe on the liveness path).
-- Prometheus (OS-5.23 registry, `agent_utilities/observability/gateway_metrics.py`):
+- Prometheus (AU-OS.observability.no-op-without-metrics registry, `agent_utilities/observability/gateway_metrics.py`):
   - `agent_utilities_engine_shard_up{endpoint}` — 1/0, refreshed on every real
     client connect and by the status probe;
   - `agent_utilities_engine_shard_requests_total{endpoint,outcome}` — the

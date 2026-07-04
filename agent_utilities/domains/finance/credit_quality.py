@@ -1,7 +1,7 @@
 """
-CONCEPT:KG-2.31 — Dividend Sustainability & Credit/Fixed-Income Quality
+CONCEPT:AU-KG.domains.dividend-sustainability-credit-fixed — Dividend Sustainability & Credit/Fixed-Income Quality
 
-Complements the engine-grounded forensic screener (CONCEPT:KG-2.6 /
+Complements the engine-grounded forensic screener (CONCEPT:AU-KG.research.research-pipeline-runner /
 ``forensic_screener.py``, which scores earnings *manipulation* but says nothing
 about whether a payout is safe or whether the balance sheet is solvent) with two
 analyst-grade verdicts the Bear/Risk persona can cite verbatim in the debate:
@@ -62,7 +62,7 @@ def _credit_engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numpy kernel when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())

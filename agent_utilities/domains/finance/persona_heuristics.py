@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.28 — Persona Decision-Heuristic Enrichment
+"""CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment — Persona Decision-Heuristic Enrichment
 
 Fincept Terminal ships a granular persona registry where each investor agent
 carries an explicit, scored decision framework (Buffett: ROE>=15%, D/E<0.5,
@@ -418,7 +418,7 @@ def persona_heuristics_batch() -> Any:
                         "weight": r.weight,
                         "rationale": r.rationale,
                         "persona": persona,
-                        "concept": "KG-2.28",
+                        "concept": "AU-KG.domains.persona-decision-heuristic-enrichment",
                     },
                 )
             )

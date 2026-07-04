@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.1"""
+"""CONCEPT:AU-OS.config.secrets-authentication"""
 
 from agent_utilities.knowledge_graph.core.engine import (
     FocusedSubgraph,

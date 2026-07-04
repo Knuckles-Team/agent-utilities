@@ -1,4 +1,4 @@
-"""Okta source extractor — users / groups / apps / assignments (CONCEPT:KG-2.9).
+"""Okta source extractor — users / groups / apps / assignments (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps the Okta identity estate into the uniform ExtractionBatch: users →
 :IdentityUser, groups → :IdentityGroup, apps → :Application, with MEMBER_OF_GROUP

@@ -1,6 +1,6 @@
 # Spec: L1 Cache Fidelity & Truth-in-Docs (make the tiered/100M claims real)
 
-> CONCEPT:OS-5.5 (Massive-Scale Architecture). Surfaced by an external code
+> CONCEPT:AU-OS.host.homeostatic-recovery-daemon (Massive-Scale Architecture). Surfaced by an external code
 > review of `agent-utilities` + `epistemic-graph`. This spec validates that
 > review against source and remediates the *real* gaps it exposed (and the ones
 > it missed). Companion engine-side spec lives at

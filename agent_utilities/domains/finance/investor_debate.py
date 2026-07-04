@@ -1,5 +1,5 @@
 """
-Investor Debate Team — CONCEPT:KG-2.6
+Investor Debate Team — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Light wiring that slots the new investor personas, the forensic screener, and
 the price-action pattern analyst into the EXISTING debate/consensus machinery:

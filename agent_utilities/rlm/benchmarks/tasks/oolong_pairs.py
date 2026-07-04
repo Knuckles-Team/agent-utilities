@@ -1,4 +1,4 @@
-"""OOLONG-Pairs: quadratic pairwise aggregation (CONCEPT:AHE-3.32).
+"""OOLONG-Pairs: quadratic pairwise aggregation (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Quadratic-complexity reasoning — the answer depends on relationships between *pairs* of records,
 which a single forward pass cannot enumerate but programmatic RLM decomposition can. The synthetic

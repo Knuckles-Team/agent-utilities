@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pre-built Schema Packs for common domains.
 
-CONCEPT:KG-2.2 — Schema Packs
+CONCEPT:AU-KG.ontology.schema-packs — Schema Packs
 
 Registry of domain-specific KG profiles. Use ``get_schema_pack()``
 to instantiate a named pack, or ``list_schema_packs()`` to discover

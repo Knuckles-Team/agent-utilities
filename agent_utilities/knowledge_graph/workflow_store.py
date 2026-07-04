@@ -1,6 +1,6 @@
 """KG-Native Workflow Storage.
 
-CONCEPT:ORCH-1.22 — Workflow Persistence & Replay
+CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Persistence & Replay
 
 Provides persistent storage and retrieval of workflow definitions
 within the Knowledge Graph. Successful agent executions can be saved
@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 class WorkflowStore:
     """KG-native workflow persistence and retrieval.
 
-    CONCEPT:ORCH-1.22 — Workflow Persistence & Replay
+    CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Persistence & Replay
 
     Stores workflow definitions as KG subgraphs and materializes
     them back into ``GraphPlan`` objects for execution. Supports
@@ -102,7 +102,7 @@ class WorkflowStore:
     ) -> str:
         """Persist a GraphPlan as a reusable workflow in the KG.
 
-        CONCEPT:ORCH-1.22 — Workflow Save
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Save
 
         Creates a ``WorkflowDefinition`` node with connected
         ``WorkflowStep`` nodes and ``TRANSITION_TO`` edges.
@@ -220,7 +220,7 @@ class WorkflowStore:
     def load_workflow(self, name: str) -> GraphPlan | None:
         """Materialize a stored workflow back into a GraphPlan.
 
-        CONCEPT:ORCH-1.22 — Workflow Load
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Load
 
         Queries the KG for a ``WorkflowDefinition`` by name and
         reconstructs the ``GraphPlan`` with all steps and dependencies.
@@ -238,7 +238,7 @@ class WorkflowStore:
     def _load_workflow_nx(self, name: str) -> GraphPlan | None:
         """Load workflow from graph compute engine (memory-only mode).
 
-        CONCEPT:ORCH-1.22 — NX Fallback
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — NX Fallback
         """
         graph = self.engine.graph
 
@@ -316,7 +316,7 @@ class WorkflowStore:
     def _load_workflow_backend(self, name: str) -> GraphPlan | None:
         """Load workflow from persistent backend via Cypher.
 
-        CONCEPT:ORCH-1.22 — Backend Load
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Backend Load
         """
 
         # Find the workflow definition
@@ -395,7 +395,7 @@ class WorkflowStore:
     def list_workflows(self, limit: int = 50) -> list[dict[str, Any]]:
         """List all stored workflow definitions.
 
-        CONCEPT:ORCH-1.22 — Workflow Discovery
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Discovery
 
         Returns:
             List of workflow summary dicts with keys: id, name,
@@ -426,7 +426,7 @@ class WorkflowStore:
     ) -> str | None:
         """Auto-save a successful execution as a reusable workflow template.
 
-        CONCEPT:ORCH-1.22 — Execution-Driven Workflow Learning
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Execution-Driven Workflow Learning
 
         Only saves workflows from successful executions with 2+ steps
         (single-step executions are too trivial to cache).
@@ -486,7 +486,7 @@ class WorkflowStore:
     def find_similar(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Find workflows similar to a natural language query.
 
-        CONCEPT:ORCH-1.22 — Semantic Workflow Matching
+        CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Semantic Workflow Matching
 
         Uses the KG's semantic search to find workflows whose
         descriptions or NL specs match the query.

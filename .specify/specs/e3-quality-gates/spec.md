@@ -1,9 +1,9 @@
-# Spec: EPIC 3 — Quality Gate Pipeline (AHE-3.13)
+# Spec: EPIC 3 — Quality Gate Pipeline (AU-AHE.harness.pre-emit-quality-gate)
 
 > Design: `.specify/design/ahe-3.13-layered-pre-emit-gate/design.md`. Depends on EPIC 2.
 
 ## Pre-Flight Checklist
-- [x] Design exists; KG-nearest table (AHE-3.13 max 0.66 vs AHE-3.1) <0.70.
+- [x] Design exists; KG-nearest table (AU-AHE.harness.pre-emit-quality-gate max 0.66 vs AHE-3.1) <0.70.
 - [x] Extension points: `harness/evaluation_engine.py`, `graph/_router_impl.py` seam, `graph/parallel_engine.py:_synthesize`.
 - [x] Wire-First: ≤2 hops from `graph_orchestrate`.
 - [ ] Live `kg_search` confirmation.
@@ -30,7 +30,7 @@
 - **AC8**: A mode-scoped directive provably overrides a conflicting base rule; the composition is inspectable in the run trace.
 
 ## Non-Functional Requirements
-- `@pytest.mark.concept(id="AHE-3.13")`; ≤60s; no network.
+- `@pytest.mark.concept(id="AU-AHE.harness.pre-emit-quality-gate")`; ≤60s; no network.
 - Default `warn` ⇒ zero regression; `block` opt-in.
 - Hot-path overhead budget: critique adds ≤1 extra LLM pass per emit by default.
 - Docs: `docs/pillars/3_*/AHE-3.13.md`; concepts.yaml regen.

@@ -1,6 +1,6 @@
-# CONCEPT:ECO-4.05 - Pluggable Event Queue Backend
-# CONCEPT:ORCH-1.10 - Reactive Event Sourcing
-# CONCEPT:KG-2.55 - Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite modes
+# CONCEPT:AU-ECO.bus.pluggable-event-queue - Pluggable Event Queue Backend
+# CONCEPT:AU-ORCH.reactive.event-sourcing-ledger - Reactive Event Sourcing
+# CONCEPT:AU-KG.backend.selectable-queue-backend - Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite modes
 
 import collections
 import inspect
@@ -16,7 +16,7 @@ TASK_QUEUE_BACKENDS = ("sqlite", "postgres", "kafka")
 class TaskQueueUnavailable(RuntimeError):
     """An EXPLICITLY selected task-queue backend is unreachable at startup.
 
-    CONCEPT:KG-2.55 — when an operator pins ``TASK_QUEUE_BACKEND=kafka`` (or
+    CONCEPT:AU-KG.backend.selectable-queue-backend — when an operator pins ``TASK_QUEUE_BACKEND=kafka`` (or
     ``postgres``) the queue is a hard contract: silently degrading to the
     per-host SQLite file would split the fleet's queue into invisible islands.
     The message always names the endpoint that failed and how to fall back.
@@ -26,11 +26,11 @@ class TaskQueueUnavailable(RuntimeError):
 def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
     """Resolve the ingest task-queue choice as ``(backend, explicit)``.
 
-    Resolution order (CONCEPT:KG-2.55):
+    Resolution order (CONCEPT:AU-KG.backend.selectable-queue-backend):
 
     1. ``task_queue_backend`` (``TASK_QUEUE_BACKEND``) — explicit, fail-loud.
     2. Auto: ``postgres`` when ``state_db_uri`` is set (durable state
-       externalized, CONCEPT:OS-5.16/KG-2.54), else ``sqlite`` (zero-infra).
+       externalized, CONCEPT:AU-OS.state.unified-durable-state-externalization/KG-2.54), else ``sqlite`` (zero-infra).
     """
     raw = getattr(config, "task_queue_backend", None)
     if raw:
@@ -49,7 +49,7 @@ def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
 def create_task_queue(config: Any, fallback_db_path: str) -> tuple["QueueBackend", str]:
     """Build the selected ingest task queue as ``(queue, backend_name)``.
 
-    CONCEPT:KG-2.55 — the ONE construction path for the durable ingest queue
+    CONCEPT:AU-KG.backend.selectable-queue-backend — the ONE construction path for the durable ingest queue
     (engine startup and the ``--stage-to-queue`` CLI both use it):
 
     * explicit ``kafka``/``postgres`` → unreachable broker/state-store raises

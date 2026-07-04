@@ -1,6 +1,6 @@
 """Embedding diagnostics — synthesized into knowledge_stability_engine.py.
 
-CONCEPT:KG-2.6 — CKA and alignment diagnostics now live in
+CONCEPT:AU-KG.retrieval.embedding-alignment-diagnostics — CKA and alignment diagnostics now live in
 :mod:`agent_utilities.knowledge_graph.memory.knowledge_stability_engine`.
 """
 

@@ -1,4 +1,4 @@
-"""Multi-agent containment + recovery chaos (CONCEPT:OS-5.16 / OS-5.18).
+"""Multi-agent containment + recovery chaos (CONCEPT:AU-OS.state.unified-durable-state-externalization / OS-5.18).
 
 Exercises the supervisory plane and durable goal loop together, in-process:
 

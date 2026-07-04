@@ -1,4 +1,4 @@
-"""Unit tests for the computer-use driver tier (CONCEPT:ECO-4.93 / ORCH-1.84).
+"""Unit tests for the computer-use driver tier (CONCEPT:AU-ORCH.sandbox.computer-use-tier / ORCH-1.84).
 
 Covers the governed action seam (capture read-only vs input gated), dispatcher
 routing to the driver, the Null floor, and the ContainerExec driver's pure

@@ -1,7 +1,7 @@
-# CONCEPT:OS-5.63 - One engine resolver auto-provisioning every entrypoint by precedence remote then share-running-local then autostart-shared-supervised
+# CONCEPT:AU-OS.deployment.engine-resolver-auto-provision - One engine resolver auto-provisioning every entrypoint by precedence remote then share-running-local then autostart-shared-supervised
 """ONE engine resolver — the single chokepoint provisions an engine for *every* entrypoint.
 
-CONCEPT:OS-5.63 — auto-bundled engine. Every entrypoint (graph-os MCP, the
+CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — auto-bundled engine. Every entrypoint (graph-os MCP, the
 gateway/host daemon, :class:`IntelligenceGraphEngine`, the facade,
 :class:`EpistemicGraphBackend`, the tenant engine pool, messaging, agent/serving)
 funnels through :class:`~.graph_compute.GraphComputeEngine.__init__`, which calls
@@ -102,7 +102,7 @@ class ResolvedEngine:
 def engine_idle_shutdown_secs(config: Any) -> int:
     """Resolve the reference-counted idle-shutdown grace for an autostarted engine.
 
-    CONCEPT:OS-5.63 — lifecycle choice, no env-sprawl (both reads are typed
+    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — lifecycle choice, no env-sprawl (both reads are typed
     :class:`AgentConfig` fields):
 
     * ``engine_lifecycle == "persistent"`` → ``0`` (never self-stop; runs forever
@@ -140,7 +140,7 @@ def resolve_engine(
     circuit breaker, and (for ``mode="autostart"``) the guarded spawn — so the
     resolver stays a pure decision over the existing building blocks.
 
-    Precedence (CONCEPT:OS-5.63):
+    Precedence (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision):
 
     1. **remote** — multiple endpoints (sharding), an explicit ``tcp://`` target,
        or ``engine_mode=remote``. ``autostart_allowed`` is True only for the rare
@@ -212,7 +212,7 @@ def resolve_engine(
 
 
 def setting_autostart(config: Any) -> bool:
-    """Whether local autostart is enabled for this process (CONCEPT:OS-5.63).
+    """Whether local autostart is enabled for this process (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
 
     The auto-bundled-engine default: ``engine_mode`` in {``auto``, ``embedded``,
     ``shared``} enables local autostart so a local endpoint with nothing serving
@@ -254,7 +254,7 @@ def client_connect_kwargs(
 ) -> dict[str, Any]:
     """Build ``SyncEpistemicGraphClient.connect`` kwargs via the ONE resolver.
 
-    CONCEPT:OS-5.63 — the centralized path for the few DIRECT-client callers
+    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the centralized path for the few DIRECT-client callers
     (``domains/finance/*``, ``core/ingest_engine``) that connect outside
     :class:`GraphComputeEngine`. Resolves the same endpoint (HRW-placed) and auth
     secret the chokepoint uses, so a remote/sharded/insecure deployment is honoured

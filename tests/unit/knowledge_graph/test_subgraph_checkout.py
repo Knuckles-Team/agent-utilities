@@ -1,4 +1,4 @@
-"""Bounded subgraph checkout + delta write-back (CONCEPT:KG-2.7 P2)."""
+"""Bounded subgraph checkout + delta write-back (CONCEPT:AU-KG.query.vendor-agnostic-traversal P2)."""
 
 from agent_utilities.knowledge_graph.core.subgraph_checkout import (
     CheckedOutSubgraph,

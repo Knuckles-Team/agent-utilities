@@ -11,4 +11,4 @@
 - [x] Docs: deep-dive, `concept_map` row, `concepts.yaml` regen (86), CHANGELOG, AGENTS regen.
 - [ ] Live-LLM validation: real goal→swarm run; verify acceptance-rate + critical-path on a true
   multi-agent task (deferred to the live-testing pass).
-- [ ] SWARM-8 native multi-format deliverable rendering (deferred → ECO-4 peripheral).
+- [ ] SWARM-8 native multi-format deliverable rendering (deferred → AU-ECO.connector.plane-provisioning-auth peripheral).

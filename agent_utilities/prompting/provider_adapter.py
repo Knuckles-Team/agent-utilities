@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.0 — Provider Prompt Adaptation.
+"""CONCEPT:AU-ECO.toolkit.provider-prompt-adaptation — Provider Prompt Adaptation.
 
 Implements an abstracted provider adapter framework for per-provider
 prompt optimization, inspired by The Rosetta Prompt research (Source 3).
@@ -26,7 +26,7 @@ Environment Variables:
     ``KG_PROVIDER_ADAPTER_BACKEND``: Backend to use (``static`` or ``kg``).
         Defaults to ``static``.
 
-See docs/overview.md §CONCEPT:ECO-4.0
+See docs/overview.md §CONCEPT:AU-ECO.toolkit.provider-prompt-adaptation
 """
 
 
@@ -54,7 +54,7 @@ class ProviderRule(BaseModel):
 
     Each rule defines a structural or stylistic optimization pattern
     for a target LLM provider, with optional ``applicable_when``
-    conditions for contextual activation (mirrors CONCEPT:KG-2.2
+    conditions for contextual activation (mirrors CONCEPT:AU-KG.ingest.engineering-rules
     Engineering Rules Engine).
     """
 
@@ -84,7 +84,7 @@ class ProviderRule(BaseModel):
         description="Template with {prompt} placeholder for wrapping",
     )
 
-    # Contextual activation (CONCEPT:KG-2.2 pattern)
+    # Contextual activation (CONCEPT:AU-KG.ingest.engineering-rules pattern)
     applicable_when: dict[str, Any] = Field(
         default_factory=dict,
         description="Conditions for rule activation (e.g., {'task_type': 'code'})",
@@ -234,7 +234,7 @@ class StaticRuleBackend(ProviderBackend):
 class KGRuleBackend(ProviderBackend):
     """Knowledge Graph-backed rule backend.
 
-    Stores rules as ``EngineeringRule`` nodes (CONCEPT:KG-2.2) with
+    Stores rules as ``EngineeringRule`` nodes (CONCEPT:AU-KG.ingest.engineering-rules) with
     ``applicable_when`` conditions for contextual activation. Rules
     evolve with the harness — the KG becomes a living prompt
     optimization knowledge base.
@@ -315,7 +315,7 @@ class KGRuleBackend(ProviderBackend):
 class ProviderPromptAdapter:
     """Transforms prompts based on target provider optimization rules.
 
-    CONCEPT:ECO-4.0 — Provider Prompt Adaptation
+    CONCEPT:AU-ECO.toolkit.provider-prompt-adaptation — Provider Prompt Adaptation
 
     Uses an abstracted backend (static or KG) to retrieve and apply
     provider-specific prompt transformation rules. Transformations
@@ -383,7 +383,7 @@ class ProviderPromptAdapter:
 
         if applied:
             logger.debug(
-                "[CONCEPT:ECO-4.0] Applied %d rules for provider '%s': %s",
+                "[CONCEPT:AU-ECO.toolkit.provider-prompt-adaptation] Applied %d rules for provider '%s': %s",
                 len(applied),
                 provider,
                 applied,
@@ -438,7 +438,7 @@ class ProviderPromptAdapter:
         """Register a new provider optimization rule."""
         self._backend.add_rule(rule)
         logger.info(
-            "[CONCEPT:ECO-4.0] Registered rule '%s' for provider '%s'",
+            "[CONCEPT:AU-ECO.toolkit.provider-prompt-adaptation] Registered rule '%s' for provider '%s'",
             rule.rule_id,
             rule.provider,
         )

@@ -1,6 +1,6 @@
 """Tests for expanded RLM trigger conditions and metadata-only root prompting.
 
-CONCEPT:ORCH-1.1 — RLM Execution (Expanded Triggers & Whitepaper Alignment)
+CONCEPT:AU-ORCH.planning.recursion-nesting-depth — RLM Execution (Expanded Triggers & Whitepaper Alignment)
 """
 
 import pytest

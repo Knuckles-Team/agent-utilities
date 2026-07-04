@@ -1,6 +1,6 @@
 # In-House Training Substrate
 
-> **CONCEPT:AHE-3.1** — Training Substrate (reward decomposition / distillation) · **CONCEPT:KG-2.22** — Rust-Native Data Science · **CONCEPT:ML-001…007** — high-caliber LLM trainer (cross-repo)
+> **CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort** — Training Substrate (reward decomposition / distillation) · **CONCEPT:EG-KG.compute.rust-native-training-loss** — Rust-Native Data Science · **CONCEPT:AU-AHE.trainer.high-caliber-llm-trainer…007** — high-caliber LLM trainer (cross-repo)
 > **Spans:** `agent-utilities` (reward spine, memory, training personas) · `data-science-mcp` (corpora + trainers + curation + pretrain) · `universal-skills` (`train_model` workflow) · `epistemic-graph` (Rust kernels)
 
 ## Overview
@@ -69,7 +69,7 @@ flowchart TD
 - MCP tools: `train_sft` / `train_dpo` / `train_grpo` / `merge_adapters_ties`
   (plan-by-default, `execute=true` to run).
 
-### 3. Rust performance path (`epistemic-graph`, CONCEPT:KG-2.22)
+### 3. Rust performance path (`epistemic-graph`, CONCEPT:EG-KG.compute.rust-native-training-loss)
 **`src/datascience/training.rs`** re-implements the loss/optimizer kernels in
 pure Rust (no candle — matching the repo's style): `softmax`/`log_softmax`,
 `cross_entropy` (+grad), `dpo_loss` (+grads), `grpo_surrogate` (+grad with
@@ -122,25 +122,25 @@ CPU-smoke-tested end-to-end on a toy model; on the GB10 the only deltas are real
 deps, a real base model, and the GPU. See data-science-mcp `docs/training.md` for
 the OpenSeeker recipe.
 
-## LLM trainer expansion (CONCEPT:ML-001…007)
+## LLM trainer expansion (CONCEPT:AU-AHE.trainer.high-caliber-llm-trainer…007)
 
 The substrate above was hardened into a full LLM trainer — **create, pretrain from
 random init, and fine-tune** models, robustly and at scale, driven by agents. The
 `CONCEPT:ML-*` family is a deliberate **cross-repo** id family (it spans the three
 repos below) rather than a single-pillar one; it expands `AHE-3.1` and
-`DSCI-004`. SDD spec: `.specify/specs/llm-model-trainer/`.
+`DS-ECO.mcp.model-training`. SDD spec: `.specify/specs/llm-model-trainer/`.
 
 | Concept | Capability | Where |
 |---|---|---|
-| `ML-001` | Trainer hardening — shared `run_loop` (precision/accum/clip/scheduler/checkpoint+resume) | `data-science-mcp/trainers/loop.py` |
-| `ML-002` | Corpus curation — stream/dedup/decontaminate/quality-filter/pack/lineage (epistemic-graph HNSW accel.) | `data-science-mcp/data_engine.py` |
-| `ML-003` | Pretrain from random init — BPE tokenizer + `AutoConfig`→`from_config` | `data-science-mcp/{tokenizer_trainer,trainers/pretrain_trainer}.py` |
-| `ML-004` | Experiment tracking — MLflow + epistemic-graph `TrainingRun` mirror | `data-science-mcp/tracking.py` |
-| `ML-005` | Scale-out — FSDP **and** DeepSpeed ZeRO-3 peers + launcher | `data-science-mcp/{trainers/accelerate_launch.py,launch/}` |
-| `ML-006` | Benchmark eval — lm-eval beside the AHE-3.1 reliability suite | `data-science-mcp/trainers/eval_hooks.py` |
-| `ML-007` | **Agent-driven training** — personas + workflow (below) | `agent-utilities` + `universal-skills` |
+| `AU-AHE.trainer.high-caliber-llm-trainer` | Trainer hardening — shared `run_loop` (precision/accum/clip/scheduler/checkpoint+resume) | `data-science-mcp/trainers/loop.py` |
+| `DS-AHE.trainer.data-engine` | Corpus curation — stream/dedup/decontaminate/quality-filter/pack/lineage (epistemic-graph HNSW accel.) | `data-science-mcp/data_engine.py` |
+| `DS-AHE.trainer.concept-2` | Pretrain from random init — BPE tokenizer + `AutoConfig`→`from_config` | `data-science-mcp/{tokenizer_trainer,trainers/pretrain_trainer}.py` |
+| `DS-AHE.trainer.concept-3` | Experiment tracking — MLflow + epistemic-graph `TrainingRun` mirror | `data-science-mcp/tracking.py` |
+| `DS-AHE.trainer.concept-4` | Scale-out — FSDP **and** DeepSpeed ZeRO-3 peers + launcher | `data-science-mcp/{trainers/accelerate_launch.py,launch/}` |
+| `DS-AHE.trainer.concept-5` | Benchmark eval — lm-eval beside the AHE-3.1 reliability suite | `data-science-mcp/trainers/eval_hooks.py` |
+| `AU-AHE.trainer.concept-2` | **Agent-driven training** — personas + workflow (below) | `agent-utilities` + `universal-skills` |
 
-### Agent layer (CONCEPT:ML-007)
+### Agent layer (CONCEPT:AU-AHE.trainer.concept-2)
 
 The whole loop is exposed as an agent workflow. Four **prompt personas** live in
 `agent_utilities/prompts/` (auto-discovered by `load_specialized_prompts`):
@@ -164,15 +164,15 @@ prepare_corpus → curate/dedup/decontaminate → (train_tokenizer) →
 Run it with `graph_orchestrate(action="execute_workflow", name="train_model", task=…)`.
 Install dependencies per capability: see data-science-mcp `docs/installation.md`.
 
-## Memory → weights distillation (the export path, CONCEPT:KG-2.316)
+## Memory → weights distillation (the export path, CONCEPT:AU-KG.memory.memory-weights-distillation-export)
 
 > **Spans:** `agent-utilities` (EXPORT: consolidated-memory → corpus + spec) ·
 > `data-science-mcp` (the LoRA/SFT train run — the integration point).
 
 Beyond retrieval-time context assembly (EG-195), consolidated agent-memory can be
-folded directly into model **weights**. The KG-2.307 lifecycle consolidates
-episodic memory into semantic summaries (EG-220/221) and KG-2.309 distills
-recurring clusters into *procedural* memory nodes; **KG-2.316** takes that
+folded directly into model **weights**. The AU-KG.memory.drive-one-agent-native lifecycle consolidates
+episodic memory into semantic summaries (EG-KG.compute.hierarchical-summary-tier-eg/221) and AU-KG.memory.episodic-procedural-memory-distillation distills
+recurring clusters into *procedural* memory nodes; **AU-KG.memory.memory-weights-distillation-export** takes that
 consolidated/procedural memory one hop further and exports it as a training-ready
 corpus for a fine-tune.
 
@@ -180,7 +180,7 @@ corpus for a fine-tune.
 per *Dependency discipline*) is the EXPORT half:
 
 - **`MemoryWeightsDistiller.export()`** reads a bounded working set of `:Memory`
-  nodes (reusing the KG-2.307 reader), selects the in-scope tiers
+  nodes (reusing the AU-KG.memory.drive-one-agent-native reader), selects the in-scope tiers
   (`scopes`, default `procedural` + `semantic`) filtered by ACTIVE status, an
   optional time-window, a trust floor and optional `target_entities`, and renders
   each node into one training example. Output is a **deterministic**

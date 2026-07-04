@@ -1,4 +1,4 @@
-"""Cost computation for usage events (CONCEPT:ECO-4.39 / ECO-4.40).
+"""Cost computation for usage events (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40).
 
 Fills ``cost_usd``/``cost_status``/``cost_source`` on a usage event from the
 pricing catalog when the source agent did not already report a cost.

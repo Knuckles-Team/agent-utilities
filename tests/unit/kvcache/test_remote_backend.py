@@ -1,6 +1,6 @@
 """Unit tests for the epistemic-graph remote KV-cache connector.
 
-CONCEPT:KG-2.306 — exercises the LMCache/vLLM remote-backend contract
+CONCEPT:AU-KG.backend.kvcache-vllm-connector — exercises the LMCache/vLLM remote-backend contract
 (:class:`EpistemicGraphKVBackend`) against a MOCK HTTP server implemented with
 :class:`httpx.MockTransport`, so no live engine is needed. Covers: get/put/
 contains round-trip, 404 → None miss, bearer-token propagation, error →
@@ -26,7 +26,7 @@ BASE = "http://kv.test"
 
 
 class _FakeKvServer:
-    """In-memory stand-in for the EG-187 ``/kv`` HTTP surface (CONCEPT:KG-2.306).
+    """In-memory stand-in for the EG-187 ``/kv`` HTTP surface (CONCEPT:AU-KG.backend.kvcache-vllm-connector).
 
     Implements the wire contract exactly: PUT stores verbatim under the opaque
     key (201 new / 200 dedup), GET returns bytes or 404, HEAD probes existence,
@@ -90,7 +90,7 @@ def _backend(server: _FakeKvServer, **client_kwargs: object) -> EpistemicGraphKV
 
 
 def test_put_get_contains_round_trip_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — put then get returns the same bytes; contains flips."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — put then get returns the same bytes; contains flips."""
     server = _FakeKvServer()
     backend = _backend(server)
 
@@ -104,7 +104,7 @@ def test_put_get_contains_round_trip_kg_2_306() -> None:
 
 
 def test_put_dedup_hit_returns_true_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — a re-PUT (200 dedup) is still an accepted store."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — a re-PUT (200 dedup) is still an accepted store."""
     server = _FakeKvServer()
     backend = _backend(server)
     backend.put("H", b"page")
@@ -113,14 +113,14 @@ def test_put_dedup_hit_returns_true_kg_2_306() -> None:
 
 
 def test_get_miss_returns_none_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — a 404 maps to None (compute-from-scratch)."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — a 404 maps to None (compute-from-scratch)."""
     server = _FakeKvServer()
     backend = _backend(server)
     assert backend.get("never-stored") is None
 
 
 def test_exists_endpoint_probe_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — GET /kv/<hash>/exists parses the JSON flag."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — GET /kv/<hash>/exists parses the JSON flag."""
     server = _FakeKvServer()
     backend = _backend(server)
     assert backend.exists("H") is False
@@ -129,7 +129,7 @@ def test_exists_endpoint_probe_kg_2_306() -> None:
 
 
 def test_bearer_token_sent_when_configured_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — every request carries Authorization: Bearer <token>."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — every request carries Authorization: Bearer <token>."""
     server = _FakeKvServer()
     client = create_http_client(
         base_url=BASE,
@@ -148,7 +148,7 @@ def test_bearer_token_sent_when_configured_kg_2_306() -> None:
 
 
 def test_build_client_sets_bearer_header_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — the owned client is built with the bearer header."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — the owned client is built with the bearer header."""
     backend = EpistemicGraphKVBackend(KvCacheConfig(token="abc123"))
     try:
         assert backend._client.headers.get("Authorization") == "Bearer abc123"
@@ -157,7 +157,7 @@ def test_build_client_sets_bearer_header_kg_2_306() -> None:
 
 
 def test_no_token_means_no_auth_header_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — anonymous config sends no Authorization header."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — anonymous config sends no Authorization header."""
     backend = EpistemicGraphKVBackend(KvCacheConfig())
     try:
         assert "Authorization" not in backend._client.headers
@@ -166,7 +166,7 @@ def test_no_token_means_no_auth_header_kg_2_306() -> None:
 
 
 def test_get_transport_error_degrades_to_miss_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — a transport error is a miss, never a raised exception."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — a transport error is a miss, never a raised exception."""
 
     def boom(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("engine unreachable")
@@ -182,7 +182,7 @@ def test_get_transport_error_degrades_to_miss_kg_2_306() -> None:
 
 
 def test_unexpected_status_is_miss_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — a 500 on get/put degrades, not crashes."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — a 500 on get/put degrades, not crashes."""
 
     def five_hundred(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
@@ -196,7 +196,7 @@ def test_unexpected_status_is_miss_kg_2_306() -> None:
 
 
 def test_stats_parse_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — GET /kv/stats parses into a typed KvCacheStats."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — GET /kv/stats parses into a typed KvCacheStats."""
     server = _FakeKvServer()
     backend = _backend(server)
     backend.put("A", b"aaaa")
@@ -213,7 +213,7 @@ def test_stats_parse_kg_2_306() -> None:
 
 
 def test_stats_malformed_json_degrades_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — non-JSON /kv/stats returns zeroed stats, no raise."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — non-JSON /kv/stats returns zeroed stats, no raise."""
 
     def bad_json(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not json")
@@ -224,7 +224,7 @@ def test_stats_malformed_json_degrades_kg_2_306() -> None:
 
 
 def test_key_is_percent_encoded_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — reserved chars in an opaque key are URL-encoded."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — reserved chars in an opaque key are URL-encoded."""
     server = _FakeKvServer()
     backend = _backend(server)
     key = "prefix/with spaces+slash"
@@ -238,14 +238,14 @@ def test_key_is_percent_encoded_kg_2_306() -> None:
 
 
 def test_context_manager_closes_owned_client_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — the connector closes a client it owns on exit."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — the connector closes a client it owns on exit."""
     with EpistemicGraphKVBackend(KvCacheConfig()) as backend:
         client = backend._client
     assert client.is_closed is True
 
 
 def test_injected_client_not_closed_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — an injected client's lifecycle is the caller's."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — an injected client's lifecycle is the caller's."""
     server = _FakeKvServer()
     client = create_http_client(
         base_url=BASE, transport=httpx.MockTransport(server.handler)
@@ -268,12 +268,12 @@ def test_injected_client_not_closed_kg_2_306() -> None:
     ],
 )
 def test_addr_to_base_url_kg_2_306(addr: str, expected: str) -> None:
-    """CONCEPT:KG-2.306 — EG-187 bind values coerce to a client base URL."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — EG-187 bind values coerce to a client base URL."""
     assert _addr_to_base_url(addr) == expected
 
 
 def test_config_from_env_kg_2_306(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CONCEPT:KG-2.306 — from_env mirrors the engine EG-187 variables."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — from_env mirrors the engine EG-187 variables."""
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "engine:9130")
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", "tok")
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S", "0.5")
@@ -288,7 +288,7 @@ def test_config_from_env_kg_2_306(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_config_from_env_explicit_url_wins_kg_2_306(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CONCEPT:KG-2.306 — an explicit URL overrides the derived ADDR."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — an explicit URL overrides the derived ADDR."""
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_URL", "http://explicit:1234/")
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "ignored:9130")
     cfg = KvCacheConfig.from_env()
@@ -296,7 +296,7 @@ def test_config_from_env_explicit_url_wins_kg_2_306(
 
 
 def test_stats_json_module_used_kg_2_306() -> None:
-    """CONCEPT:KG-2.306 — smoke that the JSON contract shape parses fully."""
+    """CONCEPT:AU-KG.backend.kvcache-vllm-connector — smoke that the JSON contract shape parses fully."""
     payload = {
         "unique_blocks": 128,
         "total_refs": 512,

@@ -5,15 +5,15 @@
 > `agent_utilities/models/model_registry.py` (`ModelRegistry.pick_for_task()`),
 > and **register existing engines as concrete `Reasoner`s without rewriting them**:
 > `agent_utilities/rlm/predict_rlm.py` (`PredictRLM`, ORCH-1.12), `agent_utilities/rlm/gepa.py`
-> (`GEPAOptimizer`, ORCH-1.13), and `agent_utilities/knowledge_graph/core/owl_bridge.py`
-> (`OWLBridge`, KG-2.23). Reuse — do not rebuild — these three engines and the
+> (`GEPAOptimizer`, AU-ORCH.optimization.optimize-skill-prompt-gepa), and `agent_utilities/knowledge_graph/core/owl_bridge.py`
+> (`OWLBridge`, AU-KG.domains.legal-automation). Reuse — do not rebuild — these three engines and the
 > `pick_for_task` capability-tag selection idiom.
 
 ## Pre-Flight Checklist
 - [x] Extension target identified: `ModelRegistry.pick_for_task()` (capability-tag select) is mirrored
       for paradigms; the three engines above are wrapped, never re-implemented.
-- [x] New `CONCEPT:KG-2.65` justified: AU is pluggable at the **model** layer (ORCH-1.27) and the
-      **symbolic-backend** layer (KG-2.23) but has **no unifying reasoning-paradigm seam** — a new
+- [x] New `CONCEPT:AU-KG.compute.code-intelligence-tools` justified: AU is pluggable at the **model** layer (ORCH-1.27) and the
+      **symbolic-backend** layer (AU-KG.domains.legal-automation) but has **no unifying reasoning-paradigm seam** — a new
       inference paradigm today needs bespoke modules, not a registration.
 - [x] Wire-First confirmed: registry is invoked on a live path — an orchestrator/router seam calls
       `ReasonerRegistry.pick_for_task(...).reason(context, goal)`, asserted by a live-path test.

@@ -1,4 +1,4 @@
-"""Long-context benchmark tasks (CONCEPT:AHE-3.32).
+"""Long-context benchmark tasks (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Importing this package registers every task into the ``base`` registry, so
 ``base.get_task`` / ``base.list_tasks`` see them.

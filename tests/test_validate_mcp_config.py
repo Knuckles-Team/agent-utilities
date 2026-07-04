@@ -1,4 +1,4 @@
-"""Tests for scripts/validate_mcp_config.py (CONCEPT:ECO-4.36)."""
+"""Tests for scripts/validate_mcp_config.py (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """Workflow Runner — Execute Stored Workflows via Agent Runner.
 
-CONCEPT:ORCH-1.24 — Workflow Execution Engine
+CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Workflow Execution Engine
 
 Bridges stored ``GraphPlan`` objects to live agent execution via
 ``run_agent()``. Respects step dependencies, executes parallel groups
@@ -46,7 +46,7 @@ Usage::
     print(result.summary())
     print(result.mermaid)
 
-Process lineage close-out (CONCEPT:ORCH-1.43)
+Process lineage close-out (CONCEPT:AU-ORCH.execution.best-effort-provenance)
 ---------------------------------------------
 
 When an executed workflow was compiled from a descriptive BusinessProcess
@@ -108,7 +108,7 @@ _active_workflows: dict[str, WorkflowResult] = {}
 class StepResult:
     """Result from a single workflow step execution.
 
-    CONCEPT:ORCH-1.24 — Step Execution Result
+    CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Step Execution Result
     """
 
     step_index: int
@@ -125,7 +125,7 @@ class StepResult:
 class WorkflowResult:
     """Aggregate result from a full workflow execution.
 
-    CONCEPT:ORCH-1.24 — Workflow Execution Result
+    CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Workflow Execution Result
 
     Attributes:
         workflow_name: Name of the executed workflow.
@@ -202,7 +202,7 @@ class WorkflowResult:
 class WorkflowRunner:
     """Execute stored GraphPlan workflows via the agent_runner pipeline.
 
-    CONCEPT:ORCH-1.24 — Workflow Execution Engine
+    CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Workflow Execution Engine
 
     Orchestrates step execution respecting dependencies:
     - Steps with no dependencies run in parallel
@@ -226,7 +226,7 @@ class WorkflowRunner:
         Args:
             max_steps_per_agent: Max graph steps per individual agent call.
             lineage_sink: Optional callable receiving one normalized lineage
-                record per process close-out (CONCEPT:ORCH-1.43 — see the
+                record per process close-out (CONCEPT:AU-ORCH.execution.best-effort-provenance — see the
                 module docstring). Lets a deployment wire egeria-mcp's
                 ``assert_lineage`` (or any lineage SoR) without
                 agent-utilities depending on it. Best-effort; default None.
@@ -243,7 +243,7 @@ class WorkflowRunner:
     ):
         """Execute a GraphPlan by delegating to ParallelEngine.
 
-        CONCEPT:ORCH-1.8 — Workflow → ParallelEngine Bridge
+        CONCEPT:AU-ORCH.execution.workflow-parallel-bridge — Workflow → ParallelEngine Bridge
 
         Converts the ``GraphPlan`` to an ``ExecutionManifest`` and invokes
         ``ParallelEngine.execute()``, ensuring a single execution path for
@@ -279,7 +279,7 @@ class WorkflowRunner:
     ) -> WorkflowResult:
         """Execute a GraphPlan step by step, respecting dependencies.
 
-        CONCEPT:ORCH-1.24 — Plan Execution
+        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Plan Execution
         """
         session_id = trace_session or f"wf-{uuid.uuid4().hex[:8]}"
 
@@ -302,7 +302,7 @@ class WorkflowRunner:
                     StepResult(
                         step_index=wave_idx,
                         node_id=r.agent_id,
-                        # CONCEPT:ORCH-1.95 — ``AgentExecutionResult`` (the ParallelEngine
+                        # CONCEPT:AU-ORCH.execution.workflow-engine-wiring — ``AgentExecutionResult`` (the ParallelEngine
                         # wave result) carries no ``task`` field; it lives in its
                         # ``metadata``. Reading ``r.task`` raised AttributeError and
                         # crashed every wired ``execute_workflow`` run after the steps
@@ -335,13 +335,13 @@ class WorkflowRunner:
         )
 
         _active_workflows[result.session_id] = result
-        # CONCEPT:ORCH-1.43 — close the descriptive↔executable provenance loop
+        # CONCEPT:AU-ORCH.execution.best-effort-provenance — close the descriptive↔executable provenance loop
         # for workflows compiled from a BusinessProcess (REALIZES, ORCH-1.41).
         self._close_out_process_lineage(engine, workflow_name, result)
         return result
 
     # ------------------------------------------------------------------
-    # Process lineage close-out (CONCEPT:ORCH-1.43)
+    # Process lineage close-out (CONCEPT:AU-ORCH.execution.best-effort-provenance)
     # ------------------------------------------------------------------
 
     def _find_realized_process(
@@ -405,7 +405,7 @@ class WorkflowRunner:
     ) -> None:
         """Record RunTrace→BusinessProcess provenance + feed the lineage sink.
 
-        CONCEPT:ORCH-1.43 — best-effort by design: lineage close-out must
+        CONCEPT:AU-ORCH.execution.best-effort-provenance — best-effort by design: lineage close-out must
         never fail a completed (or even failed) workflow run.
         """
         if engine is None:
@@ -476,7 +476,7 @@ class WorkflowRunner:
     ) -> WorkflowResult:
         """Load a stored workflow by name from the KG and execute its step-DAG.
 
-        CONCEPT:ORCH-1.24 / ORCH-1.95 — Named Workflow Execution. Loads the stored
+        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management / ORCH-1.95 — Named Workflow Execution. Loads the stored
         ``WorkflowDefinition``/``WorkflowStep`` DAG (the KG-2.97 ``WorkflowStore``
         shape) and runs each step through :func:`run_agent` in dependency-wave order
         — so a step that names a ``Server``/ingested ``Skill`` resolves to its real
@@ -510,7 +510,7 @@ class WorkflowRunner:
     ) -> WorkflowResult:
         """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
 
-        CONCEPT:ORCH-1.95 — wires the EXISTING ``run_agent`` executor (not a new one)
+        CONCEPT:AU-ORCH.execution.workflow-engine-wiring — wires the EXISTING ``run_agent`` executor (not a new one)
         into named-workflow execution: steps with satisfied dependencies run
         concurrently as a wave, each via ``run_agent(step.id, step.task, engine=...)``
         on the local LLM with its resolved MCP toolset. Upstream step outputs are

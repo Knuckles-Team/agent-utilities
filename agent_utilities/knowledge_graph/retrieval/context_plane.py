@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Universal synthesize-from-KG context plane (CONCEPT:KG-2.136).
+"""Universal synthesize-from-KG context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain).
 
 ONE pattern for the whole system: ``synthesize_context(domain, query, intent)``
 returns a grounded, cited answer about some *domain* — composed from the KG (and
@@ -46,7 +46,7 @@ _BUILTIN_PROVIDERS: dict[str, tuple[str, str]] = {
         "entity_context",
     ),
     # Enterprise domains are the entity provider with a label filter — registered
-    # here so the cockpit grows with ingested data (CONCEPT:KG-2.139).
+    # here so the cockpit grows with ingested data (CONCEPT:AU-KG.retrieval.kg-3).
     "tickets": (
         "agent_utilities.knowledge_graph.retrieval.entity_context",
         "entity_context",

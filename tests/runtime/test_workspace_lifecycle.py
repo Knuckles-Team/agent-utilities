@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 — Developer-Workspace lifecycle: stateful shell, file ops, tests, policy gate.
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Developer-Workspace lifecycle: stateful shell, file ops, tests, policy gate.
 
 Runs against the local backend (always available — the zero-infra floor), so it needs no Docker
 daemon and is not marked ``live``.

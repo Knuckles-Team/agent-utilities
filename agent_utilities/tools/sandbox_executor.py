@@ -1,5 +1,5 @@
 """
-Secure Sandbox Executor (CONCEPT:ECO-4.0)
+Secure Sandbox Executor (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 Wraps the JupyterKernelAdapter with State Machine Invariant checks
 and Vectorized Topology AST validation to ensure algorithm safety.

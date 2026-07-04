@@ -1,4 +1,4 @@
-"""Legal-peripherals write-back sink (CONCEPT:KG-2.9) — HIGH-STAKES / propose-only.
+"""Legal-peripherals write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — HIGH-STAKES / propose-only.
 
 Emits KG-derived legal actions as **proposed** filings/draft documents (LLC
 formation, EIN/SS-4 drafts, regulatory filings). ``risk_tier="high_stakes"``:

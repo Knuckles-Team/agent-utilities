@@ -1,4 +1,4 @@
-"""Unit tests for the computer-use agent tools (CONCEPT:ORCH-1.85)."""
+"""Unit tests for the computer-use agent tools (CONCEPT:AU-ORCH.execution.computer-use-agent)."""
 
 import base64
 import struct

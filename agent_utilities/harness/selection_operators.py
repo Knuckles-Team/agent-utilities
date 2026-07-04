@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Unified selection / aggregation operators.
 
-CONCEPT:ORCH-1.30 — Selection on Unseen Data
+CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — Selection on Unseen Data
 
 One registry of verifier-free, diversity-preserving, uncertainty-aware operators
 for "pick the best of N", consumed wherever the stack currently hard-codes a
@@ -166,7 +166,7 @@ def select_top_k(
           candidate with no recorded variance degrades gracefully to ``score``).
         * ``mdl`` — descending by ``score_key − mdl_weight·norm_length``: a
           minimum-description-length (Occam / Solomonoff-flavoured) prior that, among
-          candidates of comparable score, prefers the *shorter* one (CONCEPT:KG-2.69).
+          candidates of comparable score, prefers the *shorter* one (CONCEPT:AU-KG.coordination.inductive-program-synthesis-search).
           ``norm_length`` is each candidate's ``length_key`` divided by the max length
           in the set, so the penalty is scale-free; a missing length ⇒ no penalty.
     """

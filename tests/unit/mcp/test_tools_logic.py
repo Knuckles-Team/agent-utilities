@@ -1,6 +1,6 @@
 """Tests for MCP tool loading, parsing, and configuration.
 
-CONCEPT:ECO-4.0 — Agent Tool System
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Agent Tool System
 """
 
 import json

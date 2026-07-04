@@ -1,4 +1,4 @@
-"""Portainer source extractor (CONCEPT:KG-2.9).
+"""Portainer source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Endpoints → :Server, stacks → :Service, containers → :AssetInstance (RUNS_ON the
 endpoint). Stamped externalToolId + domain="portainer". Client injected; tolerant.

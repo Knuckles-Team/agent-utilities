@@ -8,7 +8,7 @@ def get_nested_context(
     Recursively aggregates context and instructions (AGENTS.md, CONTEXT.md, INSTRUCTIONS.md) from the target
     directory up to the workspace root, enabling subfolder-level overriding.
 
-    CONCEPT:CTX-1.0: Nested Subfolder Instructions
+    CONCEPT:AU-OS.context.nested-instructions: Nested Subfolder Instructions
     """
     target_dir = Path(target_dir).resolve()
 

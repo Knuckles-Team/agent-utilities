@@ -1,4 +1,4 @@
-"""Trade-Journal Bias Auditor + Shadow Account tests — CONCEPT:KG-2.26.
+"""Trade-Journal Bias Auditor + Shadow Account tests — CONCEPT:AU-KG.domains.trade-journal-bias-auditor.
 
 Real metric maths + KG persistence (via a fake backend), offline.
 """
@@ -44,7 +44,7 @@ class _FakeBackend:
 
     # The KG persist path now writes via the materialization core's UNWIND
     # MERGE batches (write_batch -> write_entities -> execute_batch,
-    # CONCEPT:KG-2.9), so decode those into the same (id, type, props) /
+    # CONCEPT:AU-KG.ingest.enterprise-source-extractor), so decode those into the same (id, type, props) /
     # (src, tgt, rel) shape the assertions inspect.
     def execute(self, query, params=None):
         return []  # content-hash prefetch -> nothing stored -> full write
@@ -161,4 +161,4 @@ def test_convenience_audit_with_dicts_and_citation():
     ]
     profile = audit_trade_journal("acct_dict", rts)
     assert profile.total_roundtrips == 1
-    assert "KG-2.26" in profile.citation()
+    assert "AU-KG.domains.trade-journal-bias-auditor" in profile.citation()

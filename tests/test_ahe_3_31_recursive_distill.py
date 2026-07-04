@@ -1,4 +1,4 @@
-"""Recursive distillation loop (CONCEPT:AHE-3.31).
+"""Recursive distillation loop (CONCEPT:AU-AHE.optimization.recursive-distillation-loop).
 
 corpus -> fine-tune -> capability-gate -> promote. The trainer and model-evaluator are
 external (GPU) and injected; the loop, monotone gate and promotion are pure and tested
@@ -11,7 +11,7 @@ import pytest
 
 from agent_utilities.harness.recursive_distill import RecursiveDistiller
 
-pytestmark = pytest.mark.concept("AHE-3.31")
+pytestmark = pytest.mark.concept("AU-AHE.optimization.recursive-distillation-loop")
 
 
 class _Engine:

@@ -1,5 +1,5 @@
 """
-Visual Technical Analysis Agent — CONCEPT:KG-2.6
+Visual Technical Analysis Agent — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides programmatic chart pattern detection and generation for
 visual technical analysis — identifying candlestick patterns,

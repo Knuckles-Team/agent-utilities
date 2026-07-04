@@ -1,4 +1,4 @@
-"""Discord Messaging Backend (CONCEPT:ECO-4.0).
+"""Discord Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Implements ``MessagingBackend`` for Discord using the ``discord.py`` library.
 Supports full bidirectional messaging with threads, reactions, embeds, typing
@@ -14,7 +14,7 @@ Configuration::
     # or
     MESSAGING_DISCORD_TOKEN=<your-bot-token>
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 class DiscordBackend(MessagingBackend):
     """Discord messaging backend using ``discord.py``.
 
-    CONCEPT:ECO-4.0
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
     Features:
         - Full Gateway WebSocket connection for real-time events
@@ -85,7 +85,7 @@ class DiscordBackend(MessagingBackend):
     async def connect(self) -> None:
         """Connect to Discord Gateway.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Raises:
             ImportError: If ``discord.py`` is not installed.
@@ -167,19 +167,19 @@ class DiscordBackend(MessagingBackend):
 
         @self._client.event
         async def on_ready() -> None:
-            logger.info("[CONCEPT:ECO-4.0] Discord connected as %s", self._client.user)
+            logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord connected as %s", self._client.user)
 
         # Start the bot in a background task
         self._bot_task = asyncio.create_task(self._client.start(self.config.token))
         # Wait briefly for connection
         await asyncio.sleep(2)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] Discord backend connected.")
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord backend connected.")
 
     async def disconnect(self) -> None:
         """Disconnect from Discord Gateway.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         if self._client:
             await self._client.close()
@@ -198,7 +198,7 @@ class DiscordBackend(MessagingBackend):
     ) -> SendResult:
         """Send a message to a Discord channel.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Supports Discord embeds via ``metadata["embed"]``.
         """
@@ -230,7 +230,7 @@ class DiscordBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.0] Discord send failed: %s", e)
+            logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord send failed: %s", e)
             return SendResult(
                 success=False,
                 platform=PlatformId.DISCORD,
@@ -241,7 +241,7 @@ class DiscordBackend(MessagingBackend):
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
         """Add a reaction to a Discord message.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         channel = self._client.get_channel(int(channel_id))
         if channel is None:
@@ -252,7 +252,7 @@ class DiscordBackend(MessagingBackend):
     async def send_typing(self, channel_id: str) -> None:
         """Send typing indicator in a Discord channel.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         channel = self._client.get_channel(int(channel_id))
         if channel:
@@ -263,7 +263,7 @@ class DiscordBackend(MessagingBackend):
     ) -> Thread:
         """Create a thread on a Discord message.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         channel = self._client.get_channel(int(channel_id))
         if channel is None:
@@ -280,7 +280,7 @@ class DiscordBackend(MessagingBackend):
     async def listen(self) -> AsyncIterator[InboundEvent]:
         """Listen for inbound Discord events.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Yields events from the internal queue populated by Gateway handlers.
         """
@@ -294,7 +294,7 @@ class DiscordBackend(MessagingBackend):
     async def list_channels(self) -> list[Channel]:
         """List accessible Discord channels.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         channels = []
         for guild in self._client.guilds:
@@ -316,7 +316,7 @@ class DiscordBackend(MessagingBackend):
     async def list_members(self, channel_id: str) -> list[dict[str, Any]]:
         """List members of a Discord channel.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         channel = self._client.get_channel(int(channel_id))
         if not channel or not hasattr(channel, "members"):

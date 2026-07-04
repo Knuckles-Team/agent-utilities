@@ -1,4 +1,4 @@
-"""Non-saturating superhuman progress signals (CONCEPT:SAFE-1.1).
+"""Non-saturating superhuman progress signals (CONCEPT:AU-OS.scaling.non-saturating-compression-scorer).
 
 Relative scorers + a saturation detector that keep producing signal past the
 human/known-answer ceiling, so a genuine capability jump is distinguishable from
@@ -19,7 +19,7 @@ from agent_utilities.harness.frontier_scorers import (
 )
 from agent_utilities.harness.reliability_scorers import build_reliability_suite
 
-pytestmark = pytest.mark.concept("SAFE-1.1")
+pytestmark = pytest.mark.concept("AU-OS.scaling.non-saturating-compression-scorer")
 
 
 class TestCompressionScorer:

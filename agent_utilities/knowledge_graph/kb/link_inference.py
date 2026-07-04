@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Zero-LLM, pack-driven typed-edge extraction.
 
-CONCEPT:KG-2.33 — Zero-LLM Pack-Driven Link Inference
+CONCEPT:AU-KG.research.zero-llm-pack-link — Zero-LLM Pack-Driven Link Inference
 
 Mirrors gbrain's ``link-inference.ts``: on every write, the active Schema Pack's
 :class:`~agent_utilities.models.schema_pack.LinkInferenceRule` set runs over the

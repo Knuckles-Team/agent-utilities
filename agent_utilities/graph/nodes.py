@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def load_and_execute_process_flow(ctx: StepContext) -> str | End:
     """Dynamically load a ProcessFlow from the KG and stage it for the dispatcher.
 
-    Builder step (CONCEPT:ORCH-1.1). Reads the target flow id from ``state.current_flow_id``,
+    Builder step (CONCEPT:AU-ORCH.planning.recursion-nesting-depth). Reads the target flow id from ``state.current_flow_id``,
     loads the flow + its applicable policies into state, and dispatches to the ``dispatcher`` node.
     Returns the next node id (or ``End``), matching the other ``g.step`` functions — previously this
     was a ``BaseNode`` subclass registered via ``g.step``, which the builder API does not accept.

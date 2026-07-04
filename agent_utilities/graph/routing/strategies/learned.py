@@ -1,4 +1,4 @@
-"""Learned / adaptive routing policies (CONCEPT:ORCH-1.2).
+"""Learned / adaptive routing policies (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation).
 
 Canonical location for the data-driven routing policies (rule-based, trace-learned,
 cost-aware, topological). The implementation currently lives in the strangled

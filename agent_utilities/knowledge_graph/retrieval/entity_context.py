@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Generic entity context provider (CONCEPT:KG-2.139).
+"""Generic entity context provider (CONCEPT:AU-KG.retrieval.kg-3).
 
 The ``entity`` domain of the context plane: answers *"what's in the world-model /
 how many X / show me recent X"* over **any** node type present in the KG — Code,
@@ -53,7 +53,7 @@ def entity_context(
 
     # "why" is a relational, multi-hop question ("why/how is X connected …") — answer
     # it by *actively reconstructing* the query-relevant subgraph from a seed cue
-    # rather than a flat census (CONCEPT:KG-2.275, MRAgent). Falls through to the
+    # rather than a flat census (CONCEPT:AU-KG.retrieval.assimilated-from-mragent, MRAgent). Falls through to the
     # census view when nothing resolves, so it never regresses the other intents.
     if intent == "why":
         reconstructed = _reconstruct_answer(engine, query, domain=domain, top_k=limit)
@@ -138,7 +138,7 @@ def _synthesize(domain, by_type, focus_labels, recent) -> str:
 def _reconstruct_answer(
     engine: Any, query: str, *, domain: str, top_k: int
 ) -> dict[str, Any] | None:
-    """Active reconstruction for a "why"/relational question (CONCEPT:KG-2.275).
+    """Active reconstruction for a "why"/relational question (CONCEPT:AU-KG.retrieval.assimilated-from-mragent).
 
     Resolve seed cues from the query, walk the Cue-Tag-Content subgraph
     accumulating evidence, and synthesize a cited answer with the reconstruction

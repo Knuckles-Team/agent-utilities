@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Prompt Chaining Pattern — CONCEPT:ORCH-1.1
+"""Prompt Chaining Pattern — CONCEPT:AU-ORCH.planning.recursion-nesting-depth
 
 Provides a declarative, multi-step prompt pipeline with intermediate
 validation, conditional branching, and KG persistence.  Each chain step
@@ -15,7 +15,7 @@ OWL alignment:
     :PromptChain rdfs:subClassOf :Procedure  (BFO:Process)
     :PromptChainStep rdfs:subClassOf :Action  (BFO:Process)
 
-See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.1
+See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.planning.recursion-nesting-depth
 """
 
 
@@ -201,7 +201,7 @@ class PromptChainExecutor:
                 )
                 raise
 
-        # Historical semantics, declaratively (CONCEPT:ORCH-1.36): retry ANY
+        # Historical semantics, declaratively (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating): retry ANY
         # Exception up to max_retries extra attempts with NO delay between
         # attempts; exhaustion leaves output == "" rather than raising.
         policy = ResiliencePolicy(

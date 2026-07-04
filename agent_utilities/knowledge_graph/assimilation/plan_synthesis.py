@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Plan synthesis from a feature's KG neighborhood (CONCEPT:KG-2.7 / KG-2.10).
+"""Plan synthesis from a feature's KG neighborhood (CONCEPT:AU-KG.query.vendor-agnostic-traversal / KG-2.10).
 
 The last graph-native stage: turn the top-ranked **open** gaps into grounded SDD
 plan proposals. Instead of re-reading raw papers per plan (the first attempt's
@@ -202,7 +202,7 @@ def synthesize_plans(
     The per-gap syntheses run **concurrently**: each is an independent,
     I/O-bound planner LLM call, so a thread pool turns N serial planner round
     trips into ~one call's wall-time (the dominant cost of the golden-loop
-    synthesize stage). (CONCEPT:KG-2.7)
+    synthesize stage). (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     """
     ranked = rank_features(engine)
     # Select up to top_n open gaps first (cheap; skips already-proposed ones).

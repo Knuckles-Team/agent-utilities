@@ -1,6 +1,6 @@
 """Unified web-fetch resolver — fetch a URL as markdown via the best backend.
 
-CONCEPT:KG-2.7 — Pluggable web fetching. One front door that both the ingestion
+CONCEPT:AU-KG.ingest.web-fetch-front-door — Pluggable web fetching. One front door that both the ingestion
 engine (the ``DOCUMENT`` URL path) and the skill-graph distillation pipeline call,
 so the acquisition backend is chosen once, consistently, in this precedence:
 

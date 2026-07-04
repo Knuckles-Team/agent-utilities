@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.22 — SWE-bench instance corpus.
+"""CONCEPT:AU-AHE.harness.swebench-instance-corpus — SWE-bench instance corpus.
 
 A thin, framework-agnostic loader for SWE-bench(-style) instances: repo + base commit + problem
 statement + the gold ``test_patch`` and the FAIL_TO_PASS / PASS_TO_PASS test selectors that

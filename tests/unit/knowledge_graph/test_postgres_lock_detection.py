@@ -3,7 +3,7 @@
 A bare ``"lock" in str(exc)`` substring test misclassified a schema-drift error on
 the ``idea_block`` table ("idea_b·lock·") as lock contention, so the write retried
 the lock path and never reached the auto-DDL self-heal — every ``idea_block`` write
-was silently dropped (CONCEPT:KG-2.7).
+was silently dropped (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def _err(msg: str, sqlstate: str | None = None) -> Exception:
 _is_lock = PostgreSQLBackend._is_lock_contention
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 def test_idea_block_missing_column_is_not_lock():
     # The bug: "idea_block" contains the substring "lock".
     exc = _err(
@@ -33,7 +33,7 @@ def test_idea_block_missing_column_is_not_lock():
     assert _is_lock(exc) is False
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 @pytest.mark.parametrize(
     "msg",
     [
@@ -46,7 +46,7 @@ def test_schema_errors_are_not_lock(msg):
     assert _is_lock(_err(msg, sqlstate="42703")) is False
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 @pytest.mark.parametrize(
     ("msg", "sqlstate"),
     [

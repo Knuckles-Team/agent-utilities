@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Search-distillation harvester: turn solved reasoning into training data.
 
-CONCEPT:OS-5.36 — a search-distillation harvester that converts the reasoning router's verified high-scoring results and best-of-k candidate sets into a versioned SFT and preference-pair corpus, collapse-guarded, so test-time search compute becomes better training data
+CONCEPT:AU-AHE.harness.search-distillation-harvester — a search-distillation harvester that converts the reasoning router's verified high-scoring results and best-of-k candidate sets into a versioned SFT and preference-pair corpus, collapse-guarded, so test-time search compute becomes better training data
 
 The paper's answer to the data wall (§5.1/§5.3) is to *convert test-time compute into
 better data* — distil search-improved outputs (AlphaZero-style) back into a corpus that

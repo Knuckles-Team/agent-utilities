@@ -1,6 +1,6 @@
 """Comprehensive Knowledge Graph Integration Tests.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Tests the full lifecycle: schema → ingestion → MAGMA retrieval → spawning →
 self-improvement → maintenance, validating all discussed architectural features.

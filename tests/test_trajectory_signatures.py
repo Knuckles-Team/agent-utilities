@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for realized-difficulty trajectory signatures (CONCEPT:AHE-3.30)."""
+"""Tests for realized-difficulty trajectory signatures (CONCEPT:AU-AHE.reward.search-task-corpus)."""
 
 from __future__ import annotations
 

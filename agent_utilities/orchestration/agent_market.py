@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Market-based task allocation for an agent collective.
 
-CONCEPT:ORCH-1.51 — a virtual-agent-economy task allocator that runs a capability-gated second-price auction so a collective self-organizes who does what via price signals instead of static role routing, surfacing scarcity and value
+CONCEPT:AU-ORCH.routing.virtual-agent-economy-task — a virtual-agent-economy task allocator that runs a capability-gated second-price auction so a collective self-organizes who does what via price signals instead of static role routing, surfacing scarcity and value
 
 The paper (§5.4) names *Virtual Agent Economies* — collectives that emerge from market
 dynamics where "price signals coordinate vast numbers of AGI agents" — as a path to

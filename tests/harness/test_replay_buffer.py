@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Tests for the prioritized replay buffer (MEMO b4-03 F4).
 
-CONCEPT:AHE-3.0
+CONCEPT:AU-AHE.harness.harness-evolution
 """
 
 import pytest
 
 from agent_utilities.harness.replay_buffer import PrioritizedReplayBuffer
 
-pytestmark = pytest.mark.concept("AHE-3.0")
+pytestmark = pytest.mark.concept("AU-AHE.harness.harness-evolution")
 
 
 def test_add_and_len():

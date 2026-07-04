@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Skills, skill-graphs and skill-workflows share one enrichment level (CONCEPT:KG-2.7).
+"""Skills, skill-graphs and skill-workflows share one enrichment level (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 An atomic skill must get the SAME enrichment as a document/book — its instruction body
 chunked + embedded (semantic search) and concepts/facts extracted — plus its

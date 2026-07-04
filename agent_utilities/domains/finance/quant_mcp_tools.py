@@ -1,5 +1,5 @@
 """
-Quant MCP Tools — CONCEPT:ECO-4.0
+Quant MCP Tools — CONCEPT:AU-ECO.messaging.native-backend-abstraction
 Exposes quant primitives to external agents via the graph-os MCP Server.
 """
 

@@ -1,10 +1,10 @@
-# Conductor Orchestration (CONCEPT:ORCH-1.1 to CONCEPT:ORCH-1.1)
+# Conductor Orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth to CONCEPT:AU-ORCH.planning.recursion-nesting-depth)
 
 > **Source**: *"Learning to Orchestrate Agents in Natural Language with the Conductor"* — Nielsen et al., ICLR 2026, Sakana AI
 
 This document describes four architectural concepts inspired by the RL Conductor paper that enhance the agent-utilities orchestration pipeline with refined subtask decomposition, context isolation, model synergy tracking, and recursive self-referential graph execution.
 
-## CONCEPT:ORCH-1.1: Conductor Workflow Specification
+## CONCEPT:AU-ORCH.planning.recursion-nesting-depth: Conductor Workflow Specification
 
 **Module**: `agent_utilities/models/sdd.py` — `ExecutionStep.refined_subtask`
 
@@ -20,7 +20,7 @@ The `refined_subtask` field on `ExecutionStep` carries a natural-language instru
 ExecutionStep(
     node_id="python_programmer",
     refined_subtask="Implement a FastAPI REST API with JWT authentication middleware",
-    access_list=["researcher"],  # CONCEPT:ORCH-1.1: only sees researcher output
+    access_list=["researcher"],  # CONCEPT:AU-ORCH.planning.recursion-nesting-depth: only sees researcher output
 )
 ```
 
@@ -28,14 +28,14 @@ ExecutionStep(
 
 ### Router Integration
 
-The router's system prompt now includes CONCEPT:ORCH-1.1 instructions:
+The router's system prompt now includes CONCEPT:AU-ORCH.planning.recursion-nesting-depth instructions:
 
 > For EACH step in your plan, include a `refined_subtask` — a focused,
 > specific instruction tailored for that specialist.
 
 ---
 
-## CONCEPT:ORCH-1.1: Execution Visibility Graph
+## CONCEPT:AU-ORCH.planning.recursion-nesting-depth: Execution Visibility Graph
 
 **Module**: `agent_utilities/graph/executor.py` — `_resolve_access_context()`
 
@@ -76,7 +76,7 @@ def _resolve_access_context(
 
 ---
 
-## CONCEPT:AHE-3.3: Model Synergy Tracker
+## CONCEPT:AU-AHE.evaluation.interpretability-tests: Model Synergy Tracker
 
 **Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the old `knowledge_graph/self_model.py` import path remains as a backward-compatible shim)
 
@@ -115,7 +115,7 @@ synergies = self_model.get_best_synergies(
 
 ---
 
-## CONCEPT:ORCH-1.1: Recursive Graph Orchestration
+## CONCEPT:AU-ORCH.planning.recursion-nesting-depth: Recursive Graph Orchestration
 
 **Module**: `agent_utilities/graph/hierarchical_planner.py` (`RecursiveContext`, `MAX_RECURSION_DEPTH`, `RecursionDepthExceeded`). The `recursive_orchestrator` specialist itself is registered in `agent_utilities/graph/executor.py`.
 
@@ -154,12 +154,12 @@ class RecursiveContext:
     recursion_depth: int = 1
 ```
 
-### Composition with CONCEPT:ORCH-1.1 (RLM)
+### Composition with CONCEPT:AU-ORCH.planning.recursion-nesting-depth (RLM)
 
-Both CONCEPT:ORCH-1.1 (RLM) and CONCEPT:ORCH-1.1 provide recursive execution, but at different levels:
+Both CONCEPT:AU-ORCH.planning.recursion-nesting-depth (RLM) and CONCEPT:AU-ORCH.planning.recursion-nesting-depth provide recursive execution, but at different levels:
 
-- **RLM (CONCEPT:ORCH-1.1)**: Sub-shell-level recursion within a single specialist
-- **Recursive Orchestration (CONCEPT:ORCH-1.1)**: Graph-level recursion that re-plans the entire specialist topology
+- **RLM (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)**: Sub-shell-level recursion within a single specialist
+- **Recursive Orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)**: Graph-level recursion that re-plans the entire specialist topology
 
 These compose naturally — an inner recursive graph can still use RLM within its specialists.
 
@@ -169,14 +169,14 @@ These compose naturally — an inner recursive graph can still use RLM within it
 
 | Variable | Default | Description |
 |:---|:---|:---|
-| `MAX_RECURSION_DEPTH` | `2` | Maximum nesting depth for recursive orchestration (CONCEPT:ORCH-1.1) |
+| `MAX_RECURSION_DEPTH` | `2` | Maximum nesting depth for recursive orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth) |
 
 ## Related Concepts
 
 | Concept | Relationship |
 |:---|:---|
-| CONCEPT:ORCH-1.0 (Graph Orchestration) | CONCEPT:ORCH-1.1 extend the graph plan model |
-| CONCEPT:ORCH-1.1 (RLM) | CONCEPT:ORCH-1.1 composes with RLM at different recursion levels |
-| CONCEPT:KG-2.1 (Self-Model) | CONCEPT:AHE-3.3 extends SelfModel with synergy tracking |
-| CONCEPT:ORCH-1.2 (Confidence-Gated Router) | CONCEPT:AHE-3.3 feeds synergy data into routing decisions |
-| CONCEPT:KG-2.2 (KG Eval Capture) | Future: reward tuples from CONCEPT:KG-2.2 will train the Conductor policy |
+| CONCEPT:AU-ORCH.execution.inject-signal-board-observations (Graph Orchestration) | CONCEPT:AU-ORCH.planning.recursion-nesting-depth extend the graph plan model |
+| CONCEPT:AU-ORCH.planning.recursion-nesting-depth (RLM) | CONCEPT:AU-ORCH.planning.recursion-nesting-depth composes with RLM at different recursion levels |
+| CONCEPT:AU-KG.memory.tiered-memory-caching (Self-Model) | CONCEPT:AU-AHE.evaluation.interpretability-tests extends SelfModel with synergy tracking |
+| CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (Confidence-Gated Router) | CONCEPT:AU-AHE.evaluation.interpretability-tests feeds synergy data into routing decisions |
+| CONCEPT:AU-KG.ingest.engineering-rules (KG Eval Capture) | Future: reward tuples from CONCEPT:AU-KG.ingest.engineering-rules will train the Conductor policy |

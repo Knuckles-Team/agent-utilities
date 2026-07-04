@@ -1,4 +1,4 @@
-"""Universal multi-DB / GraphQL DataConnector tests (CONCEPT:KG-2.9).
+"""Universal multi-DB / GraphQL DataConnector tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Uses **sqlite3** (stdlib, always available) as the concrete backend so the full
 read/write/update/introspect surface is exercised with no external services.

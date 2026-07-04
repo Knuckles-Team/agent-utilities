@@ -1,4 +1,4 @@
-"""Tests for the epistemic-graph engine circuit breaker (CONCEPT:OS-5.23).
+"""Tests for the epistemic-graph engine circuit breaker (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
 Covers:
 - closed → open after N consecutive connect/timeout failures
@@ -215,7 +215,7 @@ class TestBreakerClientProxy:
         assert br.state == "closed"
 
     def test_connection_errors_trip_breaker(self, clock, monkeypatch):
-        # no backoff sleeps in tests (CONCEPT:KG-2.262 transient-retry)
+        # no backoff sleeps in tests (CONCEPT:AU-KG.compute.single-dropped-connection transient-retry)
         monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
         br = CircuitBreaker("ep", threshold=2, cooldown=10)
         proxy = wrap_client_with_breaker(
@@ -235,7 +235,7 @@ class TestBreakerClientProxy:
 
     def test_transient_error_retried_then_succeeds(self, monkeypatch):
         """A transient drop is retried (the client reconnects) and succeeds WITHOUT
-        counting a breaker failure — so a blip never cascades (CONCEPT:KG-2.262)."""
+        counting a breaker failure — so a blip never cascades (CONCEPT:AU-KG.compute.single-dropped-connection)."""
         monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
 
         class _FlakyNS:

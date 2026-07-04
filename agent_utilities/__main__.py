@@ -26,7 +26,7 @@ def setup_logging(debug=False):
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    # CONCEPT:KG-2.304 — self-ingest telemetry. Opt-in (default-off): ships our
+    # CONCEPT:AU-KG.ingest.attaching-this-root-logger — self-ingest telemetry. Opt-in (default-off): ships our
     # own logs into the epistemic-graph engine obs store. Clean no-op when
     # AGENT_UTILITIES_SELF_INGEST/EPISTEMIC_GRAPH_OBS_ADDR are unset.
     try:
@@ -42,7 +42,7 @@ def setup_logging(debug=False):
 def agent_server():
     """Main agent execution server.
 
-    CONCEPT:ORCH-1.0 — Unified Agent Entrypoint
+    CONCEPT:AU-ORCH.session.unified-agent-entrypoint — Unified Agent Entrypoint
     """
     parser = create_agent_parser()
     args = parser.parse_args()

@@ -1,4 +1,4 @@
-"""Research → feature → spec distillation (CONCEPT:KG-2.8 Phase 3, headline).
+"""Research → feature → spec distillation (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 3, headline).
 
 Turns ingested research/document concepts into value-ranked enhancement proposals
 and SDD-style spec drafts for a target codebase. Pure ranking + injectable LLM, so

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for DW-GRPO dynamic reward weighting + GEPA pool wiring.
 
-CONCEPT:ORCH-1.30
+CONCEPT:AU-ORCH.optimization.selection-on-unseen-data
 """
 
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from agent_utilities.rlm.dynamic_reward import DynamicRewardWeighter
 from agent_utilities.rlm.gepa import Candidate, ParetoCandidatePool
 
-pytestmark = pytest.mark.concept("ORCH-1.30")
+pytestmark = pytest.mark.concept("AU-ORCH.optimization.selection-on-unseen-data")
 
 
 # --- DynamicRewardWeighter --------------------------------------------------

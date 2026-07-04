@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Tests for the unattended overnight loop-driver core.
 
-CONCEPT:ECO-4.47 — Unattended overnight loop-driver + morning-summary write-back
-CONCEPT:SAFE-1.8 — Unattended-session stop-on-ask containment
+CONCEPT:AU-AHE.harness.overnight-loop-driver — Unattended overnight loop-driver + morning-summary write-back
+CONCEPT:AU-OS.scaling.unattended-session-stop-ask — Unattended-session stop-on-ask containment
 """
 
 from __future__ import annotations

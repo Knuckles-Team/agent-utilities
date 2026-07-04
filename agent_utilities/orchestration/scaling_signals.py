@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Scaling signal providers — the injectable load sense of the autoscaler.
 
-CONCEPT:OS-5.29 — Reactive replica autoscaling (signal seam).
+CONCEPT:AU-OS.scaling.reactive-replica-autoscaling — Reactive replica autoscaling (signal seam).
 
 The fleet autoscaler never talks to a metrics system directly; it reads a
 :class:`ScalingSignalProvider` — ``signal_value(service, signal) -> float |
@@ -15,7 +15,7 @@ Built-ins:
 
 * :class:`LocalMetricsProvider` — the DEFAULT, zero-infra provider: reads the
   in-process Prometheus gauges this package already maintains
-  (CONCEPT:OS-5.23 gateway metrics + CONCEPT:KG-2.55/KG-2.57 ingest
+  (CONCEPT:AU-OS.observability.no-op-without-metrics gateway metrics + CONCEPT:AU-KG.backend.selectable-queue-backend/KG-2.57 ingest
   backpressure): ``queue_depth`` → ``agent_utilities_kg_ingest_queue_depth``,
   ``consumer_lag`` → ``agent_utilities_kg_ingest_consumer_lag``. Any other
   signal name is looked up verbatim as a metric family in the local registry.

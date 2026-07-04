@@ -4,7 +4,7 @@ from __future__ import annotations
 """Round-trip test: distill a subgraph to a pack, then import it back.
 
 Validates that ``import_skill_graph_pack`` reconstructs the original node ids,
-types, body text, and edges recorded in ``kg_manifest.json`` (CONCEPT:AHE-3.9).
+types, body text, and edges recorded in ``kg_manifest.json`` (CONCEPT:AU-AHE.optimization.physical-distillation-engine).
 """
 
 import msgpack

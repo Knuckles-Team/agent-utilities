@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ORCH-1.2 — Hot Cache Layer & Registry Optimization.
+"""Tests for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Hot Cache Layer & Registry Optimization.
 
 Validates:
     - ``_RegistryCache`` population and invalidation lifecycle
@@ -24,7 +24,7 @@ def _reset_cache():
     _RegistryCache.invalidate()
 
 
-@pytest.mark.concept("CONCEPT:ORCH-1.2")
+@pytest.mark.concept("CONCEPT:AU-ORCH.adapter.hot-cache-invalidation")
 class TestRegistryCache:
     """Test suite for the session-scoped registry cache."""
 
@@ -76,7 +76,7 @@ class TestRegistryCache:
         assert result.agents[0].name == "new"
 
 
-@pytest.mark.concept("CONCEPT:ORCH-1.2")
+@pytest.mark.concept("CONCEPT:AU-ORCH.adapter.hot-cache-invalidation")
 class TestGetRelevantSpecialists:
     """Test suite for the top-N specialist filtering function."""
 
@@ -118,7 +118,7 @@ class TestGetRelevantSpecialists:
         assert len(result) == 1
 
 
-@pytest.mark.concept("CONCEPT:ORCH-1.2")
+@pytest.mark.concept("CONCEPT:AU-ORCH.adapter.hot-cache-invalidation")
 class TestCacheInvalidationIntegration:
     """Test invalidation signals fire correctly from callsites."""
 

@@ -1,4 +1,4 @@
-# Evidence-Weighted Memory (CONCEPT:KG-2.18)
+# Evidence-Weighted Memory (CONCEPT:AU-KG.retrieval.evidence-weighted-memory)
 
 ## Overview
 

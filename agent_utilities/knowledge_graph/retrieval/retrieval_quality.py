@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.3 — Retrieval Quality Gate & CONCEPT:KG-2.3 — Cross-Agent Context Provenance.
+"""CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Retrieval Quality Gate & CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Cross-Agent Context Provenance.
 
 Provides systematic retrieval quality measurement and failure detection
 for the HybridRetriever. Based on Devika Ambekar's research on
@@ -82,7 +82,7 @@ class RetrievalFailureMode(StrEnum):
 class ContextProvenanceRecord(BaseModel):
     """Tracks retrieval quality at each agent boundary.
 
-    CONCEPT:KG-2.3 — Cross-Agent Context Provenance
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Cross-Agent Context Provenance
 
     Attached to ``GraphState.context_provenance`` to enable downstream
     agents to assess the reliability of upstream context.
@@ -103,7 +103,7 @@ class ContextProvenanceRecord(BaseModel):
 class RetrievalQualityReport(BaseModel):
     """Quality metrics for a single retrieval operation.
 
-    CONCEPT:KG-2.3 — Retrieval Quality Gate
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Retrieval Quality Gate
 
     All metrics are computed without LLM calls for minimal overhead.
     """
@@ -153,7 +153,7 @@ class RetrievalQualityReport(BaseModel):
 class RetrievalQualityGate:
     """Wraps HybridRetriever with quality assessment and failure detection.
 
-    CONCEPT:KG-2.3 — Retrieval Quality Gate
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Retrieval Quality Gate
 
     The gate computes quality metrics for every retrieval and optionally
     filters out low-quality results. When ``gate_passed`` is False, callers
@@ -366,7 +366,7 @@ class RetrievalQualityGate:
     ) -> float:
         """Compute Normalized Discounted Cumulative Gain at k.
 
-        CONCEPT:KG-2.3 — nDCG for retrieval quality (BrowseComp-Plus)
+        CONCEPT:AU-KG.memory.auto-similarity-memory-graph — nDCG for retrieval quality (BrowseComp-Plus)
 
         Uses binary relevance: 1 if doc_id ∈ gold_doc_ids, else 0.
         Aligns with BrowseComp-Plus evaluation methodology (Section 4.1).
@@ -460,7 +460,7 @@ class RetrievalQualityGate:
     ) -> ContextProvenanceRecord:
         """Create a provenance record from a quality report.
 
-        CONCEPT:KG-2.3 — Cross-Agent Context Provenance
+        CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Cross-Agent Context Provenance
 
         This record should be appended to ``GraphState.context_provenance``
         after each specialist execution.
@@ -481,7 +481,7 @@ class RetrievalQualityGate:
         )
 
 
-# ── CONCEPT:KG-2.18 — Evidence-Weighted Memory ──────────────────────────────────
+# ── CONCEPT:AU-KG.retrieval.evidence-weighted-memory — Evidence-Weighted Memory ──────────────────────────────────
 # Assimilated from memory-os (ClaudioDrews/memory-os@a4ca094, layers/03-fact-store.md +
 # icarus/state.py + scripts/context_enhancer.py). The quality gate above SCORES retrieval but
 # nothing trains those scores. This closes the loop: usage telemetry + a Bayesian trust score that
@@ -513,7 +513,7 @@ def bayesian_trust(
 
 
 class LineageRecord(BaseModel):
-    """Provenance of one generation: which memory ids grounded the answer (CONCEPT:KG-2.18)."""
+    """Provenance of one generation: which memory ids grounded the answer (CONCEPT:AU-KG.retrieval.evidence-weighted-memory)."""
 
     query: str
     retrieved_ids: list[str] = Field(default_factory=list)
@@ -546,7 +546,7 @@ def build_lineage(
 
 
 class UsageTelemetry:
-    """Records recall→usage events and derives trust per memory node (CONCEPT:KG-2.18).
+    """Records recall→usage events and derives trust per memory node (CONCEPT:AU-KG.retrieval.evidence-weighted-memory).
 
     ``record_recall`` logs that ids were surfaced; ``record_usage`` logs that an id actually
     informed the answer. ``trust(id)`` returns the Bayesian trust from those counts. In-process by

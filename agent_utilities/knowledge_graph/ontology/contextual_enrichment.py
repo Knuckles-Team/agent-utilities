@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Contextual-retrieval enrichment — per-chunk situating context.
 
-CONCEPT:KG-2.50 — Contextual-Retrieval Enrichment
+CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — Contextual-Retrieval Enrichment
 
 Provenance: Anthropic "Contextual Retrieval" (situating each chunk within its
 document before embedding markedly improves retrieval recall) and the contextual
@@ -62,7 +62,7 @@ _MAX_DOC_CHARS = 12_000
 
 
 class ContextualEnricher:
-    """Compute situating context for chunks before embedding (CONCEPT:KG-2.50).
+    """Compute situating context for chunks before embedding (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment).
 
     Args:
         llm_fn: Optional ``(prompt) -> completion`` callable. When ``None`` (or it
@@ -102,7 +102,7 @@ class ContextualEnricher:
     ) -> list[str]:
         """Return one context string per chunk, aligned to ``chunk_texts``.
 
-        CONCEPT:KG-2.50. The LLM path computes the doc summary once then situates
+        CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment. The LLM path computes the doc summary once then situates
         each chunk; the heuristic path is fully deterministic.
         """
         if not chunk_texts:
@@ -167,7 +167,7 @@ class ContextualEnricher:
     ) -> str:
         """Deterministic situating context from document structure.
 
-        CONCEPT:KG-2.50 — title + nearest preceding heading + ``part i/n`` +
+        CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — title + nearest preceding heading + ``part i/n`` +
         opening sentence. No randomness → identical output for identical input, so
         offline tests are stable.
         """

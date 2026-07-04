@@ -33,7 +33,7 @@ REGISTRY = ROOT / "deploy" / "mcp-fleet.registry.yml"
 RECIPES = ROOT / "docs" / "recipes"
 
 # The standard operator-owned PRIVATE repo set + generalized CI templates genesis
-# provisions per profile (CONCEPT:OS-5.74 / OS-5.75). Sourced from
+# provisions per profile (CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75). Sourced from
 # agent_utilities/deployment/repo_templates.py so genesis.yaml never drifts from the
 # templates. Loaded by file path (no package __init__ side effects) — abstract by
 # construction, so no operator-specific env enters the manifest.
@@ -53,7 +53,7 @@ PROFILES_META = {
     "tiny": {
         "summary": "zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start",
         "docker": False,
-        # Embedded engine-encrypted __secrets__ graph (CONCEPT:OS-5.66) is the
+        # Embedded engine-encrypted __secrets__ graph (CONCEPT:AU-OS.identity.encrypted-secret-store) is the
         # default app-secret store; .env only carries the bootstrap model key +
         # EPISTEMIC_GRAPH_ENCRYPTION_KEY.
         "secrets": "engine-encrypted-or-dotenv",
@@ -65,7 +65,7 @@ PROFILES_META = {
         "idp": "none",
         "ontology_host": "local",
         # The ONE engine authority is AUTO-STARTED on demand by the single
-        # resolver (CONCEPT:OS-5.63) from a prebuilt multi-arch wheel — a Pi
+        # resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) from a prebuilt multi-arch wheel — a Pi
         # NEVER compiles. It is the pi-max tier binary (lean pure-Rust: graph +
         # cypher + ann + rdf/sparql/owl + tsdb + blob + streaming + security/
         # encryption-at-rest; NO DataFusion/C). NOT in-process, NOT a cache: a
@@ -128,14 +128,14 @@ RUN_PLAN = {
     "podman_modes": ["rootful", "rootless"],
     "idp": ["keycloak", "okta", "other-oidc", "none"],
     # secrets_store precedence: `engine` = the engine's encrypted __secrets__ graph
-    # (CONCEPT:OS-5.66, the default embedded app-secret store, sealed by the engine's
+    # (CONCEPT:AU-OS.identity.encrypted-secret-store, the default embedded app-secret store, sealed by the engine's
     # encryption-at-rest under EPISTEMIC_GRAPH_ENCRYPTION_KEY); `vault` = OpenBao/Vault
     # (enterprise fleet source of truth); `env` = .env fallback.
     "secrets_store": ["engine", "vault", "env"],
     "ontology_hosts": ["stardog", "apache-jena", "local"],
     # epistemic-graph is the ONE multi-model store at EVERY scale (not a cache).
     # Deployment SHAPE: autostart = the resolver auto-starts the pi-tier binary
-    # from a prebuilt wheel (tiny, CONCEPT:OS-5.63); container = the engine-as-a-DB
+    # from a prebuilt wheel (tiny, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); container = the engine-as-a-DB
     # Docker image (single-node-prod); remote = shared engine via
     # GRAPH_SERVICE_ENDPOINTS (enterprise).
     "engine": ["autostart", "container", "remote"],
@@ -151,7 +151,7 @@ RUN_PLAN = {
     # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
     # package's compose.dev.yml source-mounted container (edits live on restart).
     "install_variants": ["prod", "dev"],
-    # Agent->user messaging (CONCEPT:ECO-4.0). channels = MESSAGING_ENABLED_BACKENDS;
+    # Agent->user messaging (CONCEPT:AU-ECO.messaging.native-backend-abstraction). channels = MESSAGING_ENABLED_BACKENDS;
     # reach_mode last-active works today, broadcast fans out to all (engine fan-out).
     "messaging": {
         "channels": [
@@ -258,7 +258,7 @@ def build() -> dict:
             "engine": meta["engine"],
             # Prebuilt engine tier to ship for this profile (pi|pi-max|node|cluster|full).
             "engine_tier": meta["engine_tier"],
-            # Autostarted-engine lifecycle (CONCEPT:OS-5.63): refcounted (shared,
+            # Autostarted-engine lifecycle (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): refcounted (shared,
             # auto-stops when idle — tiny default) vs persistent (long-living).
             "engine_lifecycle": meta.get("engine_lifecycle", "refcounted"),
             "engine_idle_shutdown_secs": meta.get("engine_idle_shutdown_secs", 60),
@@ -288,7 +288,7 @@ def build() -> dict:
             ],
             "docker_when": "profile != tiny",
         },
-        # The ONE multi-model store at every scale (CONCEPT:OS-5.63 resolver). It is NOT
+        # The ONE multi-model store at every scale (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision resolver). It is NOT
         # a cache — it is durable, redb-authoritative by default (an acked write survives
         # kill -9), spanning graph + vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning +
         # time-series + blob + text + multi-Raft + cross-shard 2PC + streaming/CDC +
@@ -296,8 +296,8 @@ def build() -> dict:
         "engine": {
             "version": "epistemic-graph>=1.0.0",
             "extra": "pip install 'agent-utilities[engine]'  (bumps to the published wheel)",
-            "authority": "redb-authoritative durable by default (CONCEPT:KG-2.195)",
-            "resolver": "CONCEPT:OS-5.63 — remote -> share-running-local -> autostart the"
+            "authority": "redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)",
+            "resolver": "CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local -> autostart the"
             " pi-tier binary; refcounted (auto-stops idle) or persistent lifecycle",
             "wheels": "prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64,"
             " windows) — the Pi tiers never compile",
@@ -310,7 +310,7 @@ def build() -> dict:
                 "cluster": "node + multi-Raft replication+pgwire+distributed/cross-shard-2PC (HA)",
                 "full": "all single-node features, size-optimized (no raft/pgwire)",
             },
-            # The embedded app-secret store (CONCEPT:OS-5.66): :Secret nodes in the
+            # The embedded app-secret store (CONCEPT:AU-OS.identity.encrypted-secret-store): :Secret nodes in the
             # __secrets__ graph, values sealed by the engine's encryption-at-rest. The
             # encryption key is itself a genesis-provisioned secret (Step 8).
             "secret_store": {
@@ -326,7 +326,7 @@ def build() -> dict:
         "ide_targets": {
             "install_skills": "install-skills --all-detected",
             "install_mcp": "mcp-installer --all-detected",
-            # CONCEPT:OS-5.40 — governance-derived Claude Code permission fence.
+            # CONCEPT:AU-OS.deployment.governance-derived-claude-code — governance-derived Claude Code permission fence.
             "harness_fence": "setup-config harness-fence --target ~/.claude",
             "tools": IDE_TARGETS,
         },
@@ -340,7 +340,7 @@ def build() -> dict:
         # Standard operator-owned PRIVATE repos genesis provisions (Step 9b). The
         # operator's environment (inventory/workspace/secrets) lives ONLY in these
         # private repos + the XDG config — never in this public repo. Abstract,
-        # templated, profile-scaled (CONCEPT:OS-5.74 / OS-5.75).
+        # templated, profile-scaled (CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75).
         "private_repos": _repo_manifest_summary(),
     }
 

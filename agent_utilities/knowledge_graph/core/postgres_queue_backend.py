@@ -1,6 +1,6 @@
 """Cross-host-safe Postgres task queue.
 
-CONCEPT:KG-2.54 — Cross-host-safe KG task queue with atomic SKIP LOCKED claims and visibility-timeout recovery on the shared state store
+CONCEPT:AU-KG.ingest.cross-host-safe-kg — Cross-host-safe KG task queue with atomic SKIP LOCKED claims and visibility-timeout recovery on the shared state store
 
 Drop-in :class:`~agent_utilities.knowledge_graph.core.queue_backend.QueueBackend`
 backed by the shared state-store Postgres (``state_db_uri``), replacing the
@@ -61,7 +61,7 @@ CREATE INDEX IF NOT EXISTS idx_kg_task_staging_claim
 def _queue_table_ddl(table: str) -> str:
     """DDL for an additional SKIP LOCKED claim queue table.
 
-    CONCEPT:ORCH-1.45 — the agent dispatch queue (``agent_dispatch_queue``)
+    CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the agent dispatch queue (``agent_dispatch_queue``)
     reuses this backend with its own table; same columns, same claim contract.
     """
     return f"""

@@ -47,7 +47,7 @@ Dockerfile pip-installs from PyPI; debug builds from local source). Registered i
 `mcp_config*.json` + `services/mcp-multiplexer/mcp_config_central.json`. The KG side
 (`MCP_TOOL_PRESETS["freshrss"]` + `_sync_freshrss` + `WorldModelPipelineRunner`) is in
 agent-utilities; the source connector authenticates outbound to the JWT-protected
-`freshrss-mcp` via the service-account bearer (`MCP_CLIENT_AUTH`, OS-5.32).
+`freshrss-mcp` via the service-account bearer (`MCP_CLIENT_AUTH`, AU-OS.identity.so-jwt-protected-children).
 
 ---
 

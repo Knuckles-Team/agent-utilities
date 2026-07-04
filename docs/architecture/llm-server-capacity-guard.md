@@ -1,14 +1,14 @@
 # LLM / Embedding Server-Capacity Guard
 
-> CONCEPT:ORCH-1.102 (per-endpoint server-capacity ceiling) · CONCEPT:ORCH-1.103
-> (capacity-aware backpressure + circuit breaking) · CONCEPT:KG-2.298
+> CONCEPT:AU-ORCH.dispatch.embedding-fanout (per-endpoint server-capacity ceiling) · CONCEPT:AU-ORCH.routing.load-shedding-backoff
+> (capacity-aware backpressure + circuit breaking) · CONCEPT:AU-KG.compute.same-semantics-as
 > (`max_concurrent_requests` config).
 > Composes with — does not replace — the Resource-Priority Edict
-> ([`resource-priority-edict.md`](resource-priority-edict.md), ORCH-1.98/1.99),
+> ([`resource-priority-edict.md`](resource-priority-edict.md), AU-ORCH.scheduling.resource-priority-edict/1.99),
 > the adaptive concurrency controller
-> ([`adaptive_model_concurrency.md`](adaptive_model_concurrency.md), KG-2.145), and
+> ([`adaptive_model_concurrency.md`](adaptive_model_concurrency.md), AU-KG.compute.surfaces-universal-latency-signal), and
 > the shared-GPU budget ([`distributed_gpu_concurrency.md`](distributed_gpu_concurrency.md),
-> KG-2.146).
+> AU-KG.compute.pure-config-enumeration-fail).
 
 ## The failure this prevents
 
@@ -37,13 +37,13 @@ requests — far more than the GB10 can serve without OOM.
 
 ## The guard
 
-### 1. A per-endpoint server-capacity ceiling (ORCH-1.102 / KG-2.298)
+### 1. A per-endpoint server-capacity ceiling (ORCH-1.102 / AU-KG.compute.same-semantics-as)
 
 `server_ceiling(model)` (`core/model_concurrency.py`) is the **one** number the
 remote **server** dictates — its vLLM `--max-num-seqs` / KV-cache + unified-memory
 budget — resolved as:
 
-1. the model's explicit **`max_concurrent_requests`** (config, KG-2.298) — wins
+1. the model's explicit **`max_concurrent_requests`** (config, AU-KG.compute.same-semantics-as) — wins
    absolutely, may be *below* the optimistic `parallel_instances × max_parallel_calls`
    product if the box genuinely can't sustain it;
 2. else `max(total_capacity, MODEL_MAX_CONCURRENT_REQUESTS)` — a conservative
@@ -62,13 +62,13 @@ two endpoints share the physical GB10 via the shared-GPU budget, below).
 Two layers, composed:
 
 ```
-demand source ─▶ circuit breaker (ORCH-1.103, back off if server is shedding)
+demand source ─▶ circuit breaker (AU-ORCH.routing.load-shedding-backoff, back off if server is shedding)
               ─▶ PriorityModelGate(capacity = server_ceiling)   ← shared, hard aggregate cap + priority reserve
               ─▶ per-fan-out width (semaphore / thread-pool, ≤ ceiling)  ← this call's own slice
               ─▶ the call
 ```
 
-### 2. Capacity-aware backpressure + circuit breaking (ORCH-1.103)
+### 2. Capacity-aware backpressure + circuit breaking (AU-ORCH.routing.load-shedding-backoff)
 
 `core/model_circuit_breaker.py` — a three-state breaker per endpoint
 (`ModelCircuitBreaker`), fed the same `(ok, status)` samples the fan-out already
@@ -97,11 +97,11 @@ it recovers. One breaker per model key, so embeds + enrichment + orchestration o
 
 The read-only `is_tripped()` probe (true only while OPEN *and still within cooldown*,
 and side-effect-free — it does **not** consume the HALF_OPEN probe) is what the
-embedder-failover router (`embedding_failover.py`, KG-2.299) consults to route away
+embedder-failover router (`embedding_failover.py`, AU-KG.enrichment.each-call-resolves-active) consults to route away
 from a shedding primary onto its fallback, getting automatic recovery for free. See
 [`distributed_gpu_concurrency.md`](distributed_gpu_concurrency.md).
 
-### 3. The priority edict still holds (ORCH-1.98/1.99)
+### 3. The priority edict still holds (AU-ORCH.scheduling.resource-priority-edict/1.99)
 
 The ceiling gate is the **same** `PriorityModelGate`, so background ingestion still
 yields its reserved headroom to interactive / orchestration / hydration. The two
@@ -117,12 +117,12 @@ the MAX.** Background never starves the box; interactive never waits behind it.
 | `MODEL_CIRCUIT_BREAKER` | `true` | Enable the per-endpoint breaker. |
 | `MODEL_BREAKER_FAIL_THRESHOLD` | `1` | Consecutive overloads before tripping. |
 | `MODEL_BREAKER_BASE_COOLDOWN_S` / `_MAX_COOLDOWN_S` / `_BACKOFF_FACTOR` | `0.5` / `30` / `2.0` | Exponential backoff envelope. |
-| `gpu_group` (per-model config field) | unset → `base_url` host | Joins models on one physical GPU into one budget bucket. Set the **same** tag on endpoints served from *different* hosts that share a GPU (KG-2.146). Resolved by `Config.gpu_group`. |
-| `GPU_CONCURRENCY_BUDGETS` (env, KG-2.146) | unset | Per-physical-GPU budget capping the **sum** across endpoints sharing one box. |
+| `gpu_group` (per-model config field) | unset → `base_url` host | Joins models on one physical GPU into one budget bucket. Set the **same** tag on endpoints served from *different* hosts that share a GPU (AU-KG.compute.pure-config-enumeration-fail). Resolved by `Config.gpu_group`. |
+| `GPU_CONCURRENCY_BUDGETS` (env, AU-KG.compute.pure-config-enumeration-fail) | unset | Per-physical-GPU budget capping the **sum** across endpoints sharing one box. |
 
 Resolution precedence for the per-endpoint ceiling (`server_ceiling(model)` in
 `core/model_concurrency.py`): an explicit per-model `max_concurrent_requests`
-(`Config.model_max_concurrent_requests`, KG-2.298) wins absolutely — it may be set
+(`Config.model_max_concurrent_requests`, AU-KG.compute.same-semantics-as) wins absolutely — it may be set
 *below* the optimistic `parallel_instances × max_parallel_calls` product when the box
 genuinely can't sustain it. Otherwise the ceiling is
 `max(model's declared total_capacity, MODEL_MAX_CONCURRENT_REQUESTS)`, so an
@@ -161,7 +161,7 @@ Then set, per model in our config:
 { "id": "bge-m3",              "max_concurrent_requests": 16, "gpu_group": "gb10" }
 ```
 
-`gpu_group: "gb10"` on both makes the shared-GPU budget (KG-2.146,
+`gpu_group: "gb10"` on both makes the shared-GPU budget (AU-KG.compute.pure-config-enumeration-fail,
 `GPU_CONCURRENCY_BUDGETS={"gb10": 40}`) cap their **joint** in-flight sum across the
 two endpoints, so the physical box is protected even though they are different
 endpoints. Rule of thumb: `Σ client ceilings ≤ Σ server --max-num-seqs`, and the

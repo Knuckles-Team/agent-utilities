@@ -12,7 +12,7 @@
 ## The model in one paragraph
 
 A **Loop** is one long-running objective, stored as a develop/skill/research
-`Concept` node (CONCEPT:KG-2.78). `submit_loop` is the single creation path for
+`Concept` node (CONCEPT:AU-KG.research.these-properties-carry). `submit_loop` is the single creation path for
 goals, research topics, failure gaps, and skill executions. The **`LoopController`**
 advances active Loops: research loops acquire sources → reason (OWL/RDF over the
 whole ecosystem) → assimilate → distill → synthesize (propose-only); `develop`
@@ -138,7 +138,7 @@ stage flags gate the heavier stages:
 | `run_golden_loop_cycle()` facade | removed — call `LoopController(...).run_one_cycle()` |
 
 > The governed auto-merge gate keeps its own names — `KG_GOLDEN_AUTO_MERGE` /
-> `KG_GOLDEN_MERGE_THRESHOLD` (AHE-3.14) — since it gates promotion, not the loop.
+> `KG_GOLDEN_MERGE_THRESHOLD` (AU-AHE.assimilation.research-auto-merge) — since it gates promotion, not the loop.
 
 ## Loop kinds at a glance
 
@@ -154,7 +154,7 @@ checkpoint/resume machinery, and are reachable through the one `graph_loops`
 entrypoint. Loops carry a `prio_bucket`; `active_loops` advances the
 highest-priority loops first, and `graph_loops action=prioritize` bumps one.
 
-## Scheduling and the unified queue (CONCEPT:OS-5.44)
+## Scheduling and the unified queue (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
 
 The recurring **`loop_cycle`** is no longer a hardcoded daemon tick — it is a
 durable `:Schedule` the unified scheduler enqueues as a `scheduled_job` `:Task`,

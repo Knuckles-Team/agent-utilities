@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.45 — capability binding (Layer 3) + mcp prefix/alias boundary (Layer 2)."""
+"""CONCEPT:AU-ECO.toolkit.tool-ref-integrity-gate — capability binding (Layer 3) + mcp prefix/alias boundary (Layer 2)."""
 
 from __future__ import annotations
 

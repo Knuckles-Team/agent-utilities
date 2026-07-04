@@ -1,4 +1,4 @@
-"""Insight/Fact/Framework/Playbook extraction tests (CONCEPT:KG-2.8).
+"""Insight/Fact/Framework/Playbook extraction tests (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 A fake llm_fn returns canned JSON so extraction is deterministic and offline.
 Verifies typed nodes + DERIVED_FROM edges, and that the pipeline persists them.

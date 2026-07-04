@@ -1,24 +1,24 @@
-# Tasks: Multi-Agent Scaling-Law Eval Harness (ORCH-1.49)
+# Tasks: Multi-Agent Scaling-Law Eval Harness (AU-ORCH.execution.robust-multi-format-edit)
 
-Wire-first, ordered. Co-satisfies SAFE-1.2 — one harness, one set of tasks.
+Wire-first, ordered. Co-satisfies AU-OS.scaling.multi-agent-scaling-law — one harness, one set of tasks.
 
 1. **Pure fitter first (red test).** Add `fit_scaling_law(points)` to a new
-   `agent_utilities/harness/scaling_law_harness.py` (`CONCEPT:ORCH-1.49`): given
+   `agent_utilities/harness/scaling_law_harness.py` (`CONCEPT:AU-ORCH.execution.robust-multi-format-edit`): given
    `(N, quality, compute)` points return `{alpha, alpha_ci, regime, knee_n}`, pure/LLM-free.
    Write the failing unit test (`tests/unit/harness/test_orch_1_49_scaling_law_harness.py`,
-   `@pytest.mark.concept(id="ORCH-1.49")`) with synthetic super/sub/linear point sets.
+   `@pytest.mark.concept(id="AU-ORCH.execution.robust-multi-format-edit")`) with synthetic super/sub/linear point sets.
 
 2. **Sweep over the live collective runner.** In `scaling_law_harness.py` add
    `ScalingLawHarness` that takes a fixed task suite + `(N, density, archetype_mix)` grid and
    runs each config through `agent_utilities/graph/parallel_engine.py` (`ParallelEngine`) — reuse
    its existing quality/judge result path; record token/compute per config via the ECO-4.40
-   pricing / OS-5.23 metrics already on that path. **No new collective runner.**
+   pricing / AU-OS.observability.no-op-without-metrics metrics already on that path. **No new collective runner.**
 
 3. **Topology + collapse gating.** Source density/neighborhood variants from
    `agent_utilities/graph/social_system.py`; run each config's result through
    `agent_utilities/graph/population_drift.py` and exclude `collapsed` configs from the fit.
 
-4. **Persist the law as a KG node.** Write the fitted result as a KG node mirroring the KG-2.27
+4. **Persist the law as a KG node.** Write the fitted result as a KG node mirroring the AU-KG.domains.agent-calibration-reputation-tracking
    calibration-node shape (exponent + confidence band + provenance), via the KG facade —
    not a bespoke store.
 
@@ -28,5 +28,5 @@ Wire-first, ordered. Co-satisfies SAFE-1.2 — one harness, one set of tasks.
    read on a live path (default on). Add a `*_live_path` test asserting the side effect.
 
 6. **Gates + docs.** Run `scripts/build_concepts_yaml.py` then `scripts/check_concepts.py`;
-   author the per-concept doc for ORCH-1.49 (+ shared SAFE-1.2 note); `pre-commit run
+   author the per-concept doc for AU-ORCH.execution.robust-multi-format-edit (+ shared AU-OS.scaling.multi-agent-scaling-law note); `pre-commit run
    --all-files` green.

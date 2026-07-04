@@ -52,7 +52,7 @@ def markers_in_code() -> dict[str, list[str]]:
 def registered_ids() -> set[str]:
     """Every id the registry recognizes — raw ids PLUS their aliases + dotted forms.
 
-    Accepting the alias set (CONCEPT:OS-5.76 / B5) means a marker written in
+    Accepting the alias set (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5) means a marker written in
     EITHER the flat (``EG-321``) OR the canonical dotted (``EG-0.321``) form
     validates against the same registered concept, without invalidating the
     existing flat scheme.

@@ -1,4 +1,4 @@
-"""Relevance-gated FreshRSS → KG world-model ingestion (CONCEPT:KG-2.116).
+"""Relevance-gated FreshRSS → KG world-model ingestion (CONCEPT:AU-KG.ingest.news-finance-tech-sibling).
 
 The news/finance/tech sibling of the KG-2.6 research pipeline. Where the research
 pipeline acquires academic papers, this builds a *world model* from curated RSS
@@ -15,7 +15,7 @@ Tiering (per item drained from the ``freshrss`` mcp_tool preset):
   lightweight ``ArticleNode`` footprint so the item is remembered, not re-scored.
 * **skipped** — below threshold and not novel.
 * **research** — items under a "Research (ScholarX)" / arXiv feed route to the
-  research path instead, unifying RSS intake (CONCEPT:KG-2.117).
+  research path instead, unifying RSS intake (CONCEPT:AU-KG.ingest.worldmodel-gated-ingestion).
 
 Reuses ``score_text`` (world-model taxonomy profile) and ``concept_novelty`` from
 ``research_pipeline`` — one scorer, two profiles. Best-effort throughout: a single
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WorldModelConfig:
-    """Gate thresholds for world-model ingestion (CONCEPT:KG-2.116)."""
+    """Gate thresholds for world-model ingestion (CONCEPT:AU-KG.ingest.news-finance-tech-sibling)."""
 
     relevant_threshold: float = 3.0
     marginal_threshold: float = 1.0
@@ -85,7 +85,7 @@ class WorldModelPipelineRunner:
         """Score, tier, and ingest a batch of drained ``SourceDocument`` items."""
         report = WorldModelReport(items_seen=len(docs))
         taxonomy = self._live_taxonomy()
-        # Dedup the WHOLE batch in ONE engine round-trip (CONCEPT:KG-2.147) instead
+        # Dedup the WHOLE batch in ONE engine round-trip (CONCEPT:AU-KG.ingest.instead) instead
         # of N items × ~4 per-item ``has_node`` round-trips — the review plane is the
         # 50k/hr hot path, so its known-check must be O(1)-round-trip. ``None`` ⇒ the
         # engine lacks bulk existence; each item falls back to per-item ``_is_known``.
@@ -226,7 +226,7 @@ class WorldModelPipelineRunner:
         """Canonical ``arxiv:<id>`` from a feed record, or ``""``.
 
         Lets the SAME arXiv paper arriving via native ScholarX RSS AND via FreshRSS
-        collapse to one node (CONCEPT:KG-2.121 dedup convergence).
+        collapse to one node (CONCEPT:AU-KG.ingest.rss-feed-connector dedup convergence).
         """
         import re as _re
 
@@ -262,7 +262,7 @@ class WorldModelPipelineRunner:
         return keys
 
     def _batch_known_ids(self, docs: list[Any]) -> set[str] | None:
-        """Which ``docs`` already exist in the KG — in ONE round-trip (CONCEPT:KG-2.147).
+        """Which ``docs`` already exist in the KG — in ONE round-trip (CONCEPT:AU-KG.ingest.instead).
 
         Collects every candidate node-id key across the whole batch, asks the engine
         once via ``graph.has_batch``, and maps the present keys back to their owning
@@ -321,7 +321,7 @@ class WorldModelPipelineRunner:
     ) -> None:
         """Relevance-gated full ingestion of the article body (KG-2.48).
 
-        DECOUPLED (CONCEPT:KG-2.121): the heavy chunk + embed + contextual-enrich
+        DECOUPLED (CONCEPT:AU-KG.ingest.rss-feed-connector): the heavy chunk + embed + contextual-enrich
         work is ENQUEUED as a ``feed_ingest`` task and drained by the worker pool,
         so the sweep (the "review") returns fast while N ingest workers process in
         parallel — the split that lets reviews scale (CPU + network) independently
@@ -424,7 +424,7 @@ class WorldModelPipelineRunner:
         self._link_feed_source(article_id, doc, rec)
 
     def _ingest_research(self, doc: Any, rec: dict[str, Any]) -> None:
-        """Route a Research/arXiv item to the unified research path (CONCEPT:KG-2.117/2.121).
+        """Route a Research/arXiv item to the unified research path (CONCEPT:AU-KG.ingest.worldmodel-gated-ingestion/2.121).
 
         Grades the item and enqueues a prioritized ``research_paper_fetch`` task (the
         KG-2.114 path) — so a research item from ANY feed (native RSS, ScholarX,

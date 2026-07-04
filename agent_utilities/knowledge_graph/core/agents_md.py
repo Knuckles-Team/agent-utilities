@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Project-Aware Context — AGENTS.md Loader.
 
-CONCEPT:KG-2.1 — Project-Aware Context
+CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 
 This module provides dedicated entry points for loading ``AGENTS.md``
 project rules and injecting them into the system prompt.  It consolidates
@@ -54,7 +54,7 @@ _AGENTS_FILENAMES: list[str] = [
 def load_agents_md(workspace_path: str | Path) -> str | None:
     """Load AGENTS.md content from the workspace root.
 
-    CONCEPT:KG-2.1 — Project-Aware Context
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 
     Searches for AGENTS.md variants in the workspace directory using the
     canonical discovery order.  If multiple files exist, their contents
@@ -98,7 +98,7 @@ def load_agents_md(workspace_path: str | Path) -> str | None:
 def find_agents_md(start_path: str | Path) -> Path | None:
     """Walk up the directory tree to find the nearest AGENTS.md.
 
-    CONCEPT:KG-2.1 — Project-Aware Context
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 
     Searches upward from ``start_path`` until the filesystem root,
     returning the first directory that contains an ``AGENTS.md`` file.
@@ -140,7 +140,7 @@ def inject_project_context(
 ) -> str:
     """Inject AGENTS.md project rules into a system prompt.
 
-    CONCEPT:KG-2.1 — Project-Aware Context
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 
     Appends the loaded project rules as a clearly delimited section
     within the system prompt.  Optionally also injects ``MEMORY.md``
@@ -193,7 +193,7 @@ def inject_project_context(
 def extract_project_metadata(workspace_path: str | Path) -> dict[str, Any]:
     """Extract structured metadata from AGENTS.md sections.
 
-    CONCEPT:KG-2.1 — Project-Aware Context
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 
     Parses the AGENTS.md content to extract key sections as structured
     metadata.  Recognized sections: Build Commands, Test Commands, Style
@@ -260,7 +260,7 @@ def load_agents_md_layered(
 ) -> str | None:
     """Load AGENTS.md with additive hierarchical layering.
 
-    CONCEPT:KG-2.1 — Project-Aware Context (Layered)
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context (Layered)
 
     Walks UP from ``cwd`` to ``root`` (or filesystem root), collecting
     every AGENTS.md found at each directory level.  Assembles them in
@@ -340,7 +340,7 @@ def extract_scoped_commands(
 ) -> dict[str, Any]:
     """Extract build/test/lint commands scoped to the current directory.
 
-    CONCEPT:KG-2.1 — Subdirectory Command Scoping
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Subdirectory Command Scoping
 
     Walks from ``cwd`` upward, finding the nearest AGENTS.md with
     command sections.  Subdirectory commands override root-level ones.

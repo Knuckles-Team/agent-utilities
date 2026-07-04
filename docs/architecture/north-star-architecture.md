@@ -42,20 +42,20 @@ engineered to use *all* the cores/RAM of whatever it runs on, from a Raspberry P
 
 - **Durable by default.** redb-authoritative single-writer-per-file with commit-before-ack,
   read-through-safe eviction, and back-pressure (never drop). An acked write survives a
-  `kill -9`. (`CONCEPT:KG-2.195/2.187/2.191`)
-- **Parallel durable writes.** The **K-way sharded durable writer** (`CONCEPT:EG-026`) runs
+  `kill -9`. (`CONCEPT:AU-KG.backend.backend-modes/2.187/2.191`)
+- **Parallel durable writes.** The **K-way sharded durable writer** (`CONCEPT:EG-KG.backend.sharded-k-way-durable`) runs
   K independent `graph-<n>.redb` files / writer threads so a many-core box commits on K
   cores in parallel instead of serializing every tenant onto one core. The **per-graph write
-  coalescer** (`CONCEPT:KG-2.182`) collapses N concurrent single-op writes to one hot graph
+  coalescer** (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`) collapses N concurrent single-op writes to one hot graph
   into ⌈N/batch⌉ lock acquisitions, and **adaptive group-commit micro-linger**
-  (`CONCEPT:EG-024`) folds concurrent awaiting writers into one fsync.
-- **Reads never wait on writes.** MVCC **snapshot reads off the writer** (`CONCEPT:EG-027`)
+  (`CONCEPT:EG-KG.backend.adaptive-linger-coalesce`) folds concurrent awaiting writers into one fsync.
+- **Reads never wait on writes.** MVCC **snapshot reads off the writer** (`CONCEPT:EG-KG.storage.snapshot-read-off-writer`)
   serve from `begin_read()` concurrently with the single writer, and **parallel cross-shard
-  read fan-out** (`CONCEPT:EG-042`) reads K shards in parallel — a read never forces a
+  read fan-out** (`CONCEPT:AU-KG.backend.roadmap-f-parallel-cross`) reads K shards in parallel — a read never forces a
   group-commit or routes through a writer thread.
-- **Scales pi → node → cluster.** **openraft 0.10 multi-Raft** for HA (`CONCEPT:KG-2.265-273`)
+- **Scales pi → node → cluster.** **openraft 0.10 multi-Raft** for HA (`CONCEPT:AU-KG.ontology.manage-arbitrary-273`)
   and the **elastic M3 spine** — tenant catalog, online resharding, rebalancer, cold-tenant
-  offload, BLOB streaming (`CONCEPT:EG-030..043`) — let the same engine grow horizontally.
+  offload, BLOB streaming (`CONCEPT:EG-KG.sharding.atomic-shard-swap..043`) — let the same engine grow horizontally.
 
 → **Read:** [Engine Scaling Program (M1/M2/M3)](https://knuckles-team.github.io/epistemic-graph/architecture/scaling-program/)
 (epistemic-graph repo) and its sub-docs (`engine.md`, `write-coalescer.md`,
@@ -69,21 +69,21 @@ Ingestion runs **24/7** over 80+ repos plus enterprise/research feeds. The progr
 that firehose *cooperative*: it can run at full tilt without ever monopolizing the engine
 write path, the worker pool, or the shared LLM.
 
-- **Chunked async drain** (`CONCEPT:KG-2.301/2.302`): one big `source_sync(mode=full)` is
+- **Chunked async drain** (`CONCEPT:AU-KG.ontology.single-source-full-drain/2.302`): one big `source_sync(mode=full)` is
   decomposed into paginated, capacity-guarded **wave-tasks** instead of one long blocking
   call, with a `source_drain` status tool to watch progress.
   → [Chunked Async Drain](chunked-async-drain.md)
 - **Intelligent ingestion** — native auto-classification of code into typed KG nodes
-  (`CONCEPT:KG-2.284/2.285`), fast commit-history → graph + `code_evolution`
-  (`CONCEPT:KG-2.282/2.283`), batch+concurrent embedding throughput (`CONCEPT:KG-2.280/2.281`),
+  (`CONCEPT:AU-KG.ingest.over-same-tree-fan/2.285`), fast commit-history → graph + `code_evolution`
+  (`CONCEPT:AU-KG.ingest.normal-codebase-ingest-also/2.283`), batch+concurrent embedding throughput (`CONCEPT:AU-KG.ingest.applying-agents-md-batch/2.281`),
   the ingestion **tail** optimizations — big-repo split, per-task watchdog timeouts,
-  interactive-slot reservation, tail observability (`CONCEPT:KG-2.286–289`) — and batched
-  classified-document writes (`CONCEPT:KG-2.295`).
+  interactive-slot reservation, tail observability (`CONCEPT:AU-KG.compute.lane-bound-task–289`) — and batched
+  classified-document writes (`CONCEPT:AU-KG.ingest.writes-go`).
   → [Intelligent Ingestion](intelligent-ingestion.md)
 - The lane/throughput substrate it rides on (lanes, tick-collapse, bulk ops) is in
   [Ingestion Throughput](ingestion_throughput.md).
 
-The engine-side guarantee that pairs with this is the **EG-044 reserved read-admission
+The engine-side guarantee that pairs with this is the **EG-KG.coordination.reserved-read-lane reserved read-admission
 lane**: an interactive MCP read/query is *never* shed BUSY behind the ingestion write
 firehose. → [Reserved Read Lane](https://knuckles-team.github.io/epistemic-graph/architecture/reserved-read-lane/)
 (epistemic-graph repo).
@@ -96,8 +96,8 @@ The edict is the cross-cutting rule that makes "ingest 24/7" and "orchestrate
 interactively" coexist: a single **PriorityClass** ordering — `INTERACTIVE` >
 `ORCHESTRATION` ≥ `HYDRATION` > `BACKGROUND_INGESTION` — is enforced at every shared
 contention point. The **PriorityModelGate** reserves capacity on the shared LLM so
-background ingestion can never starve interactive orchestration (`CONCEPT:ORCH-1.98/1.99`,
-`KG-2.293`). End-to-end, it pairs with the engine's EG-044 reserved read lane so the
+background ingestion can never starve interactive orchestration (`CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99`,
+`KG-2.293`). End-to-end, it pairs with the engine's EG-KG.coordination.reserved-read-lane reserved read lane so the
 guarantee holds from the model server down to the durable store.
 
 → **Read:** [Resource-Priority Edict](resource-priority-edict.md)
@@ -109,13 +109,13 @@ guarantee holds from the model server down to the durable store.
 Heavy inference is spread across GPUs so embeds and generation don't fight, and so no
 endpoint can OOM a shared card:
 
-- **LLM/embedding server-capacity guard** (`CONCEPT:ORCH-1.102/1.103`, `KG-2.298`): a
+- **LLM/embedding server-capacity guard** (`CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103`, `AU-KG.compute.same-semantics-as`): a
   per-endpoint `server_ceiling` (the model *server's* real capacity, not the local host's)
   and a **joint `GPU_CONCURRENCY_BUDGETS` / `gpu_group`** so multiple endpoints sharing one
   physical GPU share one budget — the fix for the GB10 OOM where independent per-endpoint
   caps summed past GPU memory — plus a capacity-aware circuit breaker.
   → [LLM Server-Capacity Guard](llm-server-capacity-guard.md)
-- **Embedding failover + split-GPU architecture** (`CONCEPT:KG-2.299/2.300`): GR1080 runs
+- **Embedding failover + split-GPU architecture** (`CONCEPT:AU-KG.enrichment.each-call-resolves-active/2.300`): GR1080 runs
   Infinity embeddings (Pascal needs Infinity + FP32), GB10 runs the qwen LLM; embeds fail
   over GR1080 → GB10 with **capacity-guard inheritance** so a failover can't OOM the
   fallback GPU.
@@ -128,30 +128,30 @@ endpoint can OOM a shared card:
 The platform is built so the **local LLM + graph-os do the work** and the human/harness
 **orchestrates and resolves exceptions**. Three things make that safe:
 
-- **The orchestration execution seam** (`CONCEPT:ORCH-1.95/96/97`, `KG-2.296`): an ingested
+- **The orchestration execution seam** (`CONCEPT:AU-ORCH.execution.execution-seam-closure/96/97`, `KG-2.296`): an ingested
   workflow/skill resolves to a runnable DAG executed on the local LLM, returning a `run_id`
   handle, with **per-tool-call `:ToolCall` / `RunTrace` provenance** written to the
   epistemic-graph — so every delegated run is fully visible and steerable. This is the
   delegation keystone. → [Orchestration Execution Seam](orchestration-execution-seam.md)
-- **The agent-utilities-expert** (`CONCEPT:ORCH-1.100/1.101`): a native, KG-bound,
+- **The agent-utilities-expert** (`CONCEPT:AU-ORCH.dispatch.builtin-agent-templates/1.101`): a native, KG-bound,
   dispatchable expert persona with live MCP toolset binding — the default delegate target
   for ecosystem work, grounding its answers via graph-os instead of hallucinating.
   → [agent-utilities-expert](agent-utilities-expert.md)
 - **The delegation-first operating model** itself — the three delegation routes, the full
-  `engine_<domain>` MCP/REST surface delegates can reach (`CONCEPT:ECO-4.99`), and the
+  `engine_<domain>` MCP/REST surface delegates can reach (`CONCEPT:AU-ECO.mcp.full-api-mcp-surface`), and the
   read-RunTrace → find-why → fix-gap → re-delegate → **harden** loop.
   → [Delegation-First Operating Model](delegation-first-operating-model.md)
-- **Troubleshooting** (`CONCEPT:KG-2.297`): a per-layer diagnose playbook surfaced as a
+- **Troubleshooting** (`CONCEPT:AU-KG.retrieval.kg-4`): a per-layer diagnose playbook surfaced as a
   `troubleshoot` context provider, so the system self-diagnoses across engine / ingestion /
   model server / MCP / config before escalating. → [Troubleshooting](troubleshooting.md)
-- **The self-evolution flywheel** (`CONCEPT:KG-2.290/2.291/2.292`, `OS-5.73`,
-  `AHE-3.71/72/73`, `KG-2.275/2.276`): a transparent, steerable distill→develop→evolve loop
+- **The self-evolution flywheel** (`CONCEPT:AU-KG.research.evolutionstate-live-surface-per/2.291/2.292`, `AU-OS.config.autonomous-spec-develop-off`,
+  `AHE-3.71/72/73`, `AU-KG.retrieval.assimilated-from-mragent/2.276`): a transparent, steerable distill→develop→evolve loop
   with a live `EvolutionState` + saturation gauge, propose-and-hold spec proposals behind a
   review/veto gate, the per-agent hardening loop that turns a resolved exception into a
   durable improvement, and the MRAgent memory-reconstruction + selective-reward-erasure
   substrate. → [Self-Evolution Flywheel](self-evolution-flywheel.md)
 - **Standard private repos + CI** genesis provisions for an operator
-  (`CONCEPT:OS-5.74/5.75`). → [Standard Private Repos + CI](../guides/genesis-private-repos.md)
+  (`CONCEPT:AU-OS.deployment.standard-repo-templates/5.75`). → [Standard Private Repos + CI](../guides/genesis-private-repos.md)
 
 ---
 

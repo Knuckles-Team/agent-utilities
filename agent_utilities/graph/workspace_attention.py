@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.2 — Global Workspace Attention.
+"""CONCEPT:AU-ORCH.execution.global-workspace-attention — Global Workspace Attention.
 
 Always-on attention mechanism for specialist output quality filtering.
 Inspired by Global Workspace Theory (GWT), adaptive_agent_router submit proposals
@@ -11,7 +11,7 @@ Architecture:
     - Specialists produce outputs normally
     - Each output is wrapped as a ``Proposal`` with tri-score:
       relevance (embedding similarity), confidence (self-reported),
-      and track record (from self-model CONCEPT:KG-2.1)
+      and track record (from self-model CONCEPT:AU-KG.memory.tiered-memory-caching)
     - Top-K proposals are selected and broadcast to the KG
     - Low-scoring proposals are filtered out
 
@@ -19,11 +19,11 @@ Cost: ~50ms per query (embedding comparison + sort). No LLM round-trip.
 Always-on for consistent quality improvement.
 
 Integrates with:
-    - CONCEPT:KG-2.0 (OGM): Proposal persistence via ``KGMapper``
-    - CONCEPT:KG-2.1 (Self-Model): Track record scoring
+    - CONCEPT:AU-KG.query.object-graph-mapper (OGM): Proposal persistence via ``KGMapper``
+    - CONCEPT:AU-KG.memory.tiered-memory-caching (Self-Model): Track record scoring
     - Existing engine: ``cosine_similarity()`` for relevance scoring
 
-See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
+See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.execution.global-workspace-attention
 """
 
 
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # ever hold different engines (e.g. per-subsystem sharding), broadcasts are written
 # but no read ever resolves one — silently. These process-wide counters surface
 # that: ``suspected_engine_mismatch`` flips True when proposals were broadcast yet
-# reads keep missing with zero hits. CONCEPT:ORCH-1.2.
+# reads keep missing with zero hits. CONCEPT:AU-ORCH.execution.global-workspace-attention.
 _MISMATCH_WARN_AFTER_MISSES = 3
 # Strict mode (tests/CI): raise instead of warn when a mismatch is detected.
 _STRICT = setting("AGENT_UTILITIES_GWT_STRICT", "").lower() in ("1", "true", "yes")
@@ -73,7 +73,7 @@ _TELEMETRY = _GwtTelemetry()
 
 
 def workspace_attention_telemetry() -> dict[str, int | bool]:
-    """Process-wide GWT loop counters (CONCEPT:ORCH-1.2).
+    """Process-wide GWT loop counters (CONCEPT:AU-ORCH.execution.global-workspace-attention).
 
     ``suspected_engine_mismatch`` is True when proposals were broadcast and reads
     have happened but *none* resolved a proposal — the signature of the writer and
@@ -116,7 +116,7 @@ class Proposal(BaseModel):
 class WorkspaceAttention:
     """Always-on attention mechanism for specialist output quality.
 
-    CONCEPT:ORCH-1.2 — Global Workspace Attention
+    CONCEPT:AU-ORCH.execution.global-workspace-attention — Global Workspace Attention
 
     Instead of accepting all specialist outputs equally, this mechanism
     scores each output by relevance, confidence, and track record,
@@ -128,7 +128,7 @@ class WorkspaceAttention:
         2. **Confidence**: Self-reported confidence from the specialist
            (parsed from output if available, otherwise 0.5)
         3. **Track record**: Historical success rate from the persistent
-           self-model (CONCEPT:KG-2.1)
+           self-model (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
     Composite score: ``0.5 * relevance + 0.3 * track_record + 0.2 * confidence``
 
@@ -259,7 +259,7 @@ class WorkspaceAttention:
                 filtered,
             )
 
-        # CONCEPT:ORCH-1.3 — named-aggregation consensus over winners' scores,
+        # CONCEPT:AU-ORCH.execution.consensus-aggregation — named-aggregation consensus over winners' scores,
         # via the coordination layer's aggregation registry (STRATEGY synergy #2).
         if winners:
             logger.debug(
@@ -272,7 +272,7 @@ class WorkspaceAttention:
     def consensus_score(
         self, proposals: list[Proposal], operator: str = "mean"
     ) -> float:
-        """Named-operator consensus over proposals' composite scores (CONCEPT:ORCH-1.3).
+        """Named-operator consensus over proposals' composite scores (CONCEPT:AU-ORCH.execution.consensus-aggregation).
 
         Delegates to the coordination layer's aggregation registry so winner
         consensus, coordination aggregation, and selection share one taxonomy.
@@ -292,7 +292,7 @@ class WorkspaceAttention:
         """Persist winning proposals to the KG for global visibility.
 
         Creates ``ProposalNode`` entries and links them to their adaptive_agent_router.
-        These serve as training signal for the self-model (CONCEPT:KG-2.1) and are
+        These serve as training signal for the self-model (CONCEPT:AU-KG.memory.tiered-memory-caching) and are
         read back by :meth:`get_attention_score`.
 
         Args:
@@ -353,7 +353,7 @@ class WorkspaceAttention:
         collect → score → select top-K winners → broadcast to the KG. This is the
         one-call live entry point the orchestrator invokes after a multi-agent wave;
         the broadcast it produces is what :meth:`get_attention_score` later reads
-        back as each specialist's runtime standing (CONCEPT:ORCH-1.2 / KG-2.1).
+        back as each specialist's runtime standing (CONCEPT:AU-ORCH.execution.global-workspace-attention / KG-2.1).
 
         Returns the winning proposals (already persisted).
         """
@@ -376,7 +376,7 @@ class WorkspaceAttention:
         returns the most recent **selected** proposal's composite score (∈[0, 1])
         for ``node_id`` — i.e. that specialist's current standing in the global
         workspace — or ``None`` when it has no broadcast history (callers then fall
-        back to a neutral prior). CONCEPT:KG-2.1.
+        back to a neutral prior). CONCEPT:AU-KG.memory.tiered-memory-caching.
         """
         engine = engine or self.engine
         _TELEMETRY.attention_reads += 1
@@ -411,7 +411,7 @@ class WorkspaceAttention:
 
     @staticmethod
     def _maybe_flag_engine_mismatch() -> None:
-        """Surface the write-but-never-read failure mode (CONCEPT:ORCH-1.2).
+        """Surface the write-but-never-read failure mode (CONCEPT:AU-ORCH.execution.global-workspace-attention).
 
         When proposals have been broadcast but reads keep missing with zero hits, the
         writer and reader almost certainly hold different engine instances. Warn once
@@ -429,7 +429,7 @@ class WorkspaceAttention:
         msg = (
             f"WorkspaceAttention: {t.broadcasts_written} proposal(s) broadcast but "
             f"{t.attention_misses} read(s) all missed with 0 hits — the writer and "
-            "reader likely hold different engine instances (CONCEPT:ORCH-1.2)."
+            "reader likely hold different engine instances (CONCEPT:AU-ORCH.execution.global-workspace-attention)."
         )
         if _STRICT:
             raise AssertionError(msg)
@@ -504,7 +504,7 @@ class WorkspaceAttention:
     ) -> float:
         """Score a specialist's historical track record.
 
-        Uses the persistent self-model (CONCEPT:KG-2.1) if available.
+        Uses the persistent self-model (CONCEPT:AU-KG.memory.tiered-memory-caching) if available.
         Falls back to 0.5 (neutral) if no history exists.
         """
         if memory_retriever:
@@ -515,10 +515,10 @@ class WorkspaceAttention:
 
         return 0.5
 
-    # ── Group-Level Metrics (CONCEPT:ORCH-1.2) ─────────────────────────────────
+    # ── Group-Level Metrics (CONCEPT:AU-ORCH.execution.global-workspace-attention) ─────────────────────────────────
 
     def compute_group_confidence(self, proposals: list[Proposal]) -> float:
-        """Mean confidence across a group of proposals (CONCEPT:AHE-3.2).
+        """Mean confidence across a group of proposals (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
         Implements the group-level confidence from Squeeze Evolve Eq. 4:
         ``GC(g) = (1/K) * Σ C(τ) for τ ∈ g``
@@ -534,7 +534,7 @@ class WorkspaceAttention:
         return sum(p.confidence_score for p in proposals) / len(proposals)
 
     def compute_group_diversity(self, proposals: list[Proposal]) -> int:
-        """Count unique final answer patterns (CONCEPT:AHE-3.2).
+        """Count unique final answer patterns (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
         Implements Eq. 5 from Squeeze Evolve:
         ``D(g) = |{answer(τ) : τ ∈ g}|``
@@ -557,7 +557,7 @@ class WorkspaceAttention:
     def deliberation_score(self, proposals: list[Proposal]) -> dict[str, float]:
         """Cross-trajectory critical analysis for heavy thinking integration.
 
-        CONCEPT:AHE-3.4 — Analyzes a group of proposals (representing
+        CONCEPT:AU-AHE.harness.proposal-group-analysis — Analyzes a group of proposals (representing
         parallel reasoning trajectories) to determine whether they
         warrant sequential deliberation.
 

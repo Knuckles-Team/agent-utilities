@@ -1,4 +1,4 @@
-"""Tests for the multi-format edit-application engine (CONCEPT:ORCH-1.46)."""
+"""Tests for the multi-format edit-application engine (CONCEPT:AU-ORCH.reactive.action-dispatcher)."""
 
 from __future__ import annotations
 

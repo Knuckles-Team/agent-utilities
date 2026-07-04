@@ -1,4 +1,4 @@
-"""Policy-driven routing (CONCEPT:ORCH-1.4/1.5/1.7).
+"""Policy-driven routing (CONCEPT:AU-ORCH.adapter.kg-graph-materialization/1.5/1.7).
 
 Migrated from the former ``graph/policy_driven_router.py``. Consolidates swarm
 presets, subagent lifecycles, and learned agent routing into a single
@@ -53,7 +53,7 @@ class LearnedAgentPolicy(RoutingPolicy):
 class SubagentLifecyclePolicy(RoutingPolicy):
     """Routes based on the 4-tier interaction taxonomy (inline, fan-out, pool, team).
 
-    ARPO (CONCEPT:AHE-3.15): also branches to ``fan_out`` at a high-entropy decision
+    ARPO (CONCEPT:AU-AHE.reward.this-is-read-back): also branches to ``fan_out`` at a high-entropy decision
     step even when task complexity is only moderate — uncertainty at a tool/decision
     boundary is where an extra rollout pays off. Bounded by ``ARPO_MAX_BRANCHES`` via
     the ``branch_count`` carried in the context so it cannot wedge the worker pool.

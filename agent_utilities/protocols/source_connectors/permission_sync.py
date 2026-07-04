@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """External permission sync — source ACLs → KG-2.46 fine-grained permissioning.
 
-CONCEPT:ECO-4.28 — External Permission Sync
+CONCEPT:AU-ECO.connector.external-permission-sync — External Permission Sync
 
 Connectors report each document's :class:`ExternalAccess` (the source system's
 groups/users/markings). This module maps that onto the *existing* KG-2.46
@@ -60,7 +60,7 @@ def sync_access(
 ) -> NodeACL | None:
     """Mirror a source document's external access into the KG-2.46 model.
 
-    CONCEPT:ECO-4.28.
+    CONCEPT:AU-ECO.connector.external-permission-sync.
 
     Args:
         document_id: The ``Document`` node id the access applies to.

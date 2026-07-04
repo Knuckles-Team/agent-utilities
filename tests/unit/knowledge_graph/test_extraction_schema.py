@@ -1,4 +1,4 @@
-"""Tests for ontology-guided extraction (CONCEPT:KG-2.255).
+"""Tests for ontology-guided extraction (CONCEPT:AU-KG.retrieval.mmr-diversification).
 
 Covers the schema loader (TBox → ExtractionSchema), the prompt rendering, the
 content→ontology mapping, and the LIVE PATH that the schema reaches the extractor

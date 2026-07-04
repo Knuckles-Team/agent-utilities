@@ -4,12 +4,12 @@ import os
 import sys
 
 # Make this directory importable so ``_test_engine`` (the ephemeral real-engine
-# lifecycle helper, CONCEPT:KG-2.238) resolves regardless of pytest import-mode /
+# lifecycle helper, CONCEPT:AU-KG.memory.provides-real-ephemeral-one) resolves regardless of pytest import-mode /
 # the absence of a ``tests/__init__.py``.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-# CONCEPT:KG-2.238 — the ephemeral fixture (``tests/_test_engine.py``) deploys the
+# CONCEPT:AU-KG.memory.provides-real-ephemeral-one — the ephemeral fixture (``tests/_test_engine.py``) deploys the
 # PUBLISHED ``epistemic-graph`` 1.0.0 wheel: its bundled ``epistemic-graph-server``
 # binary (resolved next to ``sys.executable``) and its client are the SAME release,
 # so the client (``epistemic_graph.client.NodeClient``) already carries
@@ -57,7 +57,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "engine: test runs against the REAL ephemeral epistemic-graph engine "
-        "(requests the ``tiny_engine``/``engine_graph`` fixtures). CONCEPT:KG-2.238",
+        "(requests the ``tiny_engine``/``engine_graph`` fixtures). CONCEPT:AU-KG.memory.provides-real-ephemeral-one",
     )
 
 
@@ -125,7 +125,7 @@ def _isolate_registered_tools():
     finally:
         kg_server.REGISTERED_TOOLS.clear()
         kg_server.REGISTERED_TOOLS.update(snapshot)
-        # The named-connection registry (CONCEPT:KG-2.63) is a process-wide
+        # The named-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry) is a process-wide
         # singleton seeded from config; a test that registers a backend (e.g. a
         # Stardog mirror via setup_environment) leaves it pointing at that
         # backend and corrupts a later test's engine/query routing. Drop it so it
@@ -139,7 +139,7 @@ def clean_graph_globals(monkeypatch, tmp_path):
     IntelligenceGraphEngine.set_active(None)
 
     # Engine circuit breakers are shared per-endpoint process-wide
-    # (CONCEPT:OS-5.23); reset between tests so a deliberate connect failure
+    # (CONCEPT:AU-OS.observability.no-op-without-metrics); reset between tests so a deliberate connect failure
     # in one test never leaves the circuit open for the next.
     from agent_utilities.knowledge_graph.core import engine_breaker
 
@@ -248,7 +248,7 @@ _SESSION_ENGINE_SOCKET: "str | None" = None
 def _session_engine():
     """Deploy ONE REAL ephemeral epistemic-graph engine for the whole test session.
 
-    USER DIRECTIVE (CONCEPT:KG-2.238): engine-backed tests validate against the
+    USER DIRECTIVE (CONCEPT:AU-KG.memory.provides-real-ephemeral-one): engine-backed tests validate against the
     ACTUAL database we ship — NOT SQLite, NOT mocks — deployed ephemerally and
     destroyed/cleaned up after. This (autouse) session fixture subsumes the old
     ``start_epistemic_graph_server`` autostart so the engine is up for the *whole*
@@ -262,7 +262,7 @@ def _session_engine():
       dies);
     * exports ``GRAPH_SERVICE_SOCKET`` (+ the secret) so the client /
       ``EngineResolver`` connect to THIS engine via the **shared** leg — no
-      autostart needed (CONCEPT:OS-5.63);
+      autostart needed (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision);
     * on teardown shuts the engine down with a graceful **SIGTERM** (it
       checkpoints + exits cleanly) and removes the temp persist dir + socket.
 
@@ -321,7 +321,7 @@ def _session_engine():
 def tiny_engine(_session_engine):
     """The session engine's socket path — or ``skip`` when no real engine exists.
 
-    CONCEPT:KG-2.238. Requesting this (or ``engine_graph``) is how a test OPTS IN
+    CONCEPT:AU-KG.memory.provides-real-ephemeral-one. Requesting this (or ``engine_graph``) is how a test OPTS IN
     to the real database: on a box with no binary AND no Rust toolchain it skips
     with a clear message, whereas a test that merely tolerates the engine being
     absent should not request it (the autouse ``_session_engine`` already wired
@@ -341,10 +341,10 @@ def tiny_engine(_session_engine):
 def engine_graph(tiny_engine):
     """A FRESH, isolated REAL tenant graph on the session ``tiny_engine``.
 
-    CONCEPT:KG-2.238 — fast per-test isolation without a process per test: create
+    CONCEPT:AU-KG.memory.provides-real-ephemeral-one — fast per-test isolation without a process per test: create
     a uniquely-named tenant graph on the one running engine, yield a
     :class:`GraphComputeEngine` scoped to it, then DELETE it via the engine's
-    tenant-purge (CONCEPT:KG-2.221) so per-test state never leaks into another
+    tenant-purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same) so per-test state never leaks into another
     test. Requesting this fixture is how a test opts into the REAL database.
 
     Yields the bound :class:`GraphComputeEngine`; its ``.graph_name`` is the
@@ -374,7 +374,7 @@ def engine_graph(tiny_engine):
     try:
         yield compute
     finally:
-        # Tenant-purge (CONCEPT:KG-2.221): delete the whole graph so no state
+        # Tenant-purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same): delete the whole graph so no state
         # leaks into the next test's fresh tenant. The client is intentionally
         # left OPEN: the autouse ``isolate_graph_compute_engine`` teardown (which
         # tracks this engine because we created it during the test) then runs its

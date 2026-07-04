@@ -5,7 +5,7 @@ Both methods previously imported non-existent modules (`.consolidation`,
 `.memory_compaction`); they are now wired to the real SynthesisEngine (KG-2.1)
 and MemoryHygiene (KG-2.17).
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 """
 
 import pytest
@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.memory.memory_engine import MemoryEngine
 from agent_utilities.knowledge_graph.memory.optimization_engine import SynthesisProposal
 
-pytestmark = pytest.mark.concept("KG-2.1")
+pytestmark = pytest.mark.concept("AU-KG.memory.tiered-memory-caching")
 
 
 def _engine():

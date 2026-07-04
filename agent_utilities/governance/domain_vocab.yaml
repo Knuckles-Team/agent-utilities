@@ -1,0 +1,94 @@
+# OKF-CIS closed domain vocabulary (CONCEPT:OS-5.77).
+#
+# The `domain` level of a concept id `<SLUG>-<PILLAR>.<domain>.<concept>` is the
+# ANTI-SPRAWL gate: it is a CLOSED, curated vocabulary per pillar. Auto-derivation
+# (scripts/plan_concept_migration.py) may ONLY emit a domain listed here; the CI
+# gate scripts/check_domain_vocab.py FAILS the build if any marker's domain is not
+# in this file. Breadth is therefore governed; depth (facets) is free.
+#
+# Adding a NEW domain is a deliberate two-step: propose it in a design doc, add it
+# here (with its module-dir/keyword `signals`), then re-run the planner. Never mint
+# a domain ad hoc — that is how the flat-number sprawl (233 KG-2.*) reconstitutes.
+#
+# `signals` seed the planner's auto-derivation: the leaf/second-leaf module dir of a
+# concept's code_paths and keyword hits in its name/doc are matched against them.
+# The pillars are the ONE global closed set of 6 (agent_utilities.governance
+# .concept_hierarchy.PILLARS). A concept's SLUG (repo) is independent of its domain.
+
+version: 1
+
+pillars:
+  # ─────────────────────────────────────────────────────────────────────────
+  KG:   # Epistemic Knowledge Graph — ontology, ingestion, retrieval, the store.
+    ingest:        [ingestion, ingest, assimilation, etl, streams, pipeline, breadth, intake, sync]
+    retrieval:     [retrieval, search, search_synthesis, rerank, hyde, recall, autocut]
+    ontology:      [ontology, shapes, standardization, owl, rdf, skos, shacl, schema-pack, interfaces]
+    memory:        [memory, kb, live_artifacts, consolidation, working-set, mementos, hygiene]
+    compute:       [core, graph_compute, numeric, topological, reasoning, hypergraph, inductive]
+    backend:       [backends, persistence, postgresql, neo4j, falkordb, fanout, ladybug, mirror]
+    storage:       [storage, redb, wal, durability, snapshot, persist, raft]
+    query:         [query, cypher, sparql, datafusion, sql, pgwire, transpiler, gateway, proxy]
+    txn:           [txn, transaction, acid, isolation, serializable, two-phase, 2pc, coalescer]
+    enrichment:    [enrichment, extraction, id_management, interlinking, linking, dedup]
+    temporal:      [temporal, bitemporal, time-series, as-of, versioning, provenance]
+    research:      [research, distillation, gap-analysis, feed-grading, scholarx, evidence]
+    maintenance:   [maintenance, adaptation, code-health, sweep, delta, coverage, freshness]
+    coordination:  [coordination, centralized, election, backpressure, breaker, gateway-election]
+    sharding:      [shard, sharding, resharding, topology, tenant, multi-raft, replication]
+    domains:       [domain, vertical, subgraph, finance, quant, medical, legal, enterprise]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  ORCH: # Graph Orchestration Engine — planning, routing, execution, the Loop.
+    planning:      [planning, planner, htn, decompose, plan]
+    routing:       [routing, router, specialist, model-routing, designate, fast-path, policy]
+    execution:     [execution, executor, parallel, hsm, lifecycle, synthesis, engine]
+    reactive:      [reactive, event-sourcing, ledger, dispatcher, reactive]
+    sandbox:       [sandbox, wasm, fork, warm-fork, forkserver, firecracker, container-fork, microvm]
+    scheduling:    [scheduling, schedule, loop, cron, queue, priority, dead-letter, tick]
+    dispatch:      [dispatch, agent-dispatch, fanout, swarm, department, worker]
+    session:       [session, goal, contract, sla, durable-session, handoff, collection, channel]
+    adapter:       [adapters, cli-adapter, provider-proxy, multi-cli, normalizing]
+    optimization:  [gepa, prompt-optimizer, optimization-state, reflective, recursive-mas]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  AHE:  # Agentic Harness Engineering — evolution, evaluation, reward, training.
+    harness:       [harness, evolution, evolve, component-registry, constraint, manifest, replay]
+    evaluation:    [evaluation, continuous-eval, eval, verifier, benchmark, reliability, corpus]
+    reward:        [reward, advantage, preference, rl, training-signals, grpo, entropy, arpo]
+    rlm:           [rlm, predict-rlm, memento, latent, reasoning-model]
+    trainer:       [trainer, training, gpu-slot, ml, llm-trainer, fine-tune, scratch]
+    optimization:  [optimization, dspy, telemetry-driven, prompt-optimization, gepa]
+    assimilation:  [assimilation, research-assimilation, comparative, absorb, innovation]
+    sdd:           [sdd, spec-driven, dstdd, design-phase, specify]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  ECO:  # Ecosystem & Peripherals — messaging, bus, multiplexer, connectors, UI.
+    messaging:     [messaging, telegram, slack, teams, reach, inbound, chat, voice, image]
+    bus:           [bus, agent-bus, topic, presence, store-forward, relay]
+    multiplexer:   [multiplexer, mux, child-resilience, mcp-fleet, dynamic-mode]
+    mcp:           [mcp, tool-surface, verbose-tools, tool-mode, server-factory, fastmcp]
+    toolkit:       [toolkit, ingestion-toolkit, unified, universal-toolkit]
+    reactions:     [reactions, emote, reaction]
+    connector:     [connector, source, preset, mcp-tool, source-connector, rss, freshrss]
+    interop:       [interop, ard, a2a, discovery, federation, resource-discovery]
+    ui:            [ui, webui, terminal, cockpit, frontend, widget, view]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  OS:   # Agent OS Infrastructure — identity, governance, deploy, observability.
+    identity:      [identity, auth, jwt, oidc, keycloak, actor, request-identity, permissioning]
+    governance:    [governance, action-policy, concept-allocator, concept, autonomy, reserve, allocator, hierarchy]
+    deployment:    [deployment, genesis, deploy, install, provider, bootstrap, self-deploy]
+    observability: [observability, metrics, prometheus, grafana, telemetry, tracing, gateway-metrics]
+    state:         [state, state-store, leadership, checkpoint, session-store, externalization]
+    safety:        [safety, safe, file-safety, injection, guardrail, hook, prompt-injection]
+    config:        [config, paths, settings, env, configuration, doctor-config]
+    host:          [host, daemon, doctor, host-process, liveness, host-daemon, kg-host]
+    context:       [context, nested-context, context-plane, subfolder-instructions]
+    scaling:       [scaling, sharding, capacity, autoscaler, loadgen, gateway-scaling, ha]
+    audit:         [audit, compliance, ledger, action-outcome, provenance]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  GBOT: # GeniusBot Desktop Cockpit — the desktop frontend.
+    cockpit:       [cockpit, desktop, geniusbot, shell]
+    widgets:       [widgets, panels, widget, panel]
+    frontend:      [frontend, ui, view, renderer]

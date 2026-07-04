@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Deterministic reward & dataset-prep signals — the training spine.
 
-CONCEPT:AHE-3.1 — Reward / dataset primitives
+CONCEPT:AU-AHE.reward.reward-dataset-primitives — Reward / dataset primitives
 
 Pure, model-free functions that turn execution traces into the reward and
 dataset signals every training-gated paper consumes — distilled from the
@@ -206,7 +206,7 @@ def composite_reward(
     return round(total, 6)
 
 
-# ── Cached-rollout reward shaping (CONCEPT:AHE-3.49) ──────────────────────────
+# ── Cached-rollout reward shaping (CONCEPT:AU-AHE.reward.cache-rollout-signals) ──────────────────────────
 # The reward-side half of CacheRL (arXiv:2606.14179): when multi-turn tool-calling
 # rollouts are served from a fuzzy cache (see data-science-mcp ``cache_agent_loop``),
 # two corrections keep the gradient honest — (1) token-level masking so injected
@@ -292,7 +292,7 @@ def difficulty_floor_filter(
     return out
 
 
-# ── Realized search-difficulty signatures (CONCEPT:AHE-3.30) ──────────────────
+# ── Realized search-difficulty signatures (CONCEPT:AU-AHE.reward.search-task-corpus) ──────────────────
 # Observable trajectory diagnostics for deep-search tasks, distilling the
 # shortcut-aware difficulty framework of FORT-Searcher (arXiv:2606.12087, §2.4,
 # eqs 15/16/18): apparent trajectory length alone does NOT prove a task forced

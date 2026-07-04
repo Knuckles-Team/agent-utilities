@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""The one source-provenance contract for external ingestion (CONCEPT:KG-2.9).
+"""The one source-provenance contract for external ingestion (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Both ingestion paths — ``core/engine_ingestion.ingest_external_batch`` (dict
 entities; the leanix-delta + hydration family) and ``enrichment/registry.write_batch``

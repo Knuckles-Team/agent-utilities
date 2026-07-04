@@ -1,4 +1,4 @@
-"""First-class Knowledge Graph tools for every agent (CONCEPT:ECO-4.61).
+"""First-class Knowledge Graph tools for every agent (CONCEPT:AU-ECO.toolkit.shared-kg-layer).
 
 Attached by default to every ``create_agent`` agent so the ONE shared OWL/RDF Knowledge
 Graph is a first-class query + reason layer — the agent can search, recall, and query the
@@ -9,7 +9,7 @@ pre-loading everything into context. Opt out with ``AGENT_KG_TOOLS=0``.
 NOTE: using these requires a tool-capable model — a model that can't emit tool calls can't
 query the KG (it only gets passively-recalled context).
 
-CONCEPT:ECO-4.61 — KG as a first-class shared knowledge/reasoning layer for all agents
+CONCEPT:AU-ECO.toolkit.shared-kg-layer — KG as a first-class shared knowledge/reasoning layer for all agents
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _fmt_result(r: Any) -> dict[str, Any]:
 
 
 async def kg_search(ctx: RunContext[Any], query: str, top_k: int = 8) -> str:
-    """Search the shared Knowledge Graph (semantic + keyword hybrid). CONCEPT:ECO-4.61
+    """Search the shared Knowledge Graph (semantic + keyword hybrid). CONCEPT:AU-ECO.toolkit.shared-kg-layer
 
     Use this to ground answers in what the system actually knows — concepts, code, services,
     research, entities — instead of guessing.
@@ -80,7 +80,7 @@ async def kg_search(ctx: RunContext[Any], query: str, top_k: int = 8) -> str:
 
 
 async def kg_recall(ctx: RunContext[Any], query: str, top_k: int = 5) -> str:
-    """Recall relevant memories (episodic/semantic/procedural) from the KG. CONCEPT:ECO-4.61
+    """Recall relevant memories (episodic/semantic/procedural) from the KG. CONCEPT:AU-ECO.toolkit.shared-kg-layer
 
     Args:
         ctx: Agent run context.
@@ -101,7 +101,7 @@ async def kg_recall(ctx: RunContext[Any], query: str, top_k: int = 5) -> str:
 
 
 async def kg_query(ctx: RunContext[Any], cypher: str) -> str:
-    """Run a READ-ONLY Cypher query against the shared Knowledge Graph. CONCEPT:ECO-4.61
+    """Run a READ-ONLY Cypher query against the shared Knowledge Graph. CONCEPT:AU-ECO.toolkit.shared-kg-layer
 
     For precise structured questions (counts, relationships, filters). Writes are rejected.
 

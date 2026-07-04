@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for deterministic relational-intent retrieval.
 
-CONCEPT:KG-2.34 — Relational-Intent Retrieval
+CONCEPT:AU-KG.retrieval.relational-intent-retrieval — Relational-Intent Retrieval
 """
 
 

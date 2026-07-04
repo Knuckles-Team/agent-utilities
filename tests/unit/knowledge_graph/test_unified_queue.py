@@ -1,5 +1,5 @@
 """Unified scheduling/queue model: bucketed priority claim, delayed/blocked
-promotion, and app-level retry→backoff→dead-letter (CONCEPT:KG-2.113).
+promotion, and app-level retry→backoff→dead-letter (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
 Exercises the new ``TaskManagerMixin`` queue primitives against a real
 ``EpistemicGraphBackend`` — the L1 graph path (no Postgres), which is the
@@ -30,7 +30,7 @@ HOST = "livehost:1:1700000000"
 def backend(engine_graph) -> EpistemicGraphBackend:
     """A queue backend bound to a FRESH, isolated REAL tenant graph per test.
 
-    CONCEPT:KG-2.238 — these tests run the queue primitives against the actual
+    CONCEPT:AU-KG.memory.provides-real-ephemeral-one — these tests run the queue primitives against the actual
     ``EpistemicGraphBackend`` (the engine, not a mock). Binding to the
     ``engine_graph`` fixture's uniquely-named tenant (tenant-purged on teardown)
     makes every test start from an empty graph and leak nothing into the next,

@@ -1,6 +1,6 @@
 # Spec: Corrigibility + Knowledge-Seeking Objective Primitives (SAFE-1.5)
 
-> Status: **proposed**. **Wire-First** — this EXTENDS the ORCH-5.0 autonomous goal
+> Status: **proposed**. **Wire-First** — this EXTENDS the AU-ORCH.session.durable-session-autonomous-goal autonomous goal
 > loop (`agent_utilities/models/goal.py`: `GoalSpec`/`GoalIteration`/`GoalCheckpoint`)
 > and the fail-closed OS-5.24 `ActionPolicy` (`agent_utilities/orchestration/action_policy.py`,
 > `_blast_exceeded`). It REUSES the existing `GoalCheckpoint` persistence + the durable
@@ -10,9 +10,9 @@
 > goal loop. Do not rebuild any of these.
 
 ## Pre-Flight Checklist
-- [x] Extension target identified — ORCH-5.0 goal loop (`models/goal.py`) + OS-5.24 `ActionPolicy`
+- [x] Extension target identified — AU-ORCH.session.durable-session-autonomous-goal goal loop (`models/goal.py`) + OS-5.24 `ActionPolicy`
   (`orchestration/action_policy.py`); both verified present.
-- [x] New CONCEPT:SAFE-1.5 justified — AU's guardrails are entirely *operational/permission-based*
+- [x] New CONCEPT:AU-OS.safety.irreversibility-aversion justified — AU's guardrails are entirely *operational/permission-based*
   (OS-5.24/5.3/5.10); there is **no objective-level** corrigibility (interrupt-indifference) and **no**
   knowledge-seeking/info-gain intrinsic objective (grep for `info_gain`/`myopic`/`oracle-mode`/`corrigib`
   returns zero matches; only a `curiosity` prompt string). This is a distinct objective primitive.

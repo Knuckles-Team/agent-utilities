@@ -1,4 +1,4 @@
-"""Production promotion-governance validator (CONCEPT:AHE-3.20).
+"""Production promotion-governance validator (CONCEPT:AU-AHE.harness.promotion-governance-validator).
 
 Covers the four governance rules (MergePolicy thresholds, SHACL shapes,
 recorded regression-gate verdicts, constitution forbid rules) pass/fail paths,
@@ -6,7 +6,7 @@ the merger integration (GovernedAutoMerger now builds the production validator
 by DEFAULT when an engine exists), and the regression-gate verdict recording
 added to the failure analyzer's gate.
 
-@pytest.mark.concept("AHE-3.20")
+@pytest.mark.concept("AU-AHE.harness.promotion-governance-validator")
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from agent_utilities.knowledge_graph.research.promotion_governance import (
     PromotionGovernanceValidator,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.20")
+pytestmark = pytest.mark.concept("AU-AHE.harness.promotion-governance-validator")
 
 
 def _strong_team() -> TeamSpec:

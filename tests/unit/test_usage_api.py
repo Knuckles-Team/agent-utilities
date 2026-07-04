@@ -1,4 +1,4 @@
-"""Gateway usage API tests (CONCEPT:ECO-4.41).
+"""Gateway usage API tests (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface).
 
 Mounts usage_router on a throwaway FastAPI app pointed at a temp SQLite store
 and exercises the observability surface + the upload transport (ECO-4.42).

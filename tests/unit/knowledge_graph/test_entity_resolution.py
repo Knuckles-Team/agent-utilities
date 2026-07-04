@@ -1,4 +1,4 @@
-"""Unit tests for the entropy-gated entity-resolution fast-path (CONCEPT:AHE-3.69)."""
+"""Unit tests for the entropy-gated entity-resolution fast-path (CONCEPT:AU-AHE.assimilation.merge-entities)."""
 
 from __future__ import annotations
 

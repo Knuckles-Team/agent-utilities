@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Schema Pack Models — Domain-configurable KG profiles.
 
-CONCEPT:KG-2.2 — Schema Packs
+CONCEPT:AU-KG.ontology.schema-packs — Schema Packs
 
 A SchemaPack defines a domain-specific subset of the Knowledge Graph ontology,
 allowing agents to focus on the node/edge types relevant to their domain
@@ -52,7 +52,7 @@ class SchemaPackMode(StrEnum):
 
 
 class BacklinkBoostStrategy(StrEnum):
-    """Strategy for applying backlink-density retrieval weighting (CONCEPT:KG-2.2).
+    """Strategy for applying backlink-density retrieval weighting (CONCEPT:AU-KG.ontology.schema-packs).
 
     - GLOBAL: Boost is applied to all scored nodes during hybrid search.
     - CONTEXT_ONLY: Boost is applied only during context assembly (multi-hop).
@@ -65,10 +65,10 @@ class BacklinkBoostStrategy(StrEnum):
 
 
 class RecencyDecaySpec(BaseModel):
-    """Per-type temporal recency-decay specification (CONCEPT:KG-2.22).
+    """Per-type temporal recency-decay specification (CONCEPT:EG-KG.compute.rust-native-training-loss).
 
     Declares how a node type's retrieval score is boosted as a function of how
-    recent it is, measured against its bi-temporal ``event_time`` (CONCEPT:KG-2.11).
+    recent it is, measured against its bi-temporal ``event_time`` (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers).
     The boost is multiplicative and always ``>= 1.0`` so recency never *penalises*
     a result — a missing ``event_time`` yields a neutral ``1.0`` (see
     ``HybridRetriever._recency_boost``).
@@ -87,7 +87,7 @@ class RecencyDecaySpec(BaseModel):
 
 
 class LinkInferenceRule(BaseModel):
-    """A zero-LLM regex rule for typed-edge extraction on write (CONCEPT:KG-2.33).
+    """A zero-LLM regex rule for typed-edge extraction on write (CONCEPT:AU-KG.research.zero-llm-pack-link).
 
     On every page/document write, the active pack's rules run over the content
     deterministically (no LLM call, mirroring gbrain's ``link-inference.ts``) to
@@ -117,7 +117,7 @@ class LinkInferenceRule(BaseModel):
 class OwlObjectProperty(BaseModel):
     """A pack-declared OWL object-property characteristic.
 
-    CONCEPT:KG-2.36 — Pack-Driven OWL Closure
+    CONCEPT:AU-KG.ontology.pack-owl-closure — Pack-Driven OWL Closure
 
     When a pack activates, these declarations are unioned into the OWL reasoning
     sets (``owl_bridge``) so the existing promote→reason→downfeed closure cycle
@@ -143,7 +143,7 @@ class OwlObjectProperty(BaseModel):
 class SchemaPack(BaseModel):
     """A domain-specific Knowledge Graph configuration profile.
 
-    CONCEPT:KG-2.2 — Schema Packs
+    CONCEPT:AU-KG.ontology.schema-packs — Schema Packs
 
     Defines which node types, edge types, retrieval boosts, inference rules,
     and OWL extensions are active for a given workspace or deployment.
@@ -161,7 +161,7 @@ class SchemaPack(BaseModel):
         retrieval_boosts: Per-edge-type scoring multipliers applied during
             hybrid retrieval. Values > 1.0 increase relevance; < 1.0 decrease.
         backlink_boost_strategy: How backlink-density scoring is applied
-            (CONCEPT:KG-2.2). Defaults to ``GLOBAL``.
+            (CONCEPT:AU-KG.ontology.schema-packs). Defaults to ``GLOBAL``.
         backlink_boost_factor: Logarithmic scaling coefficient for the
             backlink boost. Higher values amplify the effect of inbound edges.
         owl_extensions: Paths to additional ``.ttl`` files to load into the
@@ -223,7 +223,7 @@ class SchemaPack(BaseModel):
         description="Edge types this pack activates",
     )
 
-    # Retrieval configuration (CONCEPT:KG-2.2)
+    # Retrieval configuration (CONCEPT:AU-KG.ontology.schema-packs)
     retrieval_boosts: dict[str, float] = Field(
         default_factory=dict,
         description="Per-edge-type scoring multipliers for hybrid retrieval",
@@ -245,7 +245,7 @@ class SchemaPack(BaseModel):
         description="Additional .ttl files for OWL reasoner",
     )
 
-    # Retrieval Quality (CONCEPT:KG-2.6)
+    # Retrieval Quality (CONCEPT:AU-KG.research.research-pipeline-runner)
     min_relevance_threshold: float = Field(
         default=0.6,
         ge=0.0,
@@ -266,20 +266,20 @@ class SchemaPack(BaseModel):
     recency_decay: dict[str, RecencyDecaySpec] = Field(
         default_factory=dict,
         description="Per-node-type recency-decay specs applied during hybrid "
-        "retrieval (CONCEPT:KG-2.22). Empty => no recency weighting (core default).",
+        "retrieval (CONCEPT:EG-KG.compute.rust-native-training-loss). Empty => no recency weighting (core default).",
     )
 
     # KG-2.22 — Source-trust / authority weighting (per lowercased source id/domain)
     source_trust: dict[str, float] = Field(
         default_factory=dict,
         description="Per-source multiplicative trust weights applied during hybrid "
-        "retrieval (CONCEPT:KG-2.22). Missing source => neutral 1.0.",
+        "retrieval (CONCEPT:EG-KG.compute.rust-native-training-loss). Missing source => neutral 1.0.",
     )
 
     # KG-2.22 — Autocut (score-discontinuity result trimming)
     autocut_enabled: bool = Field(
         default=False,
-        description="Trim results at the largest relative score drop (CONCEPT:KG-2.22).",
+        description="Trim results at the largest relative score drop (CONCEPT:EG-KG.compute.rust-native-training-loss).",
     )
     autocut_threshold: float = Field(
         default=0.5,
@@ -297,21 +297,21 @@ class SchemaPack(BaseModel):
     link_inference: list[LinkInferenceRule] = Field(
         default_factory=list,
         description="Regex rules for deterministic typed-edge extraction; "
-        "empty means no pack-driven link inference (CONCEPT:KG-2.33).",
+        "empty means no pack-driven link inference (CONCEPT:AU-KG.research.zero-llm-pack-link).",
     )
 
     # KG-2.34 — Relational-intent retrieval verbs (NL phrase -> edge_type value)
     relational_verbs: dict[str, str] = Field(
         default_factory=dict,
         description="Natural-language verb phrases mapped to edge-type values for "
-        "deterministic relational query parsing (CONCEPT:KG-2.34).",
+        "deterministic relational query parsing (CONCEPT:AU-KG.retrieval.relational-intent-retrieval).",
     )
 
     # KG-2.36 — Pack-driven OWL object-property closure declarations
     owl_object_properties: list[OwlObjectProperty] = Field(
         default_factory=list,
         description="OWL object-property characteristics unioned into the reasoning "
-        "closure when this pack is active (CONCEPT:KG-2.36).",
+        "closure when this pack is active (CONCEPT:AU-KG.ontology.pack-owl-closure).",
     )
 
     def get_active_node_types(self) -> frozenset[RegistryNodeType]:

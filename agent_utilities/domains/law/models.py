@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Legal Domain Pydantic Models (CONCEPT:KG-2.6).
+"""Legal Domain Pydantic Models (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Aligned to LKIF-Core, Akoma Ntoso, SALI/CLNR, EDRM.
 """

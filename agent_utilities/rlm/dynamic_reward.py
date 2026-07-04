@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Dynamic multi-reward weighting (DW-GRPO) for the GEPA optimizer.
 
-CONCEPT:ORCH-1.30 — Selection on Unseen Data (anti-seesaw reward weighting)
+CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — Selection on Unseen Data (anti-seesaw reward weighting)
 
 Distilled from Deep GraphRAG's DW-GRPO (`.specify/specs/research-evolution-20260606/`
 plan b2-04): when an evolutionary optimizer maximises several rewards at once it

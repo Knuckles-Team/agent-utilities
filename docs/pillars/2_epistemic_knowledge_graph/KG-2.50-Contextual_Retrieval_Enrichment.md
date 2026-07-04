@@ -1,4 +1,4 @@
-# Contextual-Retrieval Enrichment (CONCEPT:KG-2.50)
+# Contextual-Retrieval Enrichment (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment)
 
 ## Overview
 Before a chunk is embedded, a short *context* string situating it within the whole document is

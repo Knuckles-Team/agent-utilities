@@ -1,6 +1,6 @@
 """Tests for RLM REPL helpers including OWL/KG integration.
 
-CONCEPT:ORCH-1.1 — RLM Helpers (OWL × KG Integration)
+CONCEPT:AU-ORCH.planning.recursion-nesting-depth — RLM Helpers (OWL × KG Integration)
 """
 
 from unittest.mock import MagicMock

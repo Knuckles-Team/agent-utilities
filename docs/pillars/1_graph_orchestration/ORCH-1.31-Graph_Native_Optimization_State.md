@@ -1,10 +1,10 @@
-# Graph-Native Optimization State (CONCEPT:ORCH-1.31)
+# Graph-Native Optimization State (CONCEPT:AU-ORCH.optimization.graph-native-optimization-state)
 
 ## Overview
 
 Persists the GEPA Pareto frontier (candidates + ancestry) into the durable **epistemic-graph** so
 optimization is **resumable and accumulates across sessions** — a synergy unique to our graph-native
-architecture (neither predict-rlm nor the GEPA reference impl does this). Extends **ORCH-1.13**
+architecture (neither predict-rlm nor the GEPA reference impl does this). Extends **AU-ORCH.optimization.optimize-skill-prompt-gepa**
 (+KG-2.7 ingestion/persistence).
 
 ## How it works

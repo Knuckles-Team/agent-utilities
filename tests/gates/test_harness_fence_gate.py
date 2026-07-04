@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Guardrail: the generated Claude Code fence never drifts from the safety floor.
 
-CONCEPT:OS-5.40 — Governance-derived Claude Code permission-fence generator
+CONCEPT:AU-OS.deployment.governance-derived-claude-code — Governance-derived Claude Code permission-fence generator
 
 A drift guard (mirrors the DEFAULT_POLICY↔YAML parity gate): the fence built from
 the SHIPPED ActionPolicy must always carry the irreversible + secret deny floor,

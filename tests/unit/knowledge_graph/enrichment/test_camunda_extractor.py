@@ -1,4 +1,4 @@
-"""Camunda BPMN source extractor tests (CONCEPT:KG-2.9, step lift KG-2.53).
+"""Camunda BPMN source extractor tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor, step lift KG-2.53).
 
 Uses an injected fake client (no network / no daemon) plus the write_batch
 contract to assert node/edge mapping, canonical typing, and persistence.
@@ -127,7 +127,7 @@ def test_write_batch_persists():
     ) in backend.edges
 
 
-# ── Step-level structure lift (CONCEPT:KG-2.53) ─────────────────────────────
+# ── Step-level structure lift (CONCEPT:AU-KG.ontology.descriptive-process-world-gains) ─────────────────────────────
 
 
 def _lifted(batch):

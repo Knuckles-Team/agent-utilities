@@ -1,7 +1,7 @@
 """LMCache ``native_plugin`` L2-adapter connector for the engine KV surface.
 
-CONCEPT:KG-2.311 — the LMCache-side *native connector* half of the EG-187
-KV-cache contract. It complements CONCEPT:KG-2.306
+CONCEPT:AU-KG.backend.lmcache-native-connector — the LMCache-side *native connector* half of the EG-187
+KV-cache contract. It complements CONCEPT:AU-KG.backend.kvcache-vllm-connector
 (:class:`~agent_utilities.kvcache.remote_backend.EpistemicGraphKVBackend`, the
 ``get`` / ``put`` / ``contains`` HTTP client) by exposing that connector through
 the shape LMCache's **``native_plugin`` L2 adapter** loads.
@@ -11,8 +11,8 @@ Why this exists (vs the ``resp`` adapter)
 LMCache's decoupled ``lmcache server`` writes its L2 tier through an
 ``--l2-adapter`` plugin. The zero-code path points the built-in ``resp`` adapter
 at the engine's Redis RESP wire — but that lands blocks in the engine's *generic
-Redis keyspace*, so the engine's **content-addressed dedup (CONCEPT:EG-186)** and
-the **``/kv/stats`` counters (CONCEPT:EG-187)** do NOT apply. This connector
+Redis keyspace*, so the engine's **content-addressed dedup (CONCEPT:EG-KG.enrichment.content-address-separation)** and
+the **``/kv/stats`` counters (CONCEPT:EG-KG.backend.is-configured-so-co)** do NOT apply. This connector
 instead speaks the **EG-187 HTTP KV surface** (``GET|PUT|HEAD /kv/<hash>`` +
 ``GET /kv/stats``), so every L2 write is content-addressed and deduped and the
 stats counters move.
@@ -51,10 +51,10 @@ It is loaded via ``--l2-adapter``::
 (all optional — with none supplied the connector reads the engine's EG-187
 environment via :meth:`KvCacheConfig.from_env`). There is deliberately **no**
 ``submit_batch_delete``: the shared, content-addressed pool is evicted by the
-engine's own tiered store (CONCEPT:EG-185), so the wrapper logs that L2 delete is
+engine's own tiered store (CONCEPT:EG-KG.memory.byte-bounded-tiers), so the wrapper logs that L2 delete is
 a no-op — LMCache never deletes remote blocks.
 
-Graceful degradation (CONCEPT:KG-2.306) is inherited: every transport/protocol
+Graceful degradation (CONCEPT:AU-KG.backend.kvcache-vllm-connector) is inherited: every transport/protocol
 error maps to a cache miss (``get`` → not-found, ``put`` → dropped), so an
 unreachable engine never crashes token generation — LMCache just recomputes.
 """
@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
 class EpistemicGraphL2Connector:
     """Native-client bridge from LMCache's ``native_plugin`` L2 adapter → EG-187.
 
-    CONCEPT:KG-2.311. Instantiated by LMCache's ``native_plugin`` factory with
+    CONCEPT:AU-KG.backend.lmcache-native-connector. Instantiated by LMCache's ``native_plugin`` factory with
     the ``adapter_params`` dict spread as keyword arguments, then wrapped in
     :class:`NativeConnectorL2Adapter`. All parameters are optional; anything not
     supplied is sourced from the engine's EG-187 environment
@@ -184,7 +184,7 @@ class EpistemicGraphL2Connector:
             updates["max_connections"] = max(workers * 2, cfg.max_connections)
         return cfg.model_copy(update=updates)
 
-    # -- native-client contract (CONCEPT:KG-2.311) ----------------------------
+    # -- native-client contract (CONCEPT:AU-KG.backend.lmcache-native-connector) ----------------------------
     def event_fd(self) -> int:
         """The pollable fd signalled on every batch completion (one for all ops)."""
         return self._efd

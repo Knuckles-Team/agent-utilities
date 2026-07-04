@@ -1,4 +1,4 @@
-"""Usage store backends (CONCEPT:ECO-4.39).
+"""Usage store backends (CONCEPT:AU-OS.observability.usage-analytics-store).
 
 ``sqlite`` is the zero-dependency native default; ``postgres`` and ``duckdb``
 are enterprise-scale options. Selected by ``USAGE_DB_BACKEND``.

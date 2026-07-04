@@ -119,9 +119,9 @@ print(brain.status())
 
 ## Concept Registration
 
-The Company Brain infrastructure is registered under **CONCEPT:KG-2.6** in the 5-Pillar ecosystem:
+The Company Brain infrastructure is registered under **CONCEPT:AU-KG.research.research-pipeline-runner** in the 5-Pillar ecosystem:
 
-- **Pillar**: KG-2 (Knowledge Graph & Retrieval)
+- **Pillar**: EG-KG.compute.backend (Knowledge Graph & Retrieval)
 - **Concept ID**: KG-2.6
 - **Name**: Company Brain Infrastructure
 - **Module**: `agent_utilities.knowledge_graph.core.company_brain`
@@ -136,7 +136,7 @@ The Company Brain infrastructure is registered under **CONCEPT:KG-2.6** in the 5
 | KG-2.3 | Structural Fingerprint Engine | Staleness detection |
 | KG-2.7 | Cross-Pillar Synergy Engine | Ecosystem integration |
 | OS-5.1 | PermissionsKernel | Tool-level permissions (extended by data-level) |
-| OS-5.3 | Session Concurrency | Session-level locking (extended by graph-level) |
+| AU-OS.governance.reactive-multi-axis-budget | Session Concurrency | Session-level locking (extended by graph-level) |
 | OS-5.6 | AuditLogger | Append-only audit trails (extended by read audits) |
 | ORCH-1.2 | Squeeze-Evolve Routing | Context routing integration |
 | AHE-3.3 | TeamConfig | Reward tracking for hybrid teams |

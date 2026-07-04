@@ -1,4 +1,4 @@
-"""Recursive-improvement velocity ledger (CONCEPT:AHE-3.26, SAFE-1.3).
+"""Recursive-improvement velocity ledger (CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating, CONCEPT:AU-OS.audit.recursive-improvement-velocity-tracker).
 
 Reads the self-evolution loop's own persisted audit streams (EvolutionCycle +
 ProposalPublication + CapabilityRatchetResult) back into one velocity reading: cycle
@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.research.improvement_ledger import (
     improvement_velocity,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.26")
+pytestmark = pytest.mark.concept("AU-AHE.sdd.recursive-improvement-instrumentation-aggregating")
 
 
 class LedgerEngine:
@@ -64,7 +64,7 @@ def test_improving_with_code_and_passes():
     assert v.capability_pass_rate == 1.0
 
 
-@pytest.mark.concept("SAFE-1.3")
+@pytest.mark.concept("AU-OS.audit.recursive-improvement-velocity-tracker")
 def test_prose_only_flags_no_genotypic():
     eng = LedgerEngine(
         cycles=[("a", 100.0)],
@@ -76,7 +76,7 @@ def test_prose_only_flags_no_genotypic():
     assert v.code_fraction == 0.0
 
 
-@pytest.mark.concept("SAFE-1.3")
+@pytest.mark.concept("AU-OS.audit.recursive-improvement-velocity-tracker")
 def test_recent_holds_flag_regression_pressure():
     eng = LedgerEngine(
         cycles=[("a", 100.0)],
@@ -89,7 +89,7 @@ def test_recent_holds_flag_regression_pressure():
     assert v.capability_pass == 1 and v.capability_hold == 2
 
 
-@pytest.mark.concept("SAFE-1.3")
+@pytest.mark.concept("AU-OS.audit.recursive-improvement-velocity-tracker")
 def test_rising_cadence_flags_research_harder():
     eng = LedgerEngine(
         # 10 cycles: first 5 fast (~100ms), last 5 slow (~400ms) → recent > 1.5×prior.

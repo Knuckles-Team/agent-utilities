@@ -47,7 +47,7 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `DOC_BACKEND` | `sqlite` | Backend for document pipeline (`sqlite`, `mongodb`, `postgresql`) |
 | `DOC_DB_URI` | *None* | Connection string for MongoDB/Postgres document stores |
 
-### Secrets & Auth (CONCEPT:OS-5.1)
+### Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
 | Variable | Default | Description |
 |---|---|---|
 | `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](../5_agent_os_infrastructure/secrets-auth.md) |
@@ -94,8 +94,8 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `LANGFUSE_PUBLIC_KEY` | *None* | Langfuse integration key |
 | `LANGFUSE_SECRET_KEY` | *None* | Langfuse integration secret |
 | `LOGFIRE_TOKEN` | *None* | Pydantic Logfire token |
-| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship our own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (KG-2.304, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
-| `EPISTEMIC_GRAPH_OBS_ADDR` | *None* | Engine OTLP/HTTP log endpoint base address (engine EG-160). Empty ⇒ self-ingest disabled. |
+| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship our own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (AU-KG.ingest.attaching-this-root-logger, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
+| `EPISTEMIC_GRAPH_OBS_ADDR` | *None* | Engine OTLP/HTTP log endpoint base address (engine AU-KG.ingest.self-ingest). Empty ⇒ self-ingest disabled. |
 | `AGENT_UTILITIES_SELF_INGEST_MODE` | `otlp` | `otlp` → `POST /v1/logs`; `bulk` → `POST /_bulk` |
 | `AGENT_UTILITIES_SELF_INGEST_SERVICE` | `agent-utilities` | OTLP `service.name` stamped on records |
 | `AGENT_UTILITIES_SELF_INGEST_LEVEL` | `INFO` | Minimum log level shipped by the handler |
@@ -112,7 +112,7 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `TOOL_GUARD_MODE` | `on` | Strictness of the tool execution guard (`on`, `off`, `custom`) |
 | `DISABLE_TOOL_GUARD` | `False` | Completely bypass tool elicitation and safety checks |
 
-### A2A Agent Discovery (CONCEPT:ECO-4.0)
+### A2A Agent Discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 | Variable | Default | Description |
 |---|---|---|
 | `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |

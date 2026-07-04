@@ -1,4 +1,4 @@
-"""Camunda BPMN source extractor (CONCEPT:KG-2.9, step-level lift KG-2.53).
+"""Camunda BPMN source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor, step-level lift KG-2.53).
 
 Self-registering extractor that maps Camunda process artifacts — process
 definitions, tasks, and incidents — into the uniform ``ExtractionBatch`` shape
@@ -13,7 +13,7 @@ folds into the same cross-vendor crosswalk as ServiceNow/ERPNext (see
     task               -> ``BusinessTask``      id=bpmn_task:{id}   (PART_OF process)
     incident           -> ``Incident``          id=incident:{id}    (AFFECTS process)
 
-**Step-level structure lift (CONCEPT:KG-2.53).** When the injected client also
+**Step-level structure lift (CONCEPT:AU-KG.ontology.descriptive-process-world-gains).** When the injected client also
 exposes ``get_process_definition_xml`` (the camunda-mcp ``camunda_process
 action=xml`` surface), each definition's BPMN 2.0 XML is parsed (stdlib
 ElementTree, namespace-tolerant) and the *static* process structure is lifted:
@@ -162,7 +162,7 @@ def _lift_process_structure(
 ) -> None:
     """Lift one definition's BPMN XML into BusinessTask/FLOWS_TO structure.
 
-    CONCEPT:KG-2.53 — the descriptive process world gains step-level shape:
+    CONCEPT:AU-KG.ontology.descriptive-process-world-gains — the descriptive process world gains step-level shape:
     tasks/gateways become ``BusinessTask`` nodes (typed via ``task_type``,
     ``PART_OF`` the process) and sequence flows become ``FLOWS_TO`` edges.
     Non-lifted pass-through elements (start/end/intermediate events) are
@@ -262,7 +262,7 @@ def extract(config: Any) -> ExtractionBatch:
     ``BusinessTask`` nodes linked ``PART_OF`` their process; incidents become
     canonical ``Incident`` nodes linked ``AFFECTS`` their process. When the
     client can serve BPMN XML, the step-level structure is lifted too
-    (CONCEPT:KG-2.53 — see :func:`_lift_process_structure`).
+    (CONCEPT:AU-KG.ontology.descriptive-process-world-gains — see :func:`_lift_process_structure`).
     """
     client = _get(config, "client")
     nodes: list[GraphNode] = []

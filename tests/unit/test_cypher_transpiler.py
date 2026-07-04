@@ -55,7 +55,7 @@ class TestCreateNode:
         assert tq.params == ["agent-1", "Test", "agent"]
 
     def test_create_strips_nul_and_serializes_dict(self):
-        """CONCEPT:KG-2.9 — node-property values are sanitized for Postgres binding:
+        """CONCEPT:AU-KG.ingest.enterprise-source-extractor — node-property values are sanitized for Postgres binding:
         NUL (0x00) is stripped from strings (TEXT rejects it) and dict/list values are
         JSON-encoded (psycopg cannot adapt a bare dict to %s). Was dropping Article
         content (NUL) + Document rows (dict) on ingest."""
@@ -186,7 +186,7 @@ class TestUnlabeledIdLookupPlaceholderParity:
     """An unlabeled ``WHERE n.id = $id`` lookup fans a UNION ALL across every
     known table; each branch repeats the ``%s`` placeholder, so the bound params
     must be repeated to match — the regression behind the live error
-    "the query has N placeholders but 1 parameters were passed". (CONCEPT:KG-2.9h)
+    "the query has N placeholders but 1 parameters were passed". (CONCEPT:AU-KG.backend.where-clause-carrying)
     """
 
     def test_placeholder_count_equals_param_count(self):
@@ -211,7 +211,7 @@ class TestUnlabeledIdLookupPlaceholderParity:
         assert tq.params == ["abc"] * len(KNOWN_TABLES) + [7]
 
     def test_union_branches_have_uniform_column_count(self):
-        # Regression (CONCEPT:KG-2.7): a label-less ``RETURN n`` previously
+        # Regression (CONCEPT:AU-KG.query.vendor-agnostic-traversal): a label-less ``RETURN n`` previously
         # projected ``SELECT *`` per branch. Heterogeneous node tables have
         # different widths (per-label schema drift / pgvector ``embedding`` /
         # ``tenant_id``), so the UNION branches mismatched and Postgres rejected
@@ -256,7 +256,7 @@ class TestEdgeCases:
 
 
 class TestNodePropertyProjection:
-    """CONCEPT:KG-2.7 — a labeled-node MATCH...RETURN property projection must yield FLAT,
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — a labeled-node MATCH...RETURN property projection must yield FLAT,
     alias-keyed rows (node_alias=None), carrying each RETURN ``AS`` alias; only a bare
     ``RETURN n`` is wrapped under the node alias by the backend."""
 
@@ -290,7 +290,7 @@ class TestNodePropertyProjection:
         assert tq.node_alias == "n"
 
     def test_bound_id_edge_count_projects_count(self):
-        # CONCEPT:KG-2.7 — bound-endpoint edge pattern with count(r): emit count(*) AS c,
+        # CONCEPT:AU-KG.query.vendor-agnostic-traversal — bound-endpoint edge pattern with count(r): emit count(*) AS c,
         # not the silent ``SELECT properties`` fallback.
         cypher = (
             "MATCH (s:Agent)-[r:PROVIDES]->(t:Tool) "

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Hot-path code analysis for sandbox routing.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Hot-path code analysis for sandbox routing.
 
 The router needs to know, for one LLM-generated snippet: does it import third-party libs?
 define classes/dataclasses? use async? call the RLM host helpers? — to pick the cheapest

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Human-correction → rule/outcome/eval feedback loop (CONCEPT:KG-2.8).
+"""Human-correction → rule/outcome/eval feedback loop (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 The compounding layer the "Company Brain" was missing: a single entry point where
 a human says "this was wrong, here's the fix" and the correction becomes
@@ -143,7 +143,7 @@ class FeedbackService:
     # ------------------------------------------------------------------
     def export_preference_pairs(self, *, min_margin: float = 0.1) -> list[Any]:
         """Consolidate eval corpus + distilled episodes + corrections into a
-        reliability-filtered, DPO-ready preference-pair corpus (CONCEPT:AHE-3.17).
+        reliability-filtered, DPO-ready preference-pair corpus (CONCEPT:AU-AHE.harness.preference-corpus-reliability).
 
         This is the read-side of the feedback loop: every correction/eval recorded
         through this service flows back out as clean (chosen ≻ rejected) pairs, with
@@ -195,7 +195,7 @@ class FeedbackService:
     def _apply_selective_erasure(
         self, target_id: str, corrected_value: Any, reason: str
     ) -> CorrectionResult:
-        """Provenance-scoped reward erasure (CONCEPT:KG-2.276).
+        """Provenance-scoped reward erasure (CONCEPT:AU-KG.memory.generation-scoped-selective-reward).
 
         Forget the learned reward EMA for one or more superseded designations,
         so the retrieval router re-learns them from the neutral prior instead of
@@ -250,7 +250,7 @@ class FeedbackService:
         corrected_value: Any = None,
         reason: str = "",
     ) -> CorrectionResult:
-        """Close the reads-avoided measurement loop (CONCEPT:AHE-3.61).
+        """Close the reads-avoided measurement loop (CONCEPT:AU-AHE.evaluation.reads-avoided-feedback).
 
         When a ``code_context`` answer is served the agent reports back whether the
         KG answer **replaced a file read** (``reads_avoided``), how many files it
@@ -331,7 +331,7 @@ class FeedbackService:
         reason: str = "",
         agent_id: str = "",
     ) -> CorrectionResult:
-        """Close the loop on ANY autonomous action (CONCEPT:AHE-3.62).
+        """Close the loop on ANY autonomous action (CONCEPT:AU-AHE.evaluation.action-outcome-feedback).
 
         The general form of :meth:`record_reads_avoided`: an executed action — a
         ``code_context`` answer, a deploy, a ticket close, a routing choice — reports
@@ -371,7 +371,7 @@ class FeedbackService:
         r = max(0.0, min(1.0, r))
         outcome = self._apply_outcome(action_id, r, None, reason or "action_outcome")
         created = list(outcome.created_ids)
-        # CONCEPT:ORCH-1.79 — a model-route outcome also trains the adaptive router's
+        # CONCEPT:AU-ORCH.routing.route-outcome-feedback — a model-route outcome also trains the adaptive router's
         # per-role confidence so the cheapest model that keeps working wins next time.
         if action_id.startswith("model_route:"):
             try:
@@ -380,7 +380,7 @@ class FeedbackService:
                 record_model_outcome(action_id, reward=r)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("model-route outcome update failed: %s", exc)
-        # CONCEPT:OS-5.49 — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
+        # CONCEPT:AU-OS.governance.autonomy-change-proposer — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
         # so a consistently-correct actor earns wider governance scope for that kind.
         elif action_id.startswith("trust:"):
             try:
@@ -397,7 +397,7 @@ class FeedbackService:
             and hasattr(self.eval_corpus, "add_case")
         ):
             try:
-                # CONCEPT:AHE-3.72 — when the outcome names the agent that produced it,
+                # CONCEPT:AU-AHE.harness.when-outcome-names-agent — when the outcome names the agent that produced it,
                 # tag the eval case ``agent:<id>`` so the per-agent trainset
                 # (build_agent_trainset) can pool THIS agent's real metrics for its own
                 # DSPy optimization (attribution by agent, not just trace signature).
@@ -424,7 +424,7 @@ class FeedbackService:
 
     # ------------------------------------------------------------------
     def agent_eval_cases(self, agent_id: str, *, limit: int = 500) -> list[Any]:
-        """The eval-corpus slice attributed to one agent (CONCEPT:AHE-3.72).
+        """The eval-corpus slice attributed to one agent (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
 
         The per-agent attribution the hardening loop optimizes against: every case the
         agent's own ``record_action_outcome`` calls tagged ``agent:<id>``. These ARE the
@@ -446,7 +446,7 @@ class FeedbackService:
         return out
 
     def build_agent_trainset(self, agent_id: str, *, limit: int = 500) -> list[Any]:
-        """Pool an agent's outcomes into a DSPy trainset (CONCEPT:AHE-3.72).
+        """Pool an agent's outcomes into a DSPy trainset (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
 
         Turns :meth:`agent_eval_cases` into ``dspy.Example(context, task) -> response``
         rows (``task`` = the query, ``response`` = the outcome that was reached), so the
@@ -489,7 +489,7 @@ class FeedbackService:
     ) -> CorrectionResult:
         """Pin a hard-won gotcha to a file/module so it's inherited, not relearned.
 
-        CONCEPT:KG-2.140 — a ``:Gotcha`` node keyed by a (normalized) path + note,
+        CONCEPT:AU-KG.ingest.gotcha-feedback-capture — a ``:Gotcha`` node keyed by a (normalized) path + note,
         surfaced by ``code_context`` when an agent touches that area. The dogfood
         fix: traps like "gen scripts import the canonical copy, not the worktree" or
         "``_get_engine()`` hangs in a one-off host process" live IN the KG attached

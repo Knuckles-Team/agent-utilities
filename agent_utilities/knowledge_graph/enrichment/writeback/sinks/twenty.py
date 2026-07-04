@@ -1,4 +1,4 @@
-"""Twenty CRM write-back sink (CONCEPT:KG-2.9).
+"""Twenty CRM write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Create/enrich CRM records (companies/people/opportunities) from KG-derived
 knowledge — standard tier, fail-closed (``TWENTY_ENABLE_WRITE``), dry-run-first.

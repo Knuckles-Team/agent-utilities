@@ -1,4 +1,4 @@
-"""PostgreSQL + pgGraph + pgvector + ParadeDB Backend (CONCEPT:OS-5.0).
+"""PostgreSQL + pgGraph + pgvector + ParadeDB Backend (CONCEPT:AU-OS.safety.doom-loop-detection).
 
 Production-grade backend combining:
 - PostgreSQL relational tables for node/edge storage
@@ -29,7 +29,7 @@ _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
 def _pool_acquire_timeout_s() -> float:
     """Seconds to wait for a free pooled connection before failing fast.
 
-    CONCEPT:KG-2.152 — bound the authority-write tail. Env-overridable via
+    CONCEPT:AU-KG.backend.authority-write-tail — bound the authority-write tail. Env-overridable via
     ``GRAPH_DB_POOL_TIMEOUT``; default 5s (vs psycopg_pool's 30s) so a starved
     write becomes a fast retryable failure rather than a 16s stall.
     """
@@ -60,7 +60,7 @@ class PostgreSQLBackend(GraphBackend):
     @property
     def cypher_support(self) -> str:
         """Regex Cypher→SQL transpiler: only the bounded operational subset the
-        engine emits runs here (CONCEPT:KG-2.63). The AGE subclass overrides this
+        engine emits runs here (CONCEPT:AU-KG.backend.multi-connection-registry). The AGE subclass overrides this
         back to ``"full"`` for native openCypher."""
         return "subset"
 
@@ -77,7 +77,7 @@ class PostgreSQLBackend(GraphBackend):
         self._graph_name = graph_name
         self._pool_min = pool_min
         self._pool_max = pool_max
-        # Bound the wait to acquire a connection (CONCEPT:KG-2.152). The default
+        # Bound the wait to acquire a connection (CONCEPT:AU-KG.backend.authority-write-tail). The default
         # psycopg_pool wait is 30s — under sustained ingest with every lane worker
         # + the fan-out drainer threads sharing this ONE pool, a starved write
         # blocks the FULL 30s waiting for a free connection (profiled authority
@@ -96,7 +96,7 @@ class PostgreSQLBackend(GraphBackend):
         # Subset of _known_tables carrying the universal node shape (a ``properties``
         # column). A label-less fan-out projects ``properties`` across a UNION, so it
         # must span ONLY these — typed/ontology tables (e.g. Account) lack the column
-        # and would fail the UNION (CONCEPT:KG-2.9). Populated by introspection after
+        # and would fail the UNION (CONCEPT:AU-KG.ingest.enterprise-source-extractor). Populated by introspection after
         # schema init and extended by ensure_label_table.
         self._node_tables: set[str] = set()
         self._pggraph_available: bool | None = None  # lazy check
@@ -117,7 +117,7 @@ class PostgreSQLBackend(GraphBackend):
                 self._dsn,
                 min_size=self._pool_min,
                 max_size=self._pool_max,
-                # Bound the per-acquire wait at the POOL level too (CONCEPT:KG-2.152)
+                # Bound the per-acquire wait at the POOL level too (CONCEPT:AU-KG.backend.authority-write-tail)
                 # so any caller that doesn't pass an explicit ``timeout`` still fails
                 # fast instead of inheriting the 30s default.
                 timeout=self._pool_timeout,
@@ -158,7 +158,7 @@ class PostgreSQLBackend(GraphBackend):
                     pass
                 raise
         else:
-            # Bound the acquire (CONCEPT:KG-2.152): a starved pool raises
+            # Bound the acquire (CONCEPT:AU-KG.backend.authority-write-tail): a starved pool raises
             # PoolTimeout fast rather than blocking 30s. The caller's resilience
             # policy retries with bounded backoff (see ``execute``), so the tail
             # is the pool-timeout ceiling, not an unbounded queue wait.
@@ -264,7 +264,7 @@ class PostgreSQLBackend(GraphBackend):
 
         # Identify the node-shaped tables (those with a ``properties`` column) so
         # label-less UNIONs never fan over typed/ontology tables that lack it
-        # (CONCEPT:KG-2.9). One introspection query; extended by ensure_label_table.
+        # (CONCEPT:AU-KG.ingest.enterprise-source-extractor). One introspection query; extended by ensure_label_table.
         self._refresh_node_tables()
 
         # Register with pgGraph if available
@@ -283,7 +283,7 @@ class PostgreSQLBackend(GraphBackend):
         The label-less node fan-out (``MATCH (n {id: …})``) projects ``properties``
         across a UNION; a table without that column makes the whole UNION fail
         (``column "properties" does not exist``). Restricting the fan-out to
-        node-shaped tables is the durable fix (CONCEPT:KG-2.9)."""
+        node-shaped tables is the durable fix (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
         try:
             with self._conn() as conn:
                 with conn.cursor() as cur:
@@ -400,7 +400,7 @@ class PostgreSQLBackend(GraphBackend):
             logger.debug("edge_count failed: %s", e)
             return None
 
-    # ── Row-Level Security: DB-level tenant isolation (CONCEPT:KG-2.61) ──
+    # ── Row-Level Security: DB-level tenant isolation (CONCEPT:AU-KG.backend.concept-2) ──
     #
     # Defense-in-depth BENEATH the KG-2.58 named-graph partition: even a
     # hand-crafted Cypher/SQL that forgets the tenant predicate cannot read
@@ -632,12 +632,12 @@ class PostgreSQLBackend(GraphBackend):
         contain "lock" — notably ``idea_block`` — so a schema-drift
         ``column "label" of relation "idea_block" does not exist`` (SQLSTATE 42703)
         was misrouted to the lock-retry path and never reached the auto-DDL
-        self-heal, permanently dropping every ``idea_block`` write (CONCEPT:KG-2.7).
+        self-heal, permanently dropping every ``idea_block`` write (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
         """
         sqlstate = getattr(exc, "sqlstate", None)
         if sqlstate in ("40001", "40P01", "55P03", "55006"):
             return True
-        # A bounded-pool acquire that times out (CONCEPT:KG-2.152) is transient
+        # A bounded-pool acquire that times out (CONCEPT:AU-KG.backend.authority-write-tail) is transient
         # contention — every connection is busy — so it is retryable exactly like
         # a lock wait: a brief backoff lets an in-flight write release a conn.
         # Matched by type name to avoid importing psycopg_pool at module load.
@@ -661,7 +661,7 @@ class PostgreSQLBackend(GraphBackend):
     ) -> Any:
         """Run a DB callable under the shared pool-acquire/lock-contention policy.
 
-        CONCEPT:KG-2.152 — the bounded ``_conn`` acquire raises ``PoolTimeout`` fast
+        CONCEPT:AU-KG.backend.authority-write-tail — the bounded ``_conn`` acquire raises ``PoolTimeout`` fast
         when the shared pool is starved; ``_is_lock_contention`` classifies that (and
         genuine PG lock/deadlock SQLSTATEs) as retryable, and this re-drives ``fn``
         with bounded exponential backoff instead of hanging on the 30s default or
@@ -722,7 +722,7 @@ class PostgreSQLBackend(GraphBackend):
         # no node anchor for the transpiler to plan from → it returns UNKNOWN/[].
         # This is the global edge metric the tiered backend routes here, so answer
         # it directly from ``kg_edges`` (the durable source of truth for edges).
-        # (CONCEPT:KG-2.7 P1 — durable edge reads.)
+        # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — durable edge reads.)
         handled, rows = self._try_global_edge_count(query)
         if handled:
             return rows
@@ -820,7 +820,7 @@ class PostgreSQLBackend(GraphBackend):
                 return []
 
         # Historical lock backoff (2**n)*0.1s, no jitter; healed-schema retries
-        # carry a 0.0s delay hint so they stay immediate (CONCEPT:ORCH-1.36).
+        # carry a 0.0s delay hint so they stay immediate (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating).
         policy = ResiliencePolicy(
             max_attempts=max_retries,
             backoff_base_s=0.1,
@@ -1279,7 +1279,7 @@ class PostgreSQLBackend(GraphBackend):
                     # backend), ``_known_tables`` is empty — don't filter it out,
                     # use the live column catalog (mirrors the transpiler's
                     # ``not known_tables`` behavior). Otherwise semantic_search
-                    # silently finds 0 tables. (CONCEPT:KG-2.7)
+                    # silently finds 0 tables. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
                     tables = [
                         r[0]
                         for r in cur.fetchall()

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.12 / ORCH-1.13 — RLM-GEPA live entry-point glue.
+"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime / ORCH-1.13 — RLM-GEPA live entry-point glue.
 
 Verifies the dynamic signature builder, the default GEPA evaluator (pure), and that the entry
 functions return structured dicts without raising (robust MCP/CLI surface).
@@ -15,7 +15,7 @@ from agent_utilities.rlm.runner import (
 )
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_dynamic_signature_has_input_and_output():
     sig = _dynamic_signature("summarize the text", output_field="summary")
     fields = sig.model_fields
@@ -26,7 +26,7 @@ def test_dynamic_signature_has_input_and_output():
     assert fields["summary"].json_schema_extra.get("is_output") is True  # type: ignore[union-attr]
 
 
-@pytest.mark.concept(id="ORCH-1.13")
+@pytest.mark.concept(id="AU-ORCH.optimization.optimize-skill-prompt-gepa")
 def test_default_evaluator_scores_match():
     class _Inst:
         reference_output = "Paris"
@@ -42,7 +42,7 @@ def test_default_evaluator_scores_match():
     )
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 @pytest.mark.asyncio
 async def test_run_rlm_returns_structured_dict_without_raising():
     # Under AGENT_UTILITIES_TESTING the RLM may not fully execute; the entry must still return a

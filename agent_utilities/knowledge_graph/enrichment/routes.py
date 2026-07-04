@@ -1,4 +1,4 @@
-"""HTTP route extraction + code↔service linking (CONCEPT:KG-2.102).
+"""HTTP route extraction + code↔service linking (CONCEPT:AU-KG.compute.http-route-graph).
 
 A web service's *routes* are the seam between its code and the rest of the
 ecosystem: a handler function is reached through an HTTP route, and that route is
@@ -57,7 +57,7 @@ def extract_routes(
     code: list[CodeEntity],
 ) -> tuple[list[GraphNode], list[EnrichmentEdge]]:
     """Extract ``Route`` nodes + ``SERVES`` edges (handler → route) from the
-    route decorators on code symbols (CONCEPT:KG-2.102)."""
+    route decorators on code symbols (CONCEPT:AU-KG.compute.http-route-graph)."""
     routes: dict[str, GraphNode] = {}
     edges: list[EnrichmentEdge] = []
     seen: set[tuple[str, str]] = set()
@@ -85,7 +85,7 @@ def link_routes_to_service(
 ) -> list[EnrichmentEdge]:
     """Link every ``Route`` to the deployed ecosystem ``Service`` that serves it
     (``servedBy``) — the code↔topology bridge the OWL reasoner chains through
-    (CONCEPT:KG-2.102). ``service_id`` is the resolved ecosystem Service node id."""
+    (CONCEPT:AU-KG.compute.http-route-graph). ``service_id`` is the resolved ecosystem Service node id."""
     if not service_id:
         return []
     return [

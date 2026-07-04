@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Read-path enforcement helpers for the Company Brain (CONCEPT:KG-2.6).
+"""Read-path enforcement helpers for the Company Brain (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Thin, reusable functions that apply data-level permissions, tenant scoping, and
 read auditing on top of the dormant :class:`CompanyBrain` managers. Every helper

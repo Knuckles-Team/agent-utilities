@@ -1,4 +1,4 @@
-"""Tests for the trading-knowledge curator — CONCEPT:EE-036."""
+"""Tests for the trading-knowledge curator — CONCEPT:AU-AHE.assimilation.trading-curator."""
 
 from agent_utilities.knowledge_graph.distillation.trading_curator import (
     build_knowledge_nodes,

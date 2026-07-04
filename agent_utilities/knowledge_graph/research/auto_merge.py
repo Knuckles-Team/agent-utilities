@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Governed golden-loop auto-merge (CONCEPT:AHE-3.14).
+"""Governed golden-loop auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge).
 
 The loop engine is *propose-only* by design (``loop_controller.py``): it synthesizes
 ``TeamSpec`` / ``AgentSpec`` / ``PromptSpec`` proposals and persists them as KG
@@ -20,7 +20,7 @@ It is deliberately conservative and OFF by default:
     unless explicitly enabled,
   - the merger's own promotion decision consults the operational
     :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`
-    (CONCEPT:OS-5.24) under the reserved ``merge_promotion`` kind before the
+    (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) under the reserved ``merge_promotion`` kind before the
     lifecycle flip (the AHE-3.20 adoption that was previously a noted
     follow-up): ``deny`` blocks promotion outright (recorded + audited),
     ``queue_approval`` files/reuses the SAME ``ActionApproval`` the AHE-3.21
@@ -49,7 +49,7 @@ DEFAULT_QUALITY_THRESHOLD = 0.85
 
 
 def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
-    """Build the default production governance validator (CONCEPT:AHE-3.20).
+    """Build the default production governance validator (CONCEPT:AU-AHE.harness.promotion-governance-validator).
 
     Best-effort: returns ``None`` when the validator cannot be constructed, in
     which case the merger falls back to its hold-when-required behaviour.
@@ -74,7 +74,7 @@ class _FailClosedDecision:
 
 @dataclass
 class MergePolicy:
-    """The governance policy for auto-merging a proposal. CONCEPT:AHE-3.14.
+    """The governance policy for auto-merging a proposal. CONCEPT:AU-AHE.assimilation.research-auto-merge.
 
     Attributes:
         enabled: Master switch. When ``False`` (default) nothing is promoted —
@@ -114,7 +114,7 @@ class MergePolicy:
 
 @dataclass
 class MergeEvaluation:
-    """The result of evaluating one proposal for auto-merge. CONCEPT:AHE-3.14."""
+    """The result of evaluating one proposal for auto-merge. CONCEPT:AU-AHE.assimilation.research-auto-merge."""
 
     proposal_id: str
     quality_score: float
@@ -124,12 +124,12 @@ class MergeEvaluation:
     reason: str = ""
     audit_ref: str = ""
     failures: list[str] = field(default_factory=list)
-    #: Evolution→branch bridge outcome (CONCEPT:AHE-3.21): the governed_publish
+    #: Evolution→branch bridge outcome (CONCEPT:AU-AHE.harness.evolution-branch-bridge): the governed_publish
     #: report for a merged proposal — ``status`` is ``approval_queued`` under
     #: the shipped ActionPolicy, ``published`` once allowed (branch + sha +
     #: gate verdict inside), ``None`` when the proposal did not merge.
     publication: dict[str, Any] | None = None
-    #: Operational ActionPolicy verdict on the promotion itself (CONCEPT:OS-5.24,
+    #: Operational ActionPolicy verdict on the promotion itself (CONCEPT:AU-OS.deployment.fleet-lifecycle-control,
     #: the AHE-3.20 adoption): ``{"decision", "reason", "approval_id"}`` when
     #: the ``merge_promotion`` gate was consulted, ``None`` when promotion was
     #: never attempted (disabled policy / ineligible proposal).
@@ -142,7 +142,7 @@ class MergeEvaluation:
 
 
 class GovernedAutoMerger:
-    """Evaluates + (when governed) promotes golden-loop proposals. CONCEPT:AHE-3.14.
+    """Evaluates + (when governed) promotes golden-loop proposals. CONCEPT:AU-AHE.assimilation.research-auto-merge.
 
     Parameters
     ----------
@@ -156,7 +156,7 @@ class GovernedAutoMerger:
         Optional ``(spec) -> bool`` validity check (SHACL/governance). When
         ``None`` and an ``engine`` is available, the production
         :class:`~agent_utilities.knowledge_graph.research.promotion_governance.PromotionGovernanceValidator`
-        is constructed as the default (CONCEPT:AHE-3.20): SHACL shapes,
+        is constructed as the default (CONCEPT:AU-AHE.harness.promotion-governance-validator): SHACL shapes,
         recorded regression-gate verdicts, MergePolicy thresholds, and
         constitution rules. If no validator can be built, governance validity
         defaults to ``True`` only when the policy does not *require* it
@@ -169,11 +169,11 @@ class GovernedAutoMerger:
         promotion and returns success. Defaults to :meth:`_default_promote`.
     publisher:
         Optional :class:`~agent_utilities.knowledge_graph.research.change_publisher.ChangePublisher`
-        for the evolution→branch bridge (CONCEPT:AHE-3.21). ``None`` resolves
+        for the evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge). ``None`` resolves
         the registered/default publisher at publication time.
     action_policy:
         Optional :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`
-        override (CONCEPT:OS-5.24). ``None`` resolves the engine-bound policy
+        override (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). ``None`` resolves the engine-bound policy
         at decision time. The merger consults it with
         ``kind="merge_promotion"`` BEFORE the lifecycle flip: ``deny`` blocks
         the promotion (recorded), ``queue_approval`` proceeds with the
@@ -197,7 +197,7 @@ class GovernedAutoMerger:
         self.policy = policy or MergePolicy.from_env()
         self.audit = audit or AuditLogger()
         if governance_validator is None and engine is not None:
-            # Default to the PRODUCTION validator (CONCEPT:AHE-3.20) — the
+            # Default to the PRODUCTION validator (CONCEPT:AU-AHE.harness.promotion-governance-validator) — the
             # daemon/golden-loop path previously had no validator at all, so a
             # governance-required policy held everything and a non-required one
             # validated nothing.
@@ -211,7 +211,7 @@ class GovernedAutoMerger:
     # ── scoring ────────────────────────────────────────────────────────
     @staticmethod
     def score_proposal(spec: Any) -> float:
-        """Compute a quality score [0,1] for a proposal. CONCEPT:AHE-3.14.
+        """Compute a quality score [0,1] for a proposal. CONCEPT:AU-AHE.assimilation.research-auto-merge.
 
         An explicit ``quality_score`` on the spec wins. Otherwise a structural
         heuristic rewards completeness: a team with a named lead + members, a
@@ -343,7 +343,7 @@ class GovernedAutoMerger:
                 )
                 evaluation.reason = f"promotion error: {exc}"
             if evaluation.merged:
-                # Evolution→branch bridge (CONCEPT:AHE-3.21): a merged proposal
+                # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): a merged proposal
                 # becomes a reviewable git branch — gated by the OS-5.24
                 # ActionPolicy's reserved ``merge_promotion`` kind (the shipped
                 # default queues a human approval; publication then proceeds
@@ -409,7 +409,7 @@ class GovernedAutoMerger:
         return self._default_promote(spec)
 
     def _publish(self, spec: Any) -> dict[str, Any] | None:
-        """Bridge a merged proposal to a reviewable branch (CONCEPT:AHE-3.21).
+        """Bridge a merged proposal to a reviewable branch (CONCEPT:AU-AHE.harness.evolution-branch-bridge).
 
         Best-effort: a publication failure never undoes the lifecycle merge or
         crashes the loop — the report (or the error) is carried on the

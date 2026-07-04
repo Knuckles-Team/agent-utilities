@@ -1,4 +1,4 @@
-"""Tests for hierarchical org→user data segmentation + sharing (CONCEPT:KG-2.60).
+"""Tests for hierarchical org→user data segmentation + sharing (CONCEPT:AU-KG.compute.data-is-private-its).
 
 Covers:
 - private-by-default ownership stamping (skips privileged/system writers)

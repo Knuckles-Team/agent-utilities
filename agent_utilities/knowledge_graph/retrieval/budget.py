@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Retrieval-time context-token budget (CONCEPT:KG-2.1 / KG-2.3).
+"""Retrieval-time context-token budget (CONCEPT:AU-KG.memory.tiered-memory-caching / KG-2.3).
 
 The article's hard-won lesson: a bigger memory is useless if retrieval balloons
 the context window ("memory ate 40% of context"). The compactor handles *active*

@@ -1,5 +1,5 @@
 """
-Versioned Order System ("Trading-as-Git") — CONCEPT:KG-2.6
+Versioned Order System ("Trading-as-Git") — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides immutable order snapshots with version tracking, atomic
 commit promotion, and git-like mutation history with KG provenance.

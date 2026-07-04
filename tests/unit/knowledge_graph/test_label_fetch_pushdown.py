@@ -1,6 +1,6 @@
 """A label-scoped MATCH uses the engine's bounded labeled fetch, not a full scan.
 
-CONCEPT:KG-2.51 — `_exec_node_match` previously materialized the WHOLE graph
+CONCEPT:EG-KG.txn.per-graph-write-isolation — `_exec_node_match` previously materialized the WHOLE graph
 (`_get_all_nodes_with_properties`) for any `MATCH (n:Label) … LIMIT k`; it now
 pushes the label (and the LIMIT, for a pure read) down to the engine.
 """

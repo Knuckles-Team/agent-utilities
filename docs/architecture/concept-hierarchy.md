@@ -3,7 +3,7 @@
 > Status: **reviewable proposal** (W4 / B5). Design + migration tooling + gate/CLI
 > teach are landed on `feat/w4-concept-hierarchy`; the fleet-wide cutover
 > (`--apply`) is **NOT** run. Flat ids remain valid forever.
-> Concept: `CONCEPT:OS-5.76`.
+> Concept: `CONCEPT:AU-OS.governance.concept-hierarchy-standardization`.
 
 ## Why
 
@@ -14,11 +14,11 @@ shapes**:
 
 | Shape | Example | Namespaces using it |
 |-------|---------|---------------------|
-| flat `NS-<n>` | `EG-321`, `EG-010`, `EE-033`, `ML-011` | epistemic-graph (EG) + a few AU pillars |
-| dotted `NS-<pillar>.<concept>` | `KG-2.312`, `ORCH-1.105`, `AHE-3.49`, `OS-5.72` | KG, ORCH, ECO, OS, AHE |
+| flat `NS-<n>` | `AU-KG.compute.numeric-kernel`, `EG-ORCH.routing.lexical-capability-escalation`, `AU-AHE.assimilation.microstructure-signal-fusion`, `AU-AHE.trainer.join-inference` | epistemic-graph (EG) + a few AU pillars |
+| dotted `NS-<pillar>.<concept>` | `AU-KG.compute.surface-analytics-program`, `ORCH-1.105`, `AU-AHE.reward.cache-rollout-signals`, `OS-5.72` | KG, ORCH, ECO, OS, AHE |
 
 The flat shape has no pillar, so the registry generator treats *each* flat id as
-its own "pillar" (`EG-009`, `EG-010`, `EG-321` each became a bogus pillar). That
+its own "pillar" (`AU-KG.ingest.then-by-its-node`, `EG-ORCH.routing.lexical-capability-escalation`, `AU-KG.compute.numeric-kernel` each became a bogus pillar). That
 breaks any grouping/roll-up query and blocks **cross-project interweaving** (an
 EG concept that extends a KG concept can't be modeled).
 
@@ -41,13 +41,13 @@ NS-<pillar>.<concept>[.<segment>]
   * **Package namespaces** (letters-only local registries: `KEY OKTA JELLYFIN
     HUB SX GBOT …`) keep their existing `PKG-NNN` form untouched — they are a
     separate, legitimate scheme and are recognized + passed through.
-* **`<pillar>`** — the coarse grouping index inside the namespace (`2` of `KG-2`).
+* **`<pillar>`** — the coarse grouping index inside the namespace (`2` of `EG-KG.compute.backend`).
 * **`<concept>`** — the concept index inside the pillar.
 * **`<segment>`** — an OPTIONAL third level for finer subdivisions minted *going
-  forward* (e.g. `EG-3.31.20`). Absent ⇒ implicit `.0`. **Never** auto-assigned
+  forward* (e.g. `AU-KG.ontology.concept-id-parsing`). Absent ⇒ implicit `.0`. **Never** auto-assigned
   to a legacy id.
 
-Example (from the spec): `EG-3.31.20` = namespace `EG`, pillar `3`, concept `31`,
+Example (from the spec): `AU-KG.ontology.concept-id-parsing` = namespace `EG`, pillar `3`, concept `31`,
 segment `20`.
 
 ## Flat → dotted mapping rules (deterministic + reversible)
@@ -58,19 +58,19 @@ The single implementation is `concept_hierarchy.parse_concept_id`. Given a raw i
 2. Classify `NS` (project vs package) via `classify_namespace`.
 3. **Package NS** → passthrough. `canonical == raw`. Flagged `package-scoped`.
 4. **Project NS**, by segment count:
-   * **1 segment** `NS-<n>` (legacy flat, e.g. `EG-321`): it carries no pillar.
+   * **1 segment** `NS-<n>` (legacy flat, e.g. `AU-KG.compute.numeric-kernel`): it carries no pillar.
      Look up `PILLAR_MAP[(NS, n)]`; if present use it, else assign the reserved
-     **legacy pillar `0`** and flag `legacy-pillar-0`. → `EG-321` ⇒ `EG-0.321`.
-   * **2 segments** `NS-<p>.<c>` (e.g. `KG-2.312`): pillar `p`, concept `c`,
+     **legacy pillar `0`** and flag `legacy-pillar-0`. → `AU-KG.compute.numeric-kernel` ⇒ `AU-KG.ontology.concept-hierarchy`.
+   * **2 segments** `NS-<p>.<c>` (e.g. `AU-KG.compute.surface-analytics-program`): pillar `p`, concept `c`,
      no segment. Already grammar-compliant → `canonical == raw` (no rewrite).
-   * **3 segments** `NS-<p>.<c>.<s>` (e.g. `EG-3.31.20`): fully canonical.
+   * **3 segments** `NS-<p>.<c>.<s>` (e.g. `AU-KG.ontology.concept-id-parsing`): fully canonical.
    * **>3 segments**: taken as `p.c.s` + flagged `over-segmented` for review.
 
 ### How pillars are assigned
 
 * Dotted ids already state their pillar — kept verbatim.
 * Legacy flat ids default to pillar `0` ("unclassified/legacy"), which is
-  deterministic and reversible (`EG-0.321` → drop pillar `0` → `EG-321`). A
+  deterministic and reversible (`AU-KG.ontology.concept-hierarchy` → drop pillar `0` → `AU-KG.compute.numeric-kernel`). A
   reviewer curates real pillars by populating `PILLAR_MAP` *before* `--apply`;
   the dry-run report lists every id that needs curation, grouped by namespace.
 
@@ -85,7 +85,7 @@ id gains a segment during migration.
 Canonicalization is **additive, never destructive**:
 
 * `ConceptId.aliases` always includes both the raw string and the canonical
-  dotted string, so `EG-321` and `EG-0.321` resolve to the **same** concept.
+  dotted string, so `AU-KG.compute.numeric-kernel` and `AU-KG.ontology.concept-hierarchy` resolve to the **same** concept.
 * `build_alias_index(ids)` builds `{alias → canonical}` for resolution.
 * The **parity gate** (`scripts/check_concepts.py`) accepts a code marker if its
   raw id *or* its canonical form is registered — so a repo can migrate markers
@@ -93,7 +93,7 @@ Canonicalization is **additive, never destructive**:
 * The **registry** (`docs/concepts.yaml`) now carries additive `dotted`,
   `aliases`, `canonical_pillar`, and `needs_curation` keys per concept; existing
   consumers that read only `id` are unaffected.
-* An `--apply` rewrite records the flat id inline (`CONCEPT:EG-0.321  # alias:EG-321`)
+* An `--apply` rewrite records the flat id inline (`CONCEPT:AU-KG.ontology.concept-hierarchy  # alias:AU-KG.compute.numeric-kernel`)
   and is idempotent (re-running is a no-op) and reversible (the alias resolves both).
 
 ## Cross-project interweaving — the edges

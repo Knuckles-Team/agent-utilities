@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.2 (extension) — Scenario taxonomy + eval-scored skill picker.
+"""CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (extension) — Scenario taxonomy + eval-scored skill picker.
 
 Assimilated from open-design's scenario-grouped skills + picker, made **self-improving**: candidates
 are scored by keyword overlap + scenario fit + **prior success rate from the eval engine (AHE-3.1)**,

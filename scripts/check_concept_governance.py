@@ -50,7 +50,11 @@ DESIGN_DIR = ROOT / ".specify" / "design"
 
 # Same id grammar as the CI workflow / canonical marker regex: a dotless id
 # (SAFE-1), a dotted id (KG-2.101), or a letter-suffix id (KG-2.20g).
-CONCEPT_RE = re.compile(r"(?<=CONCEPT:)([A-Z]+-\d+(?:\.[0-9A-Za-z]+)?)")
+# OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): word-pillar grammar, >=2 dotted segments
+# (fixes the old single-segment `?` bug that dropped .concept.facet ids).
+CONCEPT_RE = re.compile(
+    r"(?<=CONCEPT:)([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+)"
+)
 PILLAR_RE = re.compile(r"^[A-Z]+")
 
 

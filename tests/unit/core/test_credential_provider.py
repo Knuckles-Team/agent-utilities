@@ -30,7 +30,7 @@ from agent_utilities.security.source_credentials import (
 @pytest.fixture
 def secrets() -> SecretsClient:
     """An engine-backed secrets client (unique throwaway graph) seeded with a few
-    source secrets. The unique graph keeps each test isolated (CONCEPT:OS-5.66)."""
+    source secrets. The unique graph keeps each test isolated (CONCEPT:AU-OS.identity.encrypted-secret-store)."""
     import uuid
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.12 — structured fan-out is reached on the LIVE run_full_rlm path.
+"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime — structured fan-out is reached on the LIVE run_full_rlm path.
 
 Reproduces the article's NarrativeQA "boolean attention-mask" pattern end-to-end:
 the root RLM writes REPL code that fans out boolean-schema subagents over chunks
@@ -49,7 +49,7 @@ class _DepthAwareFakeAgent:
         return _Res(f"```python\n{code}\n```")
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 @pytest.mark.asyncio
 async def test_structured_fanout_on_live_path(monkeypatch):
     _CAPTURED_SYSTEM_PROMPTS.clear()
@@ -67,7 +67,7 @@ async def test_structured_fanout_on_live_path(monkeypatch):
     assert any("schema=" in sp for sp in _CAPTURED_SYSTEM_PROMPTS)
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 def test_context_metadata_advertises_schema():
     """The metadata-only root access-instructions mention the schema= fan-out option."""
     env = RLMEnvironment(context="x" * 100, config=RLMConfig())

@@ -1,4 +1,4 @@
-"""Scaling signal providers (CONCEPT:OS-5.29).
+"""Scaling signal providers (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
 
 Covers: the ScalingSignalProvider protocol, the zero-infra
 LocalMetricsProvider (in-process gauge read, graceful None without
@@ -7,7 +7,7 @@ against a fake httpx transport (vector sum, empty/error/HTTP-failure ⇒ None,
 PromQL templating incl. the {service} placeholder), and the
 set_scaling_signal_provider deployment seam + config-driven resolution.
 
-@pytest.mark.concept("OS-5.29")
+@pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from agent_utilities.orchestration.scaling_signals import (
     set_scaling_signal_provider,
 )
 
-pytestmark = pytest.mark.concept("OS-5.29")
+pytestmark = pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 
 
 @pytest.fixture(autouse=True)

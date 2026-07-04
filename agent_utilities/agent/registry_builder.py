@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Agent Registry Builder Module.
 
-CONCEPT:ORCH-1.2
+CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 
 This module provides logic to ingest specialized prompt metadata into the
 Knowledge Graph as ``PromptNode`` entries. Prompts are JSON blueprints that
@@ -106,7 +106,7 @@ def _resolve_fields(data: dict[str, Any], stem: str) -> tuple[str, str, list[str
     else:
         capabilities = []
 
-    # CONCEPT:ORCH-1.80 — resolve the body via the single canonical resolver so
+    # CONCEPT:AU-ORCH.routing.resolve-body-single-canonical — resolve the body via the single canonical resolver so
     # decomposed ``instructions.core_directive`` prompts are not stored empty.
     from agent_utilities.prompting.structured import resolve_body
 
@@ -121,7 +121,7 @@ _OVERLAY_SOURCE = "__user__"
 
 
 def _prompt_id(source_label: str, name: str, data: dict[str, Any]) -> str:
-    """Compute the namespaced ``PromptNode`` id for a prompt (CONCEPT:KG-2.141).
+    """Compute the namespaced ``PromptNode`` id for a prompt (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
     * Packaged base prompts keep the bare ``prompt:<name>`` id (preserving the
       existing ~90 ids and any references to them).
@@ -157,7 +157,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     if base.exists():
         sources += [(_BASE_SOURCE, f) for f in sorted(base.glob("*.json"))]
 
-    # XDG-first (CONCEPT:OS-5.78): the materialized unified tree when populated, else
+    # XDG-first (CONCEPT:AU-OS.deployment.unified-install-tree): the materialized unified tree when populated, else
     # live ``prompt_providers`` entry-point discovery.
     for provider_name, pdir in resolve_prompt_provider_dirs():
         try:
@@ -175,7 +175,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     return sources
 
 
-# CONCEPT:ORCH-1.100 — Built-in, KG-bound, dispatchable AgentTemplates.
+# CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — Built-in, KG-bound, dispatchable AgentTemplates.
 #
 # A prompt blueprint is the persona; an ``AgentTemplate`` is what makes that
 # persona a *runnable* agent — it binds the system-prompt node, the toolsets,
@@ -212,7 +212,7 @@ _BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
 def seed_builtin_agent_templates(engine: Any) -> int:
     """Upsert the built-in AgentTemplate nodes + their USES_PROMPT edges.
 
-    CONCEPT:ORCH-1.100 — makes the packaged expert personas *dispatchable* agents
+    CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — makes the packaged expert personas *dispatchable* agents
     rather than bare prompt blueprints. Each template (1:1 with its base prompt)
     is upserted via the same engine path the prompts use, and wired to its
     ``prompt:<name>`` node with a ``USES_PROMPT`` edge so resolution can recover
@@ -260,7 +260,7 @@ async def ingest_prompts_to_graph():
     """Ingest JSON prompt blueprints into the Knowledge Graph prompt library.
 
     Replaces the legacy NODE_AGENTS.md registry with a dynamic KG-native
-    discovery mechanism. Ingests, in precedence order (CONCEPT:KG-2.141):
+    discovery mechanism. Ingests, in precedence order (CONCEPT:AU-KG.compute.user-override-prompt-library):
     the packaged base prompts (``agent_utilities/prompts/``), every
     fleet-contributed ``agent_utilities.prompt_providers`` package, and the
     operator XDG overlay (``prompts_dir()``). Later sources override earlier
@@ -331,7 +331,7 @@ async def ingest_prompts_to_graph():
             except Exception as e:
                 logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
 
-        # CONCEPT:ORCH-1.100 — once the prompt nodes exist, seed the built-in
+        # CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — once the prompt nodes exist, seed the built-in
         # AgentTemplates that bind them into dispatchable agents (USES_PROMPT).
         try:
             seeded = seed_builtin_agent_templates(engine)

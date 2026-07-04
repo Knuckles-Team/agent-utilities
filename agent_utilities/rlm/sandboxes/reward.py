@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.91 — adaptive sandbox-tier selection via a reward-EMA over rungs.
+"""CONCEPT:AU-ORCH.sandbox.adaptive-tier-selection — adaptive sandbox-tier selection via a reward-EMA over rungs.
 
 The deterministic router (``router.py``) picks the cheapest *capable* backend by
 ``preference_rank``. That is right until a rung starts *failing* on this host (a wedged docker

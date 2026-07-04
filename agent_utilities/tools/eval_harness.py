@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Evaluation Harness Module.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 
 Provides a pluggable evaluation framework for scoring agent outputs.
 Scorers implement the :class:`EvalScorer` protocol and are aggregated

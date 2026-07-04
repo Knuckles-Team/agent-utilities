@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.43 — Git webhook ingress: issue/PR -> ingested KG object -> enqueued SWE task."""
+"""CONCEPT:AU-ECO.connector.git-task-resolver — Git webhook ingress: issue/PR -> ingested KG object -> enqueued SWE task."""
 
 from __future__ import annotations
 

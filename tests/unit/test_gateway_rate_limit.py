@@ -1,4 +1,4 @@
-"""Tests for the per-tenant token-bucket rate limiter (CONCEPT:OS-5.23).
+"""Tests for the per-tenant token-bucket rate limiter (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
 Covers: bucket math, burst capacity, per-tenant isolation, the
 disabled-by-default contract, the 429 response shape (Retry-After + JSON

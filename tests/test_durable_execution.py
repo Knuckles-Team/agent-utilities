@@ -1,5 +1,5 @@
 """
-Tests for Durable Execution (CONCEPT:ECO-4.0 / ORCH-1.36).
+Tests for Durable Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction / ORCH-1.36).
 
 Covers checkpoint/resume, crash-resume across manager instances, exactly-once
 effects via idempotency keys, and at-least-once retry semantics.

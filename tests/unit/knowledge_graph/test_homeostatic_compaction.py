@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Tests for quality-budget / fidelity-gated context compaction (b7-01).
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 """
 
 import pytest
 
 from agent_utilities.knowledge_graph.memory.agent_context import ContextCompactor
 
-pytestmark = pytest.mark.concept("KG-2.1")
+pytestmark = pytest.mark.concept("AU-KG.memory.tiered-memory-caching")
 
 
 def _msg(words: int) -> list[dict]:

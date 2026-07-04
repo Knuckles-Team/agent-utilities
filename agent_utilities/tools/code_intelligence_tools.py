@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.65 — Code-Intelligence Tools: the SWE agent's grounding surface.
+"""CONCEPT:AU-KG.compute.code-intelligence-tools — Code-Intelligence Tools: the SWE agent's grounding surface.
 
 OpenHands grounds its CodeActAgent by stuffing file contents into the context and compressing
 with a summarizing condenser. We do the opposite: the code ontology is *already live* (KG-2.8

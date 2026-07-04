@@ -1,5 +1,5 @@
 """
-Multi-Agent Trading Swarm — CONCEPT:KG-2.6
+Multi-Agent Trading Swarm — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides specialized agent roles (Director, Quant Analyst, Risk Manager,
 Execution Trader) with swarm orchestration for collaborative trading decisions.
@@ -85,7 +85,7 @@ class SwarmConfig:
     consensus_threshold: float = 0.6
     risk_veto_enabled: bool = True
     min_agents_for_consensus: int = 3
-    # Calibration read-back (CONCEPT:KG-2.27): blend each role's weight toward
+    # Calibration read-back (CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking): blend each role's weight toward
     # its agents' tracked calibration (Brier-based reputation) at aggregation
     # time. Safe-by-construction default: with no resolved calls the calibrated
     # weights EQUAL the base weights, so behaviour only shifts once real
@@ -248,7 +248,7 @@ class TradingSwarm:
         self.agents = agents or []
         self.config = config or SwarmConfig()
         self._consensus_history: list[SwarmConsensus] = []
-        # Per-agent reputation tracker (CONCEPT:KG-2.27). Every analyze() logs
+        # Per-agent reputation tracker (CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking). Every analyze() logs
         # each agent's directional call; record_market_outcome() resolves them,
         # and the next aggregation blends the resulting calibration into the
         # role weights — the read-back loop that was previously write-only.
@@ -280,7 +280,7 @@ class TradingSwarm:
     def _effective_role_weights(self) -> dict[str, float]:
         """Role weights for aggregation, calibration-blended when enabled.
 
-        CONCEPT:KG-2.27 read-back: each role's static weight is EMA-blended
+        CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking read-back: each role's static weight is EMA-blended
         toward :func:`calibrated_role_weights` (its agents' tracked Brier-based
         reputation) so historically-accurate voices count more. Guarded — any
         calibration failure falls back to the configured static weights.
@@ -327,7 +327,7 @@ class TradingSwarm:
     def record_market_outcome(self, realized_direction: int, subject: str = "") -> int:
         """Resolve every agent's open call against the realized direction.
 
-        The feedback half of the calibration loop (CONCEPT:KG-2.27): call this
+        The feedback half of the calibration loop (CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking): call this
         when the market outcome for ``subject`` is known; the very next
         :meth:`analyze` aggregates with reputation-adjusted weights. Returns
         the number of calls resolved.
@@ -354,7 +354,7 @@ class TradingSwarm:
         signals = [agent.analyze(market_data) for agent in self.agents]
 
         # Open a calibration call per directional signal so future outcomes
-        # build each agent's reputation (CONCEPT:KG-2.27).
+        # build each agent's reputation (CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking).
         subject = str(market_data.get("symbol") or market_data.get("ticker") or "")
         self._record_calls(signals, subject)
 

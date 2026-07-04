@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Desired-state fleet reconciler.
 
-CONCEPT:OS-5.25 — Desired-state fleet reconciler: a leader-only daemon tick
+CONCEPT:AU-OS.config.desired-state-fleet-reconciler — Desired-state fleet reconciler: a leader-only daemon tick
 diffs the declared fleet (registry + optional override) against the observed
 fleet and converges through the ActionPolicy gate and the actuator seam.
 
@@ -15,7 +15,7 @@ This module is that runtime contract:
   expected ``running`` with 1 replica unless said otherwise), layered with an
   optional override file (``FLEET_DESIRED_STATE_PATH``) carrying per-service
   ``replicas`` / ``desired: running|stopped`` / ``version`` / ``scaling``
-  (reactive-autoscaling bounds, CONCEPT:OS-5.29 — consumed by the
+  (reactive-autoscaling bounds, CONCEPT:AU-OS.scaling.fleet-reconciler — consumed by the
   ``fleet_autoscaler`` tick, not by this reconciler).
 * **observed state** — a pluggable
   :class:`~agent_utilities.orchestration.fleet_observation.FleetObserver`
@@ -25,7 +25,7 @@ This module is that runtime contract:
   mismatch ⇒ ``scale_service``; running-but-undesired ⇒ ``stop_service``.
   Services with NO observation are skipped (never act on zero evidence).
 * **gate → actuate** — every proposal passes the ActionPolicy decision point
-  (CONCEPT:OS-5.24); allowed actions run through the
+  (CONCEPT:AU-OS.deployment.fleet-lifecycle-control); allowed actions run through the
   :class:`~agent_utilities.orchestration.fleet_actuation.FleetActuator` (the
   default dry-run actuator records intent without mutating), and restarts
   schedule an OS-5.27 health watch. Queue-approval decisions land in the
@@ -82,7 +82,7 @@ def _now_iso() -> str:
 class ScalingSpec:
     """Registry-declared reactive-autoscaling bounds for one service.
 
-    CONCEPT:OS-5.29 — consumed by the leader-only ``fleet_autoscaler`` tick
+    CONCEPT:AU-OS.scaling.fleet-reconciler — consumed by the leader-only ``fleet_autoscaler`` tick
     (``orchestration/fleet_autoscaler.py``). ``max``, ``signal`` and ``target``
     are deliberately explicit (no implicit ceiling, no implicit metric): a
     service only autoscales when its owner declared how far and on what.
@@ -154,7 +154,7 @@ class DesiredService:
     replicas: int = 1
     version: str = ""
     profiles: list[str] = field(default_factory=list)
-    scaling: ScalingSpec | None = None  # CONCEPT:OS-5.29 (None = never autoscale)
+    scaling: ScalingSpec | None = None  # CONCEPT:AU-OS.scaling.fleet-reconciler (None = never autoscale)
 
 
 def resolve_registry_path(explicit: str | None = None) -> Path | None:
@@ -359,7 +359,7 @@ class FleetReconciler:
                 # Code-evolution publications are NOT fleet actuations: a
                 # granted merge_promotion approval is consumed by the
                 # evolution→branch bridge's ``publish_proposal`` action
-                # (CONCEPT:AHE-3.21), never by the fleet actuator — which
+                # (CONCEPT:AU-AHE.harness.evolution-branch-bridge), never by the fleet actuator — which
                 # would dry-run/fail it and silently eat the grant.
                 continue
             try:

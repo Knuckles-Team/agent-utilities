@@ -37,7 +37,7 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
     - The kernel dynamically increases its execution time-slices, grants it higher CPU thread affinity, and scales its memory quota.
     - If a low-priority task blocks a high-centrality node, the scheduler triggers **epistemic preemption**, pausing the low-priority agent's WASM state (`OS-5.5`) to free execution slots.
 
-### B. Ontology-Driven Semantic Guardrails (`OS-5.3` × `KG-2.2`)
+### B. Ontology-Driven Semantic Guardrails (`AU-OS.governance.reactive-multi-axis-budget` × `KG-2.2`)
 *   **The Synergy**: Classic safety guardrails rely on static regular expressions or basic semantic similarities. Our OS-level guardrail uses **OWL subsumption reasoning** to construct mathematical proof-of-safety boundaries.
 *   **Mechanism**: When an agent proposes a tool call (`ECO-4.0`), the tool schema and its exact parameter arguments are translated into a transient OWL Individual (e.g., `ToolCallInstance`).
     - The security kernel runs a fast Datalog reasoner (`KG-2.7`) to check if the `ToolCallInstance` falls under restricted classes (e.g., `RestrictedDirectoryWrite` or `NonCompliantNetworkEgress`).
@@ -83,7 +83,7 @@ graph TD
     ConsensusEngine -->|Speculative Branching| GarbageCollector
 ```
 
-### A. Semantic Routing & Topic Sharding (`ECO-4.9` × `ORCH-1.12` × `KG-2.6`)
+### A. Semantic Routing & Topic Sharding (`AU-ECO.bus.pluggable-queue-backend` × `ORCH-1.12` × `KG-2.6`)
 *   **Mechanism**: The company's organizational chart is represented as a structured ontology (`ontology_company.ttl`).
     - The NATS/Kafka messaging topics are sharded hierarchically matching the ontology (e.g., `tasks.shard.legal.compliance.tax.*`).
     - When a new worker node spins up, it queries the local `KGCoordinator` for its registered specialist role.
@@ -171,7 +171,7 @@ We propose registering the following concept mappings to fully support these syn
 | Concept ID | Canonical Name | Target Module | Purpose |
 |------------|----------------|---------------|---------|
 | `OS-5.8` | Epistemic Resource Scheduler | `cognitive_scheduler.py` | Scales processor priority, memory quotas, and thread affinity dynamically based on KG centrality and role centralities. |
-| `OS-5.3` | Ontological Guardrail Engine | `tool_guard.py` | Resolves proposed tool call parameters against OWL policy nodes for complete mathematical safety proofs. |
+| `AU-OS.governance.reactive-multi-axis-budget` | Ontological Guardrail Engine | `tool_guard.py` | Resolves proposed tool call parameters against OWL policy nodes for complete mathematical safety proofs. |
 | `KG-2.7` | Speculative Graph Brancher | `kg_versioning.py` | Manages transient workspace transaction branches (`KGTransaction`) to allow lock-free concurrent modifications at scale. |
 | `KG-2.7` | Semantic Compactor & Refactorer | `knowledge_graph/memory/` (`ElasticContextManager`), driven by `_tick_compaction` in `core/engine_tasks.py` | Performs background refactoring of millions of execution traces into high-level declarative facts. |
 | `KG-2.8` | SHACL Ingestion Gate | `pipeline/phases/shacl_gate.py` | Validates candidate nodes against `shapes/governance.shapes.ttl` before commit; quarantines violating nodes to an `:Invalid` marker with an attached violation report. |

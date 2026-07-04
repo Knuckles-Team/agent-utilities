@@ -5,14 +5,14 @@ The feature→concept *matching* is now the ConceptMatcher (see
 ``test_concept_matcher.py``); this file covers the durable "what is still an open
 gap?" query helpers that the matcher and the golden loop both rely on.
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
 
 from agent_utilities.knowledge_graph.assimilation import is_closed, open_features
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:

@@ -1,10 +1,10 @@
-"""Tests for the Release-Channel System (CONCEPT:OS-5.13).
+"""Tests for the Release-Channel System (CONCEPT:AU-OS.scaling.resolve-active-channel-once).
 
 Covers channel resolution + the visibility gate, the decorator/registry, AND the
 live wiring into KG-driven specialist designation: an ``edge``-tagged callable
 node is hidden on the default ``stable`` channel and visible on ``edge``.
 
-@pytest.mark.concept("OS-5.13")
+@pytest.mark.concept("AU-OS.scaling.resolve-active-channel-once")
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from agent_utilities.core.release_channel import (
     set_active_channel,
 )
 
-pytestmark = pytest.mark.concept("OS-5.13")
+pytestmark = pytest.mark.concept("AU-OS.scaling.resolve-active-channel-once")
 
 
 @pytest.fixture(autouse=True)

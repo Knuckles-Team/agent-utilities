@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:ORCH-1.4"""
+"""CONCEPT:AU-ORCH.adapter.kg-graph-materialization"""
 
 """Tests for agent capabilities (reliability, session resilience, teams)."""
 

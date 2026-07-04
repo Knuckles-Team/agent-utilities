@@ -1,4 +1,4 @@
-"""Engine-backed time-series memory backend (CONCEPT:KG-2.246).
+"""Engine-backed time-series memory backend (CONCEPT:AU-KG.memory.time-series-lives-one).
 
 Routes the time-series memory abstraction onto the **one epistemic-graph engine
 authority** via its native ``client.timeseries.*`` namespace (eg-tsdb, CONCEPT:
@@ -7,7 +7,7 @@ each series as ``(ts_ns, [field0, field1, ...])`` points in its own durable
 ``series.redb``, so high-frequency points live beside the graph, not in a
 straggler local DB.
 
-LIVE CONSUMERS (CONCEPT:KG-2.252 wired this from dead-on-arrival to in-flow):
+LIVE CONSUMERS (CONCEPT:AU-KG.domains.ohlcv-gap-fill wired this from dead-on-arrival to in-flow):
 ``observability/token_tracker.py`` appends per-agent token telemetry here on every
 ``record()`` and reads trends via native range/window; ``domains/finance/
 engine_series.py`` routes irregular-series gap-fill/asof through it. So this is no
@@ -16,7 +16,7 @@ longer a backend with no caller — it is the live time-series substrate.
 Engine-only: this is the sole time-series backend (the local SQLite fallback was
 removed). ``initialize()`` raises a clear error when the engine is genuinely
 unreachable — the OS-5.63 resolver auto-starts the pi-tier engine in prod and the
-test fixture (CONCEPT:KG-2.238) provides a real ephemeral one, so an unreachable
+test fixture (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) provides a real ephemeral one, so an unreachable
 engine is a hard failure, never a silent degrade.
 
 Mapping from the abstraction's ``TimeSeriesDataPoint`` (``symbol`` + ``datetime``
@@ -73,7 +73,7 @@ def _series_id(symbol: str, tags: dict[str, str] | None) -> str:
 class EngineTimeSeriesBackend(TimeSeriesBackend):
     """Time-series backend served by the epistemic-graph engine's tsdb namespace.
 
-    CONCEPT:KG-2.246. Acquires a ``SyncEpistemicGraphClient`` at ``initialize()``
+    CONCEPT:AU-KG.memory.time-series-lives-one. Acquires a ``SyncEpistemicGraphClient`` at ``initialize()``
     via the OS-5.63 resolver (which auto-starts the pi-tier engine when nothing is
     running); raises a clear error if the engine is genuinely unreachable. There is
     no SQLite fallback — the engine is the one time-series authority.
@@ -100,7 +100,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
                 "time-series memory requires the epistemic-graph engine, but no "
                 "engine is reachable. The OS-5.63 resolver auto-starts the pi-tier "
                 "engine in prod and the test fixture (KG-2.238) provides one — "
-                "there is no SQLite fallback (CONCEPT:KG-2.246). "
+                "there is no SQLite fallback (CONCEPT:AU-KG.memory.time-series-lives-one). "
                 f"Underlying connect error: {exc}"
             ) from exc
         logger.debug("EngineTimeSeriesBackend initialized via engine tsdb")

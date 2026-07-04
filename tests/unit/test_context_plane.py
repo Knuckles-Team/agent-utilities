@@ -1,6 +1,6 @@
 """Universal context plane + ops diagnosis + shared source paths.
 
-CONCEPT:KG-2.136 (context plane), KG-2.137 (ops diagnosis), KG-2.135 (path norm).
+CONCEPT:AU-KG.retrieval.route-question-its-domain (context plane), KG-2.137 (ops diagnosis), KG-2.135 (path norm).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ _CANON = "/home/apps/workspace/agent-packages/agent-utilities/x.py"
 
 
 # ── E1: shared source-path util ───────────────────────────────────────────────
-@pytest.mark.concept("KG-2.135")
+@pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_source_paths_normalize_and_repo_of():
     assert normalize_path("/au/agent_utilities/x.py") == _CANON.replace(
         "x.py", "agent_utilities/x.py"
@@ -53,7 +53,7 @@ class FakeOpsEngine:
         return []
 
 
-@pytest.mark.concept("KG-2.137")
+@pytest.mark.concept("AU-KG.retrieval.ops-context")
 def test_diagnose_ops_health_flags_backing_up_lane():
     res = diagnose_ops(FakeOpsEngine(), query="", intent="health")
     assert res["status"] == "ok" and res["domain"] == "ops"
@@ -65,7 +65,7 @@ def test_diagnose_ops_health_flags_backing_up_lane():
     assert res["capability_id"] == "ops:health:queue"
 
 
-@pytest.mark.concept("KG-2.137")
+@pytest.mark.concept("AU-KG.retrieval.ops-context")
 def test_diagnose_ops_why_focuses_named_lane():
     res = diagnose_ops(
         FakeOpsEngine(), query="why is the maint lane backing up", intent="why"
@@ -75,7 +75,7 @@ def test_diagnose_ops_why_focuses_named_lane():
     assert res["capability_id"] == "ops:why:maint"
 
 
-@pytest.mark.concept("KG-2.137")
+@pytest.mark.concept("AU-KG.retrieval.ops-context")
 def test_diagnose_ops_degrades_on_empty_engine():
     class Empty:
         def query_cypher(self, c, p):
@@ -87,20 +87,20 @@ def test_diagnose_ops_degrades_on_empty_engine():
 
 
 # ── A1: the context plane registry + routing ──────────────────────────────────
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_infer_domain():
     assert context_plane.infer_domain("why is the maint lane backing up") == "ops"
     assert context_plane.infer_domain("how does run_agent work") == "code"
     assert context_plane.infer_domain("the task queue dead_letter backlog") == "ops"
 
 
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_list_context_domains_has_builtins():
     domains = {d["domain"] for d in context_plane.list_context_domains()}
     assert {"code", "ops"} <= domains
 
 
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_synthesize_context_routes_to_ops_builtin():
     res = context_plane.synthesize_context(
         FakeOpsEngine(), domain="ops", query="health", intent="health"
@@ -109,7 +109,7 @@ def test_synthesize_context_routes_to_ops_builtin():
     assert "pending" in res["answer"]
 
 
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_synthesize_context_infers_domain_from_query():
     res = context_plane.synthesize_context(
         FakeOpsEngine(), query="why is the maint lane backing up", intent="why"
@@ -118,14 +118,14 @@ def test_synthesize_context_infers_domain_from_query():
     assert "maint" in res["answer"]
 
 
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_synthesize_context_unknown_domain_errors():
     res = context_plane.synthesize_context(object(), domain="nonsense", query="x")
     assert res["status"] == "error"
     assert "code" in res["available_domains"] and "ops" in res["available_domains"]
 
 
-@pytest.mark.concept("KG-2.136")
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_register_custom_provider_overrides(monkeypatch):
     def provider(engine, *, query, intent, **opts):
         return {"status": "ok", "answer": f"custom:{query}:{intent}"}

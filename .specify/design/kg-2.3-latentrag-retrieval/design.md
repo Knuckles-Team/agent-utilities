@@ -1,4 +1,4 @@
-# Design Document: Latent-Space Retrieval Optimization (CONCEPT:KG-2.3)
+# Design Document: Latent-Space Retrieval Optimization (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 > Every feature begins with a design document. This gates creation through
 > the Knowledge Graph to enforce the **Extend-Before-Invent** principle.
@@ -23,7 +23,7 @@
 
 ### Extension Analysis
 
-- **Primary Extension Point**: `CONCEPT:KG-2.3` — Graph Integrity & Retrieval
+- **Primary Extension Point**: `CONCEPT:AU-KG.memory.auto-similarity-memory-graph` — Graph Integrity & Retrieval
 - **Extension Strategy**: `augment` — adds AutoRefine post-retrieval stage and scoring transparency
 - **New Concept Required?**: No
 

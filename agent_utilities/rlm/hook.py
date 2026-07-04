@@ -16,7 +16,7 @@ async def rlm_large_output_hook(input: HookInput) -> HookResult | None:
         return None
 
     config = RLMConfig()
-    # Honor the documented trigger hierarchy (CONCEPT:ORCH-1.1): route oversized
+    # Honor the documented trigger hierarchy (CONCEPT:AU-ORCH.planning.recursion-nesting-depth): route oversized
     # outputs to RLM when globally enabled OR when ``trigger_on_large_output`` is
     # set (the default) — so a db_query (or any tool) returning millions of rows
     # is recursively processed instead of flooding the context window, without

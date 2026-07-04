@@ -1,4 +1,4 @@
-# Spec: Research Assimilation Tracking (CONCEPT:KG-2.6)
+# Spec: Research Assimilation Tracking (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
@@ -60,4 +60,4 @@
 - [x] Pre-commit hooks pass cleanly
 - [x] Documentation updated in `docs/pillars/2_epistemic_knowledge_graph/KG-2.7-Research_Intelligence.md`
 - [x] New functionality wired into kg_write, kg_trace, and kg_search MCP tools
-- [x] CONCEPT:KG-2.6 tags in all new code and tests
+- [x] CONCEPT:AU-KG.research.research-pipeline-runner tags in all new code and tests

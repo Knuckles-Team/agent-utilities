@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.15 — Resilient Retrieval.
+"""CONCEPT:AU-KG.retrieval.triviality-gate — Resilient Retrieval.
 
 Covers the social-closer triviality gate and the lexical fallback cascade (degradation when the
 vector path returns nothing), using a fake retriever/backend so no embeddings are needed.
@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.retrieval.hyde_planner import is_trivial_qu
 # ── triviality gate ─────────────────────────────────────────────────────────────
 
 
-@pytest.mark.concept(id="KG-2.15")
+@pytest.mark.concept(id="AU-KG.retrieval.triviality-gate")
 def test_is_trivial_query():
     for t in ["", "ok", "thanks", "Thanks!", "ok.", "👍", "yep", "bye"]:
         assert is_trivial_query(t) is True, t
@@ -68,7 +68,7 @@ class _FakeRetriever:
         return list(self._hybrid_results)
 
 
-@pytest.mark.concept(id="KG-2.15")
+@pytest.mark.concept(id="AU-KG.retrieval.triviality-gate")
 def test_trivial_query_skips_retrieval_entirely():
     r = _FakeRetriever(hybrid_results=[{"id": "1", "_score": 0.9}])
     out = r.plan_and_retrieve("thanks!", mode="standard")  # type: ignore[misc]
@@ -76,7 +76,7 @@ def test_trivial_query_skips_retrieval_entirely():
     assert r.hybrid_calls == 0  # planner + retrieval skipped
 
 
-@pytest.mark.concept(id="KG-2.15")
+@pytest.mark.concept(id="AU-KG.retrieval.triviality-gate")
 def test_lexical_fallback_fires_when_vector_empty():
     # Vector path returns nothing; backend has a lexical match.
     rows = [
@@ -92,7 +92,7 @@ def test_lexical_fallback_fires_when_vector_empty():
     assert out[0]["_score"] == 0.2  # type: ignore[index]
 
 
-@pytest.mark.concept(id="KG-2.15")
+@pytest.mark.concept(id="AU-KG.retrieval.triviality-gate")
 def test_no_fallback_when_vector_returns_results():
     r = _FakeRetriever(
         hybrid_results=[{"id": "v1", "_score": 0.8}], backend_rows=[{"id": "x"}]
@@ -102,7 +102,7 @@ def test_no_fallback_when_vector_returns_results():
     assert r.engine.backend.queries == []  # lexical fallback not invoked
 
 
-@pytest.mark.concept(id="KG-2.15")
+@pytest.mark.concept(id="AU-KG.retrieval.triviality-gate")
 def test_lexical_fallback_no_backend_returns_empty():
     r = _FakeRetriever(hybrid_results=[])
     r.engine.backend = None

@@ -1,6 +1,6 @@
 """
 
-CONCEPT:KG-2.8
+CONCEPT:EG-KG.storage.nonblocking-checkpoint
 Tests for PDF-reader selection in document ingestion.
 
 The default LlamaIndex ``SimpleDirectoryReader`` PDF reader (pypdf) is pure-Python

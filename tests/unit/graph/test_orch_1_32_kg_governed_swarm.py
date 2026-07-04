@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm (SWARM-1…7).
+"""CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm (SWARM-1…7).
 
 Assimilated from Kimi Agent Swarm. These extend the existing ParallelEngine (ORCH-1.8) rather than
 reinventing it: the engine already does dependency-ordered parallel waves + synthesis. The tests

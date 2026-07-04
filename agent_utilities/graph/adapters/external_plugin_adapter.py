@@ -1,4 +1,4 @@
-"""External Plugin Adapter — CONCEPT:ORCH-1.4
+"""External Plugin Adapter — CONCEPT:AU-ORCH.adapter.kg-graph-materialization
 
 Provides backward compatibility for legacy plugins, allowing them
 to be natively loaded into the agent-utilities ServiceRegistry.

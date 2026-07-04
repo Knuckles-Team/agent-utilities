@@ -1,10 +1,10 @@
-"""IRC Messaging Backend (CONCEPT:ECO-4.0).
+"""IRC Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Uses the ``irc`` library for IRC protocol messaging.
 
 Install: ``pip install agent-utilities[messaging-irc]``
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class IRCBackend(MessagingBackend):
-    """IRC messaging backend. CONCEPT:ECO-4.0"""
+    """IRC messaging backend. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -51,7 +51,7 @@ class IRCBackend(MessagingBackend):
         return CAPABILITY_MATRIX["irc"]
 
     async def connect(self) -> None:
-        """Connect to IRC server. CONCEPT:ECO-4.0"""
+        """Connect to IRC server. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         try:
             import irc.client
         except ImportError:
@@ -97,7 +97,7 @@ class IRCBackend(MessagingBackend):
 
         asyncio.create_task(asyncio.to_thread(self._reactor.process_forever))
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] IRC backend connected to %s.", server)
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] IRC backend connected to %s.", server)
 
     async def disconnect(self) -> None:
         if self._connection:

@@ -16,7 +16,7 @@ These gates are deterministic, dependency-free (stdlib + ``math``), and shaped t
 compose alongside :mod:`agent_utilities.harness.quality_gates` — they share its
 frozen-dataclass verdict style so a runner can persist both kinds of outcome.
 
-CONCEPT:AHE-3.35
+CONCEPT:AU-AHE.assimilation.baseline-overfit-gate
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ class PreRunGate:
     verdict passes only when both sub-gates pass, and its ``detail`` carries both
     sub-verdicts for persistence and post-mortem.
 
-    CONCEPT:AHE-3.35
+    CONCEPT:AU-AHE.assimilation.baseline-overfit-gate
     """
 
     def __init__(self, *, min_lift: float = 0.02, min_drop_frac: float = 0.5) -> None:

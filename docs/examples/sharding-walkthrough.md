@@ -5,7 +5,7 @@
 Running three epistemic-graph engine shards from the shipped compose file,
 pointing every client at them with `GRAPH_SERVICE_ENDPOINTS`, and watching
 tenant-partitioned routing work: `tenant → named graph → HRW → shard`
-(CONCEPT:KG-2.58), with topology visibility (CONCEPT:OS-5.28) and the
+(CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw), with topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per) and the
 fail-loud failure semantics.
 
 Deep dive: [engine_sharding.md](../architecture/engine_sharding.md).
@@ -49,7 +49,7 @@ docker compose -f docker/engine-shards.compose.yml up -d
 ```
 
 The secret is deliberately not defaulted in the compose file — leave it unset
-and the engine binary refuses to start (fail-loud, CONCEPT:OS-5.14).
+and the engine binary refuses to start (fail-loud, CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
 ## 2. Point every client at the full list
 
@@ -180,7 +180,7 @@ Why fail-loud, not fail-over:
   mode `is_local_endpoint()` gates it). Auto-starting a local stand-in for a
   remote shard would silently split that shard's graphs into invisible
   islands.
-- **The circuit breaker** (OS-5.23, shared per endpoint): consecutive
+- **The circuit breaker** (AU-OS.observability.no-op-without-metrics, shared per endpoint): consecutive
   connect/timeout failures open the circuit and subsequent callers fail fast
   with the typed `EngineCircuitOpenError` (a `ConnectionError`) instead of
   hammering a dead socket; a half-open probe after the cooldown heals it.

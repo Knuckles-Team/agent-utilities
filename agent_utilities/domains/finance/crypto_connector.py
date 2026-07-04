@@ -1,5 +1,5 @@
 """
-Crypto Connector — CONCEPT:KG-2.6
+Crypto Connector — CONCEPT:AU-KG.research.research-pipeline-runner
 Domain: Finance
 
 Provides abstractions for crypto-specific market data:

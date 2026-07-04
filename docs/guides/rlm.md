@@ -1,6 +1,6 @@
 # Recursive Language Models (RLM)
 
-> CONCEPT:ORCH-1.1 — Recursive Language Model Execution
+> CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Recursive Language Model Execution
 
 ## Overview
 
@@ -10,7 +10,7 @@ RLM enables agents to:
 - Process inputs **two orders of magnitude** beyond model context windows
 - Perform **unbounded semantic work** through recursive sub-calls
 - Leverage **OWL reasoning** and **KG bulk analysis** within execution
-- Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AHE-3.0)
+- Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AU-AHE.harness.harness-evolution)
 
 ## Architecture
 
@@ -43,7 +43,7 @@ RLM enables agents to:
 ```
 
 Code execution is no longer a hardcoded `local`/`container` switch: `execute()` routes each
-snippet through the **tiered sandbox router** (CONCEPT:ORCH-1.38) — see
+snippet through the **tiered sandbox router** (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox) — see
 [ORCH-1.38 — Tiered RLM Sandbox](../pillars/1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md).
 
 ## Invocation Triggers
@@ -88,7 +88,7 @@ Our implementation aligns with the core algorithm from Zhang et al.:
 
 ## Structured Outputs (Subagent Contracts)
 
-> CONCEPT:ORCH-1.12 — Structured Predict-RLM Runtime
+> CONCEPT:AU-ORCH.execution.predict-rlm-runtime — Structured Predict-RLM Runtime
 
 A swarm of sub-agents only helps if the parent can *cleanly aggregate* what they return. When sub-agents reply with free-form prose, the parent has to re-read and re-classify dozens of unstructured blurbs and frequently loses the plot — it ends up hand-writing an answer instead of routing on the evidence. The fix is to force each sub-agent to return a **schema-constrained, typed value** that the parent reads directly. The booleans (or models, or lists) act as an **external attention mask** over the original context.
 
@@ -202,7 +202,7 @@ The main agent loop:
 4. If `FINAL_VAR` was called, the result is returned
 5. Otherwise, the loop continues (up to `max_turns=5`)
 
-## AHE Integration (CONCEPT:AHE-3.0)
+## AHE Integration (CONCEPT:AU-AHE.harness.harness-evolution)
 
 RLM is deeply integrated with the [Agentic Harness Engineering](AHE_ARCHITECTURE.md) evolution loop:
 

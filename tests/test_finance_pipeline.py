@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.6
+"""CONCEPT:AU-KG.research.research-pipeline-runner
 
 Torch-free finance tests. The torch-backed TradingLSTM / prepare_sequences /
 evaluate_trading_signal / walk_forward_validation assertions were re-homed to

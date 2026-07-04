@@ -1,4 +1,4 @@
-"""Pluggable reasoning paradigms + outcome-learning router (CONCEPT:KG-2.68).
+"""Pluggable reasoning paradigms + outcome-learning router (CONCEPT:AU-KG.compute.first-class-reasoner-paradigm).
 
 The router selects a paradigm per task (capability tags blended with a learned
 reward EMA over the existing CapabilityIndex) and feeds the scored result back, so
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.core.reasoner import (
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
 
-pytestmark = pytest.mark.concept("KG-2.68")
+pytestmark = pytest.mark.concept("AU-KG.compute.first-class-reasoner-paradigm")
 
 
 # ── built-in paradigms behind the router ─────────────────────────────

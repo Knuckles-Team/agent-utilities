@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.05 Pluggable event queue backend unit tests."""
+"""CONCEPT:AU-ECO.bus.pluggable-event-queue Pluggable event queue backend unit tests."""
 
 import asyncio
 from unittest.mock import patch

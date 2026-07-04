@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unit tests for the predict-before-run forecasting scoreboard (CONCEPT:AHE-3.34)."""
+"""Unit tests for the predict-before-run forecasting scoreboard (CONCEPT:AU-AHE.evaluation.predict-before-resolve-calibration)."""
 
 import math
 

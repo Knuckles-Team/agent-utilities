@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Recursive distillation: train a better prior from the loop's own winners.
 
-CONCEPT:AHE-3.31 — a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing improvement so test-time search converts into a stronger next prior
+CONCEPT:AU-AHE.optimization.recursive-distillation-loop — a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing improvement so test-time search converts into a stronger next prior
 
 The paper (§5.3, memetic RSI) calls converting test-time compute into a better prior —
 distilling search-improved outputs back into the model that drives the next search,

@@ -1,4 +1,4 @@
-"""Always-on KG-native tracing via the decorator path (CONCEPT:OS-5.68).
+"""Always-on KG-native tracing via the decorator path (CONCEPT:AU-OS.config.model-factory-passthrough).
 
 When a KG trace sink is injected (as the daemon does at startup), the @trace /
 @generation decorators capture EVERY call as a Trace/Span/Generation subgraph —

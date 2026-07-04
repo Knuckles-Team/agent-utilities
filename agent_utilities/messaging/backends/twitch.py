@@ -1,9 +1,9 @@
-"""Twitch Messaging Backend (CONCEPT:ECO-4.0).
+"""Twitch Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Uses ``twitchio`` for Twitch IRC chat and EventSub.
 
 Install: ``pip install agent-utilities[messaging-twitch]``
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class TwitchBackend(MessagingBackend):
-    """Twitch chat backend via twitchio. CONCEPT:ECO-4.0"""
+    """Twitch chat backend via twitchio. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -49,7 +49,7 @@ class TwitchBackend(MessagingBackend):
         return CAPABILITY_MATRIX["twitch"]
 
     async def connect(self) -> None:
-        """Connect to Twitch IRC. CONCEPT:ECO-4.0"""
+        """Connect to Twitch IRC. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         try:
             from twitchio.ext import commands
         except ImportError:
@@ -96,7 +96,7 @@ class TwitchBackend(MessagingBackend):
         asyncio.create_task(self._bot.start())
         await asyncio.sleep(2)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] Twitch backend connected.")
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Twitch backend connected.")
 
     async def send_message(
         self,

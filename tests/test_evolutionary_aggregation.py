@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine."""
+"""Tests for CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine."""
 
 
 import pytest

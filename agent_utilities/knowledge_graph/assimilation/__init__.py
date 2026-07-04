@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Graph-native assimilation engine (CONCEPT:KG-2.7).
+"""Graph-native assimilation engine (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The graph-compute middle of the ecosystem-evolution pipeline: turn an Evidence/
 Capability Knowledge Graph of Sources + Features + Concepts into deduped,

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Proof: engine-backed tests run against the REAL ephemeral engine (CONCEPT:KG-2.238).
+"""Proof: engine-backed tests run against the REAL ephemeral engine (CONCEPT:AU-KG.memory.provides-real-ephemeral-one).
 
 USER DIRECTIVE: no SQLite for niche test use cases — tests use our real DB,
 deployed ephemerally and destroyed after. These tests exercise the
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("KG-2.238")]
+pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.memory.provides-real-ephemeral-one")]
 
 
 def test_node_roundtrip_against_real_engine(engine_graph):

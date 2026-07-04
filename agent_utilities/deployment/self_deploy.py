@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Governed self-deploy — close the build loop's last mile (CONCEPT:OS-5.50).
+"""Governed self-deploy — close the build loop's last mile (CONCEPT:AU-OS.deployment.os-2).
 
 The missing step after build→test→merge: make the merged change *live*. The served
 daemon source-mounts the code but only picks it up on restart, and that restart is

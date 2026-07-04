@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.18 — Evidence-Weighted Memory.
+"""CONCEPT:AU-KG.retrieval.evidence-weighted-memory — Evidence-Weighted Memory.
 
 Covers the Bayesian trust score, recall→usage telemetry + usage rate, the generation lineage
 record, and trust persistence to a fake backend.
@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.retrieval.retrieval_quality import (
 )
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_bayesian_trust_prior_and_movement():
     assert bayesian_trust(0, 0) == TRUST_PRIOR  # unseen → prior
     high = bayesian_trust(9, 10)
@@ -26,7 +26,7 @@ def test_bayesian_trust_prior_and_movement():
     assert 0.0 <= bayesian_trust(99, 1) <= 1.0
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_usage_telemetry_records_and_rates():
     t = UsageTelemetry()
     t.record_recall(["a", "b", "c"])
@@ -40,7 +40,7 @@ def test_usage_telemetry_records_and_rates():
     assert s["recalled_nodes"] == 3 and s["used_nodes"] == 1
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_build_lineage_stable_hash():
     a = build_lineage("q1", ["n2", "n1"], used_ids=["n1"], model="m")
     b = build_lineage("q1", ["n1", "n2"], used_ids=["n1"], model="m")
@@ -64,7 +64,7 @@ class _FakeEngine:
         self.backend = _FakeBackend()
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_flush_to_engine_persists_trust_score():
     t = UsageTelemetry()
     t.record_recall(["a", "b"])
@@ -75,7 +75,7 @@ def test_flush_to_engine_persists_trust_score():
     assert all("trust_score" in w[0] for w in eng.backend.writes)
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_flush_no_backend_is_noop():
     t = UsageTelemetry()
     t.record_recall(["a"])

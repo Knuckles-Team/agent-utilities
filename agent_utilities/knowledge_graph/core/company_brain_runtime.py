@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Process-wide CompanyBrain runtime + enforcement gate (CONCEPT:KG-2.6).
+"""Process-wide CompanyBrain runtime + enforcement gate (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 The :class:`~agent_utilities.knowledge_graph.core.company_brain.CompanyBrain`
 infrastructure (trust hierarchy, conflict resolution, provenance, data-level

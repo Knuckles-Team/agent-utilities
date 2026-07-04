@@ -1,4 +1,4 @@
-"""Run KG enrichment over a path and report codebase insight (CONCEPT:KG-2.8).
+"""Run KG enrichment over a path and report codebase insight (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Usage::
 
@@ -85,7 +85,7 @@ def main() -> int:
         llm_fn=llm_fn,
         writeback_fn=resolve_writeback_fn(
             backend
-        ),  # CONCEPT:KG-2.8 (gated by KG_EA_WRITEBACK)
+        ),  # CONCEPT:EG-KG.storage.nonblocking-checkpoint (gated by KG_EA_WRITEBACK)
     )
     summary = pipe.enrich(args.path)
 

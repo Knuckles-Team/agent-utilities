@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Ontology Link Types — typed link cardinalities + junction reification.
 
-CONCEPT:KG-2.26 — First-Class Link Types
+CONCEPT:AU-KG.domains.trade-journal-bias-auditor — First-Class Link Types
 
 Palantir Foundry doc matched: *object-link-types / type-reference link
 cardinalities*, specifically the **many-to-many link backed by an object type**
@@ -73,7 +73,7 @@ from ...models.schema_pack import LinkInferenceRule, OwlObjectProperty
 class LinkCardinality(StrEnum):
     """Cardinality of an ontology link, matching Foundry link-type cardinalities.
 
-    CONCEPT:KG-2.26
+    CONCEPT:AU-KG.domains.trade-journal-bias-auditor
 
     - ``ONE_TO_ONE``: each source relates to at most one target and vice-versa
       (an ``owl:FunctionalProperty`` *and* ``owl:InverseFunctionalProperty``).
@@ -91,7 +91,7 @@ class LinkCardinality(StrEnum):
 class LinkType(BaseModel):
     """A first-class, typed link between two ontology object types.
 
-    CONCEPT:KG-2.26 — mirrors a Palantir Foundry *link type*: a named, directed,
+    CONCEPT:AU-KG.domains.trade-journal-bias-auditor — mirrors a Palantir Foundry *link type*: a named, directed,
     cardinality-bearing relationship between a source object type and a target
     object type. Direct (non-reified) links materialise as a single
     :class:`RegistryEdge`; for a ``MANY_TO_MANY`` link that needs its own
@@ -147,7 +147,7 @@ class LinkType(BaseModel):
     def owl_object_property(self) -> OwlObjectProperty:
         """Return the OWL object-property characteristics implied by cardinality.
 
-        CONCEPT:KG-2.36 — reuses the pack-driven OWL closure notion. The
+        CONCEPT:AU-KG.ontology.pack-owl-closure — reuses the pack-driven OWL closure notion. The
         ``inverse_of`` is carried so the existing reasoning closure can
         materialise the back-edge. (Functional / inverse-functional flags are
         cardinality-derived and surfaced via :meth:`is_functional` /
@@ -178,7 +178,7 @@ class LinkType(BaseModel):
 class JunctionLinkType(LinkType):
     """A many-to-many link reified through an intermediary junction object.
 
-    CONCEPT:KG-2.26 — the Palantir *many-to-many link backed by an object type*.
+    CONCEPT:AU-KG.domains.trade-journal-bias-auditor — the Palantir *many-to-many link backed by an object type*.
     The link is not a single edge but a junction NODE carrying the link's own
     properties, joined to its two endpoints by two directed edges::
 
@@ -245,7 +245,7 @@ class JunctionLinkType(LinkType):
     ) -> tuple[RegistryNode, RegistryEdge, RegistryEdge]:
         """Reify the link as ``(junction_node, edge_a, edge_b)`` for the writer.
 
-        CONCEPT:KG-2.26 — the core materialization. Produces:
+        CONCEPT:AU-KG.domains.trade-journal-bias-auditor — the core materialization. Produces:
 
           - a :class:`RegistryNode` of ``junction_type`` whose ``metadata``
             carries the endpoint ids, roles, link-type name and the supplied
@@ -324,7 +324,7 @@ def is_junction_node(node: RegistryNode) -> bool:
 def endpoints_of(junction: RegistryNode) -> tuple[str | None, str | None]:
     """Recover ``(source_id, target_id)`` from a materialized junction node.
 
-    CONCEPT:KG-2.26 — reverse traversal entry point. Reads the role-keyed
+    CONCEPT:AU-KG.domains.trade-journal-bias-auditor — reverse traversal entry point. Reads the role-keyed
     endpoint ids stamped onto the junction's metadata by
     :meth:`JunctionLinkType.materialize_junction`. Returns ``(None, None)`` for a
     node that is not a junction.
@@ -366,7 +366,7 @@ def neighbors_via(
 ) -> list[tuple[str, RegistryNode]]:
     """Return ``(other_endpoint_id, junction_node)`` neighbors of ``endpoint_id``.
 
-    CONCEPT:KG-2.26 — full reverse traversal of a reified many-to-many link.
+    CONCEPT:AU-KG.domains.trade-journal-bias-auditor — full reverse traversal of a reified many-to-many link.
     Given the endpoint, the junction nodes, and the materialized edges, this
     resolves every *other* endpoint the node is linked to (and the junction that
     carries the link's properties), optionally filtered to one ``link_name``.
@@ -395,7 +395,7 @@ def neighbors_via(
 
 
 class LinkTypeRegistry:
-    """Registry of first-class link types, keyed by name. CONCEPT:KG-2.26.
+    """Registry of first-class link types, keyed by name. CONCEPT:AU-KG.domains.trade-journal-bias-auditor.
 
     Mirrors :class:`ActionRegistry`: rejects duplicate names, supports lookup by
     name and by the ontology object types a link connects.
@@ -487,7 +487,7 @@ def register_builtin_links(registry: LinkTypeRegistry) -> None:
             ),
         )
     )
-    # ── Agent-Native Research Artifact forensic bindings (CONCEPT:KG-2.80) ──
+    # ── Agent-Native Research Artifact forensic bindings (CONCEPT:AU-KG.ontology.verified-by-implemented-by) ──
     # The ARA 4-layer artifact as first-class typed links so the reasoner traverses
     # /logic↔/evidence↔/src. ``grounds`` carries the grounded_in↔supports inverse
     # (and grounded_in is transitive in owl_bridge), so reasoning chains a claim to
@@ -523,7 +523,7 @@ def register_builtin_links(registry: LinkTypeRegistry) -> None:
             description="A claim's /src layer: the code spec that implements it.",
         )
     )
-    # CONCEPT:KG-2.96 — Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent (HAS_PROFILE/PROFILE_OF/TUNED_FOR/BOUND_TO_ROLE/USES_PROFILE) for profile extrapolation.
+    # CONCEPT:AU-KG.ontology.typed-ontology-links-binding — Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent (HAS_PROFILE/PROFILE_OF/TUNED_FOR/BOUND_TO_ROLE/USES_PROFILE) for profile extrapolation.
     # First-class typed links so OWL reasoning extrapolates which sampling profile
     # fits a task class / role / model from how related ones are tuned.
     registry.register(
@@ -569,7 +569,7 @@ def register_builtin_links(registry: LinkTypeRegistry) -> None:
     )
 
 
-# CONCEPT:KG-2.26 — populated at import with real built-ins, never empty.
+# CONCEPT:AU-KG.domains.trade-journal-bias-auditor — populated at import with real built-ins, never empty.
 DEFAULT_LINK_REGISTRY = LinkTypeRegistry()
 register_builtin_links(DEFAULT_LINK_REGISTRY)
 

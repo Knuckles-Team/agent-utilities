@@ -1,6 +1,6 @@
 """Iterative, relevance-feedback query expansion over the knowledge graph.
 
-CONCEPT:KG-2.88 — assimilated from ADORE: "Iterative Query Expansion with
+CONCEPT:AU-KG.retrieval.iterative-expansion-adore — assimilated from ADORE: "Iterative Query Expansion with
 Retrieval-Grounded Relevance Feedback" (github.com/aminbigdeli/ADORE).
 
 ADORE runs a bounded loop of *reformulate → retrieve → judge*: each round a

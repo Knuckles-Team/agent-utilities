@@ -43,7 +43,7 @@ long-lived container that the gateway and connectors share.
 > (`cypher_support="subset"`). See
 > [Graph Backend Architecture → Extension Dependencies](../architecture/graph_backends_architecture.md#extension-dependencies).
 
-> **The engine is redb-authoritative by default (CONCEPT:KG-2.195).** Built with
+> **The engine is redb-authoritative by default (CONCEPT:AU-KG.backend.backend-modes).** Built with
 > `--features full`, the engine persists durably to its `--persist-dir` volume and
 > is a real source of truth — an acked write survives a crash, it is NOT a
 > rebuildable cache. On its first authoritative boot it runs a one-time

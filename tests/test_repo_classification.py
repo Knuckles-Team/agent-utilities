@@ -1,6 +1,6 @@
 """Tests for deterministic repo content classification + codebase-ingest routing.
 
-CONCEPT:KG-2.284 / KG-2.285 — A single codebase ingest must natively recognise a
+CONCEPT:AU-KG.ingest.over-same-tree-fan / KG-2.285 — A single codebase ingest must natively recognise a
 repo's Skills / Prompts / Specs / Documents and route each to its own KG type
 instead of flattening everything into Code. These tests pin the classifier's
 precedence (the edge cases the design calls out) and verify the engine router
@@ -74,7 +74,7 @@ def mixed_repo(tmp_path: Path) -> Path:
 
 
 class TestRepoClassifier:
-    """CONCEPT:KG-2.284 — extension + path + sniff, explicit precedence."""
+    """CONCEPT:AU-KG.ingest.over-same-tree-fan — extension + path + sniff, explicit precedence."""
 
     def test_buckets(self, mixed_repo: Path):
         plan = classify_repo(mixed_repo)
@@ -158,7 +158,7 @@ class _FakeBackend:
 
 
 class _FakeManifest:
-    """Delta ledger stub: nothing seen, records are no-ops (CONCEPT:KG-2.295)."""
+    """Delta ledger stub: nothing seen, records are no-ops (CONCEPT:AU-KG.ingest.writes-go)."""
 
     def __init__(self):
         self.recorded: list[tuple] = []
@@ -171,7 +171,7 @@ class _FakeManifest:
 
 
 class TestCodebaseArtifactRouting:
-    """CONCEPT:KG-2.285 — live-path: routed manifests + Spec/Repo writes."""
+    """CONCEPT:AU-KG.ingest.deterministic-classifier — live-path: routed manifests + Spec/Repo writes."""
 
     @pytest.mark.asyncio
     async def test_routes_each_type(self, mixed_repo: Path, monkeypatch):
@@ -200,7 +200,7 @@ class TestCodebaseArtifactRouting:
 
         monkeypatch.setattr(engine, "ingest", _fake_ingest)
 
-        # CONCEPT:KG-2.295 — documents take the batched, enrich-deferred path
+        # CONCEPT:AU-KG.ingest.writes-go — documents take the batched, enrich-deferred path
         # (direct unit + per-doc _BatchedBackend), NOT self.ingest. Spy on the
         # canonical unit to record each routed document path.
         doc_seen: list[Path] = []
@@ -275,7 +275,7 @@ class TestCodebaseArtifactRouting:
     async def test_documents_batch_writes_instead_of_per_node_round_trips(
         self, mixed_repo: Path, monkeypatch
     ):
-        """CONCEPT:KG-2.295 — a repo's docs flush as a few BULK RPCs, not one
+        """CONCEPT:AU-KG.ingest.writes-go — a repo's docs flush as a few BULK RPCs, not one
         engine round-trip per Document/chunk/concept node.
 
         Simulates the unit writing 13 nodes + 12 edges per doc (1 Document + 12

@@ -3,12 +3,12 @@
 > One shared graph-os hub lets **any** session — many Claude Code sessions, other LLMs,
 > sessions from any first-party provider, on **any host** — register, discover each other,
 > message each other, and hand work to the fleet, for the cost of the LLM calls each side
-> already makes. **CONCEPT:ECO-4.84 / ECO-4.85 / ECO-4.86 / ORCH-1.80 / KG-2.141 / ECO-4.87.**
+> already makes. **CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent / ECO-4.85 / AU-ECO.bus.federation-relay / AU-ORCH.routing.resolve-body-single-canonical / KG-2.141 / ECO-4.87.**
 
 ## Why
 
-The platform already had a *human*-reach core (`MessagingService`, ECO-4.48) and a host-local
-*invoker↔spawned-agent* channel (`agent_channel.py`, ORCH-1.40). What was missing was a way for
+The platform already had a *human*-reach core (`MessagingService`, AU-ECO.messaging.messaging-reach-service-governed) and a host-local
+*invoker↔spawned-agent* channel (`agent_channel.py`, AU-ORCH.session.session-anchored-collections-native). What was missing was a way for
 **independent sessions** to address and talk to **each other**. The AgentBus fills that gap by
 making presence and messages first-class, durable KG objects, so the bus is cross-process,
 cross-host (everyone is an HTTP client of the same engine), and survives restarts.
@@ -24,7 +24,7 @@ cross-host (everyone is an HTTP client of the same engine), and survives restart
 - **Presence is computed, not written.** The roster derives `online`/`offline` from `last_seen`
   vs a staleness window, so a crashed session shows offline with no reaper.
 - **Governed.** Every `send` passes the fail-closed ActionPolicy `bus.send` gate; a `dispatch`
-  passes `bus.dispatch` and turns a message into fleet work via `submit_loop` (ORCH-1.80).
+  passes `bus.dispatch` and turns a message into fleet work via `submit_loop` (AU-ORCH.routing.resolve-body-single-canonical).
 - **Hybrid auth.** Cross-host participants authenticate with a JWT (the served-profile is
   fail-closed over streamable-http); local stdio stays frictionless. `agent_id` should derive
   from the authenticated `ActorContext.actor_id` so ids don't collide across hubs.
@@ -49,10 +49,10 @@ flowchart LR
 ```
 
 Within one hub, cross-host "just works": remote sessions are HTTP clients of the same engine, so
-the durable mailbox is shared. Across hubs, the **BusFederationRelay** (ECO-4.86) forwards a
+the durable mailbox is shared. Across hubs, the **BusFederationRelay** (AU-ECO.bus.federation-relay) forwards a
 message group to peer hubs (registered as A2A peers carrying the `agent-bus-hub` capability),
 deduping by `msg_group` and breaking loops via the `federated_from` stamp. Only `commons`-marked
-traffic crosses a hub boundary (KG-2.60).
+traffic crosses a hub boundary (AU-KG.compute.data-is-private-its).
 
 ## Flow: send → receive → dispatch
 
@@ -74,7 +74,7 @@ sequenceDiagram
     Bus->>Fleet: submit_loop(objective)
 ```
 
-## Store-and-forward — leave a message for a busy/offline peer (CONCEPT:ECO-4.91)
+## Store-and-forward — leave a message for a busy/offline peer (CONCEPT:AU-ECO.bus.store-and-forward-log)
 
 A **direct** send (`to=`) already survives an offline recipient: it materializes a durable
 `:BusMessage{recipient=to}` regardless of the peer's presence, so the peer picks it up on its
@@ -113,7 +113,7 @@ sequenceDiagram
     Bus-->>B: [news backlog], once only
 ```
 
-## Auto-register + online presence (CONCEPT:ECO-4.92)
+## Auto-register + online presence (CONCEPT:AU-ECO.bus.auto-register-online-presence)
 
 A session that has the `graph_bus` tool **appears online to peers without an explicit
 `register` call**. Every `graph_bus` action resolves an acting id (the explicit
@@ -130,7 +130,7 @@ and presence-tracked. **Limitation:** headless/in-process calls have no `Context
 `""`), so there the caller must still pass an id explicitly — we never fabricate one. `touch`
 preserves an existing agent's capability/provider blob (no upsert clobber).
 
-## Native capability — every agent knows the bus (CONCEPT:ECO-4.88)
+## Native capability — every agent knows the bus (CONCEPT:AU-ECO.bus.agent-bus-awareness)
 
 The bus is **not** an opt-in persona you must select; it is a native capability the *graph
 shaper* (the core orchestrator) and **every spawned swarm/sub-agent** inherit, per the
@@ -177,7 +177,7 @@ flowchart TD
 | Federation relay | `agent_utilities/messaging/federation.py` (`BusFederationRelay`) |
 | Ontology | `:BusAgent`/`:Topic`/`:BusSubscription`/`:BusMessage`/`:BusTopicCursor` in `knowledge_graph/ontology_orchestration.ttl` |
 | Store-and-forward (ECO-4.91) | topic-log `:BusMessage{kind=topic}` + per-(agent,topic) `:BusTopicCursor`; reaper `AgentBus.prune_topic_log()` |
-| Auto-presence (ECO-4.92) | `AgentBus.touch()` + `bus_tools._session_identity(ctx)` (served-session id) |
+| Auto-presence (AU-ECO.bus.auto-register-online-presence) | `AgentBus.touch()` + `bus_tools._session_identity(ctx)` (served-session id) |
 | Governance | `bus.send`/`bus.dispatch` in `orchestration/action_policy.py` + `deploy/action-policy.default.yml` |
 | Observability | `agent_utilities_bus_*` in `observability/gateway_metrics.py`; Grafana `agent-bus.json` |
 | Load harness | `scripts/bench_bus.py` |

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for Conductor per-step model_id routing (b5-07).
 
-CONCEPT:ORCH-1.27
+CONCEPT:AU-ORCH.routing.conductor-per-step-model
 """
 
 from unittest.mock import MagicMock, patch
@@ -12,7 +12,7 @@ from agent_utilities.graph.executor import pick_specialist_model
 from agent_utilities.models import ModelDefinition, ModelRegistry
 from agent_utilities.models.sdd import Task
 
-pytestmark = pytest.mark.concept("ORCH-1.27")
+pytestmark = pytest.mark.concept("AU-ORCH.routing.conductor-per-step-model")
 
 
 def _registry() -> ModelRegistry:

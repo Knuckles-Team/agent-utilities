@@ -1,4 +1,4 @@
-"""Natural-language → query (CONCEPT:KG-2.266).
+"""Natural-language → query (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 The LLM call is mocked (fake pydantic-ai Agent + create_model) so we assert the layer
 parses the model's dialect/query, routes execution to the right engine surface, blocks
@@ -11,7 +11,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core import nl_query
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 
 class _FakeResult:

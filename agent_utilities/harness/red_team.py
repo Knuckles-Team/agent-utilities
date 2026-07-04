@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agentic red-team harness — adversarial probes + automated scoring.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 
 A deterministic, network-free red-team runner distilled from the "Redefining AI
 Red Teaming in the Agentic Era" + "AI Agent Traps" research

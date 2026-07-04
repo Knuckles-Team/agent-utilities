@@ -1,4 +1,4 @@
-"""Tests for the unified state-store layer (CONCEPT:OS-5.16 / OS-5.17).
+"""Tests for the unified state-store layer (CONCEPT:AU-OS.state.unified-durable-state-externalization / OS-5.17).
 
 Covers backend selection (SQLite default vs Postgres via ``state_db_uri``),
 the placeholder/row adaptation seam, idempotent schema migrations, the
@@ -210,7 +210,7 @@ def test_advisory_key_stable_and_signed_64bit():
     assert k1 != state_store.advisory_key("leader:other-role")
 
 
-# ── Daemon leadership (CONCEPT:OS-5.17) ───────────────────────────────────
+# ── Daemon leadership (CONCEPT:AU-OS.state.cross-host-daemon-leadership) ───────────────────────────────────
 
 
 def test_leadership_always_leader_under_sqlite_default():

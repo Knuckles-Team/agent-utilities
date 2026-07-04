@@ -1,5 +1,5 @@
 """
-Real-Time Market Data Feeds — CONCEPT:KG-2.6
+Real-Time Market Data Feeds — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Finance-specific adapter on top of the universal StreamBus (KG-2.6)
 for real-time market data streaming with OHLCV aggregation and

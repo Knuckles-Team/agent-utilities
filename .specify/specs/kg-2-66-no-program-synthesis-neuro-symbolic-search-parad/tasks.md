@@ -16,7 +16,7 @@ Wire-First, ordered. Cite real files. Depends on KG-2.65 `Reasoner` seam landing
    compositions; rely on the existing name-collision `ValueError` to keep composition explicit.
 
 4. **Implement the `ProgramSynthesis` Reasoner** (new module under `agent_utilities/rlm/`,
-   `CONCEPT:KG-2.66`): enumerate/mutate compositions, validate each via
+   `CONCEPT:AU-KG.enrichment.multimodal-readers`): enumerate/mutate compositions, validate each via
    `agent_utilities/rlm/sandboxes/router.py` `SandboxRouter` (ORCH-1.38), then select survivors by
    `quality − λ·description_length` through the step-2 operator. Self-register in the KG-2.65
    registry under a `program_synthesis` capability tag.

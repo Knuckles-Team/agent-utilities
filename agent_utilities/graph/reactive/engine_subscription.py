@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.253 — Engine change-feed subscription primitive for poll→push reactivity.
+"""CONCEPT:AU-KG.compute.change-feed-subscription — Engine change-feed subscription primitive for poll→push reactivity.
 
 The ONE reusable primitive that turns a wasteful daemon poll-loop into a reactive
 consumer of the engine's *committed-change* feed. The Rust ``epistemic-graph``
@@ -79,7 +79,7 @@ def resolve_streaming(source: Any) -> tuple[Any, str] | None:
 class EngineSubscription:
     """A cursor over one graph's engine change-feed, delivered to a handler.
 
-    CONCEPT:KG-2.253. Construct from an engine/backend/compute (``source``), a
+    CONCEPT:AU-KG.compute.change-feed-subscription. Construct from an engine/backend/compute (``source``), a
     node ``label`` to filter on (``""`` ⇒ all), and a ``handler`` invoked once per
     delivered change. The subscription tracks ``cursor`` (the next CDC seq to
     read). ``available`` is ``False`` when no engine streaming surface was

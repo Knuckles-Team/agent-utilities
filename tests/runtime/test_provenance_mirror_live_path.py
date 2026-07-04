@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.64 — Workspace-Action Provenance: actions/observations mirror into the KG and
+"""CONCEPT:AU-KG.enrichment.atomic-triple-extraction — Workspace-Action Provenance: actions/observations mirror into the KG and
 file edits ground to Code symbols.
 
 Exercises the real :class:`ProvenanceMirror` write path against a recording engine that honours

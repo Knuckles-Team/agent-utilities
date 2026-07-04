@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Granular, typed REST surface for Agent-Native Research Artifacts (CONCEPT:KG-2.80).
+"""Granular, typed REST surface for Agent-Native Research Artifacts (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 
 Mirrors :mod:`agent_utilities.gateway.ontology_api`: thin typed routes that dispatch
 through the **same** in-process ``research_artifact`` MCP tool (single source of truth),
@@ -75,7 +75,7 @@ async def review_artifact(article_id: str, level: str = "L1") -> ResearchEnvelop
 
 @research_router.post("/research/inquire", response_model=ResearchEnvelope)
 async def inquire(topic: str, materialize: bool = True) -> ResearchEnvelope:
-    """Run a native multi-perspective (STORM) inquiry over ``topic`` (CONCEPT:KG-2.127)."""
+    """Run a native multi-perspective (STORM) inquiry over ``topic`` (CONCEPT:AU-KG.research.perspectival-inquiry)."""
     res = await _call("inquire", topic=topic, materialize=materialize)
     return ResearchEnvelope(result=_error_to_http(res))
 

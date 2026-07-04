@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Enterprise standardization & consolidation engine (CONCEPT:KG-2.49).
+"""Enterprise standardization & consolidation engine (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 Covers: drift scoring from interface gaps, asset routing, per-org/domain
 aggregation, candidate cohorts (capability + dedup clusters), the consolidation
@@ -23,7 +23,7 @@ from agent_utilities.knowledge_graph.standardization.consolidation import (
 )
 from agent_utilities.knowledge_graph.standardization.drift import score_conformance
 
-pytestmark = pytest.mark.concept("KG-2.49")
+pytestmark = pytest.mark.concept("AU-KG.ontology.populated-at-import-real-3")
 
 
 # ── Fake engine double (mirrors the assimilation test doubles) ───────────────

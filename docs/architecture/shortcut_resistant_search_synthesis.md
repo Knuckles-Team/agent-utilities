@@ -1,6 +1,6 @@
 # Shortcut-Resistant Search-Task Synthesis
 
-*Concepts: KG-2.70, KG-2.71, KG-2.72 (agent-utilities), AHE-3.30 (reward spine),
+*Concepts: KG-2.70, AU-KG.retrieval.formulate-adversarially-refine, AU-KG.retrieval.question-formulation-adversarial-refinement (agent-utilities), AU-AHE.reward.search-task-corpus (reward spine),
 search-task-corpus (data-science-mcp). Distills FORT-Searcher (arXiv:2606.12087).*
 
 ## Why
@@ -24,15 +24,15 @@ answer entity
    │  build_evidence_subgraph (KG-2.70)        knowledge_graph/search_synthesis/evidence_subgraph.py
    ▼  bounded checkout of the epistemic graph → EvidenceGraph workspace
 EvidenceGraph (clues, provenance, selectivity)
-   │  formulate + refine (KG-2.72)             knowledge_graph/search_synthesis/question_formulation.py
-   │     ├─ diagnose (KG-2.71) ────────────────knowledge_graph/search_synthesis/shortcut_risks.py
+   │  formulate + refine (AU-KG.retrieval.question-formulation-adversarial-refinement)             knowledge_graph/search_synthesis/question_formulation.py
+   │     ├─ diagnose (AU-KG.retrieval.formulate-adversarially-refine) ────────────────knowledge_graph/search_synthesis/shortcut_risks.py
    │     │   single_clue_selectivity · evidence_co_coverage · exposed_constants · prior_knowledge_binding
    │     └─ repair: prune redundant / generalize required / withhold names  (loop until clear)
    ▼
 SearchTask {question, answer, evidence_path, difficulty, risk_report}
    │  solver rollouts (ExecutableRagProgram / research_autopilot)
    ▼  trajectories
-realized_difficulty (AHE-3.30)                 graph/training_signals.py
+realized_difficulty (AU-AHE.reward.search-task-corpus)                 graph/training_signals.py
    solving_cost (Ω̂) · answer_hit_time (T̄_hit) · prior_shortcut_rate (p̂_prior) → search_heavy gate
    │  too easy → re-synthesize harder (more hops / stricter thresholds)
    ▼  accepted tasks + trajectories
@@ -44,7 +44,7 @@ search_task_corpus (data-science-mcp)          data_science_mcp/search_task_corp
 
 ## Mapping FORT → this implementation
 
-| FORT shortcut risk | Quantity collapsed | Detector (KG-2.71) |
+| FORT shortcut risk | Quantity collapsed | Detector (AU-KG.retrieval.formulate-adversarially-refine) |
 |---|---|---|
 | single-clue selectivity | `s(P)=|Ans(P)|` (eq 7) | `single_clue_selectivity` — flags clues whose `standalone_pool ≤ floor` |
 | evidence co-coverage | `M_ev(P)` (eq 8) | `evidence_co_coverage` — clues sharing one `source_document_id` |

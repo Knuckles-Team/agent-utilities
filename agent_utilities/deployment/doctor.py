@@ -133,7 +133,7 @@ def _check_engine() -> dict[str, Any]:
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
 
-    # CONCEPT:OS-5.63 — report the RESOLVED mode (how this process reaches the
+    # CONCEPT:AU-OS.deployment.report-resolved-mode — report the RESOLVED mode (how this process reaches the
     # engine), not just transport reachability.
     if resolved.mode == "remote":
         if reachable:
@@ -257,7 +257,7 @@ def _check_auth() -> dict[str, Any]:
         return _result("auth", "ok", "KG auth not required (open mode)")
     if jwks:
         # IdP-agnostic: any OIDC issuer's JWKS works. Name it for the report so
-        # an operator on Okta isn't told they need Keycloak (CONCEPT:OS-5.43 genesis
+        # an operator on Okta isn't told they need Keycloak (CONCEPT:AU-OS.deployment.vault-first-routine-genesis genesis
         # IdP choice — keycloak deploy-if-absent OR an existing okta/other-oidc org).
         low = jwks.lower()
         idp = "Okta" if "okta" in low else ("Keycloak" if "keycloak" in low else "OIDC")
@@ -356,7 +356,7 @@ def _check_observability() -> dict[str, Any]:
 
 
 def _check_graph_connections() -> dict[str, Any]:
-    """Health-check the named graph-connection registry (CONCEPT:KG-2.63/2.89).
+    """Health-check the named graph-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry/2.89).
 
     Reports the registered external connections + their roles, and flags any
     stalled fan-out mirror (the actionable replication-health signal)."""
@@ -408,7 +408,7 @@ def _check_graph_connections() -> dict[str, Any]:
 
 
 def _check_ingestion_coverage() -> dict[str, Any]:
-    """Assert the agent-packages repos are ingested + fresh (CONCEPT:OS-5.47).
+    """Assert the agent-packages repos are ingested + fresh (CONCEPT:AU-OS.deployment.flagging-repos).
 
     Native codebase-context-via-KG requires the index to be reliably populated:
     if a repo has no ``:Code`` symbols (or its last delta sync is stale) a KG code
@@ -479,7 +479,7 @@ def _check_ingestion_coverage() -> dict[str, Any]:
 
 
 def _check_connector_coverage() -> dict[str, Any]:
-    """Assert every configured connector is ingesting + fresh (CONCEPT:OS-5.48).
+    """Assert every configured connector is ingesting + fresh (CONCEPT:AU-OS.deployment.connector-coverage-check).
 
     The connector analogue of ``ingestion_coverage``: a dark or stale connector
     means the world-model for that domain (tickets, deploys, processes…) is silently
@@ -527,7 +527,7 @@ def _check_connector_coverage() -> dict[str, Any]:
 
 
 def _check_workspace_config() -> dict[str, Any]:
-    """Validate the ``workspace.yml`` repository manifest (CONCEPT:OS-5.67).
+    """Validate the ``workspace.yml`` repository manifest (CONCEPT:AU-OS.deployment.os-4).
 
     ``workspace.yml`` is the canonical map of the ecosystem's repositories: the
     bootstrap (``clone_missing_projects``), the read-only project enumeration that
@@ -588,7 +588,7 @@ def _check_workspace_config() -> dict[str, Any]:
 def _check_bus() -> dict[str, Any]:
     """Report agent-bus health: participants, online count, stale agents, mailbox backlog.
 
-    CONCEPT:ECO-4.87 — the operator view of the AgentBus (ECO-4.84). A large un-acked
+    CONCEPT:AU-ECO.bus.operator-view-agentbus — the operator view of the AgentBus (ECO-4.84). A large un-acked
     backlog or zero online participants on a hub that should be busy is the signal that
     sessions aren't draining their mailboxes or aren't heart-beating.
     """
@@ -627,7 +627,7 @@ def _check_bus() -> dict[str, Any]:
 def _check_skills() -> dict[str, Any]:
     """Report whether the agent-utilities skill toolkit is installed in the XDG dir.
 
-    CONCEPT:OS-5.52 — the agent factory auto-loads every ``SKILL.md`` under
+    CONCEPT:AU-OS.deployment.agent-factory-autoload — the agent factory auto-loads every ``SKILL.md`` under
     ``core.paths.skills_dir()``; the ``agent-utilities`` skill-graph + AU skills are
     what unlock how to use the platform. If they're absent, point at the one command
     that installs them.
@@ -662,7 +662,7 @@ def _check_skills() -> dict[str, Any]:
 
 
 def _check_unified_install() -> dict[str, Any]:
-    """Assert the unified XDG tree exists and matches installed providers (CONCEPT:OS-5.79).
+    """Assert the unified XDG tree exists and matches installed providers (CONCEPT:AU-OS.host.doctor-unified-install).
 
     ``agent-utilities install`` materializes every provider contribution (skills +
     prompts + ontologies, incl. the hub's OWN under ``agent-utilities``) into one XDG
@@ -730,7 +730,7 @@ def _check_unified_install() -> dict[str, Any]:
 
 
 def _check_warm_fork() -> dict[str, Any]:
-    """Report which warm-fork sandbox rungs are available on this host (CONCEPT:OS-5.59).
+    """Report which warm-fork sandbox rungs are available on this host (CONCEPT:AU-OS.deployment.os-3).
 
     The forkserver rung (os.fork, zero infra) should be up on any Unix host incl. ARM; wasm
     needs wasmtime + a payload; docker needs a daemon; firecracker needs KVM + forkd. Also

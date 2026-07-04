@@ -3,12 +3,12 @@ from __future__ import annotations
 
 """Decoupled KG ingest worker — the ``kg-ingest`` Kafka consumer group.
 
-CONCEPT:KG-2.57 — Decoupled kg-ingest consumer group with idempotent at-least-once task claims
+CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer — Decoupled kg-ingest consumer group with idempotent at-least-once task claims
 and lag-visible backpressure: ingest workers no longer
 have to live as daemon threads inside the host engine process. With the Kafka
-task queue selected (``TASK_QUEUE_BACKEND=kafka``, CONCEPT:KG-2.55) any number
+task queue selected (``TASK_QUEUE_BACKEND=kafka``, CONCEPT:AU-KG.backend.selectable-queue-backend) any number
 of worker processes — on any host — join the ``kg-ingest`` consumer group,
-consume keyed task messages from ``kg_tasks`` (CONCEPT:KG-2.56), and process
+consume keyed task messages from ``kg_tasks`` (CONCEPT:AU-KG.backend.keyed-ingest-partitions), and process
 them with the SAME worker body the in-process workers use
 (:meth:`TaskManagerMixin._execute_claimed_task` — extracted, not duplicated).
 
@@ -70,7 +70,7 @@ _TERMINAL_OR_ACTIVE = {"running", "completed", "failed", "cancelled"}
 def claim_task_envelope(
     engine: Any, envelope: dict[str, Any]
 ) -> tuple[str, Path, bool, str] | None:
-    """Idempotently claim ONE consumed task envelope (CONCEPT:KG-2.57).
+    """Idempotently claim ONE consumed task envelope (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
     MERGEs the ``:Task`` node as ``running`` with this process's ownership
     stamp (the same ``claimed_by``/``claim_unix`` contract the zombie reaper
@@ -89,7 +89,7 @@ def claim_task_envelope(
     target = meta.get("target")
     task_type = meta.get("type", "document")
 
-    # Cross-host claim atomicity (CONCEPT:KG-2.54): partition assignment already
+    # Cross-host claim atomicity (CONCEPT:AU-KG.ingest.cross-host-safe-kg): partition assignment already
     # routes a message to exactly one group member; the advisory-lock guard
     # additionally serializes the status-check/claim against redeliveries.
     with state_claim_guard("kg-task-claim"):
@@ -199,7 +199,7 @@ def start_ingest_consumer_pool(
     stop_event: threading.Event | None = None,
     consumer_factory: Any = None,
 ) -> list[threading.Thread]:
-    """Start ``worker_count`` ``kg-ingest`` consumer threads (CONCEPT:KG-2.57).
+    """Start ``worker_count`` ``kg-ingest`` consumer threads (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
     Used by BOTH the host engine in Kafka mode (its in-process pool becomes
     ordinary group members) and the standalone ``kg-ingest-worker`` process —
@@ -245,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kg-ingest-worker",
         description=(
-            "Decoupled KG ingest worker (CONCEPT:KG-2.57): joins the "
+            "Decoupled KG ingest worker (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): joins the "
             f"'{INGEST_GROUP}' Kafka consumer group and processes kg_tasks as "
             "an engine client — no KG host role required."
         ),
@@ -267,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
 
-    # Engine-client posture (CONCEPT:KG-2.8/OS-5.9): never contend for the host
+    # Engine-client posture (CONCEPT:EG-KG.storage.nonblocking-checkpoint/OS-5.9): never contend for the host
     # flock, never spawn the consolidated daemon — this process only consumes.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
@@ -275,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = IntelligenceGraphEngine()
 
-    # Verify the client/auth path (CONCEPT:OS-5.14) BEFORE joining the group:
+    # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE joining the group:
     # a worker that cannot reach the engine must fail loud, not consume+drop.
     try:
         engine.query_cypher("MATCH (t:Task) RETURN count(t) AS c")
@@ -286,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS / GRAPH_SERVICE_TCP_ADDR / "
             "GRAPH_SERVICE_SOCKET and the "
             "shared HMAC secret (GRAPH_SERVICE_AUTH_SECRET or the host's "
-            "data_dir()/engine_secret — CONCEPT:OS-5.14).\n",
+            "data_dir()/engine_secret — CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
         )
 
     stop = threading.Event()

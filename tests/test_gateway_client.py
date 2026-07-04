@@ -1,4 +1,4 @@
-"""Tests for the surface-facing gateway client SDK (CONCEPT:ECO-4.37).
+"""Tests for the surface-facing gateway client SDK (CONCEPT:AU-ECO.interop.gateway-client-sdk).
 
 Exercises the real :class:`GatewayClient` against a mock gateway transport so the
 envelope-unwrapping, the enhanced/graph/fleet methods, and the SSE stream parser

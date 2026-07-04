@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for CONCEPT:AHE-3.3: Model Synergy Tracker."""
+"""Tests for CONCEPT:AU-AHE.evaluation.interpretability-tests: Model Synergy Tracker."""
 
 
 from unittest.mock import MagicMock
@@ -37,7 +37,7 @@ class TestSelfModelNodeSynergies:
         schema = SelfModelNode.model_json_schema()
         assert "model_synergies" in schema["properties"]
         assert (
-            "CONCEPT:AHE-3.3" in schema["properties"]["model_synergies"]["description"]
+            "CONCEPT:AU-AHE.evaluation.interpretability-tests" in schema["properties"]["model_synergies"]["description"]
         )
 
     def test_synergy_key_format(self):

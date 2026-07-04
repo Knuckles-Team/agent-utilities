@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Agent-package fleet connector — any MCP package as a document source.
 
-CONCEPT:ECO-4.29 — MCP Agent-Package Connector Adapter
+CONCEPT:AU-ECO.connector.mcp-package-adapter — MCP Agent-Package Connector Adapter
 
 The agent ecosystem ships ~50 sibling packages under ``agent-packages/agents/*``
 (``scholarx``, ``github-agent``, ``gitlab-api``, ``servicenow-api``,
@@ -154,7 +154,7 @@ def _default_call_tool(server_name: str) -> CallToolFn:
 class MCPPackageConnector(LoadConnector, PollConnector):
     """Adapt an MCP agent-package's document-yielding tool into a connector.
 
-    CONCEPT:ECO-4.29.
+    CONCEPT:AU-ECO.connector.mcp-package-adapter.
 
     Config:
         package: Logical package name (e.g. ``scholarx``); resolves a preset from
@@ -310,7 +310,7 @@ class MCPPackageConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """One tool call per poll, carrying a pagination cursor when supported.
 
-        CONCEPT:ECO-4.26 — when the tool/preset exposes a cursor, ``poll`` advances
+        CONCEPT:AU-ECO.connector.preset-cursor-poll — when the tool/preset exposes a cursor, ``poll`` advances
         a page at a time; otherwise it returns a single batch with ``has_more``
         false. ``seen_ids`` dedups across polls for cursor-less sources.
         """

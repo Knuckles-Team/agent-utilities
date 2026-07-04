@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unified XDG install of every provider contribution — CONCEPT:OS-5.77.
+"""Unified XDG install of every provider contribution — CONCEPT:AU-OS.governance.concept-2.
 
 The three federation legs (skills + prompts + ontologies, discovered via the
 ``agent_utilities.*_providers`` entry-points in :mod:`agent_utilities.core.providers`)
@@ -138,7 +138,7 @@ def _install_own(force: bool, result: dict[str, dict[str, int]]) -> None:
 def install_unified(force: bool = True) -> dict[str, Any]:
     """Materialize all three provider legs (+ the hub's own) into the XDG data tree.
 
-    CONCEPT:OS-5.77. Idempotent; ``force`` (default) replaces each provider subtree so
+    CONCEPT:AU-OS.governance.concept-2. Idempotent; ``force`` (default) replaces each provider subtree so
     a reinstall reflects the installed set. Returns a report::
 
         {"data_dir": ..., "skills": {provider: n_files}, "prompts": {...},

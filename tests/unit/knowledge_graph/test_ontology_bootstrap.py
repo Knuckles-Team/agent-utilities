@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the self-bootstrapping ontology agent (b7-05).
 
-CONCEPT:KG-2.2
+CONCEPT:AU-KG.ingest.engineering-rules
 """
 
 import pytest
@@ -11,7 +11,7 @@ from agent_utilities.knowledge_graph.core.ontology_bootstrap import (
     OntologyBootstrapper,
 )
 
-pytestmark = pytest.mark.concept("KG-2.2")
+pytestmark = pytest.mark.concept("AU-KG.ingest.engineering-rules")
 
 
 def test_bootstrap_derives_classes_and_typed_properties():

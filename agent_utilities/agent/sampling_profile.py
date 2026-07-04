@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Task-aware sampling profiles — per-call inference-parameter selection.
 
-CONCEPT:ORCH-1.58 — Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
+CONCEPT:AU-ORCH.routing.sampling-profile-selection — Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
 
 The router already picks *which model* answers a question; this picks *how to
 sample from it*. A :class:`SamplingProfile` bundles the per-call inference knobs
@@ -15,7 +15,7 @@ A profile is **selected** per task-class (deterministic low-temp for code /
 extraction, exploratory high-temp for brainstorming), **threaded** as a per-call
 ``model_settings=`` override built *from* the agent's static base settings (so an
 unset knob keeps its default — pydantic-ai replaces, it does not deep-merge), and
-later **evolved** (CONCEPT:AHE-3.38) and **projected to OWL** (CONCEPT:KG-2.94/2.94).
+later **evolved** (CONCEPT:AU-AHE.harness.evolvable-sampling-profiles) and **projected to OWL** (CONCEPT:AU-KG.ontology.sampling-profile-coupling/2.94).
 
 The static defaults in :func:`agent_utilities.agent.factory.create_agent` are not
 removed — they are the *base* this profile merges over, and :data:`DEFAULT_PROFILE`
@@ -56,7 +56,7 @@ class SamplingProfile(BaseModel):
     :meth:`to_model_settings` therefore only overrides the knobs a profile
     actually sets, so a sparse profile is a targeted nudge, not a full reset.
 
-    CONCEPT:ORCH-1.58.
+    CONCEPT:AU-ORCH.routing.sampling-profile-selection.
     """
 
     task_class: str = Field(
@@ -217,7 +217,7 @@ _TASK_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def classify_task(text: str | None) -> str:
-    """Map free-text prompt to a task-class via keyword cues (CONCEPT:ORCH-1.58).
+    """Map free-text prompt to a task-class via keyword cues (CONCEPT:AU-ORCH.routing.sampling-profile-selection).
 
     Best-effort and order-sensitive: extraction/code/judge win over the broader
     generate/brainstorm classes. Returns ``"default"`` when nothing matches.
@@ -273,7 +273,7 @@ def attach_profile_resolver(
 ) -> None:
     """Wrap an agent's run methods to thread a per-call task-aware profile.
 
-    CONCEPT:ORCH-1.58 — the live seam. Each ``run``/``run_sync``/``run_stream``
+    CONCEPT:AU-ORCH.routing.sampling-profile-selection — the live seam. Each ``run``/``run_sync``/``run_stream``
     call, *unless the caller passes an explicit* ``model_settings``, classifies the
     user prompt, resolves the matching :class:`SamplingProfile`, and injects
     ``model_settings=profile.to_model_settings(base_settings)``. Built from the
@@ -281,7 +281,7 @@ def attach_profile_resolver(
     replaces per-call settings rather than deep-merging). Idempotent and best-effort:
     a resolution failure leaves the call untouched (the agent-level settings apply).
 
-    CONCEPT:ORCH-1.105 — Dynamic KV-cache-layering policy: per-execution
+    CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy — Dynamic KV-cache-layering policy: per-execution
     cache-worthiness. The same wrapper folds the dynamic KV-cache-layering hint
     into the per-call ``model_settings.extra_body`` on EVERY chat call (native,
     default-on). The :class:`~agent_utilities.kvcache.policy.KVCacheLayeringPolicy`
@@ -307,7 +307,7 @@ def attach_profile_resolver(
                     settings = profile.to_model_settings(base)
                 except Exception:  # noqa: BLE001 - never break the run
                     settings = None
-            # CONCEPT:ORCH-1.105 — fold the per-execution KV-cache-layering hint on
+            # CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy — fold the per-execution KV-cache-layering hint on
             # every call (even under caller-supplied settings), best-effort.
             try:
                 from agent_utilities.kvcache.policy import fold_kv_hint

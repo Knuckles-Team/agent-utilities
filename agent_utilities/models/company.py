@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Company Operations Pydantic Models.
 
-CONCEPT:KG-2.6 — Company Operations Domain
-CONCEPT:KG-2.1 — Company Intelligence Graph
+CONCEPT:AU-KG.domains.company-operations — Company Operations Domain
+CONCEPT:AU-KG.domains.company-intelligence-graph — Company Intelligence Graph
 
 Provides Pydantic models for autonomous company operations including:
 - CompanyProfile: The top-level company entity
@@ -119,7 +119,7 @@ class AgentDepartment(RegistryNode):
     """An AI-staffed department with team config and automation level.
 
     Maps to OWL class :AgentDepartment in ontology_company.ttl.
-    CONCEPT:ORCH-1.9 — Autonomous Department Orchestration.
+    CONCEPT:AU-ORCH.execution.autonomous-department-orchestration — Autonomous Department Orchestration.
     Links to TeamConfigNode for agent team composition and
     to CompanySoftware for the department's tooling stack.
     """
@@ -283,7 +283,7 @@ class CompanySoftware(RegistryNode):
     """A software system deployed for company operations.
 
     Maps to OWL class :CompanySoftware in ontology_company_infra.ttl.
-    CONCEPT:ECO-4.3 — Company Infrastructure Orchestration.
+    CONCEPT:AU-ECO.ui.company-infrastructure-orchestration — Company Infrastructure Orchestration.
     """
 
     type: RegistryNodeType = RegistryNodeType.COMPANY_SOFTWARE
@@ -317,7 +317,7 @@ class DeploymentBlueprint(RegistryNode):
     """A reusable Docker Swarm / Compose blueprint for deploying company software.
 
     Maps to OWL class :DeploymentBlueprint in ontology_company_infra.ttl.
-    CONCEPT:ECO-4.04 — Infrastructure Blueprint Library.
+    CONCEPT:AU-OS.deployment.infrastructure-blueprint-library — Infrastructure Blueprint Library.
     """
 
     type: RegistryNodeType = RegistryNodeType.DEPLOYMENT_BLUEPRINT

@@ -1,4 +1,4 @@
-"""Per-entrypoint execution profiles (CONCEPT:ORCH-1.62).
+"""Per-entrypoint execution profiles (CONCEPT:AU-ORCH.execution.chat-profile-timeouts).
 
 The universal orchestration path (``Orchestrator.execute_agent`` → ``run_agent`` →
 ``_build_execution_config`` → ``_execute_graph``) is the ONE path every entrypoint
@@ -66,13 +66,13 @@ class ExecutionProfile:
         verifier_timeout: Per-node timeout for the verifier (+repair) LLM round (seconds),
             or ``None`` for the long default.
 
-    CONCEPT:ORCH-1.67 — the profile is no longer a fixed per-entrypoint *preset*; it is the
+    CONCEPT:AU-ORCH.execution.dynamic-execution-profile — the profile is no longer a fixed per-entrypoint *preset*; it is the
     **dynamically-constructed execution shape** for ONE job. ``plan_execution_shape`` builds
     it per task from cheap signals (escalating to the KG / an LLM planner only when the job
     is uncertain), so a trivial turn gets a lean shape (``direct_complete`` on a local model,
     no usage-guard LLM round, no discovery/verifier, no KG agent resolution) while a real task
     gets the full graph — same path, dynamically shaped. The shape fields below let each graph
-    node decide whether to run its work or pass through for this job (CONCEPT:ORCH-1.68).
+    node decide whether to run its work or pass through for this job (CONCEPT:AU-ORCH.execution.direct-completion-shape).
 
     Shape attributes:
         direct_complete: Answer the turn with ONE lite/local-model completion and skip the
@@ -88,7 +88,7 @@ class ExecutionProfile:
             local reasoning model answers in ~0.4 s instead of emitting a multi-second
             chain-of-thought trace; a job that benefits from deliberation turns it on. This is
             a per-job *capability* toggle on the model — the first of the dynamic model/agent
-            capabilities the planner selects (CONCEPT:ORCH-1.68).
+            capabilities the planner selects (CONCEPT:AU-ORCH.execution.direct-completion-shape).
         model_id: Per-job model override; ``None`` lets ``create_model`` pick the local
             default. Never a hard-coded remote model.
         origin: Which planner stage produced this shape (``preset`` / ``heuristic`` /
@@ -100,7 +100,7 @@ class ExecutionProfile:
     name: str
     router_timeout: float | None
     verifier_timeout: float | None
-    # CONCEPT:ORCH-1.67 — dynamic per-job shape (all default to the prior full-graph behaviour
+    # CONCEPT:AU-ORCH.execution.dynamic-execution-profile — dynamic per-job shape (all default to the prior full-graph behaviour
     # so existing constructions are unchanged; the planner opts a job into the lean shape).
     direct_complete: bool = False
     skip_usage_guard: bool = False
@@ -111,7 +111,7 @@ class ExecutionProfile:
     model_id: str | None = None
     origin: str = "preset"
     confidence: float = 1.0
-    # CONCEPT:ORCH-1.74 — the FOCUSED-TOOLS altitude (between lean and full): the fleet
+    # CONCEPT:AU-ORCH.execution.focused-tools-altitude — the FOCUSED-TOOLS altitude (between lean and full): the fleet
     # servers the ontology lexical gate named for this turn. Non-empty ⇒ the turn names
     # concrete capabilities, so it skips the planning graph and runs ONE direct agent loop
     # bound to exactly these servers' toolsets (least privilege), biased to call them in
@@ -125,7 +125,7 @@ class ExecutionProfile:
     @property
     def reply_budget_s(self) -> float:
         """How long a turn of THIS shape should reasonably take — the dynamic reply budget
-        (CONCEPT:ORCH-1.72).
+        (CONCEPT:AU-ORCH.execution.passthrough-identity).
 
         A fixed 45 s reply timeout is wrong in both directions: it makes a trivial chat wait
         too long on a degraded backend, and it cuts off a legitimate multi-agent tool turn
@@ -139,7 +139,7 @@ class ExecutionProfile:
         if self.direct_complete:
             return 25.0
         if self.tool_servers:
-            # CONCEPT:ORCH-1.74 — the FOCUSED-TOOLS altitude is one agent loop that calls the
+            # CONCEPT:AU-ORCH.execution.focused-tools-altitude — the FOCUSED-TOOLS altitude is one agent loop that calls the
             # bound servers' tools (in parallel), with NO planner / discovery / agent resolution
             # / verifier / expert fan-out. So the budget grows mildly with the number of bound
             # servers (each adds tool round-trips), not the full-graph apparatus (~190 s).
@@ -163,13 +163,13 @@ class ExecutionProfile:
 
         A heavier turn (full multi-agent tool work) would blow any reasonable inline wait, so
         the transport should acknowledge it immediately and deliver the result as a follow-up
-        (CONCEPT:ORCH-1.72) rather than make the user stare at a typing indicator for minutes.
+        (CONCEPT:AU-ORCH.execution.passthrough-identity) rather than make the user stare at a typing indicator for minutes.
         """
         return self.reply_budget_s <= _INTERACTIVE_REPLY_BUDGET_S
 
 
 # The longest a turn may take while still being answered INLINE (block-and-wait). Above this,
-# the messaging transport acks now and delivers later (CONCEPT:ORCH-1.72). A direct (25 s) and
+# the messaging transport acks now and delivers later (CONCEPT:AU-ORCH.execution.passthrough-identity). A direct (25 s) and
 # a lean single-specialist (45 s) turn answer inline; a full multi-agent tool turn defers.
 _INTERACTIVE_REPLY_BUDGET_S = 50.0
 
@@ -217,11 +217,11 @@ def resolve_execution_profile(
     )
 
 
-# ── Recipe cache (CONCEPT:ORCH-1.70) ─────────────────────────────────────────────────
+# ── Recipe cache (CONCEPT:AU-ORCH.execution.planner-failure-feedback) ─────────────────────────────────────────────────
 # The expensive part of planning a shape is the KG/LLM resolution (stages 2/3); an identical
 # job should REUSE the proven recipe, not recompute it. Bounded in-process LRU keyed by a
 # normalized job signature. The durable cross-process layer (persisting recipes as
-# AgentTemplates + reuse on success) is the learning loop (CONCEPT:ORCH-1.70).
+# AgentTemplates + reuse on success) is the learning loop (CONCEPT:AU-ORCH.execution.planner-failure-feedback).
 _RECIPE_CACHE: OrderedDict[str, ExecutionProfile] = OrderedDict()
 _RECIPE_CACHE_MAX = 512
 
@@ -285,7 +285,7 @@ def record_shape_outcome(
     latency_s: float | None = None,
     shape: ExecutionProfile | None = None,
 ) -> None:
-    """Close the learning loop on a planned shape (CONCEPT:ORCH-1.70/1.71).
+    """Close the learning loop on a planned shape (CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71).
 
     Folds the RUN RESULT back into both layers:
 
@@ -318,7 +318,7 @@ def record_shape_outcome(
 def _resolve_job_capabilities(
     engine: IntelligenceGraphEngine, task: str, *, top_k: int = 8
 ) -> list[dict[str, Any]] | None:
-    """Stage-2 job→capability search, routed through the Rust engine (CONCEPT:ORCH-1.69).
+    """Stage-2 job→capability search, routed through the Rust engine (CONCEPT:AU-ORCH.execution.residual-ambiguous).
 
     Uses the engine's ``search_hybrid`` (``HybridRetriever`` → ``graph_compute`` → the Rust
     tokio/MessagePack engine over UDS) instead of a per-process Python HNSW cold-build — ~15×
@@ -335,7 +335,7 @@ def _resolve_job_capabilities(
 
 
 def _names_capability(engine: IntelligenceGraphEngine, task: str) -> bool:
-    """Free lexical capability gate (CONCEPT:EG-010, ORCH-1.73).
+    """Free lexical capability gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation, CONCEPT:AU-ORCH.execution.execution-profile).
 
     Does the turn name a real fleet capability? Runs the engine's embedding-free
     aho-corasick match over capability-node names+synonyms (~µs, cached) — the
@@ -358,7 +358,7 @@ def _names_capability(engine: IntelligenceGraphEngine, task: str) -> bool:
 def _lexical_capability_servers(
     engine: IntelligenceGraphEngine, task: str
 ) -> list[str]:
-    """The distinct fleet servers the lexical gate named for this turn (CONCEPT:ORCH-1.74).
+    """The distinct fleet servers the lexical gate named for this turn (CONCEPT:AU-ORCH.execution.focused-tools-altitude).
 
     Returns the ``mcp_server`` of every matched capability, de-duplicated and ordered
     by match score (most specific first) — so a turn naming "portainer" → ``["portainer-mcp"]``
@@ -407,7 +407,7 @@ def _plan_base_shape(
     profile_hint: str | ExecutionProfile | None = None,
     engine: IntelligenceGraphEngine | None = None,
 ) -> ExecutionProfile:
-    """Construct the BASE (structural) execution shape for ONE job (CONCEPT:ORCH-1.67/1.69/1.70).
+    """Construct the BASE (structural) execution shape for ONE job (CONCEPT:AU-ORCH.execution.dynamic-execution-profile/1.69/1.70).
 
     The single, dynamic entry the orchestrator uses to decide *how much graph* a job needs —
     replacing the static ``"chat"``/``"task"`` preset. It runs an **escalating planner** (a
@@ -415,19 +415,19 @@ def _plan_base_shape(
     when the cheaper stage is not confident, so a trivial turn pays only the free structural
     check while a genuinely complex job earns the KG search it needs.
 
-      * **Stage 0 — reuse a cached recipe** (CONCEPT:ORCH-1.70): an identical job returns its
+      * **Stage 0 — reuse a cached recipe** (CONCEPT:AU-ORCH.execution.planner-failure-feedback): an identical job returns its
         cached shape, skipping all resolution. (Durable cross-process reuse = the learning loop.)
       * **Stage 1 — free structural signals**: the graded ``orchestration_signal_strength``
         (single source of truth in ``fast_path``, now keyword-free / purely structural —
         slash-command, length, multi-clause). Strength ≥2 → confident full.
-      * **Stage 1.5 — free ontology lexical gate** (CONCEPT:EG-010, ORCH-1.73): for anything
+      * **Stage 1.5 — free ontology lexical gate** (CONCEPT:EG-ORCH.routing.lexical-capability-escalation, CONCEPT:AU-ORCH.execution.execution-profile): for anything
         not structurally-strong, ask the live KG whether the turn names a real fleet capability
         (``engine.match_ontology_terms`` — embedding-free aho-corasick, ~µs). A hit → full. This
         is what replaces the old hardcoded escalation-keyword list: the domain vocabulary lives
         in the KG, not a frozen word list.
-      * **Stage 2 — cheap, Rust-routed KG search** (CONCEPT:ORCH-1.69): the residual ambiguous
+      * **Stage 2 — cheap, Rust-routed KG search** (CONCEPT:AU-ORCH.execution.residual-ambiguous): the residual ambiguous
         middle pays this — ``search_hybrid`` disambiguates tool-task vs. conversational.
-      * **Stage 3 — LLM planning** (CONCEPT:ORCH-1.69, planned): genuinely complex/uncertain
+      * **Stage 3 — LLM planning** (CONCEPT:AU-ORCH.execution.residual-ambiguous, planned): genuinely complex/uncertain
         jobs earn an HTN decomposition.
 
     ``profile_hint`` (the entrypoint altitude, e.g. messaging passes ``"chat"``) seeds the
@@ -449,7 +449,7 @@ def _plan_base_shape(
     )
 
     strength = orchestration_signal_strength(task or "")
-    # FOCUSED-TOOLS FIRST (CONCEPT:ORCH-1.74) — a turn that names concrete fleet server(s) IS a
+    # FOCUSED-TOOLS FIRST (CONCEPT:AU-ORCH.execution.focused-tools-altitude) — a turn that names concrete fleet server(s) IS a
     # (possibly multi-) tool turn, so bind exactly those servers and run ONE direct loop that
     # calls them in parallel. This takes precedence over the structural signal: a turn like
     # "fetch my github issues AND list my portainer stacks" is multi-clause + over-length
@@ -489,7 +489,7 @@ def _plan_base_shape(
     return shape
 
 
-# ── Learned shape policy (CONCEPT:ORCH-1.71) ─────────────────────────────────────────
+# ── Learned shape policy (CONCEPT:AU-ORCH.execution.shape-policy-learning) ─────────────────────────────────────────
 # The heuristic cascade above is a PRIOR; an outcome-learned policy refines which shape
 # (lean direct-completion vs full graph) actually wins per task-class, learned from real run
 # outcomes (success × speed). It collapses into the ONE shared reward-EMA spine
@@ -523,7 +523,7 @@ def _archetype_of(shape: ExecutionProfile) -> str:
 
 
 def _apply_shape_policy(task: str, base: ExecutionProfile) -> ExecutionProfile:
-    """Refine the heuristic base shape with the learned per-task-class policy (CONCEPT:ORCH-1.71).
+    """Refine the heuristic base shape with the learned per-task-class policy (CONCEPT:AU-ORCH.execution.shape-policy-learning).
 
     A fresh, dynamic overlay on every call (NOT cached) so it reflects the latest learning: the
     base archetype is the prior; the policy flips it only when the learned reward-EMA for the
@@ -552,7 +552,7 @@ def plan_execution_shape(
 ) -> ExecutionProfile:
     """Construct the execution shape for ONE job — heuristic cascade refined by the learned policy.
 
-    CONCEPT:ORCH-1.67/1.69/1.70/1.71. The base shape comes from the escalating cascade (cache →
+    CONCEPT:AU-ORCH.execution.dynamic-execution-profile/1.69/1.70/1.71. The base shape comes from the escalating cascade (cache →
     structural strength → Rust-routed KG search); the learned per-task-class policy then refines
     which archetype actually wins, from real run outcomes. ``profile_hint`` (the entrypoint
     altitude) seeds the timeout budget.

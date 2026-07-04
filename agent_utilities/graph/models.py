@@ -1,5 +1,5 @@
 # agent_utilities/graph/models.py
-"""CONCEPT:ORCH-1.0"""
+"""CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
 from datetime import UTC, datetime
 from typing import Any, Literal

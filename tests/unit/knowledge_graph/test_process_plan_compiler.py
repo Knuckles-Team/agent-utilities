@@ -1,4 +1,4 @@
-"""ProcessPlanCompiler — ontology→workflow bridge (CONCEPT:ORCH-1.41).
+"""ProcessPlanCompiler — ontology→workflow bridge (CONCEPT:AU-ORCH.planning.business-process-to-executable).
 
 End-to-end: the BPMN fixture from the KG-2.53 extractor lift seeds a
 BusinessProcess/BusinessTask/FLOWS_TO subgraph in a fake engine; the compiler
@@ -6,7 +6,7 @@ turns it into a stored WorkflowDefinition with a REALIZES bridge edge,
 sequence-flow-derived dependencies, gateway-collapse parallelism, cycle
 rejection, and explicit manual steps for unresolvable tasks.
 
-@pytest.mark.concept("ORCH-1.41")
+@pytest.mark.concept("AU-ORCH.planning.business-process-to-executable")
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from agent_utilities.knowledge_graph.process_plan_compiler import (
 
 from .enrichment.bpmn_fixtures import XmlCapableClient
 
-pytestmark = pytest.mark.concept("ORCH-1.41")
+pytestmark = pytest.mark.concept("AU-ORCH.planning.business-process-to-executable")
 
 PROC = "bpmn_process:invoice:1:abc"
 

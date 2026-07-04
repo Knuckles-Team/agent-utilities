@@ -20,4 +20,4 @@
 - [x] `tests/unit/knowledge_graph/test_kg_2_11_bitemporal.py` — AC1–AC6 (9 tests).
 
 ## T7 — Artifacts (NFR)  [docs]
-- [x] concepts.yaml regen (KG-2.11); CHANGELOG; README KG-2 range; pillar doc note.
+- [x] concepts.yaml regen (KG-2.11); CHANGELOG; README EG-KG.compute.backend range; pillar doc note.

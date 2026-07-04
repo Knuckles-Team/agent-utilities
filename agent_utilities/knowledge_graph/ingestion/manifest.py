@@ -1,4 +1,4 @@
-"""Durable delta-ingestion manifest (CONCEPT:KG-2.8).
+"""Durable delta-ingestion manifest (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 A single, durable record of "what content has already been ingested" keyed by
 ``(graph_name, category, source_uri) -> content_hash``. The ``IngestionEngine``
@@ -42,7 +42,7 @@ def _key(graph_name: str, category: str, source_uri: str) -> str:
 class DeltaManifest:
     """Durable per-(graph, category, source) content-hash manifest.
 
-    CONCEPT:KG-2.8
+    CONCEPT:EG-KG.storage.nonblocking-checkpoint
 
     Args:
         backend: A ``GraphBackend``. If durable, the manifest is stored as
@@ -188,7 +188,7 @@ class DeltaManifest:
         """Bulk-load ``{source_uri: updated_at}`` for one (graph, category).
 
         The last-sync watermark per ingested source, used by the ingestion-coverage
-        doctor check to enforce a freshness SLA (CONCEPT:OS-5.47) — flagging repos
+        doctor check to enforce a freshness SLA (CONCEPT:AU-OS.deployment.flagging-repos) — flagging repos
         whose last delta sync is older than the threshold.
         """
         if self.mode == "sqlite":

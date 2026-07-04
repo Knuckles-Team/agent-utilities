@@ -1,11 +1,11 @@
-"""ARPO step-credit read-back from the run lifecycle (CONCEPT:AHE-3.15).
+"""ARPO step-credit read-back from the run lifecycle (CONCEPT:AU-AHE.reward.this-is-read-back).
 
 ``write_back_step_credit`` existed but was never invoked from the live step
 path — routing only ever learned from final answers. ``agent_runner`` now
 credits every run's intermediate agent-steps into the capability reward-EMA on
 completion (success AND failure), guarded so credit failures never break runs.
 
-@pytest.mark.concept("AHE-3.15")
+@pytest.mark.concept("AU-AHE.reward.this-is-read-back")
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from agent_utilities.orchestration.agent_runner import (
     _write_step_credit,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.15")
+pytestmark = pytest.mark.concept("AU-AHE.reward.this-is-read-back")
 
 
 class _CapIndex:

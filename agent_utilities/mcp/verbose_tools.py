@@ -24,7 +24,7 @@ Hand-written clients are ``**kwargs``, so each verbose tool takes a single
 fully-typed verbose modules from their OpenAPI manifest; this introspection path
 is the universal fallback for everyone else.
 
-CONCEPT:ECO-4.82 — MCP tool-mode standardization (verbose 1:1 surface)
+CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization (verbose 1:1 surface)
 """
 
 from __future__ import annotations
@@ -479,7 +479,7 @@ def register_action_provider(mcp: Any, tool_name: str, actions: Any) -> None:
 
     Idempotent per ``(mcp, tool_name)`` — last write wins.
 
-    CONCEPT:ECO-4.90 — verbose auto-wire enumerates dynamic (runtime) actions
+    CONCEPT:AU-ECO.mcp.verbose-auto-wire — verbose auto-wire enumerates dynamic (runtime) actions
     """
     providers: dict[str, Any] = getattr(mcp, _ACTION_PROVIDERS_ATTR, {})
     providers[tool_name] = actions
@@ -582,8 +582,8 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
 
     Returns the list of derived verbose tool names.
 
-    CONCEPT:ECO-4.89 — fleet-wide verbose auto-wire from condensed action enums
-    CONCEPT:ECO-4.90 — verbose auto-wire enumerates dynamic (runtime) actions
+    CONCEPT:AU-ECO.mcp.fleet-wide-verbose-auto — fleet-wide verbose auto-wire from condensed action enums
+    CONCEPT:AU-ECO.mcp.verbose-auto-wire — verbose auto-wire enumerates dynamic (runtime) actions
     """
     try:
         from fastmcp.tools import Tool
@@ -737,9 +737,9 @@ def register_tool_surface(
     ``{tool_name: actions}`` where ``actions`` is a list, a zero-arg callable, or a
     client class — and the auto-wire enumerates each tool's runtime actions
     (ECO-4.90). Pass ``autowire_condensed=False`` to opt a server out (e.g. one
-    whose explicit targets already cover its whole surface). CONCEPT:ECO-4.89.
+    whose explicit targets already cover its whole surface). CONCEPT:AU-ECO.mcp.fleet-wide-verbose-auto.
 
-    CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
+    CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization (central surface wiring)
     """
     from agent_utilities.core.config import setting
 

@@ -20,12 +20,12 @@ the token-level trainer micro-mechanics until/unless we run an on-policy trainer
 ## Dependency graph (drives the wave order)
 
 ```
-W1 ──► PreferencePair export (AHE-3.17 core) ──┐
+W1 ──► PreferencePair export (AU-AHE.harness.preference-corpus-reliability core) ──┐
        Dr.GRPO length_unbiased primitive       │ (foundation: corpus + a correct primitive +
        epistemic-graph group-relative kernel    │  the native math kernel — low-risk, enabling)
                                                  │
-W2 ──► ARPO Agent-Step PO (AHE-3.15) ───────────┼─ independent, HIGHEST leverage, parallelizable
-       VPO Test-Time Diversity (AHE-3.16) ───────┘
+W2 ──► ARPO Agent-Step PO (AU-AHE.reward.this-is-read-back) ───────────┼─ independent, HIGHEST leverage, parallelizable
+       VPO Test-Time Diversity (AU-AHE.harness.width-diverse-best-k) ───────┘
                                                  │
 W3 ──► RAPPO reliability filter ─────────────────┤
        TI-DPO token weights        ── all LAYER ON the W1 PreferencePair export
@@ -40,7 +40,7 @@ W3 ──► RAPPO reliability filter ──────────────
 
 ## Wave 1 — Foundation & surgical wins (low risk, broadly enabling)
 
-### W1.1 — `PreferencePair` export  ·  **AHE-3.17 (core)**  ·  agent-utilities  ·  effort: M
+### W1.1 — `PreferencePair` export  ·  **AU-AHE.harness.preference-corpus-reliability (core)**  ·  agent-utilities  ·  effort: M
 Spec: [`spec-preference-corpus-reliability.md`](./spec-preference-corpus-reliability.md) (US-1).
 - **Build:** a `PreferencePair{prompt, chosen, rejected, metadata}` model + an exporter that
   consolidates pairs from `harness/eval_corpus.py::EvalCorpus`, `knowledge_graph/adaptation/
@@ -75,7 +75,7 @@ Analysis §Synthesis item 5.
 
 ## Wave 2 — Highest-leverage live-path wins (start in parallel with W1)
 
-### W2.1 — Agent-Step Policy Optimization (ARPO)  ·  **AHE-3.15**  ·  agent-utilities  ·  effort: L  ·  **TOP**
+### W2.1 — Agent-Step Policy Optimization (ARPO)  ·  **AU-AHE.reward.this-is-read-back**  ·  agent-utilities  ·  effort: L  ·  **TOP**
 Spec: [`spec-arpo-agent-step-po.md`](./spec-arpo-agent-step-po.md).
 - **Build:** (a) a step-entropy/uncertainty signal at tool/decision boundaries exposed to
   `graph/routing/strategies/policy.py::SubagentLifecyclePolicy`; (b) entropy-gated branching above
@@ -87,7 +87,7 @@ Spec: [`spec-arpo-agent-step-po.md`](./spec-arpo-agent-step-po.md).
 - **Why top:** best fit for our agentic architecture — it upgrades *when* and *at what granularity*
   the router (which we already run) branches and credits. Pure live-path.
 
-### W2.2 — Test-Time Diversity (VPO)  ·  **AHE-3.16**  ·  agent-utilities + epistemic-graph  ·  effort: M
+### W2.2 — Test-Time Diversity (VPO)  ·  **AU-AHE.harness.width-diverse-best-k**  ·  agent-utilities + epistemic-graph  ·  effort: M
 Spec: [`spec-vpo-test-time-diversity.md`](./spec-vpo-test-time-diversity.md).
 - **Build:** a diversity score (embedding spread / reward-vector divergence) over the candidate set
   in the subagent fan-out (`SubagentLifecyclePolicy`, `rlm/` parallel sub-calls); selection trades
@@ -103,18 +103,18 @@ both with live-path tests; no regression in the unit suite.
 
 ## Wave 3 — Preference-corpus refinements (layer on W1.1) + banked primitives
 
-### W3.1 — RAPPO reliability filter  ·  **AHE-3.17**  ·  agent-utilities  ·  effort: S
+### W3.1 — RAPPO reliability filter  ·  **AU-AHE.harness.preference-corpus-reliability**  ·  agent-utilities  ·  effort: S
 Spec: `spec-preference-corpus-reliability.md` (US-2). Depends on **W1.1**.
 - **Build:** a `reliability_filter` over the `PreferencePair` export — drop ambiguous / low-margin
   pairs ("keep the best, forget the rest"); log dropped counts (no silent truncation).
 - **Acceptance:** ambiguous pairs are excluded; drop count surfaced. **Cheap, broadly enabling.**
 
-### W3.2 — TI-DPO token-importance weights  ·  **AHE-3.17**  ·  agent-utilities  ·  effort: S–M
+### W3.2 — TI-DPO token-importance weights  ·  **AU-AHE.harness.preference-corpus-reliability**  ·  agent-utilities  ·  effort: S–M
 Spec: `spec-preference-corpus-reliability.md` (US-3). Depends on **W1.1**.
 - **Build:** attach token-importance weights to a `PreferencePair` (pairs with TR-GRPO's
   per-token regulation idea on the reward side).
 
-### W3.3 — InSPO reflective conditioning  ·  **AHE-3.17**  ·  agent-utilities  ·  effort: S
+### W3.3 — InSPO reflective conditioning  ·  **AU-AHE.harness.preference-corpus-reliability**  ·  agent-utilities  ·  effort: S
 Spec: `spec-preference-corpus-reliability.md` (US-3). Depends on **W1.1**.
 - **Build:** an optional, off-by-default reflective-conditioning hook (condition the policy on an
   alternative response) on the `PreferencePair` export; reuse `capabilities/adversarial_verifier.py`
@@ -136,7 +136,7 @@ token-weighted DPO-ready `PreferencePair` set; banked primitives specified with 
 Each task carries the 7 mandated artifacts (already enumerated in the linked specs): **/docs** pillar
 page · **AGENTS.md** capability note · **CHANGELOG.md** Unreleased entry citing the paper · **README.md**
 concept-count refresh · **.specify/** spec+tasks+design (dual-write to KG) · **.specify/reports/** C4
-diagram · **Pytests** (unit + `*_live_path`). New concept IDs (`AHE-3.15/3.16/3.17`) must be added to
+diagram · **Pytests** (unit + `*_live_path`). New concept IDs (`AU-AHE.reward.this-is-read-back/3.16/3.17`) must be added to
 `docs/concepts.yaml` (single source of truth) and pass `scripts/check_concepts.py`.
 
 ## Suggested execution order (one PR per task)

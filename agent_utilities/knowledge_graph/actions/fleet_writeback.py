@@ -1,6 +1,6 @@
 """Governed fleet write-back — the write side of the KG-2.59 source connector.
 
-CONCEPT:KG-2.42 — vendor write-back via governed ontology Actions.
+CONCEPT:AU-KG.ontology.vendor-writeback-action — vendor write-back via governed ontology Actions.
 
 Ingestion (KG-2.59) *reads* records out of the ~58-server MCP fleet into the
 Knowledge Graph. This is the symmetric *write* path: a single governed

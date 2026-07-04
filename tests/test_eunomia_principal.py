@@ -129,7 +129,7 @@ def test_fastmcp3_component_exposes_enabled():
     assert disabled is False
 
 
-# --- /check/bulk chunking (CONCEPT:ECO-4.88) -------------------------------
+# --- /check/bulk chunking (CONCEPT:AU-ECO.bus.agent-bus-awareness) -------------------------------
 
 
 def _req(name):

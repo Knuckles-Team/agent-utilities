@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1 — Decomposed Reward Signals.
+"""CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Decomposed Reward Signals.
 
 Strangled by graph/planning/ (Plan 03 Step 4): re-exported via
 ``agent_utilities.graph.planning.reward``. This module remains the live
@@ -28,12 +28,12 @@ Where:
     - α: Weighting factor (default 0.2) balancing local vs global feedback
 
 Integrates with:
-    - CONCEPT:AHE-3.4 (Experience Distillation): Per-step success feeds ExperienceNode
-    - CONCEPT:AHE-3.4 (Heavy Thinking): Step rewards for each thinker trajectory
-    - CONCEPT:AHE-3.4 (Horizon Curriculum): Subgoal checkpoint rewards
-    - CONCEPT:KG-2.0 (OGM): Persists reward records as KG nodes
+    - CONCEPT:AU-AHE.evaluation.backtest-harness (Experience Distillation): Per-step success feeds ExperienceNode
+    - CONCEPT:AU-AHE.evaluation.backtest-harness (Heavy Thinking): Step rewards for each thinker trajectory
+    - CONCEPT:AU-AHE.evaluation.backtest-harness (Horizon Curriculum): Subgoal checkpoint rewards
+    - CONCEPT:AU-KG.query.object-graph-mapper (OGM): Persists reward records as KG nodes
 
-See docs/overview.md §CONCEPT:AHE-3.1
+See docs/overview.md §CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 
@@ -89,7 +89,7 @@ class TrajectoryOutcome(StrEnum):
 class StepReward(BaseModel):
     """Reward signal for a single step within a trajectory.
 
-    CONCEPT:AHE-3.1 — Captures local constraint satisfaction at the
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Captures local constraint satisfaction at the
     step level, independent of whether the overall trajectory succeeded.
 
     Attributes:
@@ -158,7 +158,7 @@ class StepReward(BaseModel):
 class TrajectoryReward(BaseModel):
     """Trajectory-level reward signal for goal achievement.
 
-    CONCEPT:AHE-3.1 — Binary (or graded) signal for whether the
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Binary (or graded) signal for whether the
     overall task goal was achieved, independent of step-level quality.
 
     Attributes:
@@ -221,7 +221,7 @@ class TrajectoryReward(BaseModel):
 class DecomposedRewardRecord(BaseModel):
     """Complete decomposed reward record for a single trajectory.
 
-    CONCEPT:AHE-3.1 — Combines step-level and trajectory-level signals
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Combines step-level and trajectory-level signals
     into a single record that can be persisted as a KG node and used
     for experience distillation.
 
@@ -297,10 +297,10 @@ class DecomposedRewardRecord(BaseModel):
 class RewardDecomposer:
     """Decomposes trajectory outcomes into step + trajectory reward signals.
 
-    CONCEPT:AHE-3.1 — Implements the decomposed reward framework from
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Implements the decomposed reward framework from
     Long-Horizon Training research.  Designed to be called after each
     trajectory execution to produce a ``DecomposedRewardRecord`` that
-    feeds into experience distillation (CONCEPT:AHE-3.4).
+    feeds into experience distillation (CONCEPT:AU-AHE.evaluation.backtest-harness).
 
     The decomposer addresses the credit assignment problem: when a
     trajectory fails, individual correct steps should not be penalized.
@@ -318,7 +318,7 @@ class RewardDecomposer:
         self._records: list[DecomposedRewardRecord] = []
 
         logger.info(
-            "[CONCEPT:AHE-3.1] RewardDecomposer initialized (alpha=%.2f)",
+            "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] RewardDecomposer initialized (alpha=%.2f)",
             self.alpha,
         )
 
@@ -372,7 +372,7 @@ class RewardDecomposer:
         self._records.append(record)
 
         logger.info(
-            "[CONCEPT:AHE-3.1] Decomposed trajectory %s: "
+            "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Decomposed trajectory %s: "
             "total_reward=%.3f, step_accuracy=%.1f%%, outcome=%s",
             trajectory_id,
             record.total_reward,
@@ -413,7 +413,7 @@ class RewardDecomposer:
                     if is_success:
                         incorrect_in_successes += 1
 
-        # Training-spine signals (CONCEPT:AHE-3.1): group-normalized advantage
+        # Training-spine signals (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort): group-normalized advantage
         # spread + localized failure points — surfaced here so they ride the live
         # distillation-insights path consumed by the EvaluationEngine.
         advantages = self.batch_advantages()
@@ -442,7 +442,7 @@ class RewardDecomposer:
         }
 
     def batch_advantages(self) -> list[float]:
-        """Group-normalized advantage over accumulated trajectories (CONCEPT:AHE-3.1).
+        """Group-normalized advantage over accumulated trajectories (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
         Turns the per-trajectory ``total_reward``s into GRPO-style advantages —
         the reward signal the Wave-C policy trainers consume.
@@ -457,7 +457,7 @@ class RewardDecomposer:
         *,
         step_entropies: list[float] | None = None,
     ) -> list[float]:
-        """Per-step advantage within one trajectory (CONCEPT:AHE-3.15 / AHE-3.1).
+        """Per-step advantage within one trajectory (CONCEPT:AU-AHE.reward.this-is-read-back / AHE-3.1).
 
         Group-normalizes the step rewards of ``record`` (default: most recent) into
         per-step advantages — the agent-step credit ARPO writes back into the
@@ -482,7 +482,7 @@ class RewardDecomposer:
         return adv
 
     def failure_points(self) -> list[int | None]:
-        """First-divergence step index per accumulated record (CONCEPT:AHE-3.1).
+        """First-divergence step index per accumulated record (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
         ``None`` when a trajectory has no INCORRECT step. Anchors error-attributed
         preference-pair construction for DPO-style training.

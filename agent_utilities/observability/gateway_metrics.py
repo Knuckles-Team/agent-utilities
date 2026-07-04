@@ -1,6 +1,6 @@
 """Python-tier Prometheus metrics for the API gateway.
 
-CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening (metrics, per-tenant rate
+CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening (metrics, per-tenant rate
 limiting, engine circuit breaker, multi-worker readiness).
 
 The Rust engine already exposes ``epistemic_graph_*`` Prometheus metrics; this
@@ -172,7 +172,7 @@ ENGINE_BREAKER_STATE = _gauge(
     "Engine circuit-breaker state per endpoint (0=closed, 1=half-open, 2=open).",
     ("endpoint",),
 )
-# Tenant-partitioned engine sharding visibility (CONCEPT:KG-2.58 / OS-5.28):
+# Tenant-partitioned engine sharding visibility (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw / OS-5.28):
 # one series per configured GRAPH_SERVICE_ENDPOINTS entry. The gauge is
 # refreshed on every real client connect attempt and by the daemon's
 # shard_topology_status probe; the counter splits the existing engine-call
@@ -189,7 +189,7 @@ ENGINE_SHARD_REQUESTS = _counter(
     "(ok | connection_error | error | short_circuited).",
     ("endpoint", "outcome"),
 )
-# Ingest scale-out backpressure visibility (CONCEPT:KG-2.57): sampled by the
+# Ingest scale-out backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sampled by the
 # KG maintenance scheduler on the leader host. Depth is uniform across queue
 # backends (sqlite/postgres row count, kafka = kg-ingest consumer-group lag);
 # the lag series exists separately so Kafka dashboards/alerts read naturally.
@@ -203,7 +203,7 @@ KG_INGEST_CONSUMER_LAG = _gauge(
     "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
     ("topic", "group"),
 )
-# MCP multiplexer per-child resilience (CONCEPT:ECO-4.34): one series per
+# MCP multiplexer per-child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client): one series per
 # aggregated child server (~50, bounded by mcp_config.json). The multiplexer
 # runs standalone; like every metric here these degrade to no-ops when
 # prometheus_client (the optional ``metrics`` extra) is absent.
@@ -230,7 +230,7 @@ MCP_CHILD_QUEUE_DEPTH = _gauge(
     ("server",),
 )
 
-# Runtime usage granularity (CONCEPT:OS-5.31): per-tool / per-skill / per-db
+# Runtime usage granularity (CONCEPT:AU-OS.observability.persist-this-graph-run): per-tool / per-skill / per-db
 # call counters, siblings of MCP_CHILD_CALLS. Emitted alongside the usage-store
 # rows so the same data is visible in both Prometheus and /api/observability.
 TOOL_CALLS = _counter(
@@ -250,7 +250,7 @@ DB_CALLS = _counter(
 )
 
 # Per-tool instrumentation for STANDALONE MCP servers built by
-# ``create_mcp_server`` (CONCEPT:OS-5.23). One series per tool this server
+# ``create_mcp_server`` (CONCEPT:AU-OS.observability.no-op-without-metrics). One series per tool this server
 # process exposes (bounded by the server's own tool set); Prometheus adds the
 # job/instance labels so the same tool name on different servers stays distinct.
 # These are the server-side siblings of MCP_CHILD_* (the multiplexer's view).
@@ -271,7 +271,7 @@ MCP_TOOL_IN_FLIGHT = _gauge(
     "MCP tool calls currently executing on this server.",
 )
 
-# Queue-driven agent dispatch visibility (CONCEPT:ORCH-1.45): sampled by the
+# Queue-driven agent dispatch visibility (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch): sampled by the
 # dispatch workers on their heartbeat tick. Depth is uniform across queue
 # transports (kafka = agent-dispatch consumer-group lag, postgres/sqlite =
 # row count); the workers gauge counts fresh heartbeats in the fleet
@@ -292,7 +292,7 @@ DISPATCH_WORKERS = _gauge(
     "Live agent-dispatch workers (fresh heartbeats in the fleet registry).",
 )
 
-# Agent-to-agent communication bus visibility (CONCEPT:ECO-4.87, the AgentBus of
+# Agent-to-agent communication bus visibility (CONCEPT:AU-ECO.bus.operator-view-agentbus, the AgentBus of
 # ECO-4.84). Participants are sampled by ``AgentBus.status``/``roster``; message and
 # dispatch counters are bumped on the send/dispatch path; send duration measures the
 # server-side bus write latency (the cross-host wire is durable-store polling on top).
@@ -328,7 +328,7 @@ def render_metrics() -> tuple[bytes, str]:
     if not PROMETHEUS_AVAILABLE:
         return (
             b"# agent-utilities gateway metrics unavailable: install the "
-            b"'metrics' extra (prometheus-client). (CONCEPT:OS-5.23)\n",
+            b"'metrics' extra (prometheus-client). (CONCEPT:AU-OS.observability.no-op-without-metrics)\n",
             "text/plain; version=0.0.4; charset=utf-8",
         )
     from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
@@ -371,7 +371,7 @@ def _route_template(scope: dict[str, Any], status: int) -> str:
 class GatewayMetricsMiddleware:
     """Pure-ASGI middleware recording request count/duration/in-flight metrics.
 
-    CONCEPT:OS-5.23. Mounted OUTERMOST by
+    CONCEPT:AU-OS.observability.no-op-without-metrics. Mounted OUTERMOST by
     :func:`agent_utilities.gateway.graph_api.register_graph_routes` so auth
     rejections (401) and rate-limit rejections (429) are counted too. No
     heavy deps: with ``prometheus_client`` absent every record is a no-op.

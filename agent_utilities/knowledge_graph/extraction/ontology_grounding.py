@@ -1,4 +1,4 @@
-"""Ontology grounding for extracted facts (CONCEPT:KG-2.74).
+"""Ontology grounding for extracted facts (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 The last hop of the universal multi-modal ingestion funnel:
 
@@ -315,7 +315,7 @@ def ground_fact(
     subject_props: Mapping[str, Any] | None = None,
     object_props: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Ground one extracted triple onto the OWL ontology (CONCEPT:KG-2.74).
+    """Ground one extracted triple onto the OWL ontology (CONCEPT:AU-KG.backend.mirror-health-repair).
 
     Maps the surface ``subject``/``object`` onto canonical OWL types so
     cross-modal entities converge: a *vendor*, *supplier* and *company* all

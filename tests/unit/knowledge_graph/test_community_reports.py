@@ -1,4 +1,4 @@
-"""Tests for GraphRAG community summarization (CONCEPT:KG-2.258)."""
+"""Tests for GraphRAG community summarization (CONCEPT:AU-KG.enrichment.community-reports)."""
 
 from __future__ import annotations
 

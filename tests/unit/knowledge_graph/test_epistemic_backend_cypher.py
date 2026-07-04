@@ -5,7 +5,7 @@ The orchestration engine's persistent Task queue drives status transitions via
 epistemic-graph (in-memory) backend has no Cypher engine, so
 ``EpistemicGraphBackend.execute`` interprets that operational subset directly.
 A regression here re-introduces the infinite task re-claim loop (status writes
-silently dropped → tasks never leave ``pending``). (CONCEPT:KG-2.0)
+silently dropped → tasks never leave ``pending``). (CONCEPT:AU-KG.query.object-graph-mapper)
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def test_label_match_honours_type_key(backend):
 
 
 def test_unanchored_relationship_read_returns_empty(backend):
-    # CONCEPT:KG-2.7 P1 — previously an unrecognised relationship query fell to the
+    # CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — previously an unrecognised relationship query fell to the
     # legacy reader and (with an id param) did an id lookup / returned all nodes.
     # That footgun is removed: a relationship read L1 can't anchor (no ``{id:...}``
     # entry point) now returns [] so a tiered caller cleanly defers to L3 — it must
@@ -226,7 +226,7 @@ def test_rel_match_accepts_inline_literal_anchor_id(backend):
     assert rows == [{"id": "tgt-1", "title": "P-1"}]
 
 
-# --- Unanchored relationship reads (CONCEPT:KG-2.7 P1) -------------------------
+# --- Unanchored relationship reads (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1) -------------------------
 
 
 @pytest.fixture()
@@ -258,7 +258,7 @@ def test_unanchored_edge_count_filtered_by_rel_type(edged):
     assert rows == [{"c": 2}]
 
 
-# --- DISTINCT + implicit GROUP BY projection (CONCEPT:KG-2.63) -----------------
+# --- DISTINCT + implicit GROUP BY projection (CONCEPT:AU-KG.backend.multi-connection-registry) -----------------
 
 
 @pytest.fixture()

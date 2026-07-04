@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Connector registry + factory — self-registering source discovery.
 
-CONCEPT:ECO-4.27 — Connector Registry + Factory
+CONCEPT:AU-ECO.connector.factory-ingestion-adaptor — Connector Registry + Factory
 
 A decorator-driven registry (mirroring the project's other ``register_*`` +
 ``pkgutil`` discovery patterns) that maps a ``source_type`` string to a
@@ -44,7 +44,7 @@ C = TypeVar("C", bound=type[BaseSourceConnector])
 def register_source(source_type: str) -> Callable[[C], C]:
     """Class decorator registering a connector under ``source_type``.
 
-    CONCEPT:ECO-4.27. Idempotent: re-registering the same key overwrites, so
+    CONCEPT:AU-ECO.connector.factory-ingestion-adaptor. Idempotent: re-registering the same key overwrites, so
     repeated :func:`discover` calls are safe.
 
     Example::
@@ -72,7 +72,7 @@ def register_source(source_type: str) -> Callable[[C], C]:
 def discover() -> dict[str, type[BaseSourceConnector]]:
     """Import the ``connectors`` subpackage so all decorators run; return the map.
 
-    CONCEPT:ECO-4.27 — the discovery half of the self-registering pattern. Called
+    CONCEPT:AU-ECO.connector.factory-ingestion-adaptor — the discovery half of the self-registering pattern. Called
     on the live ingestion path (the ``CONNECTOR`` adaptor builds connectors via
     :func:`build_connector`, which calls ``discover`` first). Safe to call many
     times — module imports are cached and registration is idempotent.
@@ -116,7 +116,7 @@ def build_connector(
 ) -> BaseSourceConnector:
     """Instantiate the connector registered under ``source_type``.
 
-    CONCEPT:ECO-4.27 — the factory the ingestion adaptor and MCP tool call.
+    CONCEPT:AU-ECO.connector.factory-ingestion-adaptor — the factory the ingestion adaptor and MCP tool call.
 
     Args:
         source_type: A registered key (see :func:`list_sources`).

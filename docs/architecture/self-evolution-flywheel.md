@@ -4,9 +4,9 @@
 > distils them into reviewable specs, and develops the approved ones — made **legible
 > mid-flight** (you can see what it is doing and why), **steerable** (you can reprioritize,
 > pause, and veto), and **governed** (nothing lands without a human/Claude gate).
-> Concepts: **KG-2.290 / KG-2.291 / KG-2.292 / OS-5.73** (flywheel transparency +
-> review-veto) and **AHE-3.71 / AHE-3.72 / AHE-3.73** (the per-agent hardening loop),
-> plus **KG-2.275 / KG-2.276** (the memory substrate the loop reasons over).
+> Concepts: **AU-KG.research.evolutionstate-live-surface-per / AU-KG.research.saturation-gauge-aggregates-four / AU-KG.research.close-distill-develop-seam / AU-OS.config.autonomous-spec-develop-off** (flywheel transparency +
+> review-veto) and **AHE-3.71 / AU-AHE.harness.when-outcome-names-agent / AU-AHE.harness.callers-feed-back-per** (the per-agent hardening loop),
+> plus **AU-KG.retrieval.assimilated-from-mragent / AU-KG.memory.generation-scoped-selective-reward** (the memory substrate the loop reasons over).
 
 This page is the operator-facing view of the flywheel. For the broader feedback-loop
 architecture it sits inside, read
@@ -30,10 +30,10 @@ existing primitives into one cycle that makes the KG self-improving **without
 auto-merging anything**:
 
 ```
-intake  → active Loops (research topics with no ADDRESSED_BY; KG-2.78)
+intake  → active Loops (research topics with no ADDRESSED_BY; AU-KG.research.these-properties-carry)
 acquire → semantically related sources per topic (research/search)
 resolve → ADDRESSES edges source→topic so the loop converges
-reason  → OWL/RDF reasoning over the ecosystem, harvest extrapolations (KG-2.79)
+reason  → OWL/RDF reasoning over the ecosystem, harvest extrapolations (AU-KG.research.best-effort-lightweight-never)
 distill → SpecDraft markdown into .specify/specs/kg-distilled/ (gated)
 synth   → a TeamSpec/AgentSpec proposal persisted to the KG
 ```
@@ -48,10 +48,10 @@ scheduler's `self_evolution` schedule.
 
 Historically the cycle's **distill** stage wrote SDD markdown into `.specify/` and
 stopped there. The **develop / code** path (`change_publisher.governed_publish` →
-AHE-3.20–3.24) consumes *promoted proposal nodes*, not those `.md` files — so the two
+AU-AHE.harness.promotion-governance-validator–3.24) consumes *promoted proposal nodes*, not those `.md` files — so the two
 tracks were **disjoint**: a distilled spec was a dead-end file nothing could develop.
 
-`LoopController._distill_specs` now closes that seam (CONCEPT:KG-2.292). After
+`LoopController._distill_specs` now closes that seam (CONCEPT:AU-KG.research.close-distill-develop-seam). After
 `write_spec_drafts` writes the markdown, each draft is persisted as a first-class,
 queryable `:SpecProposal` node via
 `spec_proposals.persist_spec_proposal`, linked `DISTILLED_FROM` its source concepts so
@@ -60,18 +60,18 @@ the *why* is traversable. The spec is then fed — **only after approval** — i
 code-gen path). On the execute side, `LoopController._advance_develop` detects a
 spec-bound develop Loop (one carrying a `spec_id`) and routes it into
 `spec_proposals.develop_spec` → `governed_publish`, where the `merge_promotion`
-human-approval gate (OS-5.24) and the capability-ratchet regression gate (AHE-3.24)
+human-approval gate (OS-5.24) and the capability-ratchet regression gate (AU-AHE.evaluation.capability-benchmark-regression-ratchet)
 stay on the path. So "distill specs → develop **those** specs" finally flows end to end,
 governance intact.
 
 ```mermaid
 flowchart LR
     subgraph cycle["LoopController.run_one_cycle (propose-only)"]
-      intake["intake / acquire / resolve"] --> reason["reason (OWL/RDF, KG-2.79)"]
+      intake["intake / acquire / resolve"] --> reason["reason (OWL/RDF, AU-KG.research.best-effort-lightweight-never)"]
       reason --> distill["distill → SpecDraft .md"]
-      distill --> persist["persist_spec_proposal\n:SpecProposal (pending_review)\nDISTILLED_FROM concepts\n(KG-2.292)"]
+      distill --> persist["persist_spec_proposal\n:SpecProposal (pending_review)\nDISTILLED_FROM concepts\n(AU-KG.research.close-distill-develop-seam)"]
     end
-    persist --> gate{"spec-review\ncheckpoint\n(OS-5.73)"}
+    persist --> gate{"spec-review\ncheckpoint\n(AU-OS.config.autonomous-spec-develop-off)"}
     gate -- "approve" --> dev["develop_spec → governed_publish\n(merge_promotion gate +\ncapability ratchet)"]
     gate -- "reject / veto" --> dead["rejected (terminal)"]
     gate -- "edit" --> persist
@@ -83,11 +83,11 @@ flowchart LR
 ## 2. Transparency: live EvolutionState + the saturation gauge
 
 > "You cannot steer what you cannot see." The observation plane every steering action
-> hangs off. Concepts: **KG-2.290** (live state + per-stage beacon), **KG-2.291**
+> hangs off. Concepts: **AU-KG.research.evolutionstate-live-surface-per** (live state + per-stage beacon), **AU-KG.research.saturation-gauge-aggregates-four**
 > (saturation gauge). Module:
 > `agent_utilities/knowledge_graph/research/evolution_state.py`.
 
-### The per-stage progress beacon (KG-2.290)
+### The per-stage progress beacon (AU-KG.research.evolutionstate-live-surface-per)
 
 The deployed loop used to persist an `EvolutionCycle` audit node **only at finalize** —
 so until a cycle finished it was opaque, and an operator could not see "what is it
@@ -100,18 +100,18 @@ what it is acting on, and *why* (the `focus_query` / the open gaps it is mining)
 beacon write is best-effort — instrumentation never aborts the cycle. `read_beacon()`
 reads that one node back (an O(1) read, not a scan).
 
-### The aggregated read (KG-2.290)
+### The aggregated read (AU-KG.research.evolutionstate-live-surface-per)
 
 `read_evolution_state(engine)` is the operator's "make it transparent so I can steer"
 surface. It folds into **one** legible read:
 
 - **`beacon`** — the live stage + rationale (from `read_beacon`).
-- **`velocity`** — the AHE-3.26 `ImprovementVelocity` verdict (`improving` / `steady` /
+- **`velocity`** — the AU-AHE.sdd.recursive-improvement-instrumentation-aggregating `ImprovementVelocity` verdict (`improving` / `steady` /
   `stalling` / `idle`) from `improvement_ledger.improvement_velocity`: is the loop still
   improving, how fast, and is it emitting code or only prose?
 - **`open_gaps`** — the recent per-cycle `open_gaps` trend (`_open_gaps_trend` reads the
   `EvolutionCycle` audit nodes' metadata).
-- **`ingestion_coverage`** — the OS-5.47 ingestion-coverage % (how much of our corpus is
+- **`ingestion_coverage`** — the AU-OS.deployment.flagging-repos ingestion-coverage % (how much of our corpus is
   ingested) via `deployment.doctor._check_ingestion_coverage`.
 - **`specs`** — the distilled-spec backlog counts + a pending sample
   (`spec_proposals.specs_summary`).
@@ -119,15 +119,15 @@ surface. It folds into **one** legible read:
 - **`steering`** — a built-in cheat-sheet of the exact tool calls to pause, reprioritize,
   review a spec, or acquire more corpus.
 
-### The saturation gauge (KG-2.291)
+### The saturation gauge (AU-KG.research.saturation-gauge-aggregates-four)
 
 `saturation_gauge(...)` folds the signals that **already exist** into **one 0..1
 reading** of "how mined-out is the current corpus":
 
 | Component | Weight | Meaning |
 |---|---|---|
-| `velocity` | 0.4 | AHE-3.26 verdict: `stalling`→1.0, `steady`→0.5, `improving`/`idle`→0.0 |
-| `coverage` | 0.3 | OS-5.47 ingestion coverage fraction (unknown ⇒ neutral 0.5) |
+| `velocity` | 0.4 | AU-AHE.sdd.recursive-improvement-instrumentation-aggregating verdict: `stalling`→1.0, `steady`→0.5, `improving`/`idle`→0.0 |
+| `coverage` | 0.3 | AU-OS.deployment.flagging-repos ingestion coverage fraction (unknown ⇒ neutral 0.5) |
 | `gaps` | 0.3 | `open_gaps` trend: still shrinking fast ⇒ low; flat/rising ⇒ high |
 
 `gauge = 0.4·velocity + 0.3·coverage + 0.3·gaps`. It is **saturated** when
@@ -159,7 +159,7 @@ ecosystem → review-veto"* directive asks of the orchestrator.
 
 ---
 
-## 3. Governance: spec proposals + the review/veto gate (KG-2.292 / OS-5.73)
+## 3. Governance: spec proposals + the review/veto gate (AU-KG.research.close-distill-develop-seam / AU-OS.config.autonomous-spec-develop-off)
 
 > The propose-and-hold checkpoint that keeps a 24/7 auto-coder safe. Module:
 > `agent_utilities/knowledge_graph/research/spec_proposals.py`.
@@ -216,14 +216,14 @@ human/Claude approves it — review-first by default, exactly as a 24/7 auto-cod
 > `agent_utilities/harness/evolve_agent.py`,
 > `agent_utilities/harness/dspy_optimization.py`,
 > `agent_utilities/knowledge_graph/adaptation/feedback.py`. Concepts: AHE-3.71 (gated
-> apply + audit), AHE-3.72 (per-agent attribution), AHE-3.73 (the orchestrator).
+> apply + audit), AU-AHE.harness.when-outcome-names-agent (per-agent attribution), AU-AHE.harness.callers-feed-back-per (the orchestrator).
 
 This converts the previously dormant/stubbed metric→optimize→harden substrate into one
 real, gated **metric → DSPy-optimize → hardened-prompt** cycle for a single agent's
 system prompt. It reuses the existing DSPy / `StructuredPrompt` / reward machinery — no
 new optimizer.
 
-### AHE-3.72 — per-agent attribution
+### AU-AHE.harness.when-outcome-names-agent — per-agent attribution
 
 When a delegated run produces an outcome, `FeedbackService.record_action_outcome(…,
 agent_id=…)` tags the resulting eval case `agent:<id>` (see
@@ -240,12 +240,12 @@ So an agent's *own real outcomes* — including the ones that failed — become 
 that steers its prompt optimization. Attribution is by **agent**, not just by trace
 signature.
 
-### AHE-3.73 — `harden_agent_prompt`, the orchestrator
+### AU-AHE.harness.callers-feed-back-per — `harden_agent_prompt`, the orchestrator
 
 `EvolveAgent.harden_agent_prompt(agent_id, prompt_path, …)` runs ONE closed cycle:
 
 1. **Attribute** — pool the agent's `action_outcome` cases into a per-agent trainset +
-   eval slice (AHE-3.72).
+   eval slice (AU-AHE.harness.when-outcome-names-agent).
 2. **Optimize** — `run_dspy_optimization` on the `system_prompt` target with that
    trainset; **degrade gracefully** to the labeled successes as demos when no LM is
    reachable to compile, so the cycle still hardens the prompt offline.
@@ -279,7 +279,7 @@ of by flipping the global flag.
 
 ```mermaid
 flowchart LR
-    fail["delegated run fails /\nungrounded / escalated"] --> outcome["record_action_outcome\n(agent_id=…) → agent:&lt;id&gt; case\n(AHE-3.72)"]
+    fail["delegated run fails /\nungrounded / escalated"] --> outcome["record_action_outcome\n(agent_id=…) → agent:&lt;id&gt; case\n(AU-AHE.harness.when-outcome-names-agent)"]
     outcome --> attribute["agent_eval_cases +\nbuild_agent_trainset"]
     attribute --> optimize["run_dspy_optimization\n(or labeled-successes demos)"]
     optimize --> build["build_hardened_prompt →\ncandidate StructuredPrompt"]
@@ -297,15 +297,15 @@ hardening of the system so it self-handles that case next time.
 
 ---
 
-## 5. The memory substrate the loop reasons over (KG-2.275 / KG-2.276)
+## 5. The memory substrate the loop reasons over (AU-KG.retrieval.assimilated-from-mragent / AU-KG.memory.generation-scoped-selective-reward)
 
 The flywheel's reasoning quality depends on what it can recall and how trustworthy that
 recall is. Two assimilated primitives harden that substrate. (Note the renumbering:
-**KG-2.275 is MRAgent active reconstruction**; the selective-erasure primitive was
-originally tagged 2.275 and **renumbered to KG-2.276** to avoid the collision — both IDs
+**AU-KG.retrieval.assimilated-from-mragent is MRAgent active reconstruction**; the selective-erasure primitive was
+originally tagged 2.275 and **renumbered to AU-KG.memory.generation-scoped-selective-reward** to avoid the collision — both IDs
 are confirmed against the code below.)
 
-### KG-2.275 — MRAgent active Cue-Tag-Content reconstruction
+### AU-KG.retrieval.assimilated-from-mragent — MRAgent active Cue-Tag-Content reconstruction
 
 Module: `agent_utilities/knowledge_graph/retrieval/active_reconstruction.py` (assimilated
 from MRAgent, arXiv:2606.06036). Instead of one-shot top-k retrieval, `reconstruct()`
@@ -320,7 +320,7 @@ walks a **Cue → Tag → Content** graph in an evidence-conditioned loop:
    frontier (reverse traversal),
 
 so the walk progressively reconstructs a query-relevant subgraph and self-terminates
-(reusing the shared `IterativeStopper`, KG-2.87) once fresh evidence stops arriving. It is
+(reusing the shared `IterativeStopper`, AU-KG.retrieval.adaptive-stopping-iterative-retrieval) once fresh evidence stops arriving. It is
 **dependency-injected** (callers supply `neighbor_fn` and `score_fn`) with a
 dependency-free lexical default (`lexical_relevance` — no torch) and engine-backed
 adapters (`engine_neighbor_fn`, `resolve_seeds`). It is wired into the live path: the
@@ -329,7 +329,7 @@ on no seed, so zero regression) — reachable via `graph_analyze action=explain
 target='entity:why'` and its REST twin. The ontology gains `:ReconstructionTrajectory`
 (the analog of MRAgent's reconstructed memory state).
 
-### KG-2.276 — generation-scoped selective reward erasure
+### AU-KG.memory.generation-scoped-selective-reward — generation-scoped selective reward erasure
 
 Module: `agent_utilities/knowledge_graph/retrieval/capability_index.py` (assimilated from
 the Red Queen Gödel Machine, arXiv:2606.26294). The memory-maintenance quadrant forgot

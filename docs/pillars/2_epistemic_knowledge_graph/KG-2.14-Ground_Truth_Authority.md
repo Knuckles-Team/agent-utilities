@@ -1,4 +1,4 @@
-# Ground-Truth Context Authority (CONCEPT:KG-2.14)
+# Ground-Truth Context Authority (CONCEPT:AU-KG.memory.ground-truth-preamble-declaring)
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # Secrets & Authentication
 
-> CONCEPT:OS-5.1 — Secrets & Authentication
+> CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
 This document covers how `agent-utilities` manages secrets, credentials,
 and authentication across the agent ecosystem.
@@ -12,7 +12,7 @@ and authentication across the agent ecosystem.
 The `SecretsClient` provides a unified, pluggable interface for storing and
 retrieving sensitive values (API keys, tokens, SSH credentials, etc.). It
 ships with two live backends and supports URI-style references for maximum
-flexibility (CONCEPT:OS-5.66).
+flexibility (CONCEPT:AU-OS.identity.encrypted-secret-store).
 
 ```
 ┌─────────────────────────────┐
@@ -31,7 +31,7 @@ The default `InEpistemicGraphBackend` is a **durable, engine-backed** store:
 secrets live as `:Secret` nodes in a dedicated `__secrets__` epistemic-graph
 graph, the secret **value** held as an encrypted node property sealed by the
 engine's encryption-at-rest (ChaCha20-Poly1305 over the redb value blobs, keyed
-by `EPISTEMIC_GRAPH_ENCRYPTION_KEY` + the KMS seam — CONCEPT:KG-2.231), while the
+by `EPISTEMIC_GRAPH_ENCRYPTION_KEY` + the KMS seam — CONCEPT:EG-KG.sharding.row-level-security), while the
 key **name** + metadata stay queryable plaintext. It is the store in **every**
 profile — even zero-infra `tiny`, because `GraphComputeEngine` auto-starts the
 pre-bundled pi-tier engine on demand (the OS-5.63 resolver). The master key now
@@ -119,7 +119,7 @@ export VAULT_TOKEN=hvs.xxx
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `SECRETS_BACKEND` | `inmemory` | `inmemory` → the durable engine-encrypted `__secrets__` store (default everywhere); `vault` → enterprise OpenBao/Vault |
-| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | *(unset → encryption off)* | Engine encryption-at-rest key material / KMS seam that seals the `__secrets__` value blobs (CONCEPT:KG-2.231) |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | *(unset → encryption off)* | Engine encryption-at-rest key material / KMS seam that seals the `__secrets__` value blobs (CONCEPT:EG-KG.sharding.row-level-security) |
 | `SECRETS_VAULT_URL` | `http://127.0.0.1:8200` | Vault server URL |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
 

@@ -1,6 +1,6 @@
 """Ingestion Engine — Single entrypoint for all data ingestion into the Knowledge Graph.
 
-CONCEPT:KG-2.7 — Ingestion Engine
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Ingestion Engine
 
 Type-safe ingestion pipeline with content-typed adaptors. Each ``ContentType``
 maps 1:1 to an ``@adaptor``-decorated method on ``IngestionEngine``.
@@ -53,7 +53,7 @@ def _now() -> str:
 class ContentType(StrEnum):
     """Content types supported by the Ingestion Engine.
 
-    CONCEPT:KG-2.7
+    CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
     Each value maps 1:1 to a registered ``@adaptor`` method on ``IngestionEngine``.
     """
@@ -77,7 +77,7 @@ class ContentType(StrEnum):
         """Best-effort content-type inference from a source path/URL.
 
         Shared by the MCP ``graph_ingest`` wrapper and any caller so the
-        path/URL → ContentType mapping lives in one place. (CONCEPT:KG-2.7)
+        path/URL → ContentType mapping lives in one place. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         """
         s = (source or "").strip()
         low = s.lower()
@@ -102,7 +102,7 @@ class ContentType(StrEnum):
         # blindly assuming a codebase. A folder of PDFs/markdown is a
         # DOCUMENT corpus; a folder with packaging markers or source files
         # is a CODEBASE. A lone non-document file falls through to a
-        # codebase parse. (CONCEPT:KG-2.7)
+        # codebase parse. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         if p.is_dir():
             return cls._classify_dir(p)
         return cls.CODEBASE
@@ -122,7 +122,7 @@ class ContentType(StrEnum):
         …) are pruned so a document corpus carrying a bundled virtualenv is
         not misread as code. Sampling is capped at ``_CLASSIFY_SCAN_BUDGET``
         files so classification stays cheap on huge trees — the decisive
-        signals surface in the first few hundred entries. (CONCEPT:KG-2.7)
+        signals surface in the first few hundred entries. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         """
         docs = 0
         code = 0
@@ -151,7 +151,7 @@ class ContentType(StrEnum):
 class IngestionManifest(BaseModel):
     """Describes a single ingestion job.
 
-    CONCEPT:KG-2.7
+    CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
     Attributes:
         content_type: What kind of content is being ingested.
@@ -171,7 +171,7 @@ class IngestionManifest(BaseModel):
 class IngestionResult(BaseModel):
     """Standardized result from an ingestion run.
 
-    CONCEPT:KG-2.7
+    CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
     Attributes:
         manifest: The manifest that was ingested.
@@ -213,7 +213,7 @@ def adaptor(content_type: ContentType) -> Callable:
     return decorator
 
 
-# ── Content-hash registry (durable delta-skip, CONCEPT:KG-2.8) ─────────────
+# ── Content-hash registry (durable delta-skip, CONCEPT:AU-KG.ingest.capability-writeback) ─────────────
 
 _HASHERS: dict[ContentType, Callable] = {}
 
@@ -355,7 +355,7 @@ def _default_source_hash(source: str) -> str | None:
         # *descend* into vendored/build trees (``.git``/``node_modules``/``.venv``
         # /``target`` …). ``rglob("*")`` would walk every file under those first
         # and only filter afterwards — pathological (minutes of CPU) on repos
-        # with large vendored deps. (CONCEPT:KG-2.7)
+        # with large vendored deps. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         h = hashlib.sha256()
         entries: list[tuple[str, int, int]] = []
         for root, dirnames, filenames in os.walk(p):
@@ -381,7 +381,7 @@ def _default_source_hash(source: str) -> str | None:
 def _git_head_sha(path: str) -> str | None:
     """Return the repo's HEAD commit sha, or ``None`` if ``path`` isn't a git
     work-tree (or git is unavailable). Used as the durable watermark for
-    git-aware delta ingestion (CONCEPT:KG-2.8)."""
+    git-aware delta ingestion (CONCEPT:AU-KG.ingest.capability-writeback)."""
     import subprocess
 
     try:
@@ -403,7 +403,7 @@ def _git_worktree_clean(path: str) -> bool:
 
     Git-delta diffs ``since_sha..HEAD`` (commit-to-commit), which would miss
     uncommitted edits — so we only trust it on a clean tree; a dirty tree falls
-    back to the full walk (still cheap via the pre-hash skip). (CONCEPT:KG-2.8)
+    back to the full walk (still cheap via the pre-hash skip). (CONCEPT:AU-KG.ingest.capability-writeback)
     """
     import subprocess
 
@@ -429,7 +429,7 @@ def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
     unchanged-everything-else case yields ``[]``, which correctly drives a
     near-empty re-ingest). Mirrors :func:`discover_source_files` so the git-delta
     fast path stays language-complete — a changed ``.java``/``.ts``/``.rs`` is
-    caught, not just ``.py``. (CONCEPT:KG-2.8 / KG-2.3)
+    caught, not just ``.py``. (CONCEPT:AU-KG.ingest.capability-writeback / KG-2.3)
     """
     from ..core.fingerprint import detect_stale_files
     from ..enrichment.pipeline import SOURCE_EXTENSIONS
@@ -457,7 +457,7 @@ def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
 class IngestionEngine:
     """Single ingestion engine for the Knowledge Graph.
 
-    CONCEPT:KG-2.7 — Ingestion Engine
+    CONCEPT:AU-KG.query.vendor-agnostic-traversal — Ingestion Engine
 
     All content enters the KG through this engine. Each ``ContentType``
     is handled by an ``@adaptor``-decorated method that contains the
@@ -504,13 +504,13 @@ class IngestionEngine:
         self._history: list[IngestionResult] = []
 
         # Durable delta-skip manifest (graph-native when the backend is durable,
-        # SQLite fallback otherwise), keyed by the tenant graph. (CONCEPT:KG-2.8)
+        # SQLite fallback otherwise), keyed by the tenant graph. (CONCEPT:AU-KG.ingest.capability-writeback)
         from .manifest import DeltaManifest
 
         self.manifest = DeltaManifest(backend=self.backend)
         gc = getattr(kg_engine, "graph_compute", None)
         self.graph_name = getattr(gc, "graph_name", "__commons__")
-        # CONCEPT:KG-2.269 — cache of write backends bound to a routed content
+        # CONCEPT:AU-KG.ingest.unified-query-routing — cache of write backends bound to a routed content
         # graph (``code:<repo>`` / ``src:<connector>`` / …). Empty + unused when
         # KG_INGEST_GRAPH_ROUTING is off (every item routes to ``self.graph_name``).
         self._routed_backends: dict[str, Any] = {}
@@ -522,7 +522,7 @@ class IngestionEngine:
         source_type: str | None = None,
         repo: str | None = None,
     ) -> tuple[str, Any]:
-        """Resolve ``(write_graph, backend)`` for an ingestion item (CONCEPT:KG-2.269).
+        """Resolve ``(write_graph, backend)`` for an ingestion item (CONCEPT:AU-KG.ingest.unified-query-routing).
 
         Maps the item to its destination graph via the routing policy and returns a
         backend bound to it, so structural/content writes land on a per-source graph
@@ -584,7 +584,7 @@ class IngestionEngine:
             defer_enrich: When ``True``, run only the structural write (the adaptor
                 handler) + delta-record, and return immediately WITHOUT the inline
                 LLM enrichment — the ``enrichable`` payloads are left on the result
-                for a downstream ENRICH stage to drain (CONCEPT:KG-2.267 staged
+                for a downstream ENRICH stage to drain (CONCEPT:AU-KG.ingest.staged staged
                 pipeline). This is the seam that decouples ENRICH from WRITE so the
                 writer never idles waiting on LLM work. Default ``False`` preserves
                 the original inline behaviour exactly.
@@ -643,7 +643,7 @@ class IngestionEngine:
             # fast structural-only bulk runs. Best-effort — never fails ingest.
             #
             # ``defer_enrich`` skips the inline pass entirely so the structural write
-            # returns immediately and a downstream ENRICH stage (CONCEPT:KG-2.267)
+            # returns immediately and a downstream ENRICH stage (CONCEPT:AU-KG.ingest.staged)
             # drains ``result.enrichable`` independently — the writer never idles on
             # LLM work. The delta-record below still fires (structural success is the
             # durable unit; enrichment is best-effort and additive).
@@ -680,7 +680,7 @@ class IngestionEngine:
         """Drain a result's ``enrichable`` payloads through ``_enrich_text``.
 
         Factored out of :meth:`ingest` so the SAME enrichment work can run either
-        inline (legacy path) or in a decoupled ENRICH stage (CONCEPT:KG-2.267). The
+        inline (legacy path) or in a decoupled ENRICH stage (CONCEPT:AU-KG.ingest.staged). The
         per-payload work is delegated to :meth:`_enrich_payload`. Best-effort —
         never raises into ingestion. Mutates ``result`` with the enrichment counts
         (matching the original inline behaviour) and returns them.
@@ -707,7 +707,7 @@ class IngestionEngine:
         """Enrich one ``enrichable`` payload — the unit a downstream ENRICH worker runs.
 
         Best-effort: a failed payload counts zero and never propagates, so a slow or
-        broken enrichment can never stall the WRITE side (CONCEPT:KG-2.267).
+        broken enrichment can never stall the WRITE side (CONCEPT:AU-KG.ingest.staged).
         """
         try:
             return await self._enrich_text(
@@ -726,7 +726,7 @@ class IngestionEngine:
     ) -> list[IngestionResult]:
         """Ingest multiple manifests concurrently.
 
-        Native-by-default this runs the **staged pipeline** (CONCEPT:KG-2.267): the
+        Native-by-default this runs the **staged pipeline** (CONCEPT:AU-KG.ingest.staged): the
         structural WRITE of each manifest and the LLM-bound ENRICH of each payload
         are separate worker pools joined by a bounded queue, so a repo enriching
         never blocks another repo's write. ``KG_STAGED_PIPELINE=0`` falls back to the
@@ -772,7 +772,7 @@ class IngestionEngine:
     async def ingest_batch_staged(
         self, manifests: list[IngestionManifest]
     ) -> list[IngestionResult]:
-        """Staged, non-blocking batch ingest (CONCEPT:KG-2.267).
+        """Staged, non-blocking batch ingest (CONCEPT:AU-KG.ingest.staged).
 
         Two separated, interconnected, never-dependent-locked stages:
 
@@ -855,7 +855,7 @@ class IngestionEngine:
         """Extract Concept nodes + MENTIONS edges from text and persist them.
 
         Generic across categories (prompts, chats, docs) so they converge on
-        shared Concept nodes (CONCEPT:KG-2.8). Best-effort + lazy LLM; the
+        shared Concept nodes (CONCEPT:AU-KG.ingest.capability-writeback). Best-effort + lazy LLM; the
         ``_concept_llm_fn`` is cached. Returns the number of concepts written.
         """
         import json as _json
@@ -901,7 +901,7 @@ class IngestionEngine:
         # Cross-link concepts → Code/Feature via vector similarity so the graph
         # interweaves (RELATES_TO / REALIZES). Best-effort: needs an embedding
         # model + a vector-searchable backend; degrades silently otherwise.
-        # Gated by KG_CONCEPT_CODE_LINK (default on). (CONCEPT:KG-2.8)
+        # Gated by KG_CONCEPT_CODE_LINK (default on). (CONCEPT:AU-KG.ingest.capability-writeback)
         self._link_concepts_to_code(concepts)
         return len(concepts)
 
@@ -1093,9 +1093,9 @@ class IngestionEngine:
         windows = self._enrichment_windows(text)
 
         # Both enrichment passes fan their windows out with bounded concurrency
-        # (CONCEPT:KG-2.174 — generalized cross-lane parallelization). vLLM batches
+        # (CONCEPT:AU-KG.ingest.generalized-cross-lane-parallelization — generalized cross-lane parallelization). vLLM batches
         # server-side, so an N-window document costs ~N/concurrency instead of N
-        # sequential round-trips. CONCEPT:ORCH-1.59 — the ceiling is local-inference
+        # sequential round-trips. CONCEPT:AU-ORCH.execution.reserved-inference-slots — the ceiling is local-inference
         # capacity (KG_LLM_CONCURRENCY) MINUS the reserved interactive slot, so this
         # background sweep can never starve the slot the messaging responder /
         # graph-os-spawned agents need to answer. ONE semaphore is shared across both
@@ -1181,7 +1181,7 @@ class IngestionEngine:
 
     @adaptor(ContentType.CODEBASE)
     async def _ingest_codebase(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest a codebase — **structural phase** (CONCEPT:KG-2.8).
+        """Ingest a codebase — **structural phase** (CONCEPT:AU-KG.ingest.capability-writeback).
 
         Runs the in-process ``EnrichmentPipeline`` over the Rust tree-sitter
         parser to produce ``Code``/``Test``/``Feature`` nodes, ``COVERS``/
@@ -1218,8 +1218,8 @@ class IngestionEngine:
         except Exception as e:  # noqa: BLE001
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
 
-        # CONCEPT:KG-2.285 — a repo is not just code. Run the deterministic
-        # per-file classifier (CONCEPT:KG-2.284) over the same tree and fan the
+        # CONCEPT:AU-KG.ingest.deterministic-classifier — a repo is not just code. Run the deterministic
+        # per-file classifier (CONCEPT:AU-KG.ingest.over-same-tree-fan) over the same tree and fan the
         # NON-code artifacts out to their existing native adaptors so ONE
         # ``graph_ingest`` over a repo yields Code + Document(markdown) + Skill +
         # Prompt + Spec nodes, each natively chunked/embedded for its type — not
@@ -1249,13 +1249,13 @@ class IngestionEngine:
             make_parse_fn,
         )
 
-        # CONCEPT:KG-2.269 — route this repo's durable structural writes to a
+        # CONCEPT:AU-KG.ingest.unified-query-routing — route this repo's durable structural writes to a
         # per-repo graph (``code:<repo>``) when graph routing is on, so they hash
         # to their own redb shard writer instead of all landing on ``__commons__``.
         # ``write_graph`` keys this repo's delta-skip manifest + community tenant
         # too, keeping them co-resident with the content they guard. Routing off →
         # ``(self.graph_name, self.backend)`` unchanged.
-        # CONCEPT:KG-2.287 — a split sub-task supplies its own routing key
+        # CONCEPT:AU-KG.ingest.subtask-routing-key — a split sub-task supplies its own routing key
         # (``<repo>__s<i>``) so its bucket's writes land on a DISTINCT per-shard
         # graph and the K buckets commit in parallel across the K redb shard
         # writers; a normal whole-repo ingest keys on the repo name as before.
@@ -1272,7 +1272,7 @@ class IngestionEngine:
             backend = EpistemicGraphBackend()
             backend._graph = graph_compute
 
-        # Dedicated ingest engine (CONCEPT:KG-2.58, Phase D): route the heavy,
+        # Dedicated ingest engine (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, Phase D): route the heavy,
         # contention-prone compute — stateless PARSE and the throwaway COMMUNITY
         # tenant — to a private ephemeral engine, isolated from the query engine and
         # the background daemons (embedding backfill / reconcile / task poll) that
@@ -1306,7 +1306,7 @@ class IngestionEngine:
         # polluted. Best-effort: degrade to no-features on any failure.
         community_fn = None
         comm = None
-        # Unique per-job transient tenant (CONCEPT:KG-2.8): parallel codebase
+        # Unique per-job transient tenant (CONCEPT:AU-KG.ingest.capability-writeback): parallel codebase
         # ingests previously shared ``{graph}__enrich_comm`` and deleted each
         # other's tenant mid-run (→ "Graph not found"). A uuid suffix isolates
         # each job's community-detection tenant so multi-repo ingest is safe.
@@ -1332,7 +1332,7 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             hash_seen = {}
 
-        # CONCEPT:KG-2.8 — build the capability writeback callable (EA tools) for injection. Gated
+        # CONCEPT:AU-KG.ingest.capability-writeback — build the capability writeback callable (EA tools) for injection. Gated
         # by KG_EA_WRITEBACK; returns None (no-op) unless EA writeback is enabled + clients exist.
         from ..enrichment.writeback import resolve_writeback_fn
 
@@ -1345,14 +1345,14 @@ class IngestionEngine:
             hash_seen=hash_seen,
             writeback_fn=resolve_writeback_fn(backend),
             # Batched parse (one RPC for N files) when the engine advertises it;
-            # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
+            # falls back to per-file parse otherwise. (CONCEPT:EG-KG.compute.graph-compute-engine)
             batch_parse_fn=make_batch_parse_fn(parse_gc),
             # Cross-file type/scope resolver (one RPC = parse + resolution) when the
-            # engine advertises IndexRepository; the PRIMARY code path. (CONCEPT:KG-2.100)
+            # engine advertises IndexRepository; the PRIMARY code path. (CONCEPT:EG-KG.compute.type-scope-resolved-call)
             index_fn=make_index_fn(parse_gc),
         )
 
-        # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we
+        # Git-aware delta (CONCEPT:AU-KG.ingest.capability-writeback): when the source is a git work-tree we
         # already ingested at a prior HEAD, ask ``git diff`` for the changed *.py
         # files and enrich only those — instead of walking + hashing the whole tree.
         # On a large repo with a small diff this turns thousands of stat/read/hash
@@ -1369,7 +1369,7 @@ class IngestionEngine:
             except Exception:  # noqa: BLE001
                 prior_sha = None
         changed_files: list[Path] | None = None
-        # Caller-scoped file subset (CONCEPT:KG-2.150): when the manifest declares
+        # Caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): when the manifest declares
         # an explicit ``only_files`` list (e.g. the agent-utilities self-ingest
         # scoping a DIRTY tree to its git-status-modified files), honor it verbatim
         # — parse/chunk only those files instead of falling back to the full walk a
@@ -1395,7 +1395,7 @@ class IngestionEngine:
         # single-writer engine. The bulk-ingest gate (not just the interactive
         # foreground flag, and not the submission-queue depth which drops to 0 the
         # moment this task is claimed) is what keeps a post-restart background
-        # backlog from stretching a ~60s ingest into many minutes. (CONCEPT:KG-2.7)
+        # backlog from stretching a ~60s ingest into many minutes. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         from agent_utilities.core.background_throttle import get_throttle
 
         try:
@@ -1417,7 +1417,7 @@ class IngestionEngine:
                     pass
 
         # Record the new HEAD as the delta watermark on success (best-effort).
-        # NOT after an explicit ``only_files`` subset (CONCEPT:KG-2.150): a scoped
+        # NOT after an explicit ``only_files`` subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): a scoped
         # partial ingest did not cover the whole tree at this HEAD, so advancing the
         # whole-repo watermark would falsely mark untouched files as up-to-date —
         # the per-file content_hash skip remains the correctness backstop instead.
@@ -1435,7 +1435,7 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             logger.debug("codebase per-file manifest persist failed", exc_info=True)
 
-        # Commit-history graph (CONCEPT:KG-2.282) — a normal codebase ingest ALSO
+        # Commit-history graph (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also) — a normal codebase ingest ALSO
         # ingests the repo's evolution as first-class :Commit/:Author/:File +
         # AUTHORED/PARENT/TOUCHED graph data (linked to the same file:<path> ids),
         # so codebase evolution is a free native KG query (ownership, change-
@@ -1484,7 +1484,7 @@ class IngestionEngine:
 
         # Specs, markdown, skills and prompts are no longer detected here: the
         # async ``_ingest_codebase`` wrapper runs the deterministic per-file
-        # classifier (CONCEPT:KG-2.284/2.283) over this tree AFTER the structural
+        # classifier (CONCEPT:AU-KG.ingest.over-same-tree-fan/2.283) over this tree AFTER the structural
         # pass and fans each artifact out to its native adaptor (specs included,
         # now covering ``*.spec.md`` as well as ``.specify/**``).
         nodes = summary.code + summary.tests + summary.features
@@ -1523,7 +1523,7 @@ class IngestionEngine:
     ) -> None:
         """Classify a repo's non-code files and route them to native adaptors.
 
-        CONCEPT:KG-2.285 — The deterministic classifier (CONCEPT:KG-2.284) splits
+        CONCEPT:AU-KG.ingest.deterministic-classifier — The deterministic classifier (CONCEPT:AU-KG.ingest.over-same-tree-fan) splits
         the tree into Skill / Spec / Prompt / Document / Config buckets. Each
         non-code bucket fans out to the *existing* per-type adaptor (this is a
         router, never a new ingest engine):
@@ -1617,7 +1617,7 @@ class IngestionEngine:
                     )
                     return None
 
-        # ── Documents → batched, enrich-deferred fan-out (CONCEPT:KG-2.295) ──
+        # ── Documents → batched, enrich-deferred fan-out (CONCEPT:AU-KG.ingest.writes-go) ──
         # A repo's markdown used to explode into one full ``self.ingest()`` per
         # file — each its own adaptor-dispatch + per-node engine round-trips + its
         # own inline central-enrich (concept/fact + embedder) pass. For a docs-heavy
@@ -1716,7 +1716,7 @@ class IngestionEngine:
                 _link(str(src))
                 # Bubble each doc's text to the parent so the central seam enriches
                 # the whole repo's docs in ONE pass (concepts already done in-unit;
-                # the seam adds the canonical-fact layer). (CONCEPT:KG-2.295)
+                # the seam adds the canonical-fact layer). (CONCEPT:AU-KG.ingest.writes-go)
                 result.enrichable.extend(res.enrichable)
 
         classified = {**counts, "spec": specs}
@@ -1729,7 +1729,7 @@ class IngestionEngine:
     async def _ingest_document(self, manifest: IngestionManifest) -> IngestionResult:
         """Standardized document ingestion (file / directory / URL → one shape).
 
-        CONCEPT:KG-2.7 — A document yields the SAME ``Document{content}`` +
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal — A document yields the SAME ``Document{content}`` +
         ``IdeaBlock`` chunks + ``Concept`` shape regardless of submission form;
         ``_ingest_document_file`` is the canonical per-document unit:
 
@@ -1782,7 +1782,7 @@ class IngestionEngine:
             except Exception as e:  # noqa: BLE001 — curation is best-effort
                 logger.warning("Opt-in curation enrichment failed: %s", e)
 
-        # Content-aware research acquisition (CONCEPT:KG-2.7) — a web page that
+        # Content-aware research acquisition (CONCEPT:AU-KG.query.vendor-agnostic-traversal) — a web page that
         # points at many papers (a "latest research" roundup) auto-downloads them
         # and ingests each, linking the page to the papers it cites. Default ON for
         # detected roundups; ``metadata["extract_papers"]`` forces on/off.
@@ -1875,7 +1875,7 @@ class IngestionEngine:
         ".htm",
         ".org",
         ".adoc",
-        # reader-registry modalities (CONCEPT:KG-2.66)
+        # reader-registry modalities (CONCEPT:AU-KG.enrichment.multimodal-readers)
         ".eml",
         ".msg",
         ".pptx",
@@ -1899,7 +1899,7 @@ class IngestionEngine:
         """Ingest every document file under ``root`` via the canonical unit, so a
         directory yields exactly the same node shape as its files would alone.
 
-        Files ingest CONCURRENTLY (CONCEPT:KG-2.174 — generalized cross-lane
+        Files ingest CONCURRENTLY (CONCEPT:AU-KG.ingest.generalized-cross-lane-parallelization — generalized cross-lane
         parallelization): each unit's sync ``_ingest_document_file`` is off-threaded
         and fanned out under a bounded semaphore (sized to the ingest worker count),
         so a directory of N docs costs ~N/concurrency instead of N sequential
@@ -1970,7 +1970,7 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Fetch a URL as markdown and ingest it as one canonical document.
 
-        Fetching goes through the unified resolver (CONCEPT:KG-2.7,
+        Fetching goes through the unified resolver (CONCEPT:AU-KG.query.vendor-agnostic-traversal,
         ``ingestion/web_fetch.py``): ArchiveBox's preserved snapshot when
         configured, else crawl4ai, else requests+markitdown. For bulk web
         ingestion, prefer crawling to markdown files first and ingesting the dir.
@@ -1985,7 +1985,7 @@ class IngestionEngine:
         from .web_fetch import _UA, resolve_web_fetch
 
         # Binary document URLs: download bytes → temp file with the right suffix →
-        # the canonical unit reads them with the modality reader (CONCEPT:KG-2.66).
+        # the canonical unit reads them with the modality reader (CONCEPT:AU-KG.enrichment.multimodal-readers).
         suffix = Path(url.split("?", 1)[0]).suffix.lower()
         if suffix in {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".epub"}:
             try:
@@ -2059,7 +2059,7 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Canonical single-document ingest → the standardized contract.
 
-        CONCEPT:KG-2.7 — Standardized document ingestion. One document, however
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal — Standardized document ingestion. One document, however
         it is submitted (file / dir element / fetched URL), always yields the
         SAME shape so fidelity never depends on submission form:
 
@@ -2081,7 +2081,7 @@ class IngestionEngine:
 
         # read_any routes the document family to the PyMuPDF-fast read_document_text
         # and every other modality (email/pptx/xlsx/audio/OCR/...) to its registered
-        # reader — one universal front door (CONCEPT:KG-2.66).
+        # reader — one universal front door (CONCEPT:AU-KG.enrichment.multimodal-readers).
         with _pstage("read"):  # OS-5.70 per-stage timing
             text = read_any(str(path_obj))
         if not text.strip():
@@ -2102,7 +2102,7 @@ class IngestionEngine:
         else:
             llm = lambda _p: ""  # noqa: E731 — Document node only, no concepts
 
-        # CONCEPT:KG-2.295 — writes go to ``backend`` (a per-doc ``_BatchedBackend``
+        # CONCEPT:AU-KG.ingest.writes-go — writes go to ``backend`` (a per-doc ``_BatchedBackend``
         # when the classified-document router supplies one, so a doc's Document +
         # chunk + concept nodes flush as ONE bulk RPC instead of a socket round-trip
         # per node), else the engine's default backend (byte-for-byte legacy).
@@ -2189,7 +2189,7 @@ class IngestionEngine:
                         chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                         overlap=int(manifest.metadata.get("overlap", 120)),
                     ),
-                    # CONCEPT:KG-2.50 — opt-in contextual-retrieval enrichment.
+                    # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — opt-in contextual-retrieval enrichment.
                     contextual=bool(manifest.metadata.get("contextual", False)),
                 )
                 processed = processor.process(
@@ -2231,7 +2231,7 @@ class IngestionEngine:
 
     @adaptor(ContentType.CONNECTOR)
     async def _ingest_connector(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest documents from a document-source connector (CONCEPT:KG-2.7).
+        """Ingest documents from a document-source connector (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
         Bridges the ECO-4.25 connector framework to the KG: builds a connector
         from the registry/factory, drains it (incrementally via its checkpoint,
@@ -2281,7 +2281,7 @@ class IngestionEngine:
                 error=f"connector build failed: {exc}",
             )
 
-        # CONCEPT:KG-2.269 — route this connector's docs/chunks to a per-source
+        # CONCEPT:AU-KG.ingest.unified-query-routing — route this connector's docs/chunks to a per-source
         # graph (``src:<source_type>``) when routing is on, so its writes hash to
         # their own redb shard writer instead of all landing on ``__commons__``.
         # ``write_graph`` co-keys the checkpoint manifest with the content it tracks.
@@ -2409,7 +2409,7 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Ingest a conversation episode into the graph.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         Creates an episode node representing a chat turn or conversation
         fragment. The ``source_uri`` is treated as the conversation content.
@@ -2417,7 +2417,7 @@ class IngestionEngine:
         try:
             # First-class multi-IDE chat-log ingestion: a "chats"/"conversations"
             # sentinel, a Claude/IDE log dir, or metadata.chats=True triggers
-            # auto-discovery + bulk ingest of Thread/Message nodes (CONCEPT:KG-2.1).
+            # auto-discovery + bulk ingest of Thread/Message nodes (CONCEPT:AU-KG.memory.tiered-memory-caching).
             _low = manifest.source_uri.strip().lower()
             if (
                 _low in ("chats", "conversations")
@@ -2499,7 +2499,7 @@ class IngestionEngine:
     async def _ingest_social(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest social media content (X/Twitter posts) into the graph.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         Routes through ``XIngestionBridge.ingest_browse_result()`` which
         handles classification, tier scoring, and evolution candidate creation.
@@ -2544,7 +2544,7 @@ class IngestionEngine:
     async def _ingest_kb(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a knowledge base (skill-graph directory or document directory).
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         Auto-detects skill-graphs (directories containing ``SKILL.md``) and
         routes appropriately to ``KBIngestionEngine``.
@@ -2593,7 +2593,7 @@ class IngestionEngine:
     async def _ingest_sparql(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest entities from a SPARQL endpoint.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         Pulls entities from an external SPARQL endpoint and maps them to
         native ``RegistryNode`` schema using configurable ontology mappings.
@@ -2674,7 +2674,7 @@ class IngestionEngine:
     async def _ingest_skill(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest an agent skill directory into the graph (full enrichment).
 
-        CONCEPT:KG-2.7 — standardized so an atomic skill gets the SAME enrichment level
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal — standardized so an atomic skill gets the SAME enrichment level
         as documents/books and skill-graphs: a Skill node carrying its skill-type-unique
         attributes (``skill_type``/triggers/tags/``has_scripts``), the instruction body
         chunked + embedded into ``Chunk`` objects (semantic search), and concepts + facts
@@ -2749,7 +2749,7 @@ class IngestionEngine:
     async def _ingest_mcp_server(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest an MCP server configuration or A2A agent card.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         ``source_uri`` should be a path to an ``mcp_config.json``, a URL
         for an A2A agent card, or a directory containing ``mcp_config.json``.
@@ -2907,7 +2907,7 @@ class IngestionEngine:
     async def _ingest_policy(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest policy / constitution / engineering rules into the graph.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         ``source_uri`` should be the workspace path. ``metadata`` may contain:
 
@@ -2967,7 +2967,7 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Ingest events from an event stream (webhook, Kafka, CDC).
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         Parses the ``source_uri`` as a JSON event payload and processes it
         through the event stream pipeline with automatic provenance tracking.
@@ -3014,7 +3014,7 @@ class IngestionEngine:
     async def _ingest_prompt(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a prompt template into the graph as a prompt node.
 
-        CONCEPT:KG-2.7
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal
 
         ``source_uri`` should be the path to a prompt markdown file.
         """
@@ -3066,7 +3066,7 @@ class IngestionEngine:
     async def _ingest_config(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest the agent-utilities ``config.json`` model registry + tunings.
 
-        CONCEPT:KG-2.7 — first-class config/LLM-model ingestion (supersedes the
+        CONCEPT:AU-KG.query.vendor-agnostic-traversal — first-class config/LLM-model ingestion (supersedes the
         standalone ``scripts/ingest_config.py``). Creates ``LanguageModel`` /
         ``EmbeddingModel`` / ``SystemConfig`` nodes so models are queryable and
         OWL can link ``agent``→``USES_MODEL``→model. Secrets (base_url/api_key)

@@ -1,4 +1,4 @@
-"""New engine-surface MCP tools — CONCEPT:KG-2.310.
+"""New engine-surface MCP tools — CONCEPT:AU-KG.coordination.engine-message-broker.
 
 epistemic-graph v2.2.0 grew several engine capabilities that agent-utilities
 should expose to the fleet as first-class, purpose-shaped MCP tools rather than
@@ -37,7 +37,7 @@ Design (matches the rest of ``agent_utilities/mcp/tools``):
   ``ACTION_TOOL_ROUTES`` (auto-mounted by the generic factory), keeping MCP⇄REST
   parity like every other tool.
 
-CONCEPT:KG-2.310 — MCP surface for the new engine ops (broker / kvcache /
+CONCEPT:AU-KG.coordination.engine-message-broker — MCP surface for the new engine ops (broker / kvcache /
 federated-search / promql / traces / gis).
 """
 
@@ -127,10 +127,10 @@ def _client(graph: str) -> Any:
     """Resolve the shared ``SyncEpistemicGraphClient`` for ``graph``.
 
     Delegates to :func:`engine_tools._client_for` so these tools ride the exact
-    same connect path (CONCEPT:OS-5.63 resolver, connection caching) as the
+    same connect path (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision resolver, connection caching) as the
     low-level ``engine_<domain>`` tools — one transport, no reinvention. Isolated
     behind this thin indirection so unit tests can inject a mock client
-    (CONCEPT:KG-2.310).
+    (CONCEPT:AU-KG.coordination.engine-message-broker).
     """
     from agent_utilities.mcp.tools import engine_tools
 
@@ -141,7 +141,7 @@ def _kv_backend() -> Any:
     """Build the KG-2.306 KV-cache connector from the engine's EG-187 environment.
 
     Isolated behind this indirection so unit tests can inject a fake backend
-    (CONCEPT:KG-2.310).
+    (CONCEPT:AU-KG.coordination.engine-message-broker).
     """
     from agent_utilities.kvcache import EpistemicGraphKVBackend
 
@@ -175,7 +175,7 @@ def _resolve(client: Any, candidates: tuple[tuple[str, str], ...]) -> Any:
     """Return the first callable ``client.<sub>.<method>`` among ``candidates``.
 
     Returns ``None`` when none of the candidate surfaces are present so the caller
-    can degrade gracefully (CONCEPT:KG-2.310).
+    can degrade gracefully (CONCEPT:AU-KG.coordination.engine-message-broker).
     """
     for sub_attr, meth_attr in candidates:
         sub = getattr(client, sub_attr, None)
@@ -199,7 +199,7 @@ def _invoke(
 
     Every failure mode is returned as data, never raised: engine unreachable →
     ``error``; surface absent → ``degraded``; bad kwargs / engine error →
-    ``error`` (CONCEPT:KG-2.310).
+    ``error`` (CONCEPT:AU-KG.coordination.engine-message-broker).
     """
     try:
         client = _client(graph)
@@ -246,7 +246,7 @@ def _run_coro(coro: Any) -> Any:
         return ex.submit(lambda: asyncio.run(coro)).result()
 
 
-# CONCEPT:KG-2.322 — the unified memory-CRUD core. graph_memory's recall/store/link
+# CONCEPT:AU-KG.memory.unified-memory-crud-core — the unified memory-CRUD core. graph_memory's recall/store/link
 # actions route into the SAME ``graph_write`` tool the REST ``/graph/write/memory``
 # [``/recall``] twins and the harness ``kg_memory_recall``/``kg_memory_store`` tools
 # already use — one core, no fourth memory surface. ``link`` reuses graph_write's
@@ -298,7 +298,7 @@ def _memory_crud(action: str, params: dict[str, Any]) -> str:
 
 
 def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
-    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:KG-2.323).
+    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:AU-KG.coordination.warm-fork-fanout).
 
     Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
     and selects the first backend whose capabilities advertise ``warm_fork`` and
@@ -332,7 +332,7 @@ def _fork_fanout(branches: list[Any], seed_vars: dict[str, Any], preferred: str)
     :class:`ForkableSandbox.execute` warms-or-reuses one parent (copy-on-write) and
     forks a child per branch. Fan-out is concurrent ``execute`` calls sharing that
     one warm parent. Degrades cleanly to a structured ``unavailable`` payload when no
-    warm-fork rung is available on this host (CONCEPT:KG-2.323).
+    warm-fork rung is available on this host (CONCEPT:AU-KG.coordination.warm-fork-fanout).
     """
     sb = _pick_warm_fork_sandbox(preferred)
     if sb is None:
@@ -398,7 +398,7 @@ def register_engine_surface_tools(mcp) -> None:
 
     Each tool is added to ``REGISTERED_TOOLS`` and mapped to a ``/graph/<name>``
     route in ``ACTION_TOOL_ROUTES`` (auto-mounted by the generic REST factory), so
-    MCP and REST stay in lockstep. CONCEPT:KG-2.310.
+    MCP and REST stay in lockstep. CONCEPT:AU-KG.coordination.engine-message-broker.
     """
 
     # ══════════════════════════════════════════════════════════════════
@@ -407,7 +407,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_broker",
         description=(
-            "CONCEPT:KG-2.310 — the epistemic-graph engine message broker "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — the epistemic-graph engine message broker "
             "(AMQP-style exchanges + queues + streams), distinct from the "
             "agent-to-agent 'graph_bus'. Action-routed 1:1 over the engine broker "
             "surface: set 'action' to the broker method — e.g. 'declare_exchange' "
@@ -441,7 +441,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine broker surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine broker surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         if not action:
             return json.dumps({"surface": "broker", "error": "action is required"})
         try:
@@ -479,7 +479,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_kvcache",
         description=(
-            "CONCEPT:KG-2.310 — the engine's shared, content-addressed KV-cache over "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — the engine's shared, content-addressed KV-cache over "
             "the EG-187 HTTP surface, driven through the KG-2.306 "
             "EpistemicGraphKVBackend connector. Actions: 'get' (key → base64 block "
             "bytes or miss), 'put' (key + value_b64 → stored bool), 'contains'/'exists' "
@@ -499,7 +499,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Base64-encoded block bytes to store (put)."
         ),
     ) -> str:
-        """Thin wrapper over the KG-2.306 KV-cache connector (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the KG-2.306 KV-cache connector (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         try:
             backend = _kv_backend()
         except Exception as exc:  # noqa: BLE001 — mis-config degrades, never raises
@@ -583,7 +583,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_federated_search",
         description=(
-            "CONCEPT:KG-2.310 — federated search fanned across registered external "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — federated search fanned across registered external "
             "graph references. Provide a natural-language / keyword 'query'; optionally "
             "scope to specific 'references' (comma-separated ExternalGraphReference ids) "
             "and cap with 'top_k'. Extra engine kwargs via params_json. Degrades cleanly "
@@ -605,7 +605,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine federated-search surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine federated-search surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
@@ -641,7 +641,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_promql",
         description=(
-            "CONCEPT:KG-2.310 — query the engine's observability metrics with PromQL. "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — query the engine's observability metrics with PromQL. "
             "action='instant' (a single evaluation at 'time', default now) or 'range' "
             "(over start..end at 'step'). Extra engine kwargs via params_json. Degrades "
             "cleanly when the engine build has no metrics/PromQL surface."
@@ -664,7 +664,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine PromQL surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine PromQL surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
@@ -703,7 +703,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_traces",
         description=(
-            "CONCEPT:KG-2.310 — search or fetch distributed traces from the engine's "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — search or fetch distributed traces from the engine's "
             "observability surface. action='search' (filter by 'service'/'operation'/"
             "free-form 'query', capped by 'limit') or 'get' (a single 'trace_id'). Extra "
             "engine kwargs via params_json. Degrades cleanly when the engine build has "
@@ -729,7 +729,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine trace surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine trace surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
@@ -771,7 +771,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_gis",
         description=(
-            "CONCEPT:KG-2.310 — the engine's GIS surface. Action-routed 1:1 over the "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — the engine's GIS surface. Action-routed 1:1 over the "
             "engine geo methods: e.g. 'route' (from + to [+profile]), 'tile' (z/x/y), "
             "'nearest' (lat + lon [+limit]), 'geo_task' (a named geospatial job). All "
             'structured args go via params_json (e.g. {"from":[lat,lon],"to":[lat,'
@@ -793,7 +793,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine GIS surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine GIS surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         if not action:
             return json.dumps({"surface": "gis", "error": "action is required"})
         try:
@@ -823,7 +823,7 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_memory",
         description=(
-            "CONCEPT:KG-2.310 — the engine's EG-318 memory surface: episodic→semantic "
+            "CONCEPT:AU-KG.coordination.engine-message-broker — the engine's EG-318 memory surface: episodic→semantic "
             "memory, the spatial scene graph, and RL trajectories. Action-routed 1:1 "
             "over the engine memory methods (dashes normalize to underscores): "
             "'create_summary' (episodic nodes → a summary node — node_ids [+window]), "
@@ -834,7 +834,7 @@ def register_engine_surface_tools(mcp) -> None:
             "(trajectory_id + step {state,action,reward,...}), 'discounted_return' "
             "(trajectory_id [+gamma]). Read ops (e.g. 'get_summary', 'get_scene', "
             "'get_trajectory') route by action name too. UNIFIED memory-CRUD "
-            "(CONCEPT:KG-2.322) — 'store' (agent_id + content [+memory_type,+tags]), "
+            "(CONCEPT:AU-KG.memory.unified-memory-crud-core) — 'store' (agent_id + content [+memory_type,+tags]), "
             "'recall' (query [+memory_type]), 'link' (source + target [+rel_type]) — "
             "route into the SAME graph_write memory core as the REST "
             "/graph/write/memory[/recall] twins and the harness kg_memory_recall/store "
@@ -861,7 +861,7 @@ def register_engine_surface_tools(mcp) -> None:
             default="", description="Target graph (empty ⇒ deployment default)."
         ),
     ) -> str:
-        """Thin wrapper over the engine EG-318 memory surface (CONCEPT:KG-2.310)."""
+        """Thin wrapper over the engine EG-318 memory surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
         action = (action or "").strip().replace("-", "_")
         if not action:
             return json.dumps({"surface": "memory", "error": "action is required"})
@@ -875,7 +875,7 @@ def register_engine_surface_tools(mcp) -> None:
             return json.dumps(
                 {"surface": "memory", "error": "params_json must decode to an object"}
             )
-        # CONCEPT:KG-2.322 — unified memory-CRUD short-circuit: recall/store/link go
+        # CONCEPT:AU-KG.memory.unified-memory-crud-core — unified memory-CRUD short-circuit: recall/store/link go
         # to the shared graph_write memory core (same as REST + harness), not the
         # engine EG-318 surface.
         if action in _MEMORY_CRUD_ACTIONS:
@@ -896,12 +896,12 @@ def register_engine_surface_tools(mcp) -> None:
     kg_server.ACTION_TOOL_ROUTES["graph_memory"] = "/graph/memory"
 
     # ══════════════════════════════════════════════════════════════════
-    # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:KG-2.323)
+    # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:AU-KG.coordination.warm-fork-fanout)
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_fork",
         description=(
-            "CONCEPT:KG-2.323 — warm-fork fan-out over the ORCH-1.86..93 warm-fork "
+            "CONCEPT:AU-KG.coordination.warm-fork-fanout — warm-fork fan-out over the ORCH-1.86..93 warm-fork "
             "primitive (LMCache KV / copy-on-write sandboxes): pay warm-up ONCE for a "
             "parent context, then fork N copy-on-write branches to run per-branch "
             "computations concurrently and return each branch's result. Provide either "
@@ -936,7 +936,7 @@ def register_engine_surface_tools(mcp) -> None:
             description="Preferred warm-fork rung name (empty ⇒ cheapest available).",
         ),
     ) -> str:
-        """Thin verb over the warm-fork primitive (CONCEPT:KG-2.323)."""
+        """Thin verb over the warm-fork primitive (CONCEPT:AU-KG.coordination.warm-fork-fanout)."""
         try:
             branches = json.loads(branches_json) if branches_json else []
         except (TypeError, ValueError) as exc:

@@ -1,6 +1,6 @@
-# ECO-4.5 — Messaging Configuration Guide
+# AU-ECO.toolkit.journey-map-milestones — Messaging Configuration Guide
 
-> **CONCEPT:ECO-4.0** | Pillar 4: Ecosystem & Peripherals
+> **CONCEPT:AU-ECO.messaging.native-backend-abstraction** | Pillar 4: Ecosystem & Peripherals
 >
 > Complete reference for configuring all 17 messaging backends through the
 > unified XDG `config.json` system. Every environment variable and config
@@ -49,7 +49,7 @@ These control the overall messaging subsystem behavior.
 | `messaging_enabled_backends` | `MESSAGING_ENABLED_BACKENDS` | `list[str]` | `[]` | Backend IDs to auto-connect on startup. Example: `["discord", "slack"]` |
 | `messaging_kg_ingest` | `MESSAGING_KG_INGEST` | `bool` | `true` | Auto-ingest all messages into the Knowledge Graph |
 | `messaging_kg_memory_type` | `MESSAGING_KG_MEMORY_TYPE` | `str` | `"episodic"` | KG memory tier: `"episodic"`, `"semantic"`, or `"procedural"` |
-| `messaging_route_to_planner` | `MESSAGING_ROUTE_TO_PLANNER` | `bool` | `true` | Route inbound events to Planner Graph Agent (CONCEPT:ORCH-1.1) |
+| `messaging_route_to_planner` | `MESSAGING_ROUTE_TO_PLANNER` | `bool` | `true` | Route inbound events to Planner Graph Agent (CONCEPT:AU-ORCH.planning.recursion-nesting-depth) |
 
 ---
 
@@ -536,7 +536,7 @@ config.reload()
 
 ## Cross-References
 
-- [ECO-4.5 Architecture](ECO-4.5-Native_Messaging_Backend.md) — Full architecture and capability matrix
+- [AU-ECO.toolkit.journey-map-milestones Architecture](ECO-4.5-Native_Messaging_Backend.md) — Full architecture and capability matrix
 - [OS-5.0 XDG Paths](../5_agent_os/OS-5.0-Agent_OS_Infrastructure.md) — XDG path resolution
 - [KG-2.1 Tiered Memory](../2_knowledge_graph/KG-2.1-Memory_Architecture.md) — Message memory persistence
 - [ORCH-1.1 Planner Graph Agent](../1_orchestration/ORCH-1.1-Planner_Graph_Agent.md) — Inbound event routing

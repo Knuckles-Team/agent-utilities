@@ -1,7 +1,7 @@
 # Codebase context via the KG — query, don't grep
 
-**Concepts:** KG-2.134 (`code_context`), KG-2.135 (cross-repo usage), AHE-3.61
-(reads-avoided loop), OS-5.47 (ingestion-coverage doctor check).
+**Concepts:** KG-2.134 (`code_context`), AU-KG.retrieval.every-usage-published-symbol (cross-repo usage), AU-AHE.evaluation.reads-avoided-feedback
+(reads-avoided loop), AU-OS.deployment.flagging-repos (ingestion-coverage doctor check).
 
 The ecosystem's 80+ repos are continuously ingested into the KG as a typed,
 resolved code graph. This program makes *"how does this code work / where is it
@@ -48,7 +48,7 @@ flowchart TD
    code area into the run context the way mementos prime a chat turn
    (`_prime_code_context`, off the event loop, skipped on the chat profile).
 
-## Cross-repo usage (KG-2.135)
+## Cross-repo usage (AU-KG.retrieval.every-usage-published-symbol)
 
 `cross_repo_usages(symbol)` (`graph_analyze action=cross_repo_usages`) anchors
 callers by **name**, so usages resolve across every ingested repo in one query,
@@ -57,7 +57,7 @@ the agents. The `/au` source-mount is normalized to its canonical path so the sa
 file never cites twice. It surfaces *resolved* `calls` references; an import the
 intra-repo resolver left unbound is not yet a cross-repo edge.
 
-## Reads-avoided loop (AHE-3.61)
+## Reads-avoided loop (AU-AHE.evaluation.reads-avoided-feedback)
 
 Every answer carries a `capability_id`. After a task, the agent reports back via
 `graph_feedback correction_type=reads_avoided target_id=<capability_id>
@@ -66,7 +66,7 @@ triple becomes a reward on the answer's reward-EMA (the code retriever
 GEPA-optimizes toward answers that replace a read) and, when correct, an
 eval-corpus case so the same question is graded automatically thereafter.
 
-## Freshness SLA (OS-5.47)
+## Freshness SLA (AU-OS.deployment.flagging-repos)
 
 `agent-utilities-doctor` (and `graph_configure action=system_doctor`) runs an
 `ingestion_coverage` check: it enumerates the agent-packages subtree of

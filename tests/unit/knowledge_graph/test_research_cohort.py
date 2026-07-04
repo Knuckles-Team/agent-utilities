@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Research cohort — batch ingest + self-polling barrier (CONCEPT:KG-2.172)."""
+"""Research cohort — batch ingest + self-polling barrier (CONCEPT:AU-KG.coordination.research-cohort-barrier)."""
 
 import pytest
 
@@ -11,7 +11,7 @@ from agent_utilities.knowledge_graph.research.cohort import (
     finalize_cohort,
 )
 
-pytestmark = pytest.mark.concept("KG-2.172")
+pytestmark = pytest.mark.concept("AU-KG.coordination.research-cohort-barrier")
 
 
 class _Graph:

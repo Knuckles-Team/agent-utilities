@@ -20,109 +20,109 @@ from pathlib import Path
 # Tags that stay the same (e.g., ORCH-1.0, KG-2.0) are NOT listed.
 RENAME_MAP = {
     # ── ORCH synthesis ──
-    "ORCH-1.5": "ORCH-1.3",  # state management → Execution Safety & State
-    "ORCH-1.5": "ORCH-1.5",  # agent orchestrator → Agent Orchestrator (renumber)
-    "ORCH-1.14": "ORCH-1.2",  # fallback chains → Specialist Routing
-    "ORCH-1.15": "ORCH-1.1",  # pipelined routing → HTN Planning
-    "ORCH-1.16": "ORCH-1.1",  # query-time routing → HTN Planning
-    "ORCH-1.17": "ORCH-1.2",  # autorouting → Specialist Routing
-    "ORCH-1.18": "ORCH-1.4",  # dynamic wiring → Capability Wiring
-    "ORCH-1.19": "ORCH-1.4",  # subgraph synthesis → Capability Wiring
-    "ORCH-1.20": "ORCH-1.4",  # capability auto-activation → Capability Wiring
+    "AU-ORCH.planning.legal-automation-roadmap": "AU-ORCH.execution.execution-budget-caps",  # state management → Execution Safety & State
+    "AU-ORCH.planning.legal-automation-roadmap": "AU-ORCH.planning.legal-automation-roadmap",  # agent orchestrator → Agent Orchestrator (renumber)
+    "ORCH-1.14": "AU-ORCH.adapter.hot-cache-invalidation",  # fallback chains → Specialist Routing
+    "ORCH-1.15": "AU-ORCH.planning.recursion-nesting-depth",  # pipelined routing → HTN Planning
+    "ORCH-1.16": "AU-ORCH.planning.recursion-nesting-depth",  # query-time routing → HTN Planning
+    "ORCH-1.17": "AU-ORCH.adapter.hot-cache-invalidation",  # autorouting → Specialist Routing
+    "ORCH-1.18": "AU-ORCH.adapter.kg-graph-materialization",  # dynamic wiring → Capability Wiring
+    "ORCH-1.19": "AU-ORCH.adapter.kg-graph-materialization",  # subgraph synthesis → Capability Wiring
+    "AU-ORCH.execution.service-registry-initialization": "AU-ORCH.adapter.kg-graph-materialization",  # capability auto-activation → Capability Wiring
     # ORCH-1.21 → ORCH-1.4 (already implied by wiring engine)
     # ── KG synthesis (most aggressive) ──
-    "KG-001": "KG-2.0",
-    "KG-002": "KG-2.0",
-    "KG-003": "KG-2.0",
-    "KG-004": "KG-2.0",
-    "KG-3.00": "KG-2.0",
-    "KG-2.7": "KG-2.1",  # project-aware context → Tiered Memory
-    "KG-2.7": "KG-2.2",  # semantic subsumption → Ontology & Epistemics
-    "KG-2.23": "KG-2.2",  # agent reasoning → Ontology & Epistemics
-    "KG-2.36": "KG-2.3",  # auto-similarity → Graph Integrity
-    "KG-2.37": "KG-2.3",  # hybrid retriever → Graph Integrity
-    "KG-2.38": "KG-2.3",  # consistency → Graph Integrity
-    "KG-2.7": "KG-2.4",  # cross-pillar synergy → Inductive Knowledge
-    "KG-2.7": "KG-2.5",  # analogy engine → Topological Analysis
-    "KG-2.34": "KG-2.5",  # spectral clusters → Topological Analysis
-    "KG-2.35": "KG-2.5",  # blast radius → Topological Analysis
+    "KG-001": "AU-KG.query.object-graph-mapper",
+    "KG-002": "AU-KG.query.object-graph-mapper",
+    "KG-003": "AU-KG.query.object-graph-mapper",
+    "KG-004": "AU-KG.query.object-graph-mapper",
+    "KG-3.00": "AU-KG.query.object-graph-mapper",
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.memory.tiered-memory-caching",  # project-aware context → Tiered Memory
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.ingest.engineering-rules",  # semantic subsumption → Ontology & Epistemics
+    "AU-KG.domains.legal-automation": "AU-KG.ingest.engineering-rules",  # agent reasoning → Ontology & Epistemics
+    "AU-KG.ontology.pack-owl-closure": "AU-KG.memory.auto-similarity-memory-graph",  # auto-similarity → Graph Integrity
+    "AU-KG.research.research-state-domain-pack": "AU-KG.memory.auto-similarity-memory-graph",  # hybrid retriever → Graph Integrity
+    "AU-KG.ontology.conformance-check": "AU-KG.memory.auto-similarity-memory-graph",  # consistency → Graph Integrity
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.compute.cross-pillar-synergy",  # cross-pillar synergy → Inductive Knowledge
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.compute.spectral-cluster-navigator",  # analogy engine → Topological Analysis
+    "AU-KG.retrieval.relational-intent-retrieval": "AU-KG.compute.spectral-cluster-navigator",  # spectral clusters → Topological Analysis
+    "AU-KG.ontology.schema-pack-lifecycle-audit": "AU-KG.compute.spectral-cluster-navigator",  # blast radius → Topological Analysis
     # Finance domain collapse
-    "KG-2.7": "KG-2.6",  # trading strategies → Finance
-    "KG-2.40": "KG-2.6",  # portfolio optimization → Finance
-    "KG-2.41": "KG-2.6",  # market microstructure → Finance
-    "KG-2.42": "KG-2.6",  # embedding alignment → Finance  (WAIT: this is also KG-2.7)
-    "KG-2.43": "KG-2.6",  # embedding index → Finance
-    "KG-2.44": "KG-2.6",  # anti-collapse → Finance (WAIT: also KG-2.7)
-    "KG-2.45": "KG-2.6",  # similarity search → Finance
-    "KG-2.46": "KG-2.6",  # optimal execution → Finance
-    "KG-2.47": "KG-2.6",  # order routing → Finance
-    "KG-2.48": "KG-2.6",  # slippage model → Finance
-    "KG-2.49": "KG-2.6",  # execution analytics → Finance
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.research.research-pipeline-runner",  # trading strategies → Finance
+    "AU-KG.ontology.derived-property-registry": "AU-KG.research.research-pipeline-runner",  # portfolio optimization → Finance
+    "AU-KG.ontology.default-runtime-bound-import": "AU-KG.research.research-pipeline-runner",  # market microstructure → Finance
+    "AU-KG.ontology.batch-actions-executor": "AU-KG.research.research-pipeline-runner",  # embedding alignment → Finance  (WAIT: this is also KG-2.7)
+    "AU-KG.ontology.edit-ledger-writeback": "AU-KG.research.research-pipeline-runner",  # embedding index → Finance
+    "AU-KG.ontology.batch-incremental-sync-live": "AU-KG.research.research-pipeline-runner",  # anti-collapse → Finance (WAIT: also KG-2.7)
+    "AU-KG.ontology.link-type-pivot": "AU-KG.research.research-pipeline-runner",  # similarity search → Finance
+    "AU-KG.ontology.redact-object-materialize-restricted": "AU-KG.research.research-pipeline-runner",  # optimal execution → Finance
+    "AU-KG.ontology.ontology-property-types": "AU-KG.research.research-pipeline-runner",  # order routing → Finance
+    "AU-KG.ingest.chunk-overlap-stage": "AU-KG.research.research-pipeline-runner",  # slippage model → Finance
+    "AU-KG.ontology.populated-at-import-real-3": "AU-KG.research.research-pipeline-runner",  # execution analytics → Finance
     # Research intelligence collapse
-    "KG-2.7": "KG-2.7",  # source resolver → Research Intelligence
-    "KG-2.33": "KG-2.7",  # research sub-agent → Research Intelligence
-    "KG-2.39": "KG-2.7",  # research orchestration → Research Intelligence
+    "AU-KG.query.vendor-agnostic-traversal": "AU-KG.query.vendor-agnostic-traversal",  # source resolver → Research Intelligence
+    "AU-KG.research.zero-llm-pack-link": "AU-KG.query.vendor-agnostic-traversal",  # research sub-agent → Research Intelligence
+    "AU-KG.ontology.value-type-shacl-load": "AU-KG.query.vendor-agnostic-traversal",  # research orchestration → Research Intelligence
     # Memory stability
-    "KG-2.17": "KG-2.7",  # versioned mutations → Memory Stability
+    "EG-KG.compute.compiled-semantic-reasoner": "AU-KG.query.vendor-agnostic-traversal",  # versioned mutations → Memory Stability
     # Multi-domain architecture
-    "KG-2.51": "KG-2.7",  # multi-domain → Multi-Domain Architecture
-    "KG-2.52": "KG-2.7",  # team sharing → Multi-Domain Architecture
-    "KG-2.53": "KG-2.7",  # state checkpointing → Multi-Domain Architecture
+    "EG-KG.txn.per-graph-write-isolation": "AU-KG.query.vendor-agnostic-traversal",  # multi-domain → Multi-Domain Architecture
+    "AU-KG.ontology.authoritative-tbox": "AU-KG.query.vendor-agnostic-traversal",  # team sharing → Multi-Domain Architecture
+    "AU-KG.ontology.descriptive-process-world-gains": "AU-KG.query.vendor-agnostic-traversal",  # state checkpointing → Multi-Domain Architecture
     # Enterprise domain collapse
-    "KG-2.70": "KG-2.7",  # enterprise core → Enterprise
-    "KG-2.75": "KG-2.7",  # HR → Enterprise
+    "AU-KG.retrieval.evidence-graph-workspace": "AU-KG.query.vendor-agnostic-traversal",  # enterprise core → Enterprise
+    "AU-KG.ingest.world-model-gate": "AU-KG.query.vendor-agnostic-traversal",  # HR → Enterprise
     # Vectorized retrieval
-    "KG-2.50": "KG-2.7",  # context-window filtering → Vectorized Retrieval
+    "AU-KG.enrichment.contextual-retrieval-enrichment": "AU-KG.query.vendor-agnostic-traversal",  # context-window filtering → Vectorized Retrieval
     # Finance sub-concepts (KG-2.7-2.76)
-    **{f"KG-2.{i}": "KG-2.6" for i in range(60, 77)},
+    **{f"KG-2.{i}": "AU-KG.research.research-pipeline-runner" for i in range(60, 77)},
     # ── AHE synthesis ──
-    "AHE-3.10": "AHE-3.1",  # decomposed rewards → Continuous Evaluation
-    "AHE-3.12": "AHE-3.1",  # multi-strategy eval → Continuous Evaluation
-    "AHE-3.13": "AHE-3.2",  # config versioning → Evolution Engine
-    "AHE-3.14": "AHE-3.2",  # engineering patterns → Evolution Engine
-    "AHE-3.8": "AHE-3.3",  # coalition composition → Team & Synergy
-    "AHE-3.16": "AHE-3.3",  # synergy scoring → Team & Synergy
-    "AHE-3.5": "AHE-3.4",  # self-model → Distributed Evolution
-    "AHE-3.6": "AHE-3.4",  # stability → Distributed Evolution
-    "AHE-3.7": "AHE-3.5",  # heavy thinking → Heavy Thinking (renumber)
-    "AHE-3.17": "AHE-3.5",  # background intelligence → Heavy Thinking
-    "AHE-3.8": "AHE-3.6",  # backtest eval → Backtest & Curriculum (renumber)
-    "AHE-3.9": "AHE-3.6",  # horizon-aware → Backtest & Curriculum
-    "AHE-3.23": "AHE-3.7",  # OWL specs → KG-Native Task Detection
-    "AHE-3.24": "AHE-3.7",  # task detection → KG-Native Task Detection
-    "AHE-3.25": "AHE-3.7",  # topological reasoning → KG-Native Task Detection
-    "AHE-3.18": "AHE-3.7",  # auto-healing → KG-Native Task Detection
-    "AHE-3.11": "ORCH-1.3",  # structured retry → Execution Safety
+    "AHE-3.10": "AU-AHE.evaluation.adaptive-reasoning-effort",  # decomposed rewards → Continuous Evaluation
+    "AU-AHE.evaluation.longmemeval-validation-harness": "AU-AHE.evaluation.adaptive-reasoning-effort",  # multi-strategy eval → Continuous Evaluation
+    "AU-AHE.harness.pre-emit-quality-gate": "AU-AHE.harness.evolutionary-aggregation",  # config versioning → Evolution Engine
+    "AU-AHE.assimilation.research-auto-merge": "AU-AHE.harness.evolutionary-aggregation",  # engineering patterns → Evolution Engine
+    "AU-AHE.harness.self-improvement-overview": "AU-AHE.evaluation.interpretability-tests",  # coalition composition → Team & Synergy
+    "AU-AHE.harness.width-diverse-best-k": "AU-AHE.evaluation.interpretability-tests",  # synergy scoring → Team & Synergy
+    "AU-AHE.harness.self-evolution-narrative": "AU-AHE.evaluation.backtest-harness",  # self-model → Distributed Evolution
+    "AU-AHE.harness.evolution-checkpoint": "AU-AHE.evaluation.backtest-harness",  # stability → Distributed Evolution
+    "AU-AHE.harness.concept-2": "AU-AHE.harness.self-evolution-narrative",  # heavy thinking → Heavy Thinking (renumber)
+    "AU-AHE.harness.preference-corpus-reliability": "AU-AHE.harness.self-evolution-narrative",  # background intelligence → Heavy Thinking
+    "AU-AHE.harness.self-improvement-overview": "AU-AHE.harness.evolution-checkpoint",  # backtest eval → Backtest & Curriculum (renumber)
+    "AU-AHE.optimization.physical-distillation-engine": "AU-AHE.harness.evolution-checkpoint",  # horizon-aware → Backtest & Curriculum
+    "AU-AHE.harness.capability-ratchet": "AU-AHE.harness.concept-2",  # OWL specs → KG-Native Task Detection
+    "AU-AHE.evaluation.capability-benchmark-regression-ratchet": "AU-AHE.harness.concept-2",  # task detection → KG-Native Task Detection
+    "AU-AHE.evaluation.failure-analysis-loop": "AU-AHE.harness.concept-2",  # topological reasoning → KG-Native Task Detection
+    "AU-AHE.harness.failure-evolution": "AU-AHE.harness.concept-2",  # auto-healing → KG-Native Task Detection
+    "AU-AHE.optimization.gitops-commit-automation": "AU-ORCH.execution.execution-budget-caps",  # structured retry → Execution Safety
     # ── ECO synthesis ──
-    "ECO-4.1": "ECO-4.0",  # universal skills → Tool Interface
-    "ECO-4.5": "ECO-4.0",  # skill loading → Tool Interface
-    "ECO-4.6": "ECO-4.0",  # bridges → Tool Interface
-    "ECO-4.9": "ECO-4.0",  # bridge → Tool Interface
-    "ECO-4.2": "ECO-4.1",  # A2A network → A2A (renumber)
-    "ECO-4.3": "ECO-4.2",  # community telemetry → Telemetry (renumber)
-    "ECO-4.7": "ECO-4.2",  # ecosystem topology → Telemetry
-    "ECO-4.4": "ECO-4.3",  # market data → Market Data (renumber)
-    "ECO-4.11": "ECO-4.4",  # durable exec → KG MCP (renumber)
-    "ECO-4.12": "ECO-4.4",  # jupyter sandbox → KG MCP
-    "ECO-4.7": "ECO-4.4",  # KG MCP → KG MCP
+    "AU-ECO.mcp.fastmcp-middleware": "AU-ECO.messaging.native-backend-abstraction",  # universal skills → Tool Interface
+    "AU-ECO.toolkit.journey-map-milestones": "AU-ECO.messaging.native-backend-abstraction",  # skill loading → Tool Interface
+    "AU-ECO.mcp.toolkit-live-discovery": "AU-ECO.messaging.native-backend-abstraction",  # bridges → Tool Interface
+    "AU-ECO.bus.pluggable-queue-backend": "AU-ECO.messaging.native-backend-abstraction",  # bridge → Tool Interface
+    "AU-ECO.toolkit.journey-map-narrative": "AU-ECO.mcp.fastmcp-middleware",  # A2A network → A2A (renumber)
+    "AU-ECO.ui.company-infrastructure-orchestration": "AU-ECO.toolkit.journey-map-narrative",  # community telemetry → Telemetry (renumber)
+    "AU-OS.deployment.infra-orchestration": "AU-ECO.toolkit.journey-map-narrative",  # ecosystem topology → Telemetry
+    "AU-ECO.toolkit.journey-map-adoption": "AU-ECO.ui.company-infrastructure-orchestration",  # market data → Market Data (renumber)
+    "AU-OS.governance.lint-enforcement-hook": "AU-ECO.toolkit.journey-map-adoption",  # durable exec → KG MCP (renumber)
+    "AU-ECO.toolkit.self-documenting-plugin-bundle": "AU-ECO.toolkit.journey-map-adoption",  # jupyter sandbox → KG MCP
+    "AU-OS.deployment.infra-orchestration": "AU-ECO.toolkit.journey-map-adoption",  # KG MCP → KG MCP
     # ── OS synthesis ──
-    "OS-5.3": "OS-5.1",  # session concurrency → Security
-    "OS-5.4": "OS-5.1",  # prompt injection → Security
-    "OS-5.10": "OS-5.1",  # prompt governance → Security
-    "OS-5.5": "OS-5.3",  # tool repetition → Guardrails (renumber)
-    "OS-5.7": "OS-5.3",  # guardrail engine → Guardrails
-    "OS-5.11": "OS-5.3",  # vulnerability scanner → Guardrails
-    "OS-5.5": "OS-5.4",  # token tracking → Telemetry (renumber)
-    "OS-5.6": "OS-5.4",  # audit logger → Telemetry
-    "OS-5.8": "OS-5.4",  # observability → Telemetry
-    "OS-5.18": "OS-5.0",  # lifecycle → Kernel
-    "OS-5.19": "OS-5.0",  # session persistence → Kernel
-    "OS-5.20": "OS-5.0",  # paths → Kernel
+    "AU-OS.governance.reactive-multi-axis-budget": "AU-OS.config.secrets-authentication",  # session concurrency → Security
+    "AU-OS.governance.wasm-micro-agent-sandbox": "AU-OS.config.secrets-authentication",  # prompt injection → Security
+    "AU-OS.safety.ontological-guardrail": "AU-OS.config.secrets-authentication",  # prompt governance → Security
+    "AU-OS.host.homeostatic-recovery-daemon": "AU-OS.governance.reactive-multi-axis-budget",  # tool repetition → Guardrails (renumber)
+    "AU-OS.deployment.platform-journey": "AU-OS.governance.reactive-multi-axis-budget",  # guardrail engine → Guardrails
+    "AU-OS.observability.run-wide-correlation-id": "AU-OS.governance.reactive-multi-axis-budget",  # vulnerability scanner → Guardrails
+    "AU-OS.host.homeostatic-recovery-daemon": "AU-OS.governance.wasm-micro-agent-sandbox",  # token tracking → Telemetry (renumber)
+    "AU-OS.observability.deterministic-replay": "AU-OS.governance.wasm-micro-agent-sandbox",  # audit logger → Telemetry
+    "AU-OS.scaling.epistemic-dynamic-priority-quota": "AU-OS.governance.wasm-micro-agent-sandbox",  # observability → Telemetry
+    "AU-OS.state.fleet-supervisory-plane-at": "AU-OS.safety.doom-loop-detection",  # lifecycle → Kernel
+    "OS-5.19": "AU-OS.safety.doom-loop-detection",  # session persistence → Kernel
+    "OS-5.20": "AU-OS.safety.doom-loop-detection",  # paths → Kernel
 }
 
 
 def fix_trailing_dots(text: str) -> str:
-    """Remove trailing dots from CONCEPT tags (e.g., CONCEPT:KG-2.0 → CONCEPT:KG-2.0)."""
+    """Remove trailing dots from CONCEPT tags (e.g., CONCEPT:AU-KG.query.object-graph-mapper → CONCEPT:AU-KG.query.object-graph-mapper)."""
     # Match CONCEPT:XX-N.N. where the final dot is NOT followed by a digit
     return re.sub(r"(CONCEPT:[A-Z]+-\d+\.\d+)\.(?!\d)", r"\1", text)
 

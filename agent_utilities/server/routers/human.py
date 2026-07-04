@@ -48,7 +48,7 @@ async def resolve_approval(request: Request):
 
 @router.post(
     "/api/runs/{run_id}/tool-result",
-    summary="Inject a tool result to resume a run paused mid-turn (CONCEPT:ORCH-1.35)",
+    summary="Inject a tool result to resume a run paused mid-turn (CONCEPT:AU-ORCH.execution.held-turn-registry-mid)",
 )
 async def submit_tool_result(run_id: str, request: Request):
     """Resolve a run paused on a ``tool_use`` so it resumes the same turn.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Deterministic relational-intent retrieval.
 
-CONCEPT:KG-2.34 — Relational-Intent Retrieval
+CONCEPT:AU-KG.retrieval.relational-intent-retrieval — Relational-Intent Retrieval
 
 Mirrors gbrain's ``relational-recall.ts``: parse a natural-language relational
 question — "which papers *support* transformers", "what *contradicts* X" — with
@@ -43,7 +43,7 @@ _INVERSE_BY = re.compile(r"\bby\s+(?P<seed>.+?)\s*\??$", re.IGNORECASE)
 
 @dataclass
 class RelationalQuery:
-    """A parsed relational query (CONCEPT:KG-2.34)."""
+    """A parsed relational query (CONCEPT:AU-KG.retrieval.relational-intent-retrieval)."""
 
     verb_edge: str
     direction: Literal["out", "in"]

@@ -1,4 +1,4 @@
-"""Media generation + transcription gateway (CONCEPT:ECO-4.30 / ECO-4.31).
+"""Media generation + transcription gateway (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path / ECO-4.31).
 
 Self-hosted media for the harness: image (``flux.2``), video (``hunyuanvideo``),
 speech synthesis (``xtts``), and transcription (``faster-whisper``). All clients

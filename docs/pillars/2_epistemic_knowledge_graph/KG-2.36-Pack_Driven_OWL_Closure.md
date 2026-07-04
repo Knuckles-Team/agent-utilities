@@ -16,7 +16,7 @@ back-edge automatically).
 
 This is a capability a flat regex brain layer (gbrain) structurally cannot provide.
 Because we already run an OWL reasoner with a closure cycle, exposing pack edges to
-it is nearly free and turns extracted edges (KG-2.33) into a reasoned graph: support
+it is nearly free and turns extracted edges (AU-KG.research.zero-llm-pack-link) into a reasoned graph: support
 chains, citation networks, and symmetric relations close automatically.
 
 ## How / Wiring

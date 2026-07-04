@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for reasoning-aware reranking and its wiring into HybridRetriever.
 
-CONCEPT:KG-2.6
+CONCEPT:AU-KG.research.research-pipeline-runner
 """
 
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.retrieval.reasoning_reranker import (
     calibrate,
 )
 
-pytestmark = pytest.mark.concept("KG-2.6")
+pytestmark = pytest.mark.concept("AU-KG.research.research-pipeline-runner")
 
 
 # --- calibrate -------------------------------------------------------------

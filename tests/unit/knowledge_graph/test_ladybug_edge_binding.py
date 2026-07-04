@@ -1,4 +1,4 @@
-"""LadybugDB (Kuzu) label-less edge binding (CONCEPT:KG-2.74).
+"""LadybugDB (Kuzu) label-less edge binding (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Kuzu rel creation must bind to typed node tables, but ingest emits label-less
 edge writes (``MATCH (s {id:$x}) MATCH (t {id:$y}) MERGE (s)-[:REL]->(t)``).

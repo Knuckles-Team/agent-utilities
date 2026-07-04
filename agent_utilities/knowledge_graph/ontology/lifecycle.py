@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Hosted-ontology lifecycle management (CRUD) — CONCEPT:KG-2.265.
+"""Hosted-ontology lifecycle management (CRUD) — CONCEPT:AU-KG.ontology.manage-arbitrary.
 
 The bundled ``ontology*.ttl`` library is the platform's *static* TBox. This
 module adds **dynamic, hosted** ontologies: an agent or HTTP client can load an
@@ -140,7 +140,7 @@ def summarize(graph: Any) -> dict[str, Any]:
 def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
     """Run the valid/connected/SHACL-style checks over a parsed ontology.
 
-    Mirrors the bundled-library gate (CONCEPT:KG-2.112) at the granularity of a
+    Mirrors the bundled-library gate (CONCEPT:AU-KG.maintenance.canonical-ontology-library) at the granularity of a
     single candidate: it must parse (already done), declare something
     addressable, and survive OWL-RL closure; bundled SHACL shapes (if present and
     ``pyshacl`` installed) must load and run without error.
@@ -217,7 +217,7 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
 
 
 class OntologyLifecycle:
-    """CRUD lifecycle for ontologies hosted in the running KG (CONCEPT:KG-2.265).
+    """CRUD lifecycle for ontologies hosted in the running KG (CONCEPT:AU-KG.ontology.manage-arbitrary).
 
     Args:
         engine: Optional live engine exposing ``graph_compute`` with the native
@@ -412,7 +412,7 @@ class OntologyLifecycle:
     def _retract_axioms(self, turtle: str) -> dict[str, Any]:
         """Physically retract an ontology's axioms from the engine RDF dataset.
 
-        The retract counterpart to :meth:`_load_axioms` (CONCEPT:KG-2.266 — wires
+        The retract counterpart to :meth:`_load_axioms` (CONCEPT:AU-KG.ontology.ontology-lifecycle — wires
         KG-2.265's unload to the engine's ``remove_triples`` op). Feeds the stored
         serialized ``turtle`` back through ``GraphComputeEngine.remove_triples`` so the
         unloaded ontology's triples leave the engine's RDF dataset (stop being reasoned
@@ -439,7 +439,7 @@ class OntologyLifecycle:
     ) -> dict[str, Any]:
         """Unload an ontology: retract its axioms from the engine + drop the registry record.
 
-        CONCEPT:KG-2.266 — wires KG-2.265's unload to the engine's native
+        CONCEPT:AU-KG.ontology.ontology-lifecycle — wires KG-2.265's unload to the engine's native
         ``remove_triples`` retract op. The stored serialized turtle for each matched
         version is fed back through :meth:`_retract_axioms` so the ontology's triples
         physically leave the engine's RDF dataset (no longer reasoned over / SPARQL-

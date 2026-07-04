@@ -1,10 +1,10 @@
-"""Gateway REST surface for usage/cost/observability (CONCEPT:ECO-4.41).
+"""Gateway REST surface for usage/cost/observability (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface).
 
 Mounted at ``/api/observability`` next to the dashboard + graph routers, so all
 three frontends (agent-webui, agent-terminal-ui, geniusbot) consume one surface.
 Mirrors the useful agentsview Huma routes; all SQL is delegated to
 ``UsageService``. The upload endpoint is the HTTP half of the remote-ingest
-transport (CONCEPT:ECO-4.42): clients parse local logs and POST normalized
+transport (CONCEPT:AU-ECO.mcp.client-side-chat-session): clients parse local logs and POST normalized
 bundles so a central engine never needs filesystem access to the client.
 
 Mountable by any FastAPI backend::
@@ -264,7 +264,7 @@ def upload_sessions(
     bundles: list[ParsedSessionBundle] = Body(...),
     tenant_id: str = Query(""),
 ) -> dict:
-    """Ingest pre-parsed session bundles (CONCEPT:ECO-4.42 HTTP transport).
+    """Ingest pre-parsed session bundles (CONCEPT:AU-ECO.mcp.client-side-chat-session HTTP transport).
 
     Clients parse their local agent logs and POST normalized bundles here, so a
     central/remote engine never needs to read the client's filesystem.

@@ -1,4 +1,4 @@
-"""Label-less node UNIONs must span only node-shaped tables (CONCEPT:KG-2.9).
+"""Label-less node UNIONs must span only node-shaped tables (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 A bare ``MATCH (n {id: …})`` projects ``properties`` across a UNION of node
 tables. Typed/ontology tables (e.g. ``Account``) lack a ``properties`` column, so
@@ -45,7 +45,7 @@ def test_labelless_where_union_param_count_matches_branches():
     """Regression: the WHERE-clause label-less UNION repeats the placeholder once
     per branch — branches span node_tables, so bound params must repeat
     len(node_tables) times, NOT len(known_tables). A mismatch raises psycopg
-    'the query has N placeholders but M parameters were passed' (CONCEPT:KG-2.9)."""
+    'the query has N placeholders but M parameters were passed' (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
     tq = transpile(
         "MATCH (n) WHERE n.id = $id RETURN n", {"id": "x"}, _KNOWN, node_tables=_NODE
     )

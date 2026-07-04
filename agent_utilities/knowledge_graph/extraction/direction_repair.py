@@ -1,4 +1,4 @@
-"""Relation-direction repair via ``rdfs:domain``/``rdfs:range`` (CONCEPT:KG-2.256).
+"""Relation-direction repair via ``rdfs:domain``/``rdfs:range`` (CONCEPT:AU-KG.enrichment.direction-repair).
 
 Closes sift-kg's schema-driven direction repair (``postprocessor.py:346
 fix_relation_directions``) using our OWL domain/range constraints — which the

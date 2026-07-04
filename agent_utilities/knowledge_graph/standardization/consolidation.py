@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Consolidation decision engine (CONCEPT:KG-2.49).
+"""Consolidation decision engine (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 Turns the redundancy signals (:mod:`cohorts`) and the conformance drift map
 (:mod:`drift`) into ranked, propose-only ``ConsolidationRecommendation`` nodes:
@@ -288,7 +288,7 @@ def _persist_recommendation(engine: Any, rec: ConsolidationRecommendation) -> No
                 "priority": rec.priority,
                 "rationale": rec.rationale,
                 "sources": rec.sources,
-                "concept": "KG-2.49",
+                "concept": "AU-KG.ontology.populated-at-import-real-3",
             },
         )
     except Exception:  # noqa: BLE001
@@ -314,7 +314,7 @@ def _persist_edges(engine: Any, rec: ConsolidationRecommendation) -> int:
                     "auto": True,
                     "status": "proposed",
                     "recommendation": rec.rec_id,
-                    "concept": "KG-2.49",
+                    "concept": "AU-KG.ontology.populated-at-import-real-3",
                 },
             )
             written += 1
@@ -326,7 +326,7 @@ def _persist_edges(engine: Any, rec: ConsolidationRecommendation) -> int:
                 rec.rec_id,
                 standard_node_id(rec.standard),
                 RegistryEdgeType.REFERENCES,
-                properties={"_rel": "REFERENCES", "auto": True, "concept": "KG-2.49"},
+                properties={"_rel": "REFERENCES", "auto": True, "concept": "AU-KG.ontology.populated-at-import-real-3"},
             )
             written += 1
         except Exception:  # noqa: BLE001

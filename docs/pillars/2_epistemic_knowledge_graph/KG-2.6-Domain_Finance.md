@@ -1,4 +1,4 @@
-# Financial Trading Pipeline (CONCEPT:KG-2.6)
+# Financial Trading Pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → Position → Portfolio → Strategy. OWL-promoted with transitive provenance chains.
@@ -7,7 +7,7 @@ FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → 
 - **Source Code**: ``agent_utilities/models/knowledge_graph.py``, ``agent_utilities/knowledge_graph/ontology_company_infra.ttl``
 - **Pillar**: KG
 
-### Core OWL Classes (Added in EE-001 updates)
+### Core OWL Classes (Added in AU-AHE.assimilation.autonomous-trading-ecosystem updates)
 - `:ExchangeBackend`: Abstracted financial exchange connections (`ccxt`, `alpaca`, `paper`).
 - `:TradingStrategy`: Quantitative strategy lifecycle nodes.
 - `:TradingSignal`: Alpha signals and factor predictions.
@@ -20,7 +20,7 @@ FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
 
-# Quantitative Frameworks (CONCEPT:KG-2.6)
+# Quantitative Frameworks (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Advanced quantitative logic for automated trading systems, now offloaded to the **Rust `epistemic-graph` compute engine** for high-performance, stateless execution.
@@ -36,7 +36,7 @@ Advanced quantitative logic for automated trading systems, now offloaded to the 
 - **Pillar**: KG
 - **Architecture Note**: The Python layer acts as a lightweight orchestrator and thin proxy. Heavy numerical lifting (MVO, Risk Parity, Black-Litterman, HMM regime detection) can be delegated to the `epistemic-graph-server` via Unix Domain Socket (UDS) RPC when the native engine is available; the Python finance domain modules (`agent_utilities/domains/finance/`) still use `numpy`/`scipy` directly for local computation and as a fallback.
 
-# Risk Scoring Ontology (CONCEPT:KG-2.6)
+# Risk Scoring Ontology (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Domain-agnostic risk assessment with `RiskAssessmentNode`, `RiskFactorNode`, `RiskMitigationNode`. OWL `propagatesRiskTo` enables transitive upstream risk chain inference.
@@ -47,7 +47,7 @@ Domain-agnostic risk assessment with `RiskAssessmentNode`, `RiskFactorNode`, `Ri
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Vectorized Context-Window Filtering](pillars/2_epistemic_knowledge_graph/KG-2.50-Vectorized_Context-Window_Filtering.md) (CONCEPT:KG-2.6)
+# [Vectorized Context-Window Filtering](pillars/2_epistemic_knowledge_graph/KG-2.50-Vectorized_Context-Window_Filtering.md) (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Semantically prunes non-relevant subgraph context before swapping models on token overflow. Implemented as ``prune_context_by_semantic_distance()``.

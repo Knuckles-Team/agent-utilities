@@ -16,4 +16,4 @@
 - [x] `tests/unit/knowledge_graph/test_kg_2_13_background_learning.py` — AC1–AC8 (9 tests).
 
 ## T6 — Artifacts (NFR)  [docs]
-- [x] concepts.yaml regen (KG-2.13); CHANGELOG; README KG-2 count; pillar doc note.
+- [x] concepts.yaml regen (KG-2.13); CHANGELOG; README EG-KG.compute.backend count; pillar doc note.

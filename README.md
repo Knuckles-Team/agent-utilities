@@ -196,7 +196,7 @@ KG, capability auto-activation, cross-agent protocols) are the substrate; the
 Designed-but-not-yet-running roadmap items (designs/specs exist; do not expect
 these to work out of the box today):
 
-- **[Media Generation & Transcription](docs/pillars/4_ecosystem_peripherals/ECO-4.30-Media_Generation_Gateway.md)** (CONCEPT:ECO-4.30/4.31): Self-hosted image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech synthesis (`xtts`), and transcription (`faster-whisper`) exposed as agent tools under the `MEDIA_TOOLS` gate — requires the corresponding self-hosted model services to be deployed.
+- **[Media Generation & Transcription](docs/pillars/4_ecosystem_peripherals/ECO-4.30-Media_Generation_Gateway.md)** (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path/4.31): Self-hosted image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech synthesis (`xtts`), and transcription (`faster-whisper`) exposed as agent tools under the `MEDIA_TOOLS` gate — requires the corresponding self-hosted model services to be deployed.
 - **[In-House Training Substrate](docs/architecture/in_house_training_substrate.md)**: Fine-tune the framework's own open-weight models end-to-end — a deterministic reward/data engine, torch/PEFT SFT/DPO/GRPO trainers (`data-science-mcp[training]`), a pure-Rust loss/optimizer performance path (`epistemic-graph`), checkpoint→reliability-suite eval hooks, and a model-registry role deploy seam. Build-now / run-later on the GB10 (first run: OpenSeeker SFT).
 
 ## Key Features
@@ -229,11 +229,11 @@ makes ServiceNow↔ERPNext↔Camunda interchangeable in one query.
 multi-agent waves, **[ontology-to-workflow execution](docs/pillars/1_graph_orchestration.md)**
 (KG-2.52/53, ORCH-1.41–43: lift a descriptive process into an executable plan), and
 **[governed evolution-to-branch publication](docs/guides/autonomous-evolution.md)**
-(AHE-3.18–21: propose-only, governance + regression gated, **never auto-pushed**).
+(AU-AHE.harness.failure-evolution–21: propose-only, governance + regression gated, **never auto-pushed**).
 
 **🏢 Enterprise integration (Company Brain)** — getting your systems in.
 A **[document-source connector framework](docs/pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md)**
-(ECO-4.25–4.32, KG-2.59) — native Postgres/filesystem/REST/web-crawl, with **every
+(ECO-4.25–4.32, AU-KG.ingest.mcp-tool-connector) — native Postgres/filesystem/REST/web-crawl, with **every
 other system riding the ~58-server MCP fleet** via the universal `mcp_tool` source —
 feeding the **[6-layer Company Brain runtime](docs/architecture/company_brain_runtime.md)**
 (`KG_BRAIN_ENFORCE`: trust-decay conflict resolution, field-level survivorship,
@@ -241,41 +241,41 @@ data ACLs + tenant scoping, human-correction→rule→eval feedback).
 
 **📈 Scale-out planes (all opt-in; default stays zero-infra)** — how it grows.
 **[Externalized durable state](docs/architecture/state_externalization.md)** (one
-`STATE_DB_URI`, OS-5.16–18), **[tenant-sharded engines](docs/architecture/engine_sharding.md)**
-(HRW routing, KG-2.58/OS-5.28), **[Kafka ingest scale-out](docs/architecture/event_backbone_architecture.md)**
+`STATE_DB_URI`, AU-OS.state.unified-durable-state-externalization–18), **[tenant-sharded engines](docs/architecture/engine_sharding.md)**
+(HRW routing, AU-KG.sharding.tenant-partitioned-sharding-hrw/AU-OS.scaling.shard-topology-visibility-per), **[Kafka ingest scale-out](docs/architecture/event_backbone_architecture.md)**
 (KG-2.55–57, fail-loud), **[queue-driven agent dispatch](docs/architecture/agent_dispatch.md)**
 (ORCH-1.45), and **[gateway scaling + Prometheus `/metrics`](docs/architecture/gateway_scaling.md)**
-(OS-5.23, per-tenant rate limits, circuit breakers, `GATEWAY_WORKERS`).
+(AU-OS.observability.no-op-without-metrics, per-tenant rate limits, circuit breakers, `GATEWAY_WORKERS`).
 
 **⚡ Inference & numeric acceleration (all opt-in)** — reuse compute instead of recomputing it.
 **[KV-cache layering (vLLM → LMCache → epistemic-graph)](docs/guides/kvcache-vllm-lmcache.md)** — pool
 and dedup vLLM's KV cache into the engine so inference workers share prefill by token-hash: the
 **universal `LMCacheMPConnector`** (dense **and** hybrid Mamba/GDN) over an **L1 CPU + L2 engine** tier
-stack (`EpistemicGraphL2Connector` KG-2.311 / `EpistemicGraphKVBackend` KG-2.306 → engine EG-185/186/187),
+stack (`EpistemicGraphL2Connector` AU-KG.backend.lmcache-native-connector / `EpistemicGraphKVBackend` KG-2.306 → engine EG-185/186/187),
 steered per-execution by a **[dynamic KV-layering policy](docs/architecture/kv-cache-layering-policy.md)**
-(ORCH-1.105: cache-worthiness scoring). Plus the numeric **`xp` numpy-shim** (`agent_utilities/numeric/`, KG-2.312) — a numpy-compatible namespace
+(ORCH-1.105: cache-worthiness scoring). Plus the numeric **`xp` numpy-shim** (`agent_utilities/numeric/`, AU-KG.compute.surface-analytics-program) — a numpy-compatible namespace
 that routes reductions/linalg/random through the BLAS/LAPACK-free epistemic-graph numeric kernel (Surface A
 of the engine's [Analytics Program](https://knuckles-team.github.io/epistemic-graph/architecture/numeric-kernel/),
-EG-321). The kernel is the **sole numeric backend** (KG-2.324): the shim is **kernel-or-raise** — numpy is
+AU-KG.compute.numeric-kernel). The kernel is the **sole numeric backend** (AU-KG.compute.numpy-scipy-drop): the shim is **kernel-or-raise** — numpy is
 removed from agent-utilities entirely (imported/declared nowhere) and survives only as the kernel's internal
 rust-numpy dependency.
 
 **🛡 Autonomy & governance** — how it acts safely.
-A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (OS-5.15,
+A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (AU-OS.config.fleet-event-ingress,
 5.24–27, 5.29: `POST /api/fleet/events` → fail-closed **ActionPolicy** gate → reconciler,
 remediation playbooks, health-gated deploy-watch + rollback, reactive autoscaler),
 **[server-minted identity & fail-closed permissioning](docs/architecture/gateway_scaling.md)**
 (OS-5.14, JWT `ActorContext`, HMAC engine auth), enterprise mutation governance, and a
-**[hardened MCP multiplexer](docs/pillars/4_ecosystem_peripherals.md)** (ECO-4.34:
+**[hardened MCP multiplexer](docs/pillars/4_ecosystem_peripherals.md)** (AU-ECO.mcp.profile-differences-from-client:
 per-child limits, circuit breakers, restart-on-crash).
 
 Shipped but lightly documented (real code, importable today):
 
 - **Causal reasoning**: structural-causal-model types, d-separation, and formal reasoning over KG subgraphs — `agent_utilities/knowledge_graph/core/formal_reasoning_core.py`.
-- **Skill compiler** (CONCEPT:ORCH-1.8): compiles `SKILL.md` prose (+ optional `references/team.yaml`) into executable `GraphPlan` workflows — `agent_utilities/workflows/skill_compiler.py`.
-- **Evolutionary memory & aggregation** (CONCEPT:KG-2.1): the self-curating CRUD insight/skill memory banks (`agent_utilities/harness/evolving_memory.py`) plus the global-workspace score→select→broadcast aggregation over multi-agent waves (`agent_utilities/graph/workspace_attention.py`).
+- **Skill compiler** (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer): compiles `SKILL.md` prose (+ optional `references/team.yaml`) into executable `GraphPlan` workflows — `agent_utilities/workflows/skill_compiler.py`.
+- **Evolutionary memory & aggregation** (CONCEPT:AU-KG.memory.tiered-memory-caching): the self-curating CRUD insight/skill memory banks (`agent_utilities/harness/evolving_memory.py`) plus the global-workspace score→select→broadcast aggregation over multi-agent waves (`agent_utilities/graph/workspace_attention.py`).
 - **KG auto-routing**: the strategy-based router (`agent_utilities/graph/routing/` — fast-path, workflow-context, and policy strategies) backed by capability designation + reward write-back (`agent_utilities/knowledge_graph/retrieval/capability_index.py`).
-- **Reactive framework** (CONCEPT:ORCH-1.10): graph-native event sourcing, dynamic behavioral dispatch, and multi-axis budget guardrails — `agent_utilities/graph/reactive/`.
+- **Reactive framework** (CONCEPT:AU-ORCH.reactive.event-sourcing-ledger): graph-native event sourcing, dynamic behavioral dispatch, and multi-axis budget guardrails — `agent_utilities/graph/reactive/`.
 
 > 📖 **[View the Comprehensive Feature List & Architecture Deep Dives](docs/guides/features.md)**
 
@@ -287,40 +287,20 @@ Shipped but lightly documented (real code, importable today):
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **599 canonical concepts** across **28 pillars**.
+Synthesized from concept markers in the codebase into **908 canonical concepts** across **8 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.74 | 70 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, / AHE-3.40 — generalized from the original system-prompt-only, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
-| **CE-038** CE-038 | CE-038 | 1 | periodic code-health |
-| **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
-| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.99 | 83 | / Universal-capability — the orchestrator emits ONE Markdown answer; each, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
-| **EE-033** EE-033 | EE-033 | 1 | closes the priors→weights loop |
-| **EE-034** EE-034 | EE-034 | 1 | the expert agent writes one per decision; a nightly distill |
-| **EE-036** EE-036 | EE-036 | 1 | concrete subclasses |
-| **EE-037** EE-037 | EE-037 | 1 | microstructure, trading, pricing |
-| **EE-039** EE-039 | EE-039 | 1 | EE-039 |
-| **EG-009** EG-009 | EG-009 | 1 | then by its node |
-| **EG-010** EG-010 | EG-010 | 1 | ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded |
-| **EG-037** EG-037 | EG-037 | 1 | This engine |
-| **EG-160** EG-160 | EG-160 | 1 | EG-160 |
-| **EG-185** EG-185 | EG-185 | 1 | so the wrapper logs that L2 delete is |
-| **EG-186** EG-186 | EG-186 | 1 | over a small HTTP surface |
-| **EG-187** EG-187 | EG-187 | 1 | is configured with, so a co-located deploy shares one source of |
-| **EG-321** EG-321 | EG-321 | 1 | EG-321 |
-| **EG-346** EG-346 | EG-346 | 1 | is installed, the kernel-discovery loop below finds |
-| **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.317 | 254 | / KG-2.106 — code AST parsing delegated to the epistemic-graph engine, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Lazy symbol loading. The finance domain pulls heavy optional, / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis |
-| **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
-| **ML-011** ML-011 | ML-011 | 1 | join inference |
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.105 | 94 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
-| **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
-| **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | Durable session and autonomous goal persistence with iterative background goal loops |
-| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.76 | 67 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
-| **SAFE-1** Safety & Guardrails | SAFE-1.0 – SAFE-1.8 | 9 | Tool-Agnostic File Safety Hooks, non-saturating superhuman progress tracking via relative scorers and a saturation detector that keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable from metric saturation, a multi-agent scaling-law harness that sweeps collective size over a fixed task and fits capability ~ N^alpha so the platform can measure whether adding agents helps super- or sub-linearly instead of assuming it does, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate, objective-level safety primitives for rising autonomy, Unattended-session stop-on-ask containment |
-| **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
+| **AU-AHE** AU-AHE | AU-AHE.assimilation.baseline-overfit-gate – AU-AHE.harness.ahe-3 | 109 | the expert agent writes one per decision; a nightly distill, empirical parity evidence for the assimilation program, merge entities, closes the priors→weights loop, consider promoting the team, microstructure, trading, pricing, grade every ingested research source against the, concrete subclasses |
+| **AU-ECO** AU-ECO | AU-ECO.bus.agent-bus-awareness – AU-ECO.messaging.eco-2 | 107 | agent-to-agent messaging. Governed by the ActionPolicy, graph_bus MCP tool and REST twin for agent-to-agent messaging, AgentBus federated agent-to-agent communication bus over the KG, auto-register + online presence on any bus touch, bus register under the served auth profile, ────────────────────────, the AgentBus is a NATIVE capability, not an opt-in persona, the operator view of the AgentBus |
+| **AU-KG** AU-KG | AU-KG.backend.age-postgresql-tier – AU-KG.backend.cache-lives-as-248 | 374 | the durable PostgreSQL graph tier executed via a bounded regex, the authority, The authority has already acked; this must not wait on the, vector search competes for the same pool under load;, the cache lives as, wrap with the Company Brain write-path guard, Role-aware multi-database registry plus live config mutation, Declared columns so schema-backed Kuzu can |
+| **AU-ORCH** AU-ORCH | AU-ORCH.adapter.adapter-registry-path-detection – AU-ORCH.session.unified-agent-entrypoint | 177 | Adapter registry + non-blocking PATH detection, Built-in adapter definitions, BYOK custom endpoint. The provider proxy emits OpenAI-compatible, Composable Skills + Generic Environment Adapter, Invalidate hot cache so routing reflects new self-knowledge, inject mounted composable-Skill instructions, Session ID of the parent graph if this state was forked, additive multi-CLI adapter dispatch. When a manifest requests an external runtime |
+| **AU-OS** AU-OS | AU-OS.audit.config-staleness-auditor – AU-OS.deployment.os-4 | 119 | Configuration Staleness Auditor, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, Agent OS Infrastructure, Agent Registry, autonomous spec→develop. OFF by default = review-first, Data Type Conversion, Desired-state fleet reconciler, Env-var drift guard |
+| **EG-AHE** EG-AHE | EG-AHE.harness.online-exploit-explore-reference | 1 | one online exploit/explore bandit router per agent |
+| **EG-KG** EG-KG | EG-KG.backend.is-configured-so-co – EG-KG.compute.concept-5 | 20 | is configured with, so a co-located deploy shares one source of, This engine, and generates summary text via the shared, through the facade so orchestration code, handled outside the single-anchor, model-free similar-code lookup. Returns the, Empty => no recency weighting, to turn each project |
+| **EG-ORCH** EG-ORCH | EG-ORCH.routing.lexical-capability-escalation | 1 | CONCEPT |
 
 <!-- END GENERATED: concepts -->
 
@@ -543,13 +523,13 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 | [In-House Training Substrate](docs/architecture/in_house_training_substrate.md) | **Roadmap** — cross-repo design: reward/data engine → torch/PEFT trainers → Rust kernels → deploy seam (GB10 fine-tunes) |
 | [Graph-Native Assimilation Engine](docs/architecture/assimilation_engine.md) | Self-evolution loop: ingest papers/OSS/repos/docs → dedup → gap → synergy → rank → grounded plans; idempotent, runs via `graph_orchestrate(action="assimilate")` + golden-loop daemon |
 | [Evolution Pipeline](docs/overview.md#evolution-pipeline--super-assimilation-architecture) | Assimilation governance, wire-or-discard heuristic, 4-phase pipeline |
-| [State Externalization](docs/architecture/state_externalization.md) | `STATE_DB_URI` shared Postgres state, SKIP LOCKED queue claims, advisory-lock daemon leadership, fleet pagination (OS-5.16–5.18, KG-2.54) |
-| [Engine Sharding](docs/architecture/engine_sharding.md) | Tenant-partitioned engine shards behind client-side HRW routing + topology visibility (KG-2.58, OS-5.28) |
+| [State Externalization](docs/architecture/state_externalization.md) | `STATE_DB_URI` shared Postgres state, SKIP LOCKED queue claims, advisory-lock daemon leadership, fleet pagination (AU-OS.state.unified-durable-state-externalization–5.18, AU-KG.ingest.cross-host-safe-kg) |
+| [Engine Sharding](docs/architecture/engine_sharding.md) | Tenant-partitioned engine shards behind client-side HRW routing + topology visibility (AU-KG.sharding.tenant-partitioned-sharding-hrw, AU-OS.scaling.shard-topology-visibility-per) |
 | [Event Backbone](docs/architecture/event_backbone_architecture.md) | Kafka event backbone + ingest task-queue scale-out: fail-loud selection, keyed partitions, `kg-ingest` consumer group (KG-2.55–2.57) |
 | [Agent Dispatch](docs/architecture/agent_dispatch.md) | Queue-driven agent dispatch: session-keyed `agent_turns` queue + stateless worker fleet (ORCH-1.45) |
 | [Fleet Autonomy](docs/architecture/fleet_autonomy.md) | ActionPolicy decision point, fleet reconciler, remediation playbooks, deploy watch, autoscaler (OS-5.24–5.27, OS-5.29) |
-| [Gateway Scaling](docs/architecture/gateway_scaling.md) | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (OS-5.23) |
-| [Autonomous Evolution](docs/guides/autonomous-evolution.md) | The governed self-evolution chain: propose-only loops → governance validator → regression gate → policy-gated branch publication (AHE-3.18–3.21) |
+| [Gateway Scaling](docs/architecture/gateway_scaling.md) | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (AU-OS.observability.no-op-without-metrics) |
+| [Autonomous Evolution](docs/guides/autonomous-evolution.md) | The governed self-evolution chain: propose-only loops → governance validator → regression gate → policy-gated branch publication (AU-AHE.harness.failure-evolution–3.21) |
 | [Metrics Reference](docs/reference/metrics.md) | Catalog of every `agent_utilities_*` Prometheus series |
 
 ### Pillar Deep-Dives

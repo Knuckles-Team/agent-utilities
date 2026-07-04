@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """The standardized skill-graph contract — frontmatter + provenance/freshness manifest.
 
-CONCEPT:KG-2.7 — A skill-graph is an externally-consumable corpus of knowledge
+CONCEPT:AU-KG.research.skill-graph-distillation — A skill-graph is an externally-consumable corpus of knowledge
 (crawled docs, a distilled KG subgraph, an extracted PDF, freshly-generated text)
 packaged as an agent skill: a ``SKILL.md`` index over a ``reference/`` markdown tree.
 

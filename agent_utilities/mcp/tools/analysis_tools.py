@@ -172,14 +172,14 @@ def register_analysis_tools(mcp):
                 return f"Security scan executed on {target}."
             elif action == "placement_plan":
                 # Multi-objective workload placement over the infra subgraph
-                # (efficiency/security/cost/resilience), propose-only (CONCEPT:KG-2.9).
+                # (efficiency/security/cost/resilience), propose-only (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
                 import json as _json
 
                 from agent_utilities.knowledge_graph.infra import optimize_from_graph
 
                 return _json.dumps(optimize_from_graph(engine), indent=2, default=str)
             elif action == "infra_sweep":
-                # Hardware inventory sweep → KG infra ontology (CONCEPT:KG-2.9).
+                # Hardware inventory sweep → KG infra ontology (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
                 # `target`/`query` carries a comma-separated host id list.
                 import json as _json
 
@@ -192,7 +192,7 @@ def register_analysis_tools(mcp):
                     collect_and_persist(engine, host_ids), indent=2, default=str
                 )
             elif action == "specialize":
-                # SAI factory (CONCEPT:AHE-3.29): ground a learned world model in
+                # SAI factory (CONCEPT:AU-AHE.harness.sai-controller): ground a learned world model in
                 # persisted WorldModelTransition history and specialize its config,
                 # returning adaptation-speed metrics (AHE-3.27) + superhuman
                 # certification (SAFE-1.6). On-demand twin of the KG_SAI_FACTORY tick,
@@ -216,7 +216,7 @@ def register_analysis_tools(mcp):
                     )
                 return _json.dumps({"status": "ok", **summary}, default=str)
             elif action == "world_model_rollout":
-                # CONCEPT:KG-2.73b — forward-simulate the learned world model with
+                # CONCEPT:AU-KG.compute.world-model-forward-simulation — forward-simulate the learned world model with
                 # persistent latent rollout memory (carry the predicted latent across
                 # steps so the imagined trajectory stays on-manifold instead of
                 # re-deriving from the bare next-state string each step). Grounds in
@@ -415,7 +415,7 @@ def register_analysis_tools(mcp):
                     return "Error: recursive_distill requires an active engine."
                 # RecursiveDistiller needs external-compute injections (corpus_source,
                 # trainer, evaluate_model, promote). Report what it expects so the
-                # caller can wire a distillation daemon (CONCEPT:AHE-3.31).
+                # caller can wire a distillation daemon (CONCEPT:AU-AHE.optimization.recursive-distillation-loop).
                 return json.dumps(
                     {
                         "status": "needs_injection",
@@ -460,7 +460,7 @@ def register_analysis_tools(mcp):
                 }
                 return json.dumps(result, default=str)
             elif action == "extract_claims":
-                # CONCEPT:KG-2.2 — entity-claim extraction for MAGMA epistemic view.
+                # CONCEPT:AU-KG.enrichment.entity-claim-extraction — entity-claim extraction for MAGMA epistemic view.
                 # Extracts entities, claims, and implicit relationships from document
                 # content using deterministic + pack-driven inference, then persists
                 # to the KG. ``query`` carries the content to analyze.
@@ -479,7 +479,7 @@ def register_analysis_tools(mcp):
                 )
                 return json.dumps(ext_result.model_dump(), default=str)
             elif action == "contradictions":
-                # CONCEPT:KG-2.83 — explicit node↔node contradiction/friction surface
+                # CONCEPT:AU-KG.research.explicit-node-node-contradiction — explicit node↔node contradiction/friction surface
                 # (the night-shift Critic): retrieve topically-similar existing nodes
                 # and flag those that OPPOSE the new claim in `query`. Propose-only —
                 # never auto-resolves; returns FRICTION findings for human judgment.
@@ -521,8 +521,8 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "evolve_code":
-                # CONCEPT:KG-2.92 — Monte-Carlo GRAPH search code evolution (MLEvolve)
-                # driven by a REAL LLM coder (CONCEPT:ORCH-1.54 RLM). Each search node
+                # CONCEPT:AU-KG.retrieval.monte-carlo-graph-search — Monte-Carlo GRAPH search code evolution (MLEvolve)
+                # driven by a REAL LLM coder (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM). Each search node
                 # is coded by the LLM from the step plan + prior code; a deterministic
                 # refinement is the offline fallback. Run in a worker thread so the
                 # sync RLM client has its own event loop.
@@ -557,7 +557,7 @@ def register_analysis_tools(mcp):
                 )
                 return json.dumps(result, default=str)
             elif action == "night_shift":
-                # CONCEPT:KG-2.84 — run one autonomous night-shift cycle over a
+                # CONCEPT:AU-KG.research.run-one-autonomous-night — run one autonomous night-shift cycle over a
                 # local markdown vault: scout→catalog→cartograph→critique→edit
                 # (the second-brain swarm). `target` is the vault root; sources
                 # dropped in <vault>/0-raw|sources are refined into linked atomic
@@ -571,7 +571,7 @@ def register_analysis_tools(mcp):
                     return "Error: night_shift needs the vault root path in `target`."
 
                 def _llm_extract(source_text: str) -> list[str]:
-                    # Real LLM Cataloger (CONCEPT:ORCH-1.54 RLM): split a source into
+                    # Real LLM Cataloger (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM): split a source into
                     # atomic ideas; deterministic paragraph/sentence splitter fallback.
                     try:
                         from agent_utilities.rlm.client import RLM
@@ -611,7 +611,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "recommend":
-                # CONCEPT:KG-2.93 — PauseRec implicit-reasoning generative recommender:
+                # CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative — PauseRec implicit-reasoning generative recommender:
                 # retrieve candidate items, assign them semantic IDs, then recommend the
                 # next items via a latent-reasoning budget + a text↔SID bridge (no
                 # brittle explicit CoT). `query` is the user intent / history summary.
@@ -661,7 +661,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "assimilation_benchmark":
-                # CONCEPT:AHE-3.47 — measured empirical-parity evidence: run each
+                # CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation — measured empirical-parity evidence: run each
                 # assimilated paper's mechanism vs a baseline on a controlled task and
                 # report the real lift + claim-reproduced verdict (the proof that we
                 # got feature parity, not just shipped the mechanism). Deterministic,
@@ -696,7 +696,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "latent_efficiency_benchmark":
-                # CONCEPT:AHE-3.48 — measured lift for the latent-native memory
+                # CONCEPT:AU-AHE.harness.empirical-evidence-that-latent — measured lift for the latent-native memory
                 # mechanisms: latent rollout memory (KG-2.73b) reduces trajectory
                 # drift vs a memoryless rollout, and the ontology-type prior (KG-2.44b)
                 # improves top-k neighbourhood coherence vs flat cosine. Deterministic,
@@ -1045,7 +1045,7 @@ def register_analysis_tools(mcp):
                 regime = detector.detect_regime(df, ticker=query)
                 return regime
             elif action == "quant_insider":
-                # CONCEPT:KG-2.6 — Kyle insider-trading equilibrium + enforcement
+                # CONCEPT:AU-KG.research.research-pipeline-runner — Kyle insider-trading equilibrium + enforcement
                 # policy analysis. `query` = optional JSON of InsiderEquilibriumInputs
                 # overrides (sigma_v, enforcement, criminal_penalty, …).
                 import json as _json
@@ -1103,7 +1103,7 @@ def register_analysis_tools(mcp):
                 )
                 return json.dumps(summary, default=str)
             elif action == "call_graph":
-                # CONCEPT:KG-2.100 — the type/scope-resolved call/inheritance graph
+                # CONCEPT:EG-KG.compute.type-scope-resolved-call — the type/scope-resolved call/inheritance graph
                 # for a symbol. Returns the resolved edges (with their strategy +
                 # confidence) the Rust resolver bound and the OWL layer reasons over.
                 # `node_id` = the symbol id; `target` = direction
@@ -1160,7 +1160,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "similar_code":
-                # CONCEPT:KG-2.101 — model-free similar-code lookup. Returns the
+                # CONCEPT:EG-KG.compute.model-free-similar-code — model-free similar-code lookup. Returns the
                 # symbol's `similar_to` neighbours (MinHash/LSH near-clones) with
                 # their score — works with the embedder OFFLINE (no GB10 needed).
                 # `node_id` = the symbol id.
@@ -1196,7 +1196,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "routes":
-                # CONCEPT:KG-2.102 — the HTTP route graph: each Route (method+path),
+                # CONCEPT:AU-KG.compute.http-route-graph — the HTTP route graph: each Route (method+path),
                 # its handler Code symbol, and the deployed Service that serves it
                 # (Code –serves→ Route –servedBy→ Service). Reads run in the engine.
                 import json as _json
@@ -1233,7 +1233,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "change_coupling":
-                # CONCEPT:KG-2.104 — mine git history for files that change together
+                # CONCEPT:AU-KG.ingest.mine-git-history-files — mine git history for files that change together
                 # (hidden coupling the AST can't see) and persist symmetric
                 # FILE_CHANGES_WITH edges. `target`/`query` = the repo work-tree path.
                 import json as _json
@@ -1263,7 +1263,7 @@ def register_analysis_tools(mcp):
                     {"status": "ok", "repo": repo, "coupled_pairs": written}
                 )
             elif action == "code_evolution":
-                # CONCEPT:KG-2.283 — query the ingested commit-history graph
+                # CONCEPT:AU-KG.enrichment.query-ingested-commit-history — query the ingested commit-history graph
                 # (KG-2.282) for codebase EVOLUTION: file timelines, subsystem
                 # ownership, churn hotspots, and change-coupling. `target` = the
                 # mode (file|owners|hotspots|coupled), `query` = the file path /
@@ -1283,7 +1283,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "adr":
-                # CONCEPT:KG-2.105 — Architecture Decision Record CRUD. `query` = the
+                # CONCEPT:AU-KG.compute.adr-crud — Architecture Decision Record CRUD. `query` = the
                 # decision title (create); empty = list. `target` = status; `node_id`
                 # = the decision text.
                 import json as _json
@@ -1329,7 +1329,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "harness_gate":
-                # CONCEPT:AHE-3.53 — the formal harness-evolution gate (the seesaw
+                # CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard — the formal harness-evolution gate (the seesaw
                 # HarnessX lacks): validate a candidate harness-evolution state
                 # against the concentration / no-regression / pathology SHACL shapes.
                 # `query` = JSON {edits:[{id,dimension,round,status?,regresses?}],
@@ -1355,7 +1355,7 @@ def register_analysis_tools(mcp):
                     }
                 )
             elif action == "harness_evolve":
-                # CONCEPT:AHE-3.52 — run the AEGIS loop over a provided edit sequence
+                # CONCEPT:AU-AHE.harness.run-aegis-loop-over — run the AEGIS loop over a provided edit sequence
                 # (offline, no LLM): the gate fires across rounds so concentration is
                 # blocked BEFORE the tipping point. `query` = JSON {edits:[{dimension,...}]}.
                 import json as _json
@@ -1384,7 +1384,7 @@ def register_analysis_tools(mcp):
                     }
                 )
             elif action == "harness_certify":
-                # CONCEPT:AHE-3.56/KG-2.108 — held-out certification + ARA-Seal of a
+                # CONCEPT:AU-AHE.harness.kg-held-out-certification/KG-2.108 — held-out certification + ARA-Seal of a
                 # promoted variant. `query` = JSON {held_out_rewards:[…], human_baseline,
                 # variant_id?}.
                 import json as _json
@@ -1414,7 +1414,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "harness_benchmark":
-                # CONCEPT:AHE-3.53 — the parity-and-surpass scoreboard vs HarnessX.
+                # CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard — the parity-and-surpass scoreboard vs HarnessX.
                 import json as _json
 
                 from agent_utilities.harness.harness_foundry_benchmark import (
@@ -1445,7 +1445,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "code_context":
-                # CONCEPT:KG-2.134 — the synthesized, cited "how does this code
+                # CONCEPT:AU-KG.retrieval.synthesized-cited-answer — the synthesized, cited "how does this code
                 # work / where is it used / what breaks if I change it" answer.
                 # Composes the call graph (KG-2.100), similar-code (KG-2.101),
                 # routes (KG-2.102), change-coupling (KG-2.104), CONCEPT: markers
@@ -1474,7 +1474,7 @@ def register_analysis_tools(mcp):
                 )
                 return _json.dumps(result, default=str)
             elif action == "cross_repo_usages":
-                # CONCEPT:KG-2.135 — every usage of a published symbol across the
+                # CONCEPT:AU-KG.retrieval.every-usage-published-symbol — every usage of a published symbol across the
                 # whole fleet in one query (name-anchored callers grouped by repo).
                 # `query`/`target` = the symbol name; `top_k` = max usages.
                 import json as _json
@@ -1491,7 +1491,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "code_metrics":
-                # CONCEPT:KG-2.210 — Graphify-style structural analytics over the
+                # CONCEPT:AU-KG.retrieval.structural-analytics — Graphify-style structural analytics over the
                 # :Code call/inheritance subgraph: god nodes (degree hubs), Louvain
                 # communities (via the engine's ephemeral detector KG-2.58),
                 # surprising cross-community connections, and language/relation/
@@ -1512,7 +1512,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "arch_report":
-                # CONCEPT:KG-2.213 — a regenerable architecture report (the
+                # CONCEPT:AU-KG.retrieval.architecture-report — a regenerable architecture report (the
                 # GRAPH_REPORT.md analog): summary, god nodes, community hubs,
                 # surprising connections and dependency cycles, rendered as Markdown
                 # plus structured metrics and persisted as an ArchitectureReport node.
@@ -1549,7 +1549,7 @@ def register_analysis_tools(mcp):
                         arch_report["persist_warning"] = str(_e)
                 return _json.dumps(arch_report, default=str)
             elif action == "explain":
-                # CONCEPT:KG-2.136 — the universal context plane: route a question
+                # CONCEPT:AU-KG.retrieval.route-question-its-domain — the universal context plane: route a question
                 # to its DOMAIN provider (code | ops | …) and return one grounded,
                 # cited answer. `query` = the question; `target` = "domain:intent"
                 # (e.g. "ops:why", "code:usage") or just an intent (domain inferred);
@@ -1597,7 +1597,7 @@ def register_analysis_tools(mcp):
                 # `query` may carry a JSON params object (base_model/scopes/method/
                 # adapter_rank/time_window_days/target_entities/submit/…, or
                 # `poll_job_id` to read a submitted job's live train state back —
-                # CONCEPT:KG-2.318); `target` is the base model shorthand; `top_k`
+                # CONCEPT:AU-KG.memory.live-data-science-mcp); `target` is the base model shorthand; `top_k`
                 # overrides max_examples.
                 params: dict[str, Any] = {}
                 q = (query or "").strip()
@@ -1632,7 +1632,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:ORCH-1.85). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.47/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -1662,56 +1662,56 @@ def register_analysis_tools(mcp):
         ),
         context: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.39 — curated context the invoking agent passes to the "
+            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — curated context the invoking agent passes to the "
             "spawned agent (action='execute_agent'); injected into the spawned agent's prompt, "
             "budgeted to the model's context window.",
         ),
         budget_tokens: int = Field(
             default=0,
-            description="CONCEPT:ORCH-1.39 — optional token budget the invoker grants the "
+            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — optional token budget the invoker grants the "
             "spawned agent (action='execute_agent'); enforced as a hard total-tokens limit. "
             "0 = unbounded.",
         ),
         context_ref: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.39 — id of a persisted ContextBlob (from "
+            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — id of a persisted ContextBlob (from "
             "graph_context put) to hand to the spawned agent (action='execute_agent'); its "
             "content is resolved from the graph and injected. Use instead of inline 'context' "
             "for large/shared context.",
         ),
         allowed_tools: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.39 — comma-separated least-privilege tool allow-list "
+            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — comma-separated least-privilege tool allow-list "
             "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
             "to ONLY these names. Empty = no restriction.",
         ),
         cred_ref: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.39 — REFERENCE (secret key, e.g. 'cred:{session}') to "
+            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — REFERENCE (secret key, e.g. 'cred:{session}') to "
             "an ephemeral credential the invoker stored in the secrets backend; resolved to the "
             "spawned agent's auth_token at spawn (never logged). Use instead of passing raw "
             "secrets. Empty = none.",
         ),
         open_channel: bool = Field(
             default=False,
-            description="CONCEPT:ORCH-1.40 — when True (action='execute_agent'), open a native "
+            description="CONCEPT:AU-ORCH.session.session-anchored-collections-native — when True (action='execute_agent'), open a native "
             "bidirectional message channel for this run; the response JSON includes a "
             "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
         ),
         host: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.85 — for action='computer_use': inventory host alias "
+            description="CONCEPT:AU-ORCH.execution.computer-use-agent — for action='computer_use': inventory host alias "
             "to run the gui-sandbox on (over ssh:// docker/podman). Empty = local docker.",
         ),
         container_id: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.85 — for action='computer_use': drive an EXISTING "
+            description="CONCEPT:AU-ORCH.execution.computer-use-agent — for action='computer_use': drive an EXISTING "
             "gui-sandbox container by id instead of provisioning a fresh one.",
         ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
-        CONCEPT:ORCH-1.37 — the execution-flow Mermaid diagram (generated by the ORCH-1.8
+        CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — the execution-flow Mermaid diagram (generated by the ORCH-1.8
         WorkflowVisualizer) is surfaced in the response: ``swarm``, ``compile_workflow`` and
         ``execute_workflow`` add an additive ``mermaid`` JSON key (null when unavailable), and
         ``execute_agent`` returns a JSON object ``{"output", "mermaid"}`` when a diagram was
@@ -1728,7 +1728,7 @@ def register_analysis_tools(mcp):
             if action == "dispatch":
                 deps = json.loads(dependencies) if dependencies else []
                 job_id = await orch.dispatch_task(task, deps)
-                # CONCEPT:ORCH-1.45 — queue-driven dispatch: with
+                # CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — queue-driven dispatch: with
                 # AGENT_DISPATCH_BACKEND=queue the durable :Task node stays the
                 # payload of record, a session-keyed envelope goes onto the
                 # agent_turns queue, and the caller gets a job handle (poll
@@ -1757,13 +1757,13 @@ def register_analysis_tools(mcp):
                     return json.dumps(handle)
                 return f"Task dispatched. Job ID: {job_id}"
             elif action == "rlm_run":
-                # CONCEPT:ORCH-1.12 — run the Predict-RLM runtime on an ad-hoc task.
+                # CONCEPT:AU-ORCH.execution.predict-rlm-runtime — run the Predict-RLM runtime on an ad-hoc task.
                 from agent_utilities.rlm.runner import run_rlm
 
                 result = await run_rlm(task, input_text=completion_state)
                 return json.dumps(result, default=str)
             elif action == "rlm_optimize":
-                # CONCEPT:ORCH-1.13 — optimize a skill prompt via the GEPA loop.
+                # CONCEPT:AU-ORCH.optimization.optimize-skill-prompt-gepa — optimize a skill prompt via the GEPA loop.
                 from agent_utilities.rlm.runner import optimize_rlm_skill
 
                 rows = json.loads(dependencies) if dependencies else []
@@ -1771,7 +1771,7 @@ def register_analysis_tools(mcp):
                 result = await optimize_rlm_skill(task, dataset)
                 return json.dumps(result, default=str)
             elif action == "rlm_benchmark":
-                # CONCEPT:AHE-3.32 — run the long-context RLM benchmark (RLM vs vanilla vs
+                # CONCEPT:AU-AHE.rlm.long-context-benchmark — run the long-context RLM benchmark (RLM vs vanilla vs
                 # compaction) over a task and return the paper-comparison scoreboard. `task` is the
                 # benchmark name (s_niah, oolong, oolong_pairs, browsecomp_plus, longbench_codeqa);
                 # `dependencies` is optional JSON {"scales": [int], "cases_per_scale": int}.
@@ -1808,7 +1808,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "swarm":
-                # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+                # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm
                 # One-shot swarm action: a one-line goal is
                 # decomposed into a dependency-ordered task graph, executed in parallel waves by the
                 # ParallelEngine, each leaf verified against its subtask (planner→execute→verify),
@@ -1833,7 +1833,7 @@ def register_analysis_tools(mcp):
                 manifest = ExecutionManifest.from_graph_plan(
                     plan, name="swarm", query=task
                 )
-                # CONCEPT:ORCH-1.39 (Phase 3) — curated invoker context for the swarm.
+                # CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 3) — curated invoker context for the swarm.
                 # ParallelEngine injects manifest.context into EVERY wave agent's task, so the
                 # invoker's context reaches all swarm agents. Resolve context_ref if given.
                 _swarm_ctx = context or ""
@@ -1853,7 +1853,7 @@ def register_analysis_tools(mcp):
                         if manifest.context
                         else _swarm_ctx
                     )
-                # CONCEPT:ECO-4.88 — give the swarm a shared AgentBus topic so peers can
+                # CONCEPT:AU-ECO.bus.shared-swarm-topic — give the swarm a shared AgentBus topic so peers can
                 # coordinate (announce what they're taking, share findings, ask before
                 # duplicating) instead of only fanning in at synthesis. Injected into every
                 # wave agent via manifest.context; the bus_* tools are universal.
@@ -1901,7 +1901,7 @@ def register_analysis_tools(mcp):
                         "telemetry": pe_result.telemetry,
                         "execution_id": pe_result.execution_id,
                         "success": pe_result.success,
-                        # CONCEPT:ORCH-1.37 — surface the existing execution-flow diagram
+                        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the existing execution-flow diagram
                         # (generated by ORCH-1.8 WorkflowVisualizer) to the MCP caller.
                         "mermaid": pe_result.mermaid,
                     },
@@ -1917,7 +1917,7 @@ def register_analysis_tools(mcp):
                 return orch.grant_approval(job_id, approval_status)
             elif action == "execute_agent":
                 try:
-                    # CONCEPT:ORCH-1.37 — opt into the mermaid wrapper so the routed
+                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — opt into the mermaid wrapper so the routed
                     # graph diagram (GraphResponse.mermaid) reaches the MCP caller.
                     agent_result = await orch.execute_agent(
                         agent_name=agent_name,
@@ -1932,13 +1932,13 @@ def register_analysis_tools(mcp):
                             or None
                         ),
                         cred_ref=cred_ref or None,
-                        open_channel=bool(open_channel),  # CONCEPT:ORCH-1.40
+                        open_channel=bool(open_channel),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
                     )
                     return agent_result
                 except Exception as exc:
                     return f"Error: agent execution failed: {exc}"
             elif action == "computer_use":
-                # CONCEPT:ORCH-1.85 — run a GUI computer-use agent (Observe→Ground→
+                # CONCEPT:AU-ORCH.execution.computer-use-agent — run a GUI computer-use agent (Observe→Ground→
                 # Decide→Act) on a gui-sandbox desktop. Provisions a sandbox on `host`
                 # (or drives an existing `container_id`), governed by ActionPolicy
                 # (workspace.computer_use) with frames grounded in the KG (observe_screen).
@@ -1965,7 +1965,7 @@ def register_analysis_tools(mcp):
 
                     name = agent_name or f"compiled_{uuid.uuid4().hex[:6]}"
                     workflow_id = await orch.compile_workflow(name=name, task=task)
-                    # CONCEPT:ORCH-1.37 — return the diagram persisted on the
+                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — return the diagram persisted on the
                     # WorkflowDefinition node so the caller can review the topology.
                     mermaid = None
                     try:
@@ -1983,7 +1983,7 @@ def register_analysis_tools(mcp):
                 except Exception as exc:
                     return f"Error compiling workflow: {exc}"
             elif action == "compile_process":
-                # CONCEPT:ORCH-1.41 — descriptive BusinessProcess → executable
+                # CONCEPT:AU-ORCH.planning.business-process-to-executable — descriptive BusinessProcess → executable
                 # WorkflowDefinition (+ REALIZES bridge edge). 'task' carries
                 # the BusinessProcess node id; 'agent_name' an optional name.
                 try:
@@ -2005,7 +2005,7 @@ def register_analysis_tools(mcp):
                         process_id, name=agent_name or None
                     )
                     report["status"] = "compiled"
-                    # CONCEPT:ORCH-1.37 — surface the stored topology diagram.
+                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the stored topology diagram.
                     try:
                         report["mermaid"] = WorkflowStore(engine).get_mermaid(
                             report["name"]
@@ -2031,7 +2031,7 @@ def register_analysis_tools(mcp):
                 except Exception as exc:
                     return f"Error listing workflows: {exc}"
             elif action == "execute_workflow":
-                # CONCEPT:ORCH-1.42 — execution-time ontology gate, BEFORE any
+                # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path — execution-time ontology gate, BEFORE any
                 # dispatch: (a) SHACL-validate the stored definition (refuse
                 # malformed workflows, KG_WORKFLOW_SHAPE_GATE default ON);
                 # (b) with KG_BRAIN_ENFORCE on, apply the ontology permissioning
@@ -2068,7 +2068,7 @@ def register_analysis_tools(mcp):
                         task=input_task or "",
                         max_steps=max_steps,
                     )
-                    # CONCEPT:ORCH-1.37 — surface the workflow's stored execution-flow
+                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the workflow's stored execution-flow
                     # diagram alongside the result.
                     mermaid = None
                     try:
@@ -2096,7 +2096,7 @@ def register_analysis_tools(mcp):
                 )
                 return f"Submitted Risk Veto for debate {job_id}."
             elif action == "list_cron_jobs":
-                # Unified scheduler registry (CONCEPT:OS-5.44): the durable
+                # Unified scheduler registry (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): the durable
                 # :Schedule nodes the one scheduler tick enqueues from.
                 from agent_utilities.core.schedule_engine import calendar
 
@@ -2123,7 +2123,7 @@ def register_analysis_tools(mcp):
                     return f"Error: {res.get('error')}"
                 return f"Scheduled '{target_id}' to fire on the next tick."
             elif action == "dispatch_workflow":
-                # CONCEPT:ORCH-1.42 — the SAME execution-time ontology gate as
+                # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path — the SAME execution-time ontology gate as
                 # execute_workflow, BEFORE background dispatch: (a) SHACL-validate
                 # the stored definition (refuse malformed workflows,
                 # KG_WORKFLOW_SHAPE_GATE default ON); (b) with KG_BRAIN_ENFORCE
@@ -2203,7 +2203,7 @@ def register_analysis_tools(mcp):
                     return f"Error exporting workflow: {exc}"
 
             elif action == "loop_cycle":
-                # Advance the Loop engine one cycle (CONCEPT:KG-2.7/2.78): intake
+                # Advance the Loop engine one cycle (CONCEPT:AU-KG.query.stardog-instance-data/2.78): intake
                 # active Loops → acquire → ADDRESSES-resolve → optional
                 # distil/synthesize as DRAFTS/proposals. Never auto-merges.
                 import json as _json
@@ -2220,7 +2220,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "failure_ingest":
-                # Failure-driven evolution (CONCEPT:AHE-3.18): pull Langfuse
+                # Failure-driven evolution (CONCEPT:AU-AHE.harness.failure-evolution): pull Langfuse
                 # failures → materialize failure_gap topics → regression-gated
                 # remediation that addresses those gaps directly. The on-demand
                 # twin of the daemon's failure_ingest tick (gated by
@@ -2235,7 +2235,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "optimize_component":
-                # DSPy optimization pass for any evolvable target (CONCEPT:AHE-3.40):
+                # DSPy optimization pass for any evolvable target (CONCEPT:AU-AHE.optimization.optimizable-target-registry):
                 # task=<system_prompt|tool_description|skill|extraction|concept_match|
                 # routing>; dependencies=optional JSON data (documents / labeled_pairs /
                 # traces) for the self-supervised targets. The single entry point over the
@@ -2259,8 +2259,8 @@ def register_analysis_tools(mcp):
                         data = {}
                 tgt = (task or "").strip()
                 # task='all'/'sweep' (or empty) runs the full propose-only sweep — the
-                # on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.46);
-                # a specific target name runs just that one (CONCEPT:AHE-3.40).
+                # on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only);
+                # a specific target name runs just that one (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
                 if tgt in ("", "all", "sweep"):
                     rep = run_optimization_sweep(kg_server._get_engine())
                 else:
@@ -2268,7 +2268,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "publish_proposal":
-                # Evolution→branch bridge (CONCEPT:AHE-3.21): publish a promoted
+                # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): publish a promoted
                 # golden-loop proposal (task=proposal node id) as a reviewable
                 # LOCAL git branch — change synthesis + RLM-sandbox validation +
                 # LocalBranchPublisher — gated by the OS-5.24 ActionPolicy's
@@ -2291,7 +2291,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "assimilate":
-                # Graph-native assimilation pass (CONCEPT:KG-2.7): dedup → gap →
+                # Graph-native assimilation pass (CONCEPT:AU-KG.query.stardog-instance-data): dedup → gap →
                 # synergy → rank (idempotent via watermark). With "synthesize" in the
                 # task, also propose grounded SDD plans for the top open gaps.
                 import json as _json
@@ -2314,7 +2314,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "distill_skills":
-                # Connector → skill synthesis (CONCEPT:KG-2.90/2.83): turn the
+                # Connector → skill synthesis (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83): turn the
                 # mapped processes of ALL connected systems (egeria/leanix/aris/
                 # camunda) into propose-only atomic-skill + skill-workflow
                 # PROPOSALS — connector-agnostic over the ontology. With "draft"
@@ -2339,7 +2339,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(distill_rep.to_dict(), indent=2, default=str)
 
             elif action == "standardize":
-                # Enterprise standardization + consolidation pass (CONCEPT:KG-2.49):
+                # Enterprise standardization + consolidation pass (CONCEPT:AU-KG.ontology.populated-at-import-real-3):
                 # materialize enterprise-standard interfaces → score per-asset/org/
                 # domain conformance drift → rank propose-only consolidation
                 # recommendations (collapse projects / retire tools / merge code).
@@ -2435,7 +2435,7 @@ def register_analysis_tools(mcp):
                 except Exception as e:
                     return f"Error: {str(e)}"
             elif action == "ml_rlm_op":
-                # CONCEPT:KG-2.6 — Machine Learning & RLM capabilities for the KG engine.
+                # CONCEPT:AU-KG.research.research-pipeline-runner — Machine Learning & RLM capabilities for the KG engine.
                 # Register a new RLM actor for reinforcement learning tasks.
                 # task = JSON string {"name": "actor_name", "learning_rate": 0.01, "discount_factor": 0.99}
                 # or plain text actor name (uses sensible defaults: learning_rate=0.01, discount_factor=0.99).
@@ -2471,7 +2471,7 @@ def register_analysis_tools(mcp):
             else:
                 return f"Error: Unknown orchestration action '{action}'"
         except PermissionError:
-            # CONCEPT:ORCH-1.42 / OS-5.14 — ACL denial is fail-closed: surface
+            # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path / OS-5.14 — ACL denial is fail-closed: surface
             # it as a real error to the MCP layer, never a stringified result.
             raise
         except Exception as e:
@@ -2487,7 +2487,7 @@ def register_analysis_tools(mcp):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'vault_sync', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'harness_fence', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). CONCEPT:OS-5.43 — 'vault_sync' reconciles a service's secrets with the store (read-existing to skip re-prompting + seed new): config_key=service, config_value=JSON {\"env_keys\":[...],\"values\":{KEY:VAL},\"overwrite\":false}; returns {refs:{KEY:\"vault://<service>/<KEY>\"},present,written,missing} so resolvable vault:// refs drop straight into config.json. CONCEPT:OS-5.40 — 'harness_fence' writes a governance-derived Claude Code permission fence (settings.json allow/ask/deny + defaultMode=acceptEdits, plus .claudeignore) so the CLI can run unattended safely; config_key=target Claude config dir (default ~/.claude), config_value optional {\"policy\":<ActionPolicy yaml>,\"dry_run\":true}; the deny list is regenerated from the live ActionPolicy each run. 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:KG-2.89 — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). CONCEPT:KG-2.7 — Stardog instance-data sync (push/pull/query of real KG data, distinct from the ontology/TBox): 'push_to_stardog' writes KG nodes+edges into Stardog, partitioned into urn:source:<system> named graphs (config_value optional {\"sources\":[\"leanix\",\"servicenow\"],\"connection\":<registered name>} — omit sources to push everything; resolves a Stardog backend from config_key/connection name or inline {\"endpoint\",\"database\",\"username\",\"password\"} or STARDOG_* env); 'pull_from_stardog' re-ingests Stardog data back into the KG (config_value optional {\"source\":\"leanix\"} or {\"graph_uri\":\"urn:source:...\"} to scope to one named graph, {\"limit\":N}); 'stardog_sparql' runs a SPARQL SELECT/ASK/CONSTRUCT/UPDATE against Stardog (config_value={\"query\":\"SELECT ...\"} or a bare query string). For continuous live replication instead, register Stardog as a role='mirror' connection (add_connection {\"backend\":\"stardog\",...}) under GRAPH_BACKEND=tiered/fanout and use 'reconcile' to backfill. 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:KG-2.89 — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
+            description="Operation ('set_secret', 'vault_sync', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'harness_fence', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). CONCEPT:AU-OS.deployment.vault-seed-service — 'vault_sync' reconciles a service's secrets with the store (read-existing to skip re-prompting + seed new): config_key=service, config_value=JSON {\"env_keys\":[...],\"values\":{KEY:VAL},\"overwrite\":false}; returns {refs:{KEY:\"vault://<service>/<KEY>\"},present,written,missing} so resolvable vault:// refs drop straight into config.json. CONCEPT:AU-OS.deployment.governance-derived-claude-code — 'harness_fence' writes a governance-derived Claude Code permission fence (settings.json allow/ask/deny + defaultMode=acceptEdits, plus .claudeignore) so the CLI can run unattended safely; config_key=target Claude config dir (default ~/.claude), config_value optional {\"policy\":<ActionPolicy yaml>,\"dry_run\":true}; the deny list is regenerated from the live ActionPolicy each run. 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit). CONCEPT:AU-KG.backend.multi-connection-registry — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:AU-KG.backend.connection-registry — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:AU-KG.backend.mirror-health-repair — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). CONCEPT:AU-KG.query.stardog-instance-data — Stardog instance-data sync (push/pull/query of real KG data, distinct from the ontology/TBox): 'push_to_stardog' writes KG nodes+edges into Stardog, partitioned into urn:source:<system> named graphs (config_value optional {\"sources\":[\"leanix\",\"servicenow\"],\"connection\":<registered name>} — omit sources to push everything; resolves a Stardog backend from config_key/connection name or inline {\"endpoint\",\"database\",\"username\",\"password\"} or STARDOG_* env); 'pull_from_stardog' re-ingests Stardog data back into the KG (config_value optional {\"source\":\"leanix\"} or {\"graph_uri\":\"urn:source:...\"} to scope to one named graph, {\"limit\":N}); 'stardog_sparql' runs a SPARQL SELECT/ASK/CONSTRUCT/UPDATE against Stardog (config_value={\"query\":\"SELECT ...\"} or a bare query string). For continuous live replication instead, register Stardog as a role='mirror' connection (add_connection {\"backend\":\"stardog\",...}) under GRAPH_BACKEND=tiered/fanout and use 'reconcile' to backfill. 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:AU-KG.backend.connection-registry — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
         ),
         config_key: str = Field(
             default="",
@@ -2515,7 +2515,7 @@ def register_analysis_tools(mcp):
                     {"status": "success", "action": "set_secret", "key": config_key}
                 )
             if action == "vault_sync":
-                # CONCEPT:OS-5.43 — read-existing + seed a service's secrets.
+                # CONCEPT:AU-OS.deployment.vault-seed-service — read-existing + seed a service's secrets.
                 # config_key=service; config_value=JSON
                 # {"env_keys":[...],"values":{KEY:VAL},"overwrite":bool}.
                 from agent_utilities.security.secrets_client import (
@@ -2561,7 +2561,7 @@ def register_analysis_tools(mcp):
                     except Exception as e:
                         return json.dumps({"error": f"Invalid config_value JSON: {e}"})
                 return json.dumps({"error": "MCP config not found in workspace."})
-            # ── CONCEPT:KG-2.63: Named multi-connection graph registry ──
+            # ── CONCEPT:AU-KG.backend.multi-connection-registry: Named multi-connection graph registry ──
             if action in (
                 "add_connection",
                 "remove_connection",
@@ -2590,7 +2590,7 @@ def register_analysis_tools(mcp):
                         name = registry.register(config_key, spec)
                     except Exception as e:
                         return json.dumps({"error": str(e)})
-                    # CONCEPT:KG-2.89 — persist the connection list to config.json so
+                    # CONCEPT:AU-KG.backend.connection-registry — persist the connection list to config.json so
                     # it survives restart (re-seeded from config.kg_connections).
                     from agent_utilities.core.config import save_config_item
 
@@ -2626,7 +2626,7 @@ def register_analysis_tools(mcp):
                 return json.dumps(
                     {"status": "success", "action": action, "default_target": name}
                 )
-            # ── CONCEPT:KG-2.63: profile / imprint an external graph + map ──
+            # ── CONCEPT:AU-KG.backend.multi-connection-registry: profile / imprint an external graph + map ──
             if action in ("profile_connection", "imprint_connection"):
                 if not config_key:
                     return json.dumps(
@@ -2657,7 +2657,7 @@ def register_analysis_tools(mcp):
                     ),
                     default=str,
                 )
-            # ── CONCEPT:KG-2.74: Concurrent N-way mirroring health/repair ──
+            # ── CONCEPT:AU-KG.backend.mirror-health-repair: Concurrent N-way mirroring health/repair ──
             if action in ("mirror_status", "reconcile"):
                 from agent_utilities.knowledge_graph.backends import (
                     get_active_backend,
@@ -2687,7 +2687,7 @@ def register_analysis_tools(mcp):
                 # reconcile — full authority→mirror drift repair (config_key =
                 # optional single mirror name; empty = all mirrors).
                 return json.dumps(inner.reconcile(config_key or None), default=str)
-            # ── CONCEPT:KG-2.7: Stardog instance-data push / pull / query ──
+            # ── CONCEPT:AU-KG.query.stardog-instance-data: Stardog instance-data push / pull / query ──
             if action in ("push_to_stardog", "pull_from_stardog", "stardog_sparql"):
                 try:
                     opts = json.loads(config_value) if config_value else {}
@@ -2827,7 +2827,7 @@ def register_analysis_tools(mcp):
                 return json.dumps(
                     config_doctor(profile, opts.get("config")), default=str
                 )
-            # ── CONCEPT:KG-2.89: generic live config get / set / list ──
+            # ── CONCEPT:AU-KG.backend.connection-registry: generic live config get / set / list ──
             if action in ("get_config", "set_config", "list_config"):
                 from agent_utilities.deployment import (
                     config_reference,
@@ -2923,7 +2923,7 @@ def register_analysis_tools(mcp):
                 )
             # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
             if action == "harness_fence":
-                # CONCEPT:OS-5.40 — write a governance-derived Claude Code
+                # CONCEPT:AU-OS.deployment.governance-derived-claude-code — write a governance-derived Claude Code
                 # permission fence (settings.json + .claudeignore). config_key =
                 # target Claude config dir (default ~/.claude); config_value =
                 # optional {"policy": path, "dry_run": bool}.
@@ -2982,7 +2982,7 @@ def register_analysis_tools(mcp):
                     return json.dumps(HookInstaller().doctor(), default=str)
                 except Exception as e:
                     return json.dumps({"error": f"Doctor failed: {e}"})
-            # ── CONCEPT:ORCH-1.27: Role-Specialized Model Routing ──
+            # ── CONCEPT:AU-ORCH.routing.role-specialized-model-routing: Role-Specialized Model Routing ──
             if action == "set_role_routing":
                 try:
                     from pathlib import Path

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.12 — Memory-First Retrieval: HyDE planning & fidelity helpers.
+"""CONCEPT:AU-KG.retrieval.memory-first-retrieval — Memory-First Retrieval: HyDE planning & fidelity helpers.
 
 Pure, LLM-free helpers backing ``HybridRetriever.plan_and_retrieve``. Assimilated from Quarq
 Agent's retrieval stack (agent-oss/agent.py:1817-2052, 2435, 3211) and made graph-native:
@@ -36,7 +36,7 @@ def threshold_for_mode(mode: str) -> float:
     return HYDE_THRESHOLDS.get(mode, HYDE_THRESHOLDS["standard"])
 
 
-# CONCEPT:KG-2.15 — social-closer / triviality gate (memory-os scripts/context_enhancer.py:586).
+# CONCEPT:AU-KG.retrieval.triviality-gate — social-closer / triviality gate (memory-os scripts/context_enhancer.py:586).
 # Trivial turns skip the whole HyDE plan + retrieval, saving the planner LLM call and embedding work.
 SOCIAL_CLOSERS: frozenset[str] = frozenset(
     {
@@ -74,7 +74,7 @@ SOCIAL_CLOSERS: frozenset[str] = frozenset(
 
 
 def is_trivial_query(text: str) -> bool:
-    """True if a message is a social closer / too trivial to warrant retrieval (CONCEPT:KG-2.15).
+    """True if a message is a social closer / too trivial to warrant retrieval (CONCEPT:AU-KG.retrieval.triviality-gate).
 
     Trivial = an exact social-closer phrase, or a sub-6-char ASCII-only message, or emoji/symbol
     only. Such turns carry no retrievable intent, so the HyDE planner + vector search are skipped.
@@ -175,7 +175,7 @@ def merge_retrievals(
 def build_evidence_ledger(query: str, nodes: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a quantitative-fidelity ACCEPT/REJECT evidence ledger over retrieved nodes.
 
-    CONCEPT:KG-2.12 — assimilates Quarq's evidence table (agent.py:2435, 2478-2518). Each node
+    CONCEPT:AU-KG.retrieval.memory-first-retrieval — assimilates Quarq's evidence table (agent.py:2435, 2478-2518). Each node
     becomes a ledger row scored against the query; rows at/above the standard threshold are
     ACCEPTed, the rest REJECTed (near-miss / sibling category). Numeric tokens in accepted
     content are surfaced so a generator can attribute actor/action/event/exactness and aggregate

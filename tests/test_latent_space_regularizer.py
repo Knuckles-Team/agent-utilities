@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Latent Space Anti-Collapse Regularizer."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Latent Space Anti-Collapse Regularizer."""
 
 import pytest
 

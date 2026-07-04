@@ -1,4 +1,4 @@
-"""Tests for the A2A agent-card source extractor (CONCEPT:KG-2.10)."""
+"""Tests for the A2A agent-card source extractor (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)."""
 
 from __future__ import annotations
 

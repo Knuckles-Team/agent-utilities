@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Measured-lift benchmark for the latent-native memory mechanisms.
 
-CONCEPT:AHE-3.48 — empirical evidence that the latent-native enhancements move
+CONCEPT:AU-AHE.harness.empirical-evidence-that-latent — empirical evidence that the latent-native enhancements move
 their metric the right way, mirroring the assimilation-parity suite (AHE-3.47).
 
 Provenance: arXiv:2606.09828 ("Latent Spatial Memory for Video World Models",

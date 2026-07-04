@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.27 (RLM extension) — role-specialized RLM-GEPA model resolution.
+"""CONCEPT:AU-ORCH.routing.conductor-per-step-model (RLM extension) — role-specialized RLM-GEPA model resolution.
 
 Resolves the RLM-GEPA functional roles — ``rlm-executor`` / ``rlm-sublm`` (cheap, run the skill) and
 ``rlm-proposer`` (strong, reflects on traces and rewrites the skill) — through the ORCH-1.27 model

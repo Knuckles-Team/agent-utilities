@@ -1,6 +1,6 @@
 """``agent_utilities.http`` — the shared fleet HTTP client library.
 
-CONCEPT:ECO-4.35 — Fleet HTTP Client Library
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
 The consolidation audit's highest-leverage item: 10+ connector repos each
 carried a ~95%-identical ``api_client_base.py`` with no retry, no rate-limit
@@ -32,13 +32,13 @@ Two retry mechanisms exist in agent-utilities; they are **not** redundant
 and serve different layers — pick by what is being retried:
 
 * :class:`~agent_utilities.orchestration.resilience.ResiliencePolicy`
-  (CONCEPT:ORCH-1.36) retries an **in-process callable** — for HTTP that
+  (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating) retries an **in-process callable** — for HTTP that
   means transport failures (connect errors, resets, timeouts) via the
   ``retry=`` parameter on these clients / the core factory's
   :func:`~agent_utilities.core.http_client.http_retry_policy`. HTTP 429
   backoff is handled separately by the client itself (rate-limit aware).
   **This is the retry abstraction for HTTP clients.**
-* :class:`RetryManager` / :class:`RetryConfig` (CONCEPT:ORCH-1.3, from
+* :class:`RetryManager` / :class:`RetryConfig` (CONCEPT:AU-ORCH.execution.execution-budget-caps, from
   :mod:`agent_utilities.security.execution_stability_engine`) retry a whole
   **agent execution** verified by shell ``SuccessCheck`` commands, with
   ``on_failure`` remediation hooks — orchestration-level run-until-green

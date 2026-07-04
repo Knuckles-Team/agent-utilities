@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — monty sandbox: the fast, isolated, host-callback-capable default tier.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — monty sandbox: the fast, isolated, host-callback-capable default tier.
 
 monty (Pydantic's pure-Rust Python-subset interpreter) is the keystone of the tiering: it is
 the only *isolating* backend that can still serve the RLM host helpers, because async external

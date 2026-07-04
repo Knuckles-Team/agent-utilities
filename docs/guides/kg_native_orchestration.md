@@ -1,6 +1,6 @@
 # KG-Native Orchestration Architecture
 
-> **CONCEPT:ORCH-1.1 through ORCH-1.19** — Dynamic, Knowledge-Graph-Driven Agent Orchestration
+> **CONCEPT:AU-ORCH.planning.recursion-nesting-depth through ORCH-1.19** — Dynamic, Knowledge-Graph-Driven Agent Orchestration
 
 ## Overview
 
@@ -36,7 +36,7 @@ flowchart TD
 
 ### 1. KG-Driven Team Composer (`graph/team_composer.py`)
 
-**CONCEPT:ORCH-1.1** — Replaces static `discover_agents()` registration with dynamic KG-topology-driven team assembly.
+**CONCEPT:AU-ORCH.planning.recursion-nesting-depth** — Replaces static `discover_agents()` registration with dynamic KG-topology-driven team assembly.
 
 **Composition Flow:**
 1. **Reuse**: Search KG for proven `TeamConfigNode` matching the query (AHE-3.3)
@@ -56,7 +56,7 @@ flowchart TD
 
 ### 2. Dynamic Topology Engine (`graph/topology_engine.py`)
 
-**CONCEPT:ORCH-1.2** — Materializes KG-stored topology templates into executable graphs.
+**CONCEPT:AU-ORCH.adapter.hot-cache-invalidation** — Materializes KG-stored topology templates into executable graphs.
 
 **Supported Execution Modes:**
 
@@ -74,7 +74,7 @@ Each materialized specialist gets:
 
 ### 3. Execution State Checkpointing (`core/checkpoint/manager.py`)
 
-**CONCEPT:ORCH-1.1** — Bridges ephemeral `GraphState` with persistent KG. The
+**CONCEPT:AU-ORCH.planning.recursion-nesting-depth** — Bridges ephemeral `GraphState` with persistent KG. The
 former `graph/state_checkpoint.StateCheckpointer` was consolidated into the
 `core/checkpoint/` package (`KGBackend` + `CheckpointManager`).
 
@@ -94,7 +94,7 @@ restored = backend.restore("sess:abc")
 
 ### 4. Topological Routing Policy (`graph/routing/strategies/policy.py`)
 
-**CONCEPT:ORCH-1.4** — Routes using KG-derived topological signals instead of keyword TF-IDF.
+**CONCEPT:AU-ORCH.adapter.kg-graph-materialization** — Routes using KG-derived topological signals instead of keyword TF-IDF.
 
 **Scoring Dimensions:**
 1. **PageRank centrality** — Highly-connected specialists preferred
@@ -105,7 +105,7 @@ Falls back to `RuleBasedPolicy` when no KG is available (cold start).
 
 ### 5. Persistent Background Agents (`graph/persistent_agents.py`)
 
-**CONCEPT:ORCH-1.4** — Long-running KG-coordinated agents.
+**CONCEPT:AU-ORCH.adapter.kg-graph-materialization** — Long-running KG-coordinated agents.
 
 ```python
 mgr = PersistentAgentManager(engine)
@@ -124,7 +124,7 @@ mgr.register_agent("bg:monitor", "System Monitor",
 
 ### 6. Shareable Team Compositions
 
-**CONCEPT:ORCH-1.1 Extension** — Export/import proven team configurations.
+**CONCEPT:AU-ORCH.planning.recursion-nesting-depth Extension** — Export/import proven team configurations.
 
 ```python
 # Export
@@ -160,7 +160,7 @@ new_id = engine.import_team_config(bundle)
 
 ## Invoker to Spawned-Agent Handoff and Native Channels
 
-> **CONCEPT:ORCH-1.37, ORCH-1.39, ORCH-1.40** — when one agent spawns another via
+> **CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid, CONCEPT:AU-ORCH.session.invoker-agent-handoff, CONCEPT:AU-ORCH.session.session-anchored-collections-native** — when one agent spawns another via
 > `graph_orchestrate(action="execute_agent")`, three additive capabilities let the invoker shape,
 > observe, and converse with the spawned run. All are backward-compatible: omit the new inputs and
 > behaviour is unchanged.
@@ -192,10 +192,10 @@ bounded, without leaking secrets:
 
 `context`/`context_ref` are stored and fetched with the **`graph_context`** MCP tool (`put`/`get`/`list`).
 
-### ORCH-1.40 — Session-anchored collections & native message channels
+### AU-ORCH.session.session-anchored-collections-native — Session-anchored collections & native message channels
 
 The epistemic-graph engine is a pure id-addressed store with **no property/label index** — it is
-reliable at id-lookup and traversal-*from-a-known-id*, but unreliable at property scans. ORCH-1.40
+reliable at id-lookup and traversal-*from-a-known-id*, but unreliable at property scans. AU-ORCH.session.session-anchored-collections-native
 builds on that strength rather than fighting it:
 
 - **Session anchor.** Each session has an id-addressable `Session` node (`session:{sid}`). Its
@@ -242,7 +242,7 @@ and `graph_message` tool call examples.
 
 ## Integration with Existing Systems
 
-- **SubagentPatternRouter** (ORCH-1.5): Now uses KG backend for O(1) historical lookups instead of O(N) NX scans; persists decisions via tiered architecture
+- **SubagentPatternRouter** (AU-ORCH.planning.legal-automation-roadmap): Now uses KG backend for O(1) historical lookups instead of O(N) NX scans; persists decisions via tiered architecture
 - **CognitiveScheduler** (OS-5.2): Unified scheduler for both ephemeral and persistent agents
 - **EventStreamIngester** (Company Brain): Routes events to persistent agent subscribers
 - **TeamConfigNode** (AHE-3.3): Extended with export/import for cross-deployment sharing

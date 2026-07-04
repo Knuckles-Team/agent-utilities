@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """KB Document Parser.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Parses raw source documents into DocumentChunk objects for KB ingestion.
 Supports: Markdown, PDF, DOCX, EPUB, TXT, HTML, URLs.

@@ -1,4 +1,4 @@
-"""Research ontology objects are registered + discoverable (CONCEPT:KG-2.76)."""
+"""Research ontology objects are registered + discoverable (CONCEPT:AU-KG.ontology.kg-2)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.ontology.research_objects import (
 )
 from agent_utilities.models.knowledge_graph import RegistryEdgeType
 
-pytestmark = pytest.mark.concept("KG-2.76")
+pytestmark = pytest.mark.concept("AU-KG.ontology.kg-2")
 
 
 def test_research_interfaces_registered_by_default():

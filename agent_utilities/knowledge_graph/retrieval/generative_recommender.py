@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Implicit-reasoning generative recommendation over semantic IDs (CONCEPT:KG-2.93).
+"""Implicit-reasoning generative recommendation over semantic IDs (CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative).
 
 Assimilates the *mechanism* of "PauseRec: Implicit Reasoning for LLM-based
 Generative Recommendation" (He et al., arXiv:2606.14142) for an agentic
@@ -22,7 +22,7 @@ Adaptation framing (important). We are an agentic framework; we do **not** train
 an LLM backbone here. We therefore adopt PauseRec's mechanism at *inference /
 agentic* time over the SIDs already produced by
 :class:`~agent_utilities.knowledge_graph.retrieval.temporal_semantic_id.TemporalSemanticIdEncoder`
-(CONCEPT:KG-2.86):
+(CONCEPT:AU-KG.query.chronoid-fits-residual-quantization):
 
 * **Latent-reasoning budget** -- a configurable number of ``pause_steps``
   deliberate refinement steps performed before a recommendation is emitted. This
@@ -128,7 +128,7 @@ class TextSidBridge:
 
 
 class ImplicitReasoningRecommender:
-    """PauseRec-style implicit-reasoning generative recommender over SIDs (CONCEPT:KG-2.93).
+    """PauseRec-style implicit-reasoning generative recommender over SIDs (CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative).
 
     Recommendation is framed as generation in SID space: a query is projected
     into the shared code space, refined for a latent-reasoning budget of
@@ -187,7 +187,7 @@ class ImplicitReasoningRecommender:
 
         The encoder's codebooks are trained on the item embeddings, then every
         item is encoded. When ``event_times`` is supplied the full *temporal*
-        semantic ID is computed (CONCEPT:KG-2.86) -- exercising the recency token
+        semantic ID is computed (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization) -- exercising the recency token
         -- but ranking and refinement always operate on the content codes, which
         is the space shared with projected queries.
 
@@ -366,7 +366,7 @@ class ImplicitReasoningRecommender:
             "decodes_rationale": False,
             "mechanism": "latent-reasoning budget (PauseRec <pause> analogue)",
             "paper": "PauseRec (arXiv:2606.14142)",
-            "concept": "KG-2.93",
+            "concept": "AU-KG.retrieval.pauserec-implicit-reasoning-generative",
         }
 
 

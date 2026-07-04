@@ -1,4 +1,4 @@
-"""Enterprise-architecture tool clients for the KG federation (CONCEPT:KG-2.9).
+"""Enterprise-architecture tool clients for the KG federation (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The single place the knowledge graph resolves *ready* clients for the EA
 systems-of-record it mirrors and writes back to — LeanIX (and, best-effort,

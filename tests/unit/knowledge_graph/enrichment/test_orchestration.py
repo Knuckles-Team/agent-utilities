@@ -1,4 +1,4 @@
-"""Orchestration substrate: specs → graph batches (CONCEPT:KG-2.10 S4b)."""
+"""Orchestration substrate: specs → graph batches (CONCEPT:AU-KG.enrichment.a2a-capability-extraction S4b)."""
 
 from __future__ import annotations
 

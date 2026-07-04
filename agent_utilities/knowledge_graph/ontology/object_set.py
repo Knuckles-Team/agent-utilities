@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Object Set Service — search / filter / aggregate / traverse over object sets.
 
-CONCEPT:KG-2.45 — Object Set Service
+CONCEPT:AU-KG.ontology.link-type-pivot — Object Set Service
 
 Palantir provenance: the Foundry *object-backend* **Object Set Service** and the
 *object-explorer* surface. An *object set* is a first-class, composable handle on
@@ -82,7 +82,7 @@ DEFAULT_SEARCH_AROUND_CAP = 100_000
 
 
 class ObjectSetKind(StrEnum):
-    """The three materialization kinds of a Foundry object set (CONCEPT:KG-2.45).
+    """The three materialization kinds of a Foundry object set (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     - ``STATIC``: a fixed, explicit collection of object ids. Membership never
       changes unless a new set is derived from it.
@@ -123,7 +123,7 @@ def _is_container(v: Any) -> bool:
 class PropertyFilter:
     """A single typed property/type predicate on an object's properties.
 
-    CONCEPT:KG-2.45 — the building block of :meth:`ObjectSet.filter` and the
+    CONCEPT:AU-KG.ontology.link-type-pivot — the building block of :meth:`ObjectSet.filter` and the
     ``filters`` argument of :meth:`ObjectSet.search`. A filter names a property
     ``field``, a comparison ``op`` (one of eq/ne/gt/gte/lt/lte/in/contains/
     exists), and a comparison ``value``. The special field ``"type"`` matches a
@@ -194,7 +194,7 @@ def _coalesce_filters(
 
 
 class AggregationResult:
-    """Result of an :meth:`ObjectSet.aggregate` (CONCEPT:KG-2.45).
+    """Result of an :meth:`ObjectSet.aggregate` (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     Attributes:
         metric: The aggregation metric applied (count/sum/avg/min/max).
@@ -236,7 +236,7 @@ class AggregationResult:
 
 
 class PivotResult:
-    """Result of an :meth:`ObjectSet.pivot` (CONCEPT:KG-2.45).
+    """Result of an :meth:`ObjectSet.pivot` (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     A pivot follows a link type from the base set to the linked set, then groups
     the linked objects by a target property.
@@ -270,7 +270,7 @@ class PivotResult:
 
 
 class GraphView:
-    """A uniform read view over whatever graph the facade exposes (CONCEPT:KG-2.45).
+    """A uniform read view over whatever graph the facade exposes (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     Normalizes the small read surface :class:`ObjectSet` needs across the three
     shapes the facade may hand us — a ``GraphComputeEngine`` (the facade's L1
@@ -440,7 +440,7 @@ def _edge_type(props: Mapping[str, Any]) -> Any:
 
 
 class ObjectSet:
-    """A composable handle on a set of ontology objects (CONCEPT:KG-2.45).
+    """A composable handle on a set of ontology objects (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     Construct via the factories — :func:`object_set_from_ids` (STATIC),
     :func:`dynamic_object_set` (DYNAMIC predicate over the live graph), or
@@ -553,7 +553,7 @@ class ObjectSet:
         *,
         filters: Iterable[PropertyFilter] | None = None,
     ) -> ObjectSet:
-        """Return a new STATIC set of members satisfying the filter (CONCEPT:KG-2.45).
+        """Return a new STATIC set of members satisfying the filter (CONCEPT:AU-KG.ontology.link-type-pivot).
 
         Accepts either a free ``predicate`` callable over an object's properties
         and/or a list of typed :class:`PropertyFilter` (AND-combined). At least
@@ -584,7 +584,7 @@ class ObjectSet:
 
         An *interface* name is expanded to its concrete implementing types via
         the ontology interface registry (soft import — if unavailable the name is
-        treated as a single concrete type). CONCEPT:KG-2.38 / KG-2.45.
+        treated as a single concrete type). CONCEPT:AU-KG.ontology.conformance-check / KG-2.45.
         """
         types = set(_resolve_target_types(self._kg, type_or_interface))
 
@@ -603,7 +603,7 @@ class ObjectSet:
     ) -> ObjectSet:
         """Search this set semantically/lexically, then apply property filters.
 
-        CONCEPT:KG-2.45. The query is resolved through the hybrid/semantic
+        CONCEPT:AU-KG.ontology.link-type-pivot. The query is resolved through the hybrid/semantic
         retriever when an embedding-backed engine is reachable; otherwise it
         degrades to a deterministic substring scan over each object's textual
         fields (name/title/content/text/description/summary). Either way the hits
@@ -670,7 +670,7 @@ class ObjectSet:
     ) -> ObjectSet:
         """Traverse ``link_type`` ``hops`` edges to the related object set.
 
-        CONCEPT:KG-2.45 — Foundry SEARCH_AROUND. Starting from this set's members,
+        CONCEPT:AU-KG.ontology.link-type-pivot — Foundry SEARCH_AROUND. Starting from this set's members,
         walk the typed link ``hops`` times (BFS) and return the reachable object
         set. ``direction`` is ``"out"`` (successors), ``"in"`` (predecessors), or
         ``"both"``. ``link_type=None`` follows links of *any* type. The frontier
@@ -738,7 +738,7 @@ class ObjectSet:
     ) -> PivotResult:
         """Follow ``link_type`` to the linked set and group it by ``group_by``.
 
-        CONCEPT:KG-2.45 — pivot across a link type. Computes the 1-hop related set
+        CONCEPT:AU-KG.ontology.link-type-pivot — pivot across a link type. Computes the 1-hop related set
         (:meth:`search_around`) and buckets those linked objects by the value of
         their ``group_by`` property. Returns a :class:`PivotResult` carrying the
         ``{group_value: [ids]}`` buckets plus the full linked :class:`ObjectSet`.
@@ -763,7 +763,7 @@ class ObjectSet:
         field: str | None = None,
         group_by: str | None = None,
     ) -> AggregationResult:
-        """Aggregate over the set's objects (CONCEPT:KG-2.45).
+        """Aggregate over the set's objects (CONCEPT:AU-KG.ontology.link-type-pivot).
 
         Real ``count`` / ``sum`` / ``avg`` / ``min`` / ``max``:
 
@@ -819,20 +819,20 @@ class ObjectSet:
 
     # ── set algebra ──────────────────────────────────────────────────────────
     def union(self, other: ObjectSet) -> ObjectSet:
-        """Return the union of this set and ``other`` (CONCEPT:KG-2.45)."""
+        """Return the union of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot)."""
         a = self.ids()
         seen = set(a)
         merged = a + [i for i in other.ids() if i not in seen]
         return self._derive(merged, "union", other)
 
     def intersect(self, other: ObjectSet) -> ObjectSet:
-        """Return the intersection of this set and ``other`` (CONCEPT:KG-2.45)."""
+        """Return the intersection of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot)."""
         b = set(other.ids())
         kept = [i for i in self.ids() if i in b]
         return self._derive(kept, "intersect", other)
 
     def subtract(self, other: ObjectSet) -> ObjectSet:
-        """Return this set minus ``other`` (set difference, CONCEPT:KG-2.45)."""
+        """Return this set minus ``other`` (set difference, CONCEPT:AU-KG.ontology.link-type-pivot)."""
         b = set(other.ids())
         kept = [i for i in self.ids() if i not in b]
         return self._derive(kept, "subtract", other)
@@ -997,7 +997,7 @@ def _reduce_metric(metric: str, vals: list[float]) -> float:
 def object_set_from_ids(
     graph: Any, ids: Iterable[str], *, name: str | None = None
 ) -> ObjectSet:
-    """Construct a STATIC :class:`ObjectSet` over fixed ``ids`` (CONCEPT:KG-2.45)."""
+    """Construct a STATIC :class:`ObjectSet` over fixed ``ids`` (CONCEPT:AU-KG.ontology.link-type-pivot)."""
     return ObjectSet(graph, kind=ObjectSetKind.STATIC, ids=ids, name=name)
 
 
@@ -1011,7 +1011,7 @@ def dynamic_object_set(
     """Construct a DYNAMIC :class:`ObjectSet` from a predicate / typed filters.
 
     The set membership is re-evaluated against the live graph on every read, so
-    it auto-updates as objects are added, changed, or removed. CONCEPT:KG-2.45.
+    it auto-updates as objects are added, changed, or removed. CONCEPT:AU-KG.ontology.link-type-pivot.
     """
     prop_pred = _coalesce_filters(filters)
     if predicate is None and prop_pred is None:
@@ -1035,7 +1035,7 @@ def object_set_of_type(
     """Construct a DYNAMIC set of all live objects of a type/interface.
 
     An interface name is resolved to its implementing concrete types; the set
-    auto-updates as matching objects appear/disappear. CONCEPT:KG-2.45 / KG-2.38.
+    auto-updates as matching objects appear/disappear. CONCEPT:AU-KG.ontology.link-type-pivot / KG-2.38.
     """
     types = set(_resolve_target_types(graph, type_or_interface))
 

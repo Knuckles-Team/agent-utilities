@@ -1,4 +1,4 @@
-"""External-graph profile / imprint / ontology-map (CONCEPT:KG-2.63 extension).
+"""External-graph profile / imprint / ontology-map (CONCEPT:AU-KG.backend.multi-connection-registry extension).
 
 Verifies the seam an agent uses to discover + natively use a registered third-party
 graph: introspect its schema, map its labels onto our ontology, and imprint a
@@ -18,7 +18,7 @@ from agent_utilities.knowledge_graph.core.connection_profiler import (
 )
 from agent_utilities.knowledge_graph.core.connection_registry import ConnectionRegistry
 
-pytestmark = pytest.mark.concept("KG-2.63")
+pytestmark = pytest.mark.concept("AU-KG.backend.multi-connection-registry")
 
 
 class FakeExternalEngine:

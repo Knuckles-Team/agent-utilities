@@ -1,7 +1,7 @@
 # Document → Knowledge-Graph Fact Extraction
 
 **Concepts:** KG-2.64 (fact extractor), KG-2.65 (GPU-slot scheduler), KG-2.66
-(readability reader), ECO-4.43 (three-frontend extraction UI).
+(readability reader), AU-ECO.connector.git-task-resolver (three-frontend extraction UI).
 
 Turn any document, URL, or pasted text into an interactive knowledge graph: the
 LLM emits atomic `(subject) --[predicate]--> (object)` facts — each carrying a
@@ -134,7 +134,7 @@ sequenceDiagram
 A late subscriber misses nothing: the manager keeps a bounded per-job event
 buffer and replays history before tailing live events.
 
-## Three-frontend topology (ECO-4.43)
+## Three-frontend topology (AU-ECO.connector.git-task-resolver)
 
 One gateway contract, three native renderings:
 

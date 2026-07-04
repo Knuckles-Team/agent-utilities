@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Plan and Tasks Watcher & Ingester.
 
-CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
+CONCEPT:AU-KG.temporal.plan-task-versioning — Implementation Plan & Tasks versioning and KG lineage.
 
 This module watches for changes in implementation plans and task lists in the
 active workspace or local IDE brain session directory, archives each unique state,
@@ -594,7 +594,7 @@ def get_watched_directories() -> list[tuple[Path, bool, str]]:
     ``KG_WATCH_DIRS`` (recursive, provenance ``watcher_documents``) — e.g. set
     ``KG_WATCH_DIRS=~/Documents`` to auto-ingest a personal corpus. New files are
     ingested and modified files re-ingested on the next 5s watcher tick; unchanged
-    files are delta-skipped by content hash (CONCEPT:KG-2.8). ``KG_WATCH_DIRS``
+    files are delta-skipped by content hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint). ``KG_WATCH_DIRS``
     accepts a JSON array or an ``os.pathsep``/comma-separated list of paths
     (``~`` expanded).
     """
@@ -904,7 +904,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
 
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
     #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
-    #    with per-file content-hash delta-skip (CONCEPT:KG-2.8): new files ingest,
+    #    with per-file content-hash delta-skip (CONCEPT:EG-KG.storage.nonblocking-checkpoint): new files ingest,
     #    modified files re-ingest, unchanged files skip.
     try:
         target_exts = {".pdf", ".docx", ".doc", ".txt", ".md"}

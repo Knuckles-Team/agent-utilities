@@ -1,4 +1,4 @@
-"""Live-path test: MCP-backed source → entry point → ingestion → KG (CONCEPT:KG-2.59).
+"""Live-path test: MCP-backed source → entry point → ingestion → KG (CONCEPT:AU-KG.ingest.mcp-tool-connector).
 
 Wire-First verification for the ``mcp_tool`` source: exercises the *existing*
 entry-point seam — ``kg.ontology.run_connector`` (the facade both the
@@ -116,7 +116,7 @@ def make_objectstore_server() -> FastMCP:
 
 
 @pytest.mark.integration
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 @pytest.mark.asyncio
 async def test_mcp_tool_sql_source_through_run_connector_entry_point(
     tmp_path, monkeypatch
@@ -160,7 +160,7 @@ async def test_mcp_tool_sql_source_through_run_connector_entry_point(
 
 
 @pytest.mark.integration
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 @pytest.mark.asyncio
 async def test_mcp_tool_objectstore_source_incremental_reingest(tmp_path, monkeypatch):
     """ContentType.CONNECTOR adaptor: list+get sweep, then an incremental re-run."""

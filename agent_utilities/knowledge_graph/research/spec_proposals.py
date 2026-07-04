@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """The distill → review → develop seam — distilled specs become develop-able work.
 
-CONCEPT:KG-2.292 — Fix the distill→develop DEAD-END (north-star GAP 1). Today
+CONCEPT:AU-KG.research.close-distill-develop-seam — Fix the distill→develop DEAD-END (north-star GAP 1). Today
 ``enrichment/distill.py`` writes ``.specify`` SDD markdown, but the develop/code path
 (``change_publisher.governed_publish`` → AHE-3.20–3.24) consumes *promoted proposal
 nodes*, not those spec files — the two tracks are disjoint. This module connects them:
@@ -14,7 +14,7 @@ consumes — into ``governed_publish``. So "distill specs → develop THOSE spec
 flows, while the existing capability-ratchet regression gate (AHE-3.24) and the
 ``merge_promotion`` human-approval gate (OS-5.24) stay on the path (governance intact).
 
-CONCEPT:OS-5.73 — Spec-level review/veto checkpoint (north-star GAP 5). A distilled
+CONCEPT:AU-OS.config.autonomous-spec-develop-off — Spec-level review/veto checkpoint (north-star GAP 5). A distilled
 spec is surfaced for optional Claude/human review/edit/veto BEFORE it develops, behind
 a new ``spec_promotion`` ActionPolicy tier. The default posture is **propose-and-hold**:
 a fresh spec sits in ``pending_review`` and only an explicit approval (or an operator

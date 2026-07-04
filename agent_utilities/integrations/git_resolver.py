@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.43 — Git issue/PR -> SWE task resolver.
+"""CONCEPT:AU-ECO.connector.git-task-resolver — Git issue/PR -> SWE task resolver.
 
 OpenHands ships a per-platform resolver that turns a GitHub/GitLab/Bitbucket issue or PR into an
 agent task, with a suggested-tasks taxonomy. We match it and surpass it the agent-utilities way:

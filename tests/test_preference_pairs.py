@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""PreferencePair export + DPO-family refinements (CONCEPT:AHE-3.17).
+"""PreferencePair export + DPO-family refinements (CONCEPT:AU-AHE.harness.preference-corpus-reliability).
 
 Covers W1.1 (consolidated export) and W3.1–3.3 (RAPPO reliability filter, TI-DPO
 token weights, InSPO reflective conditioning), incl. a live-path test through
@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.17")
+pytestmark = pytest.mark.concept("AU-AHE.harness.preference-corpus-reliability")
 
 
 # --- normalization / dedup (export_from) -----------------------------------

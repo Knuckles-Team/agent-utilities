@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Universal MCP-tool ingestion source — any fleet MCP server as a KG source.
 
-CONCEPT:KG-2.59 — MCP Tool Source Connector
+CONCEPT:AU-KG.ingest.mcp-tool-connector — MCP Tool Source Connector
 
 One declarative adapter that turns **any** MCP server's paginated, record-listing
 tool into a Knowledge-Graph document source — sql-mcp, objectstore-mcp,
@@ -77,14 +77,14 @@ class McpToolSourceError(RuntimeError):
     """A transport/tool failure while draining an MCP-backed source.
 
     Raised for session, tool-call, and pagination failures so the ingestion
-    adaptor reports a typed, actionable drain error (CONCEPT:KG-2.59) (config
+    adaptor reports a typed, actionable drain error (CONCEPT:AU-KG.ingest.mcp-tool-connector) (config
     mistakes raise ``ValueError`` at build time, per the framework convention).
     """
 
 
 # ── Recipe presets (data, not code) ─────────────────────────────────────────
 #
-# Named partial configs for the common fleet sources (CONCEPT:KG-2.59), in the
+# Named partial configs for the common fleet sources (CONCEPT:AU-KG.ingest.mcp-tool-connector), in the
 # same spirit as ECO-4.29's PACKAGE_PRESETS: every key is overridable, and the
 # caller extends a preset with the run-specific bits (table, bucket, params).
 MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
@@ -98,7 +98,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "action": "execute",
         "doc_type": "record",
     },
-    # Harness-run traces from any fleet evolution/governance server (CONCEPT:KG-2.108).
+    # Harness-run traces from any fleet evolution/governance server (CONCEPT:AU-KG.retrieval.harness-grounding).
     # Grounds harness evolution in the WHOLE connector fleet, not a single benchmark
     # verifier — the cross-team evidence substrate HarnessX (arXiv:2606.14249) lacks.
     # Extend with {"server": "<your-mcp>", "params": {"status": "completed"}}.
@@ -274,7 +274,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "doc_type": "repository",
     },
     # GitLab API-OBJECT ingestion (issues / MRs as documents) — the metadata side
-    # of "assimilate all of GitLab" (CONCEPT:KG-2.9g). The resolved CODE graph comes
+    # of "assimilate all of GitLab" (CONCEPT:AU-KG.backend.declared-columns-so-schema). The resolved CODE graph comes
     # from the dedicated `gitlab` source-sync handler + `index_repository`, not from
     # this preset. `{project_id}` is bound by the caller's params.
     "gitlab-issues": {
@@ -335,7 +335,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "text_field": "email",
         "doc_type": "identity",
     },
-    # ── PulseLink open-web/social sources (CONCEPT:ECO-4.46) ─────────────────
+    # ── PulseLink open-web/social sources (CONCEPT:AU-ECO.connector.mcp-tool-connector) ─────────────────
     #
     # pulselink-mcp is the keyless-first reach server (sibling to scholarx). Its
     # ``pulse_search`` / ``pulse_list`` tools return a uniform
@@ -417,7 +417,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         }
         for src in ("rss", "v2ex")
     },
-    # FreshRSS (CONCEPT:KG-2.115): the homelab RSS reader as a gated world-model
+    # FreshRSS (CONCEPT:AU-KG.compute.homelab-rss-reader-as): the homelab RSS reader as a gated world-model
     # source. Drives the freshrss-mcp ``freshrss_reader`` action-routed tool
     # (action=stream_contents) over the Google-Reader API; each entry becomes a
     # ``news_article`` Document. The preset is decoupled from raw GReader param
@@ -442,7 +442,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "cursor_path": "continuation",
         "doc_type": "news_article",
     },
-    # ── Atlassian + Plane issue trackers / wiki (CONCEPT:KG-2.123/2.124/2.125) ──
+    # ── Atlassian + Plane issue trackers / wiki (CONCEPT:AU-KG.compute.confluence-first-class-delta/2.124/2.125) ──
     #
     # All three drive an action-routed fleet tool whose result is the api-client
     # envelope ``{status_code, data, message}`` — so every records/cursor path is
@@ -532,7 +532,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "more_path": "data.next_page_results",
         "doc_type": "issue",
     },
-    # ── Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161) ──
+    # ── Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161) ──
     #
     # Each preset is the DRAIN half (list records via the fleet ``*-mcp`` tool); the
     # matching ``_sync_*`` delta handler in ``core/source_sync.py`` rebuilds typed
@@ -543,7 +543,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     # technitium-dns) have NO preset here — their handlers call the tool directly via
     # ``call_tool_once`` because their result is not a flat record list.
     #
-    # DockerHub repositories → :Repository / :ContainerImage (CONCEPT:KG-2.155). The
+    # DockerHub repositories → :Repository / :ContainerImage (CONCEPT:AU-KG.compute.dockerhub-repositories). The
     # ``hub_repos`` tool is action-routed (action + params_json); a ``namespace`` is
     # required (injected per-namespace by the handler). DRF page envelope under
     # ``data.results`` (page-number paging). ``text_field`` is the description.
@@ -566,7 +566,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "start_page": 1,
         "doc_type": "container_image",
     },
-    # Langfuse traces → :Trace (CONCEPT:KG-2.156). ``langfuse_observability`` is an
+    # Langfuse traces → :Trace (CONCEPT:AU-KG.compute.langfuse-traces-observations). ``langfuse_observability`` is an
     # action-routed tool that takes plain keyword args (``params_style='args'``):
     # ``action='trace_list'`` + page/limit. Langfuse returns ``{"data": [...], "meta":
     # {...}}``; page-number paging (a short final page ends the sweep). The handler also
@@ -612,7 +612,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "start_page": 1,
         "doc_type": "observation",
     },
-    # Home Assistant states → :Device / :Entity (CONCEPT:KG-2.160). ``home_assistant_states``
+    # Home Assistant states → :Device / :Entity (CONCEPT:AU-KG.compute.home-assistant-states). ``home_assistant_states``
     # action-routed; ``list_states`` returns a BARE LIST of HAState (``records_path=""`` =
     # the whole result), no pagination. Each entity_id maps to an :Entity; its device-class
     # attribute rolls up to a :Device. ``text_field`` is the state value.
@@ -628,7 +628,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "doc_type": "entity",
     },
     # Twenty CRM people/companies/opportunities → :Person / :Company / :Opportunity
-    # (CONCEPT:KG-2.161). ``twenty_crm`` action-routed (action + params_json); each
+    # (CONCEPT:AU-KG.compute.twenty-crm-people-companies). ``twenty_crm`` action-routed (action + params_json); each
     # ``get_<object>`` returns the Twenty REST envelope ``{"data": {"<object>": [...]},
     # "pageInfo": {...}}``. Cursor paging via ``pageInfo.endCursor`` /
     # ``pageInfo.hasNextPage`` (Twenty's keyset ``starting_after``).
@@ -683,7 +683,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "more_path": "pageInfo.hasNextPage",
         "doc_type": "opportunity",
     },
-    # ── Finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166) ────────
+    # ── Finance / document / genealogy connectors (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors–2.166) ────────
     #
     # Same DRAIN-half pattern as the ops connectors above: the preset lists records via
     # the fleet ``*-mcp`` tool, the matching ``_sync_*`` handler rebuilds typed entities.
@@ -692,7 +692,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     # ``call_tool_once`` because the result is multi-step / wrapped.
     #
     # Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
-    # (CONCEPT:KG-2.164). The ``*_operations`` tools are action-routed (action +
+    # (CONCEPT:AU-KG.compute.firefly-iii-accounts-transactions). The ``*_operations`` tools are action-routed (action +
     # params_json); each returns the Laravel JSON:API envelope ``{"data": [{"id","type",
     # "attributes":{…}}], "meta":{"pagination":{…}}}``. Page-number paging nests under the
     # tool's ``params`` query dict (``params.page`` / ``params.limit``); a short final page
@@ -755,7 +755,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "doc_type": "budget",
     },
     # Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
-    # (CONCEPT:KG-2.165). The ``document_operations`` tool is action-routed (action +
+    # (CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents). The ``document_operations`` tool is action-routed (action +
     # params_json) and ALREADY paginates internally (``_fetch_all`` follows DRF ``next``),
     # returning a FLAT LIST — so ``records_path=""`` (the whole result) and
     # ``pagination='none'``. ``ordering=-modified`` surfaces the freshest first.
@@ -791,7 +791,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "text_field": "name",
         "doc_type": "tag",
     },
-    # ── Connector dual-role presets (CONCEPT:KG-2.59) ────────────────────────────
+    # ── Connector dual-role presets (CONCEPT:AU-KG.ingest.mcp-tool-connector) ────────────────────────────
     #
     # The same ~58-server fleet that exposes LIVE MCP tools is ALSO an ingestion
     # surface: every connector with a record-listing tool gets a declarative preset
@@ -1008,12 +1008,12 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-# ── Per-repo preset contribution (CONCEPT:KG-2.59) ──────────────────────────
+# ── Per-repo preset contribution (CONCEPT:AU-KG.ingest.mcp-tool-connector) ──────────────────────────
 #
 # A connector package can ship its OWN ingestion preset RIGHT BESIDE its MCP tool
 # ("2 actions from the same repo") instead of registering it in this central dict.
 # It declares a setuptools entry-point in the SAME data-only style the hub already
-# uses for fleet skills/prompts (CONCEPT:OS-5.52, ``core/providers.py``)::
+# uses for fleet skills/prompts (CONCEPT:AU-OS.deployment.agent-factory-autoload, ``core/providers.py``)::
 #
 #     # in the connector package's pyproject.toml
 #     [project.entry-points."agent_utilities.source_connector_providers"]
@@ -1172,7 +1172,7 @@ def _decode(result: Any) -> Any:
 class McpToolSourceConnector(LoadConnector, PollConnector):
     """Drive any MCP server's record-listing tool as a document source.
 
-    See the module docstring for the design (CONCEPT:KG-2.59). Config keys
+    See the module docstring for the design (CONCEPT:AU-KG.ingest.mcp-tool-connector). Config keys
     (every preset key is overridable by an explicit one):
 
     Transport (first match wins):
@@ -1413,7 +1413,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         """Build the fastmcp client for one run (lazy import, clear error).
 
         Authenticate to JWT-protected fleet servers with the service-account bearer
-        (CONCEPT:OS-5.32) — opt-in via ``MCP_CLIENT_AUTH=oidc-client-credentials``,
+        (CONCEPT:AU-OS.identity.so-jwt-protected-children) — opt-in via ``MCP_CLIENT_AUTH=oidc-client-credentials``,
         mirroring the multiplexer. A url-based target uses the URL directly so the
         per-request ``httpx.Auth`` applies; a mint failure / disabled auth degrades
         to no auth (an unauthenticated server is unaffected). An injected client is
@@ -1589,7 +1589,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     async def _prepare_sql_table(self, client: Any) -> None:
         """Turn a ``sql_table`` block into a keyset-paginated sql_query sweep.
 
-        Table/column identifiers come from operator config (CONCEPT:KG-2.59)
+        Table/column identifiers come from operator config (CONCEPT:AU-KG.ingest.mcp-tool-connector)
         and are validated as plain identifiers; values always travel as bound
         parameters via sql-mcp's ``params``. Columns are discovered through
         ``sql_schema`` (action=columns) inside the same session when not given.
@@ -1733,7 +1733,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
 
         Returns ``(documents, new_state, exhausted, max_updated_seen)``. The
         session is opened once, reused for every page and detail call, and
-        closed before returning (CONCEPT:KG-2.59 session lifecycle).
+        closed before returning (CONCEPT:AU-KG.ingest.mcp-tool-connector session lifecycle).
         """
 
         async def run() -> tuple[
@@ -1806,7 +1806,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """One batch per call: resume pagination, bind the since-watermark.
 
-        (CONCEPT:KG-2.59 + ECO-4.26) Pagination position lives in
+        (CONCEPT:AU-KG.ingest.mcp-tool-connector + ECO-4.26) Pagination position lives in
         ``checkpoint.state``; the watermark only advances once a sweep
         exhausts, so a resumed mid-sweep run keeps filtering against the
         watermark of the previous *completed* sweep.
@@ -1853,7 +1853,7 @@ async def call_tool_once(
     timeout: float = 60.0,
 ) -> Any:
     """One-shot fleet MCP tool call — the **write-side twin** of the KG-2.59 source
-    connector (CONCEPT:KG-2.42).
+    connector (CONCEPT:AU-KG.ontology.batch-actions-executor).
 
     The source connector *reads* records out of a fleet MCP server; this calls one
     fleet tool *once* and returns its decoded result, reusing the very same transport

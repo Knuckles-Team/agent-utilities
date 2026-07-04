@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Enterprise Standardization & Consolidation engine (CONCEPT:KG-2.49).
+"""Enterprise Standardization & Consolidation engine (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
 The decision brain that turns a fully-harvested enterprise knowledge graph into
 (a) an enforceable enterprise-standard model and (b) ranked, propose-only
@@ -61,7 +61,7 @@ def run_standardization_pass(
     weights: dict[str, float] | None = None,
     write: bool = True,
 ) -> dict[str, Any]:
-    """Run one propose-only standardization + consolidation pass (CONCEPT:KG-2.49).
+    """Run one propose-only standardization + consolidation pass (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
     materialize standards → score conformance drift → rank consolidation
     candidates. Idempotent (CONFORMS_TO / ABSORBED_INTO edges are cleared before

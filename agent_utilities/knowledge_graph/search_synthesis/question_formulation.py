@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Question formulation and adversarial refinement.
 
-CONCEPT:KG-2.72 — question formulation + adversarial refinement
+CONCEPT:AU-KG.retrieval.question-formulation-adversarial-refinement — question formulation + adversarial refinement
 
 The last two FORT-Searcher stages (arXiv:2606.12087, §3.1.3–3.1.4). Formulation
 renders a selected answer-bearing subgraph as a natural-language question while

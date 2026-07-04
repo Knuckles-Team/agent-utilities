@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Comparative feature / innovation matrix (CONCEPT:KG-2.173).
+"""Comparative feature / innovation matrix (CONCEPT:AU-KG.research.default-so-every-cycle).
 
 Materializes the post-assimilation graph (coverage edges + leverage + synergy)
 into one queryable + rendered deliverable.
@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.assimilation import (
     render_markdown,
 )
 
-pytestmark = pytest.mark.concept("KG-2.173")
+pytestmark = pytest.mark.concept("AU-KG.research.default-so-every-cycle")
 
 
 class _Graph:
@@ -25,7 +25,7 @@ class _Graph:
     def nodes(self, data=False):
         # data=True → NX-style (id, data) items; data=False → the dict itself, which
         # supports BOTH iteration (keys) AND [id] lookup (the per-id scoped fetch path,
-        # CONCEPT:KG-2.193) so build_feature_matrix(restrict_to=...) stays O(cohort).
+        # CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so build_feature_matrix(restrict_to=...) stays O(cohort).
         return list(self._n.items()) if data else self._n
 
     def add_edge(self, src, dst, props):
@@ -66,23 +66,23 @@ def _f(concept, sources=(), name=""):
 def _engine():
     eng = _Engine(
         {
-            "f_kg": _f("KG-2.1", sources=["paperA"], name="Latent rollout memory"),
+            "f_kg": _f("AU-KG.memory.tiered-memory-caching", sources=["paperA"], name="Latent rollout memory"),
             "f_orch": _f(
-                "ORCH-1.2", sources=["paperA", "paperB"], name="Diverse query"
+                "AU-ORCH.adapter.hot-cache-invalidation", sources=["paperA", "paperB"], name="Diverse query"
             ),
-            "f_ahe": _f("AHE-3.0", sources=["paperB"], name="Cache-tier reward"),
+            "f_ahe": _f("AU-AHE.harness.harness-evolution", sources=["paperB"], name="Cache-tier reward"),
         }
     )
     # f_kg → related (novel-but-relevant) with a recorded novelty
     eng.link_nodes(
         "f_kg",
-        "KG-2.99",
+        "AU-KG.ontology.kg-3",
         "RELATES_TO",
         properties={"_rel": "RELATES_TO", "novelty": 0.7},
     )
     # f_ahe → covered (we already built this)
     eng.link_nodes(
-        "f_ahe", "AHE-3.0", "SATISFIED_BY", properties={"_rel": "SATISFIED_BY"}
+        "f_ahe", "AU-AHE.harness.harness-evolution", "SATISFIED_BY", properties={"_rel": "SATISFIED_BY"}
     )
     # cross-pillar synergy: KG ~ ORCH
     eng.link_nodes("f_kg", "f_orch", "SIMILAR_TO", properties={"_rel": "SIMILAR_TO"})
@@ -94,9 +94,9 @@ def test_matrix_coverage_novelty_and_synergy():
     rows = {r.feature_id: r for r in matrix.rows}
 
     assert rows["f_ahe"].coverage == "covered"
-    assert rows["f_ahe"].concept_id == "AHE-3.0"
+    assert rows["f_ahe"].concept_id == "AU-AHE.harness.harness-evolution"
     assert rows["f_kg"].coverage == "related"
-    assert rows["f_kg"].concept_id == "KG-2.99"
+    assert rows["f_kg"].concept_id == "AU-KG.ontology.kg-3"
     assert rows["f_kg"].novelty_score == 0.7
     assert rows["f_orch"].coverage == "novel"
     assert rows["f_orch"].novelty_score == 1.0
@@ -143,14 +143,14 @@ def test_materialize_writes_feature_matrix_node_idempotently():
 
 
 def test_scoped_matrix_restricts_to_cohort_sources():
-    """restrict_to scopes the WHOLE build to a feature subset (CONCEPT:KG-2.193) —
+    """restrict_to scopes the WHOLE build to a feature subset (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) —
     per-id collection + per-id coverage + scoped leverage/synergy."""
     eng = _engine()
     m = build_feature_matrix(eng, restrict_to={"f_kg"})
     ids = {r.feature_id for r in m.rows}
     assert ids == {"f_kg"}  # only the cohort source, not the whole graph
     row = m.rows[0]
-    assert row.coverage == "related" and row.concept_id == "KG-2.99"
+    assert row.coverage == "related" and row.concept_id == "AU-KG.ontology.kg-3"
     assert row.novelty_score == 0.7
     assert m.counts["total"] == 1
     # a covered feature outside the scope is excluded entirely

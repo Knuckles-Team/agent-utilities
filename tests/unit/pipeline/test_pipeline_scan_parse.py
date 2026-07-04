@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.
 

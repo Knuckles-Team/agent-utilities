@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.4"""
+"""CONCEPT:AU-KG.compute.cross-pillar-synergy"""
 
 import pytest
 

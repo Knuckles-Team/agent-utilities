@@ -1,4 +1,4 @@
-"""Technitium DNS source extractor (CONCEPT:KG-2.9).
+"""Technitium DNS source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps DNS zones/records into the uniform ExtractionBatch: zones → :ConfigurationItem,
 records → :ConfigurationItem (ci_class=dns_record) with a CONTAINS edge zone→record.

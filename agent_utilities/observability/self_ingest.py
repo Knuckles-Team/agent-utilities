@@ -1,12 +1,12 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.304 — Self-ingest telemetry (dogfooding).
+"""CONCEPT:AU-KG.ingest.attaching-this-root-logger — Self-ingest telemetry (dogfooding).
 
 agent-utilities + graph-os ship their OWN telemetry (structured log records,
 plus ``RunTrace`` / ``:ToolCall`` provenance events) INTO the epistemic-graph
 engine's observability store, over the engine's OTLP/HTTP log-ingestion endpoint
-(engine CONCEPT:EG-160 — ``EPISTEMIC_GRAPH_OBS_ADDR`` + ``POST /v1/logs`` OTLP,
+(engine CONCEPT:AU-KG.ingest.self-ingest — ``EPISTEMIC_GRAPH_OBS_ADDR`` + ``POST /v1/logs`` OTLP,
 or the ``_bulk`` endpoint). The engine becomes its own observability backend.
 
 Design mirrors the Langfuse exporter (:mod:`langfuse_exporter`):
@@ -156,7 +156,7 @@ def _default_transport(timeout: float, headers: dict[str, str]) -> Transport:
 class SelfIngestSink:
     """Batching, non-blocking sink that ships records to the engine obs store.
 
-    CONCEPT:KG-2.304. Records are plain dicts with keys ``timestamp_ns``,
+    CONCEPT:AU-KG.ingest.attaching-this-root-logger. Records are plain dicts with keys ``timestamp_ns``,
     ``severity_text``, ``body``, ``attributes`` (flat dict) and ``event_type``
     (``log`` | ``run_trace`` | ``tool_call``). :meth:`format_otlp` / :meth:`format_bulk`
     render a batch into the wire shape the engine accepts.
@@ -372,7 +372,7 @@ class SelfIngestSink:
 class SelfIngestLogHandler(logging.Handler):
     """A ``logging.Handler`` that forwards records to a :class:`SelfIngestSink`.
 
-    CONCEPT:KG-2.304. Attaching this to the root logger routes all
+    CONCEPT:AU-KG.ingest.attaching-this-root-logger. Attaching this to the root logger routes all
     agent-utilities + graph-os log output into the engine obs store when
     self-ingest is enabled.
     """

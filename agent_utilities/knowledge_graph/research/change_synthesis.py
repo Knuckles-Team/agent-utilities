@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Proposal → concrete change-set synthesis (CONCEPT:AHE-3.21).
+"""Proposal → concrete change-set synthesis (CONCEPT:AU-AHE.harness.evolution-branch-bridge).
 
 The evolution→branch bridge's first half: given a *promoted* golden-loop
 proposal (a ``SpecDraft``/``TeamSpec``/dict spec or the raw KG proposal node's
@@ -15,7 +15,7 @@ materialize what the proposal already carries:
   artifacts (a ``files`` attribute/key, or a ``files_json`` property on the KG
   node: ``[{"path": ..., "content": ...}, ...]``) becomes a ``kind="code"``
   change set. Its Python files are validated through the tiered RLM sandbox
-  (CONCEPT:ORCH-1.38) — syntax compile + best-effort import — before any
+  (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox) — syntax compile + best-effort import — before any
   publisher may turn them into a branch. Proposal-named tests (``tests`` /
   ``tests_json``) ride along on the change set; they are executed later, in the
   publisher's worktree, where the full repository context exists (a snippet
@@ -259,7 +259,7 @@ print(json.dumps({{"ok": _ok, "checks": _checks}}))
 def _run_in_sandbox(program: str) -> tuple[str, str]:
     """Execute ``program`` through the tiered sandbox chain; return (backend, stdout).
 
-    Mirrors the RLM REPL's escalate-on-reject loop (CONCEPT:ORCH-1.38): the
+    Mirrors the RLM REPL's escalate-on-reject loop (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox): the
     router picks the cheapest capable tier; a :class:`SandboxRejected` escalates
     to the next; the ``local`` floor anchors the chain.
     """
@@ -348,7 +348,7 @@ def _sdd_spec_markdown(
     concepts = ", ".join(concept_ids) or "n/a"
     return (
         f"# Spec: {title}\n\n"
-        f"> Materialized by the evolution→branch bridge (CONCEPT:AHE-3.21) from "
+        f"> Materialized by the evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge) from "
         f"promoted proposal `{proposal_id}`. Concepts: {concepts}\n\n"
         "## Pre-Flight Checklist (Mandatory — DSTDD)\n\n"
         "- [ ] **KG search completed** — design doc exists\n"
@@ -395,7 +395,7 @@ def synthesize_change_set(
     — that skeleton IS the reviewable artifact for a prose proposal.
 
     ``extra_files`` are file artifacts produced *upstream* by the autonomous
-    code-synthesis stage (CONCEPT:AHE-3.22, ``code_synthesis.py``) for a proposal
+    code-synthesis stage (CONCEPT:AU-AHE.harness.single-file-code-synthesis, ``code_synthesis.py``) for a proposal
     that carries no embedded ``files`` of its own. They are treated exactly like
     embedded files — same ``kind="code"`` branch, same sandbox validation — so
     this module itself stays LLM-free; generation happens before we are called.

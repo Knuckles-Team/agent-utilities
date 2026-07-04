@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Fine-grained object permissioning for the Company Brain (CONCEPT:KG-2.46).
+"""Fine-grained object permissioning for the Company Brain (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted).
 
 Provenance: Palantir Foundry "object-permissioning/overview" — schema- and
 instance-level access control where, beyond row-level (which *objects* an actor
@@ -31,7 +31,7 @@ markings — so it is correct to call on the live read path **regardless of**
 flag for backward compatibility; the marking-mandatory layer here does not.)
 
 With ``KG_BRAIN_ENFORCE`` on, the gate additionally fails **closed**
-(CONCEPT:OS-5.14): an ACL-check exception denies, and nodes without an ACL are
+(CONCEPT:AU-OS.identity.authenticated-identity-enforcement): an ACL-check exception denies, and nodes without an ACL are
 denied by policy default (escape hatch: ``KG_ACL_DEFAULT_ALLOW``). Mandatory
 markings are durably persisted as ``mandatory_marking`` graph nodes (loaded on
 first use, written through on registration) so separate processes agree; the
@@ -129,7 +129,7 @@ class Marking:
 
 
 # Process-wide CACHE of node_id -> set of marking names, durably backed by
-# ``mandatory_marking`` graph nodes (CONCEPT:OS-5.14) so separate processes
+# ``mandatory_marking`` graph nodes (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) so separate processes
 # agree on mandatory controls: hydrated from the store on first use,
 # written through on every registration. Markings live here (not on the ACL)
 # because they are mandatory controls applied across the graph;
@@ -497,7 +497,7 @@ def _acl_permits(node_id: str, actor: ActorContext) -> bool:
     Legacy mode (``KG_BRAIN_ENFORCE`` off): default-allow when no ACL exists
     and allow on infra error — byte-identical to historic behaviour.
 
-    Enforced mode (CONCEPT:OS-5.14, fail CLOSED): an infra exception denies,
+    Enforced mode (CONCEPT:AU-OS.identity.authenticated-identity-enforcement, fail CLOSED): an infra exception denies,
     and a node WITHOUT an ACL is denied by policy default unless the
     ``KG_ACL_DEFAULT_ALLOW`` escape hatch is set.
     """

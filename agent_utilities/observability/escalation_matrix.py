@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Formal HITL Escalation Matrix (CONCEPT:OS-5.12).
+"""Formal HITL Escalation Matrix (CONCEPT:AU-OS.observability.empty-derive-from-effect).
 
 Palantir AIP gates high-impact Ontology Actions behind a formal
 human-in-the-loop *escalation matrix*: a value/impact-tier × risk policy that
@@ -102,7 +102,7 @@ class EscalationRule:
 
 @dataclass
 class EscalationDecision:
-    """The recorded result of an escalation consult/resolve. CONCEPT:OS-5.12."""
+    """The recorded result of an escalation consult/resolve. CONCEPT:AU-OS.observability.empty-derive-from-effect."""
 
     action_name: str
     actor_id: str
@@ -126,7 +126,7 @@ class EscalationDecision:
 
 
 class EscalationMatrix:
-    """A risk × value → :class:`EscalationRule` policy table. CONCEPT:OS-5.12.
+    """A risk × value → :class:`EscalationRule` policy table. CONCEPT:AU-OS.observability.empty-derive-from-effect.
 
     The matrix is keyed by ``(RiskTier, ValueTier)``; lookup falls back to the
     highest rule whose tiers are *<=* the requested ones, so an unspecified cell
@@ -167,7 +167,7 @@ class EscalationMatrix:
     # ── default policy ─────────────────────────────────────────────────
     @classmethod
     def default(cls) -> EscalationMatrix:
-        """Build the real, conservative default matrix. CONCEPT:OS-5.12.
+        """Build the real, conservative default matrix. CONCEPT:AU-OS.observability.empty-derive-from-effect.
 
         - LOW risk & LOW/MEDIUM value → no approval (fast path).
         - MEDIUM risk → approval by operator+ when value is HIGH+.
@@ -253,7 +253,7 @@ def classify_value_tier(value: Any) -> ValueTier:
 
 
 class EscalationGate:
-    """Consults an :class:`EscalationMatrix` and enforces the decision. CONCEPT:OS-5.12.
+    """Consults an :class:`EscalationMatrix` and enforces the decision. CONCEPT:AU-OS.observability.empty-derive-from-effect.
 
     The gate is the bridge between the *policy* (matrix) and the *mechanism*
     (``ApprovalManager`` futures). It:
@@ -297,7 +297,7 @@ class EscalationGate:
         event_queue: Any = None,
         target_id: str = "",
     ) -> EscalationDecision:
-        """Decide + (if required) block for human approval. CONCEPT:OS-5.12."""
+        """Decide + (if required) block for human approval. CONCEPT:AU-OS.observability.empty-derive-from-effect."""
         risk = classify_risk_tier(effect, idempotent, explicit_risk)
         vtier = classify_value_tier(value)
         rule = self.matrix.rule_for(risk, vtier)
@@ -384,7 +384,7 @@ class EscalationGate:
         decision_provider: Any = None,
         target_id: str = "",
     ) -> EscalationDecision:
-        """Synchronous consult. CONCEPT:OS-5.12.
+        """Synchronous consult. CONCEPT:AU-OS.observability.empty-derive-from-effect.
 
         ``decision_provider`` is an optional callable
         ``(request: dict) -> dict | None`` that returns a resolution payload

@@ -1,4 +1,4 @@
-"""Media modality readers — audio transcripts + scanned/image OCR (CONCEPT:KG-2.74).
+"""Media modality readers — audio transcripts + scanned/image OCR (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Part of the universal multi-modal ingestion funnel
 (``reader -> structure-router -> {open|schema} extraction -> ontology grounding``).

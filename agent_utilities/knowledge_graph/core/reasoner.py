@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Pluggable reasoning paradigms + an outcome-learning paradigm router.
 
-CONCEPT:KG-2.68 — a first-class Reasoner paradigm abstraction with an outcome-learning router that selects a reasoning paradigm per task by capability tags blended with a learned reward EMA and feeds the scored result back so routing self-improves
+CONCEPT:AU-KG.compute.first-class-reasoner-paradigm — a first-class Reasoner paradigm abstraction with an outcome-learning router that selects a reasoning paradigm per task by capability tags blended with a learned reward EMA and feeds the scored result back so routing self-improves
 
 AU is model-agnostic (any provider backs any role, ORCH-1.27) and symbolic-backend-
 pluggable (KG-2.23) but NOT *paradigm*-agnostic: there was no seam at which an
@@ -192,7 +192,7 @@ class ReasonerRouter:
         self._index = CapabilityIndex(dim=_ROUTING_DIM)
         self._reasoners: dict[str, Reasoner] = {}
         self._reward_weight = float(reward_weight)
-        # CONCEPT:OS-5.36 — optional search-distillation harvester. When attached,
+        # CONCEPT:AU-AHE.harness.search-distillation-harvester — optional search-distillation harvester. When attached,
         # the router's verified high-scoring results are distilled into a training
         # corpus (test-time compute → training data); off by default.
         self._harvester = harvester
@@ -244,7 +244,7 @@ class ReasonerRouter:
             reasoner.name, reward=max(0.0, min(1.0, result.score))
         )
         result.trace.setdefault("routed_to", reasoner.name)
-        # CONCEPT:OS-5.36 — distil a verified win into training data (test-time
+        # CONCEPT:AU-AHE.harness.search-distillation-harvester — distil a verified win into training data (test-time
         # compute → better data), collapse-guarded by SAFE-1.4. Best-effort.
         if self._harvester is not None:
             try:
@@ -258,7 +258,7 @@ class ReasonerRouter:
         self, task: ReasoningTask, governor: Any = None
     ) -> ReasoningResult | None:
         """Try paradigms in learned-reward order, stopping when more compute is not
-        worth it (CONCEPT:OS-5.37). Returns the best result, value-allocated: a
+        worth it (CONCEPT:AU-OS.scaling.value-test-time-compute). Returns the best result, value-allocated: a
         satisficing or diminishing-returns verdict from the compute governor halts the
         search so test-time compute is spent only where the marginal return is high.
         """

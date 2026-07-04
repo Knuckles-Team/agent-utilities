@@ -1,4 +1,4 @@
-"""Value-aware test-time-compute governor (CONCEPT:OS-5.37).
+"""Value-aware test-time-compute governor (CONCEPT:AU-OS.scaling.value-test-time-compute).
 
 Stops an iterative test-time search once a result satisfices or the marginal gain per
 attempt drops below a floor, so compute is spent where the return is highest. Consumed
@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.core.reasoner import (
     ReasoningTask,
 )
 
-pytestmark = pytest.mark.concept("OS-5.37")
+pytestmark = pytest.mark.concept("AU-OS.scaling.value-test-time-compute")
 
 
 class TestGovernor:

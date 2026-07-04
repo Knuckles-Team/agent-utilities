@@ -1,4 +1,4 @@
-"""KG-driven orchestration synthesis (CONCEPT:KG-2.10 S4c)."""
+"""KG-driven orchestration synthesis (CONCEPT:AU-KG.enrichment.a2a-capability-extraction S4c)."""
 
 from __future__ import annotations
 

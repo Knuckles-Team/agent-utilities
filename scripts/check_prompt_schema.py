@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drift gate: every system-prompt blueprint conforms to the canonical schema.
 
-CONCEPT:ORCH-1.80. Validates every ``"type": "prompt"`` JSON blueprint under
+CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. Validates every ``"type": "prompt"`` JSON blueprint under
 ``agent_utilities/prompts/`` against ``validate_canonical`` (the ONE validator
 shared with ``prompt-builder/validate_prompt.py`` and per-package
 ``test_prompt_parity``), and asserts the generated ``prompt.schema.json`` is
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_baseline:
         BASELINE.write_text(
             "# Non-canonical prompt blueprints grandfathered by check_prompt_schema.\n"
-            "# Burn this down to empty. CONCEPT:ORCH-1.80\n"
+            "# Burn this down to empty. CONCEPT:AU-ORCH.routing.resolve-body-single-canonical\n"
             + "".join(f"{name}\n" for name in sorted(offenders)),
             encoding="utf-8",
         )

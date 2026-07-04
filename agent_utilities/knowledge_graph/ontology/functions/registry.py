@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Functions runtime — typed function registry (CONCEPT:KG-2.41).
+"""Functions runtime — typed function registry (CONCEPT:AU-KG.ontology.default-runtime-bound-import).
 
 Palantir Foundry ``functions/overview`` parity: a *Function* is a typed,
 versioned, releasable unit of user logic with declared inputs and a declared
@@ -120,7 +120,7 @@ class FunctionParameter(BaseModel):
 
 
 class FunctionSpec(BaseModel):
-    """A typed, versioned user function (Foundry ``functions/overview``). CONCEPT:KG-2.41.
+    """A typed, versioned user function (Foundry ``functions/overview``). CONCEPT:AU-KG.ontology.default-runtime-bound-import.
 
     Declares the function's identity (``name`` + semver ``version``), its typed
     ``inputs`` and ``output``, its ``kind``, the publish ``released`` flag, and
@@ -223,7 +223,7 @@ def _type_matches(value: Any, expected: type) -> bool:
 
 
 class FunctionRegistry:
-    """Registry of typed, versioned user functions. CONCEPT:KG-2.41.
+    """Registry of typed, versioned user functions. CONCEPT:AU-KG.ontology.default-runtime-bound-import.
 
     Stores every (name, version) and tracks a per-name release set. Lookup
     returns the highest *released* version by default, or a pinned version when
@@ -414,7 +414,7 @@ def register_builtins(registry: FunctionRegistry) -> None:
     registry.release("numeric.aggregate", "1.0.0")
 
 
-# CONCEPT:KG-2.41 — populated at import (a live path, not an empty shell). The
+# CONCEPT:AU-KG.ontology.default-runtime-bound-import — populated at import (a live path, not an empty shell). The
 # FunctionRuntime in runtime.py binds this registry as its default lookup source.
 DEFAULT_FUNCTION_REGISTRY = FunctionRegistry()
 register_builtins(DEFAULT_FUNCTION_REGISTRY)

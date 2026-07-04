@@ -1,4 +1,4 @@
-"""Local session collector (CONCEPT:ECO-4.38 / ECO-4.42).
+"""Local session collector (CONCEPT:AU-ECO.connector.agent-source-ingestion / ECO-4.42).
 
 The client-side half of remote ingest: discover installed agents, parse their
 local logs into normalized bundles, then **sink** them — either writing to the
@@ -157,7 +157,7 @@ def upload_local_sessions(
 ) -> dict:
     """Client-side parse → push to a REMOTE engine via the MCP ``ingest_sessions`` tool.
 
-    This is the path for a **remote engine** (CONCEPT:ECO-4.42): the engine runs on
+    This is the path for a **remote engine** (CONCEPT:AU-ECO.mcp.client-side-chat-session): the engine runs on
     another host and cannot read THIS client's local agent logs, so the *client*
     parses its own ``~/.claude/projects/**/*.jsonl`` and Antigravity
     (``~/.gemini/antigravity``) sessions into :class:`ParsedSessionBundle`\\s and
@@ -186,7 +186,7 @@ def upload_local_sessions(
     agents: set[str] = set()
 
     def _flush() -> None:
-        # CONCEPT:KG-2.272 — the server now ENQUEUES a large batch as a background
+        # CONCEPT:AU-KG.ingest.enqueue-large-batch — the server now ENQUEUES a large batch as a background
         # ``session_upload`` job (returns ``status=enqueued`` + ``job_id``) and only
         # ingests a tiny batch inline (``status=ingested``); count both honestly so
         # the summary reflects async-drain (not a silent ``ingested=0``).

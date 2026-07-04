@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Constitution & Prompt Policy Ingestor — SDD governance into KG policies.
 
-CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
+CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine (Constitution Extension)
 
 Parses project constitutions (``.specify/memory/constitution.md``) and
 prompt JSON files to extract governance rules, normative statements,
@@ -244,7 +244,7 @@ def _extract_prompt_rules(prompt_data: dict[str, Any]) -> list[dict[str, str]]:
 class PolicyIngestor:
     """Ingests constitutions and prompt rules into the KG as PolicyNodes.
 
-    CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
+    CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine (Constitution Extension)
 
     Unifies three policy sources into the KG's governance layer:
       1. Constitution files (SDD governance)
@@ -612,7 +612,7 @@ class PolicyIngestor:
 
         from ..core.bounded_read import iter_nodes_by_types
 
-        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        # Bounded per-label fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never a whole-graph node pull.
         for node_id, data in iter_nodes_by_types(self.engine.graph, "policy"):
             meta = data.get("metadata", {})
             if isinstance(meta, str):

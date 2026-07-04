@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.6
+"""CONCEPT:AU-KG.research.research-pipeline-runner
 
 Unit tests for CompanyBrain pre-commit ontological consistency verification.
 """

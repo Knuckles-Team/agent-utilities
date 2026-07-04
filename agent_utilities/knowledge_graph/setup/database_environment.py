@@ -277,7 +277,7 @@ def register_stardog_mirror(
     username: str | None = None,
     password: str | None = None,
 ) -> dict[str, Any]:
-    """Register Stardog as a ``role="mirror"`` graph connection (CONCEPT:KG-2.89).
+    """Register Stardog as a ``role="mirror"`` graph connection (CONCEPT:AU-KG.backend.connection-registry).
 
     Once registered, ``_build_mirror_set`` auto-includes it, so under
     ``GRAPH_BACKEND=fanout`` every KG write (incl. LeanIX/ServiceNow

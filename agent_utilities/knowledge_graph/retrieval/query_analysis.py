@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Query analysis — source/time auto-filters + citation processing.
 
-CONCEPT:ECO-4.32 — Query Analysis
+CONCEPT:AU-ECO.connector.apply-any-query-analysis — Query Analysis
 
 Onyx derives filters from the natural-language query before retrieval (a secondary
 LLM flow that detects a *time window* and *source-type* restriction) and attaches
@@ -81,7 +81,7 @@ _UNIT_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
 
 
 class QueryFilters(BaseModel):
-    """Filters derived from a query (CONCEPT:ECO-4.32).
+    """Filters derived from a query (CONCEPT:AU-ECO.connector.apply-any-query-analysis).
 
     Attributes:
         source_types: Document/source types the query restricts to (empty = all).
@@ -134,7 +134,7 @@ def _detect_time(query: str) -> tuple[str | None, str]:
 
 
 def analyze_query(query: str, llm_fn: LLMFn | None = None) -> QueryFilters:
-    """Derive source/time filters from ``query`` (CONCEPT:ECO-4.32).
+    """Derive source/time filters from ``query`` (CONCEPT:AU-ECO.connector.apply-any-query-analysis).
 
     Uses ``llm_fn`` when provided (strict-JSON extraction); always falls back to —
     and validates against — the deterministic regex/keyword detector so the result
@@ -176,7 +176,7 @@ def filter_nodes_by_source(
 ) -> list[dict[str, Any]]:
     """Keep only nodes whose ``doc_type``/``type`` matches a requested source type.
 
-    CONCEPT:ECO-4.32. A node with no resolvable type is kept (we never silently
+    CONCEPT:AU-ECO.connector.apply-any-query-analysis. A node with no resolvable type is kept (we never silently
     drop unclassifiable results). Returns the input unchanged when no source-type
     filter is requested.
     """
@@ -192,7 +192,7 @@ def filter_nodes_by_source(
 
 
 class CitationProcessor:
-    """Attach source citations to retrieval results / answers (CONCEPT:ECO-4.32).
+    """Attach source citations to retrieval results / answers (CONCEPT:AU-ECO.connector.apply-any-query-analysis).
 
     Builds a numbered citation list from a node's existing provenance, and can
     rewrite ``[n]`` markers in an answer into ``[n](source)`` references.

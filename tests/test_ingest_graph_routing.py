@@ -1,4 +1,4 @@
-"""Ingestion graph routing + unified-query preservation (CONCEPT:KG-2.269).
+"""Ingestion graph routing + unified-query preservation (CONCEPT:AU-KG.ingest.unified-query-routing).
 
 Two layers:
 
@@ -54,7 +54,7 @@ def test_routing_disabled_is_legacy_commons() -> None:
 
 def test_routing_disabled_still_honours_tenant() -> None:
     c = _cfg(False)
-    # Tenant routing (CONCEPT:KG-2.58) is independent of the new flag.
+    # Tenant routing (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) is independent of the new flag.
     assert (
         ingest_routing.route_graph(tenant="acme", config=c)
         == "tenant__acme____commons__"
@@ -115,7 +115,7 @@ def test_is_content_graph() -> None:
 def test_routing_spreads_across_shards() -> None:
     """A realistic source set must occupy >1 of the K redb shard writers.
 
-    The whole point of CONCEPT:KG-2.269: distinct graph names hash to distinct
+    The whole point of CONCEPT:AU-KG.ingest.unified-query-routing: distinct graph names hash to distinct
     shards, so K cores commit in parallel rather than 1.
     """
     c = _cfg(True)
@@ -163,7 +163,7 @@ def test_read_graph_targets_gating() -> None:
 def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) -> None:
     """A node written to ``code:<x>`` is returned by the normal graph_query path.
 
-    The key correctness point of CONCEPT:KG-2.269: spreading writes across graphs
+    The key correctness point of CONCEPT:AU-KG.ingest.unified-query-routing: spreading writes across graphs
     must not make content invisible to existing reads.
     """
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
@@ -216,7 +216,7 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         ingest_routing._reset_for_tests()
 
 
-# ── Fan-out merge correctness (CONCEPT:KG-2.277) ──────────────────────────────
+# ── Fan-out merge correctness (CONCEPT:AU-KG.backend.fanout-dedup) ──────────────────────────────
 # The unified read fans an implicit-default query across the active content graphs
 # and merges. Two bugs the merge must not have: (1) an AGGREGATION row (count/sum)
 # has no node id, so the legacy id-dedup leaves one copy of every group row PER
@@ -333,7 +333,7 @@ async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
 async def test_routed_node_query_still_fans_and_dedups_once(monkeypatch) -> None:
     """Non-aggregation queries keep the fan + id-dedup: a node routed to ``code:*``
     is still found via the unified path, returned exactly once even when overlapping
-    backends echo it, and other routed content is still gathered (CONCEPT:KG-2.269)."""
+    backends echo it, and other routed content is still gathered (CONCEPT:AU-KG.ingest.unified-query-routing)."""
     import agent_utilities.mcp.kg_server as kg_server
 
     kg_server.ensure_tools_registered()

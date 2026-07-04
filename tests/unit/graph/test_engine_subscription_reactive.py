@@ -1,6 +1,6 @@
-"""Real-engine tests for the reactive engine-subscription primitive (CONCEPT:KG-2.253).
+"""Real-engine tests for the reactive engine-subscription primitive (CONCEPT:AU-KG.compute.change-feed-subscription).
 
-USER DIRECTIVE (CONCEPT:KG-2.238): the reactive poll→push path is validated against
+USER DIRECTIVE (CONCEPT:AU-KG.memory.provides-real-ephemeral-one): the reactive poll→push path is validated against
 the ACTUAL ephemeral epistemic-graph engine the session fixture deploys — NOT
 SQLite, NOT a mock for the engine. Each test requests the conftest ``engine_graph``
 fixture (a FRESH per-test tenant on the one running engine) and asserts that a

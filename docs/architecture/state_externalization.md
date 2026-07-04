@@ -1,8 +1,8 @@
 # Durable-State Externalization & Multi-Host Operation
 
-**Concepts:** OS-5.16 (unified state store), OS-5.17 (daemon leadership),
-OS-5.18 (fleet supervisory plane at scale), KG-2.54 (cross-host task queue),
-ORCH-1.44 (durable goal registry), ORCH-1.45 (queue-driven agent dispatch —
+**Concepts:** AU-OS.state.unified-durable-state-externalization (unified state store), AU-OS.state.cross-host-daemon-leadership (daemon leadership),
+AU-OS.state.fleet-supervisory-plane-at (fleet supervisory plane at scale), AU-KG.ingest.cross-host-safe-kg (cross-host task queue),
+AU-ORCH.session.durable-goal-registry-goals (durable goal registry), ORCH-1.45 (queue-driven agent dispatch —
 see [Queue-Driven Agent Dispatch](agent_dispatch.md))
 
 ## The problem
@@ -53,10 +53,10 @@ The seam is `agent_utilities/core/state_store.py`:
   are identical on both backends.
 - **Sessions / goals** — `sessions`/`turns`/`goals` tables on the selected
   backend. `active_goals` / `background_goal_runs` are now an in-memory cache
-  over the durable `goals` table (ORCH-1.44): every status change persists,
+  over the durable `goals` table (AU-ORCH.session.durable-goal-registry-goals): every status change persists,
   and on restart this host's non-terminal goals are rehydrated as
   **`orphaned`** — visible and explicitly resumable, never silently lost.
-- **KG task queue** — `PostgresTaskQueue` (KG-2.54) claims with
+- **KG task queue** — `PostgresTaskQueue` (AU-KG.ingest.cross-host-safe-kg) claims with
   `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED) RETURNING …`, so N
   hosts drain one queue without double-claims. A claimed-but-unacked item
   becomes claimable again after the visibility timeout (600 s) — the same
@@ -64,7 +64,7 @@ The seam is `agent_utilities/core/state_store.py`:
   Task-node claim in the worker loop is additionally serialized fleet-wide by
   `state_claim_guard("kg-task-claim")`.
 
-## Daemon leadership (OS-5.17)
+## Daemon leadership (AU-OS.state.cross-host-daemon-leadership)
 
 With N hosts, each host's flock only de-duplicates daemons *per host*.
 `core/leadership.py` adds fleet-wide election: `DaemonLeadership(role)` holds
@@ -84,7 +84,7 @@ unchanged.
   writes.
 - **Per-host (capacity scaling)** — ingestion task workers, the
   submission-queue drain, and the graph-writer drain. Safe to scale out
-  because their claims are cross-host atomic (KG-2.54).
+  because their claims are cross-host atomic (AU-KG.ingest.cross-host-safe-kg).
 
 The task reaper also degrades to conservative age-based reaping under
 multi-host state (a foreign claim token no longer proves a dead worker —
@@ -104,7 +104,7 @@ and per-session mutual exclusion reuses `state_claim_guard`
 (`agent-session:<id>` advisory locks). Full design:
 [Queue-Driven Agent Dispatch](agent_dispatch.md).
 
-## Fleet supervisory plane at scale (OS-5.18)
+## Fleet supervisory plane at scale (AU-OS.state.fleet-supervisory-plane-at)
 
 `gateway/fleet.py` no longer scans every session row in Python:
 

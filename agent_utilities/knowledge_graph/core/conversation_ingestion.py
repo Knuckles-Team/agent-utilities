@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Multi-IDE Conversation Log Ingestion.
 
-CONCEPT:KG-2.1 — Cross-IDE Chat Memory
+CONCEPT:AU-KG.retrieval.cross-session-chat-recall — Cross-IDE Chat Memory
 
 Parses conversation logs from external IDE/agent platforms and ingests
 them into the Knowledge Graph as Thread/Message nodes. Supports:
@@ -24,7 +24,7 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
-# Parse-time guards (CONCEPT:KG-2.1): chat transcripts can contain multi-MB
+# Parse-time guards (CONCEPT:AU-KG.retrieval.cross-session-chat-recall): chat transcripts can contain multi-MB
 # tool_result blocks (full file reads / command output). Truncating content and
 # capping message count AT PARSE TIME keeps ingestion fast + bounded — without
 # these, str(content) over large logs (e.g. the agent's own session transcripts)
@@ -372,7 +372,7 @@ def ingest_conversations_to_kg(
 
     Creates Thread and Message nodes with provenance linking, and (when
     ``extract_concepts``) ``Concept`` nodes + ``MENTIONS`` edges per thread so
-    chats interweave with code/docs/prompts (CONCEPT:KG-2.8).
+    chats interweave with code/docs/prompts (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
     Args:
         conversations: Pre-parsed conversations. If None, auto-discovers.
@@ -412,7 +412,7 @@ def ingest_conversations_to_kg(
     # Per-conversation concept-extraction inputs, collected during the structural
     # pass and run CONCURRENTLY afterwards. The LLM call is I/O-bound (releases
     # the GIL) and vLLM batches concurrent requests, so fanning out turns N
-    # sequential ~20s calls into ~one batch. (CONCEPT:KG-2.8 ingestion throughput)
+    # sequential ~20s calls into ~one batch. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
     pending_extractions: list[tuple[str, str, str, str]] = []
 
     for conv in conversations:
@@ -490,7 +490,7 @@ def ingest_conversations_to_kg(
     # Concurrent concept extraction across all conversations. LLM calls run in a
     # bounded ThreadPoolExecutor (GIL released during the network wait, vLLM
     # batches the requests); resulting Concept/MENTIONS writes are applied as
-    # each call completes. (CONCEPT:KG-2.8 ingestion throughput)
+    # each call completes. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
     if _llm is not None and pending_extractions:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -541,7 +541,7 @@ def ingest_conversations_to_kg(
 
         # Cross-link chat concepts → Code/Feature (RELATES_TO/REALIZES) so chats
         # interweave with the codebase, same as docs/prompts. Best-effort + gated
-        # by KG_CONCEPT_CODE_LINK. (CONCEPT:KG-2.8)
+        # by KG_CONCEPT_CODE_LINK. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
         if all_concepts and setting("KG_CONCEPT_CODE_LINK", "1") != "0":
             try:
                 from agent_utilities.knowledge_graph.enrichment.semantic import (

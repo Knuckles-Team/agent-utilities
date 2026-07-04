@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.22 — SWE-bench evaluation harness.
+"""CONCEPT:AU-AHE.harness.swebench-http-surface — SWE-bench evaluation harness.
 
 Per instance: provision a developer workspace (OS-5.33), clone the repo at ``base_commit``,
 optionally ingest it into the KG so the SWE agent's grounding tools work (KG-2.65), run the

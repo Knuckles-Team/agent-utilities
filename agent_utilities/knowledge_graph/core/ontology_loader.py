@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Ontology Loader — Remote OWL Import Resolver.
 
-CONCEPT:KG-2.6 — Modular Ontology Federation
+CONCEPT:AU-KG.ontology.enterprise-ontology-distribution — Modular Ontology Federation
 
 Resolves owl:imports declarations in TTL files, fetching remote ontologies
 from HTTP URLs or SPARQL endpoints and merging them into the local rdflib
@@ -34,7 +34,7 @@ _DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
 class OntologyLoader:
     """Resolves and loads modular ontologies with owl:imports support.
 
-    CONCEPT:KG-2.6 — Enterprise Ontology Federation
+    CONCEPT:AU-KG.ontology.enterprise-ontology-distribution — Enterprise Ontology Federation
 
     Enables hierarchical ontology inheritance where:
     - A central enterprise ontology is served at a known URL
@@ -198,7 +198,7 @@ class OntologyLoader:
         # ``ontology_infrastructure.ttl`` still uses it) → ``ontology_<x>.ttl`` in
         # the bundled dir, so a federated module transitively importing the base
         # ontology (which imports it) resolves locally instead of over the network
-        # (CONCEPT:KG-2.320).
+        # (CONCEPT:AU-KG.ontology.federation-resolution).
         if "agent-utilities.dev/ontology/" in uri:
             x = uri.split("agent-utilities.dev/ontology/")[1].strip("/")
             if x:
@@ -218,7 +218,7 @@ class OntologyLoader:
                 candidate = base_dir / fname
                 if candidate.exists():
                     return candidate
-                # CONCEPT:KG-2.320 — federation resolution when the file isn't a
+                # CONCEPT:AU-KG.ontology.federation-resolution — federation resolution when the file isn't a
                 # sibling of the importing ontology (which is the norm once modules
                 # move into fleet-package wheels): fall back to (1) the bundled
                 # knowledge_graph dir — so a federated module's import of the base
@@ -244,7 +244,7 @@ class OntologyLoader:
         Matches by declared ``owl:Ontology`` IRI first (authoritative), then falls
         back to a ``<suffix>.ttl`` / ``ontology_<suffix>.ttl`` filename match.
         Failure-isolated: returns ``None`` when no provider ships the module
-        (CONCEPT:KG-2.320).
+        (CONCEPT:AU-KG.ontology.federation-resolution).
         """
         try:
             from .ontology_federation import discover_provider_ontologies

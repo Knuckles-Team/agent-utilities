@@ -1,4 +1,4 @@
-"""Tests for the self-registering multi-modal reader registry (CONCEPT:KG-2.66)."""
+"""Tests for the self-registering multi-modal reader registry (CONCEPT:AU-KG.enrichment.multimodal-readers)."""
 
 from __future__ import annotations
 

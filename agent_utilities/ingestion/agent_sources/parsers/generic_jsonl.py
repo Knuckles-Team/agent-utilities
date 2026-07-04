@@ -1,4 +1,4 @@
-"""Generic JSONL session parser (CONCEPT:ECO-4.38).
+"""Generic JSONL session parser (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 A tolerant best-effort parser for the many JSONL-family agents whose records
 carry a recognizable role + content (and optionally an Anthropic/OpenAI-style

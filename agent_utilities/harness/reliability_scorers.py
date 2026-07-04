@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Reliability evaluation scorers for agent and RAG outputs.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 
 A bundle of pluggable :class:`~agent_utilities.tools.eval_harness.EvalScorer`
 implementations distilled from recent research. Each scorer computes a real,
@@ -90,7 +90,7 @@ class FaithfulnessScorer:
     ``grounding_threshold``. ``score`` is the faithful fraction; the unfaithful
     sentences are surfaced as candidate hallucinations.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -163,7 +163,7 @@ class SafetyAccuracyScorer:
     default a small built-in set). ``score`` is the *safety* component (the
     gate); accuracy is reported alongside but never relaxes the safety gate.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -221,7 +221,7 @@ class TopicCoverageScorer:
     ``context["pred_topics"]`` when supplied, else are derived from the output's
     content tokens; gold from ``context["gold_topics"]``. ``score`` = T-F1.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -291,7 +291,7 @@ class ToolNecessityScorer:
     gap: ``missing_call`` (necessary but not called) and ``needless_call``
     (unnecessary but called). ``score`` is 1.0 on the matched diagonal else 0.0.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -340,7 +340,7 @@ class DeceptionScorer:
     ``context["reasoning"]``. ``score`` = ``1 - deception_signal`` (higher is
     cleaner).
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -406,7 +406,7 @@ class CitationQualityScorer:
     ``context["gold_evidence"]``. Reports citation precision, recall, and
     coverage (claims carrying any citation). ``score`` = citation F1.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -468,7 +468,7 @@ class BrierSkillScorer:
     default 0.5). Abstention (``forecast_prob is None``) yields the baseline.
     ``score`` is BSS mapped to [0,1] (0.5 == baseline skill).
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -531,7 +531,7 @@ class RetrievalRecallScorer:
     factorial harness×retriever comparison reduces to one comparable number.
     ``score`` = recall@k.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -593,7 +593,7 @@ class TrapInjectionScorer:
     fails the gate so poisoned context can be quarantined before it reaches the
     model.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     Concept: eval-tracing
     """
 
@@ -645,7 +645,7 @@ class TrapInjectionScorer:
 
 
 def _frontier_scorer_types() -> tuple[type, ...]:
-    # CONCEPT:SAFE-1.1 — the non-saturating CompressionScorer rides along in the
+    # CONCEPT:AU-OS.scaling.non-saturating-compression-scorer — the non-saturating CompressionScorer rides along in the
     # reliability suite as an informational (always-pass) signal, so every eval run
     # gets a ceiling-free information-density metric without changing any guardrail.
     from agent_utilities.harness.frontier_scorers import CompressionScorer
@@ -677,7 +677,7 @@ def build_reliability_suite(scorers: list[Any] | None = None) -> EvalHarness:
     Returns:
         An :class:`EvalHarness` pre-registered with the reliability scorer set.
 
-    CONCEPT:AHE-3.1
+    CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
     """
     harness = EvalHarness()
     instances = (

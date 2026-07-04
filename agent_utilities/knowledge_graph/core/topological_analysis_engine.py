@@ -1,6 +1,6 @@
 """Topological Analysis Engine — Synthesized Graph Topology Facade.
 
-CONCEPT:KG-2.5/2.15/2.34/2.35 — Topological Analysis Engine
+CONCEPT:AU-KG.compute.spectral-cluster-navigator/2.15/2.34/2.35 — Topological Analysis Engine
 
 Provides a single entry point for all graph-topology operations:
 - Community detection via Louvain partitioning (KG-2.5)
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class TopologicalAnalysisEngine:
     """Synthesized topological analysis engine.
 
-    CONCEPT:KG-2.5/2.15/2.34/2.35 — Topological Analysis Engine
+    CONCEPT:AU-KG.compute.spectral-cluster-navigator/2.15/2.34/2.35 — Topological Analysis Engine
 
     Unifies community detection, analogy matching, spectral clustering,
     and blast-radius analysis into a single facade.
@@ -94,7 +94,7 @@ class TopologicalAnalysisEngine:
         top_entities: int = 10,
         embedder: Any = None,
     ) -> Any:
-        """Global→local community retrieval (CONCEPT:KG-2.5, Deep GraphRAG).
+        """Global→local community retrieval (CONCEPT:AU-KG.compute.spectral-cluster-navigator, Deep GraphRAG).
 
         Ranks communities by query relevance, drills into the top-k, and ranks
         entities within them with a parent-community context boost. Returns a

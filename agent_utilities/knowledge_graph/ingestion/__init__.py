@@ -1,6 +1,6 @@
 """Ingestion Module.
 
-CONCEPT:KG-2.7 — Ingestion Engine
+CONCEPT:AU-KG.ingest.ingestion-engine — Ingestion Engine
 
 Single entrypoint for all data ingestion into the Knowledge Graph.
 Content-typed adaptors handle codebase, document, social, SPARQL,

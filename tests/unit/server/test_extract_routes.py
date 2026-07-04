@@ -1,4 +1,4 @@
-"""The fact-extraction gateway contract is registered (CONCEPT:ECO-4.43).
+"""The fact-extraction gateway contract is registered (CONCEPT:AU-ECO.connector.git-task-resolver).
 
 The shared SSE/jobs/JSONL surface all three frontends consume. With a cold engine
 the endpoints must degrade gracefully (``unavailable``), never 500.

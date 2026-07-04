@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.22 — SWE-bench harness HTTP surface (run + report).
+"""CONCEPT:AU-AHE.harness.swebench-http-surface — SWE-bench harness HTTP surface (run + report).
 
 Mirrors the LongMemEval benchmark router shape: POST a set of instances to run, GET the aggregate
 report. Optionally files failure-gap Concepts for unresolved instances (failure-driven

@@ -1,4 +1,4 @@
-"""'Which pytests need work' as a graph query (CONCEPT:KG-2.8 Phase 1).
+"""'Which pytests need work' as a graph query (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 1).
 
 End-to-end over the real in-memory backend: enrich → store → query. Skips if the
 epistemic-graph daemon isn't reachable (same backend the other backend tests use).

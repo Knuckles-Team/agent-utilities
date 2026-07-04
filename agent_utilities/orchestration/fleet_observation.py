@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Fleet observers — the injectable eyes of the autonomy control plane.
 
-CONCEPT:OS-5.25 — Desired-state fleet reconciler (observation seam).
+CONCEPT:AU-OS.config.desired-state-fleet-reconciler — Desired-state fleet reconciler (observation seam).
 
 The reconciler (and the OS-5.26 playbooks / OS-5.27 deploy watches) never
 shell out to monitoring systems directly; they read a :class:`FleetObserver`:

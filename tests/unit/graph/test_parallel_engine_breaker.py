@@ -1,9 +1,9 @@
-"""Per-agent-type circuit breaker in the parallel engine (CONCEPT:ORCH-1.8).
+"""Per-agent-type circuit breaker in the parallel engine (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer).
 
 The engine's forked breaker was collapsed onto the canonical OS-5.23
 ``engine_breaker.CircuitBreaker`` state machine via the same
 subclass-parameterization the multiplexer's per-child breaker uses
-(CONCEPT:ECO-4.34). These tests pin the preserved semantics: open after
+(CONCEPT:AU-ECO.mcp.profile-differences-from-client). These tests pin the preserved semantics: open after
 ``threshold`` consecutive failures, stay open across waves (infinite
 cooldown — no half-open probe), close again on a recorded success.
 """

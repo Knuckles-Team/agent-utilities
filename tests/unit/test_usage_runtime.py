@@ -1,4 +1,4 @@
-"""Runtime instrumentation (plane B) tests (CONCEPT:OS-5.31)."""
+"""Runtime instrumentation (plane B) tests (CONCEPT:AU-OS.observability.persist-this-graph-run)."""
 
 from __future__ import annotations
 

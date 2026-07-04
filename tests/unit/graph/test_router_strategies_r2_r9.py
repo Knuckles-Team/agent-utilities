@@ -126,8 +126,8 @@ def test_r8_prune_by_telemetry_drops_anomalous():
 
 def test_r9_instructions_contain_both_sections():
     txt = subtask_and_widesearch_instructions()
-    assert "SUBTASK SPECIFICATION (CONCEPT:ORCH-1.1)" in txt
-    assert "WIDE-SEARCH ORCHESTRATION (CONCEPT:ORCH-1.1)" in txt
+    assert "SUBTASK SPECIFICATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)" in txt
+    assert "WIDE-SEARCH ORCHESTRATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)" in txt
     assert "refined_subtask" in txt
 
 

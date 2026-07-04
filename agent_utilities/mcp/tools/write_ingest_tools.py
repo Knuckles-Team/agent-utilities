@@ -93,7 +93,7 @@ def register_write_ingest_tools(mcp):
         target: str = Field(
             default="",
             description=(
-                "CONCEPT:KG-2.63 — named graph connection to write to (default = primary). "
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to write to (default = primary). "
                 "Use a registered connection name, or 'all' (or a comma-separated list) to "
                 "mirror the SAME write to several backends. Fan-out requires an explicit "
                 "multi-target value; the default and a single named target stay single-write."
@@ -119,7 +119,7 @@ def register_write_ingest_tools(mcp):
         """Write nodes, relationships, or register external graphs. This is the primary mutation interface for the Knowledge Graph.
 
         The ``compare_and_set`` action is the atomic conditional-update primitive
-        (CONCEPT:KG-2.141): it merges ``updates`` into ``node_id`` only if every
+        (CONCEPT:AU-KG.ingest.atomic-compare-and-set): it merges ``updates`` into ``node_id`` only if every
         field in ``conditions`` still equals the node's current value (missing
         field ≡ null) — use it for optimistic concurrency, conditional state
         transitions, and atomic reservations so two agents mutating the same node
@@ -165,7 +165,7 @@ def register_write_ingest_tools(mcp):
                         )
                     return f"Bulk ingested {len(nodes_list)} nodes."
                 elif action == "compare_and_set":
-                    # CONCEPT:KG-2.141 — atomic compare-and-set as a first-class
+                    # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
                     # agent capability. Applies ``updates`` to the node
                     # ONLY if every field in ``conditions`` still equals its current
                     # value (missing field ≡ null), under the engine's write lock —
@@ -224,7 +224,7 @@ def register_write_ingest_tools(mcp):
                     except ImportError:
                         return "Error: memory module not available"
                 elif action == "recall_media":
-                    # CONCEPT:KG-2.251 — list durable :MediaAsset records (the
+                    # CONCEPT:AU-KG.ingest.list-durable-media — list durable :MediaAsset records (the
                     # content-addressed media we persisted from chat). Returns
                     # metadata (asset_id + content_digest + media_type), NOT raw
                     # bytes (those are fetched by digest via MediaStore.fetch_bytes).
@@ -279,7 +279,7 @@ def register_write_ingest_tools(mcp):
             except Exception as e:
                 return f"Write error: {str(e)}"
 
-        # CONCEPT:KG-2.63 — resolve target connection(s). Writes only fan out on
+        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). Writes only fan out on
         # an EXPLICIT multi-target request ('all' or a list); the default and a
         # single named target stay single-write to avoid accidental multi-store
         # writes.
@@ -288,7 +288,7 @@ def register_write_ingest_tools(mcp):
         except Exception as e:
             return f"Write error: {str(e)}"
 
-        # CONCEPT:KG-2.89 — role enforcement: a 'read' (data source) or 'mirror'
+        # CONCEPT:AU-KG.ingest.role-enforcement — role enforcement: a 'read' (data source) or 'mirror'
         # (fan-out replica) connection rejects direct target= writes. Mirrors are
         # written only through the fan-out outbox, never here.
         registry = kg_server.get_connection_registry()
@@ -328,19 +328,19 @@ def register_write_ingest_tools(mcp):
             "governance/voice/source rule consulted at retrieval time, 'eval' "
             "adds a regression case, 'reads_avoided' closes the code_context "
             "reads-avoided loop (target_id=capability_id, corrected_value=JSON "
-            "{reads_avoided,files_read,correct,query}) (CONCEPT:AHE-3.61), "
+            "{reads_avoided,files_read,correct,query}) (CONCEPT:AU-AHE.evaluation.reads-avoided-feedback), "
             "'action_outcome' closes the loop on ANY autonomous action — a context "
             "answer, a deploy, a ticket close, a routing choice (target_id=action/"
             "capability id, corrected_value=JSON {success,reward?,expected?,observed?,"
             "query?}) so routing/playbooks prefer actions that achieve their goal "
-            "(CONCEPT:AHE-3.62), 'gotcha' pins a hard-won trap to a file/module "
+            "(CONCEPT:AU-AHE.evaluation.action-outcome-feedback), 'gotcha' pins a hard-won trap to a file/module "
             "(target_id=path, corrected_value=the note) so code_context surfaces it "
-            "when an agent next touches that area (CONCEPT:KG-2.140), "
+            "when an agent next touches that area (CONCEPT:AU-KG.ingest.gotcha-feedback-capture), "
             "'selective_erasure' forgets the learned reward for superseded "
             "designations (target_id + optional corrected_value list of ids) so the "
             "router re-learns them instead of carrying stale utility across a "
-            "source/model regime change (CONCEPT:KG-2.276). This is how "
-            "'this was wrong, here's the fix' becomes future behaviour (CONCEPT:KG-2.8)."
+            "source/model regime change (CONCEPT:AU-KG.memory.generation-scoped-selective-reward). This is how "
+            "'this was wrong, here's the fix' becomes future behaviour (CONCEPT:EG-KG.storage.nonblocking-checkpoint)."
         ),
         tags=["graph-os", "feedback", "learning"],
     )
@@ -413,7 +413,7 @@ def register_write_ingest_tools(mcp):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:KG-2.7): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:KG-2.7): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:KG-2.172): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:OS-5.55) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
+            description="Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -458,7 +458,7 @@ def register_write_ingest_tools(mcp):
                     return "Error: target_path required for ingest action"
 
                 # ``content_type`` is auto-detected per path and is NOT an
-                # agent-facing concern (CONCEPT:KG-2.7 ContentType.classify is the
+                # agent-facing concern (CONCEPT:AU-KG.research.skill-graph-distillation ContentType.classify is the
                 # single source of truth). It survives only as an internal override
                 # for genuinely ambiguous paths; ``isinstance(str)`` filters out the
                 # unresolved FastMCP ``FieldInfo`` default. Whatever the type, heavy
@@ -535,7 +535,7 @@ def register_write_ingest_tools(mcp):
                 return " ; ".join(msgs) if msgs else "Nothing to ingest."
 
             elif action == "ingest_url":
-                # Content-aware single-URL ingest (CONCEPT:KG-2.7): fetch via the
+                # Content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): fetch via the
                 # unified resolver (ArchiveBox→crawl4ai→requests) → Document, and —
                 # for a research roundup (auto-detected, or forced via
                 # description='extract_papers') — download the papers it cites and
@@ -564,7 +564,7 @@ def register_write_ingest_tools(mcp):
                 )
 
             elif action == "archivebox_sync":
-                # Pull preserved ArchiveBox snapshots into the KG (CONCEPT:KG-2.7).
+                # Pull preserved ArchiveBox snapshots into the KG (CONCEPT:AU-KG.research.skill-graph-distillation).
                 # corpus_name selects the mode: 'full' = pull ALL, else delta;
                 # base_path = JSON list of specific snapshot ids to sync.
                 from agent_utilities.knowledge_graph.core.source_sync import (
@@ -647,7 +647,7 @@ def register_write_ingest_tools(mcp):
                     dur_s = f" {dur / 1000:.1f}s" if dur else ""
                     lines.append(f"{j['id']}: {j['status']} ({target}){dur_s}")
                 # Per-category metrics breakdown (time/nodes/edges/failures) —
-                # the harness-style view, pollable over MCP (CONCEPT:KG-2.8).
+                # the harness-style view, pollable over MCP (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
                 breakdown = {}
                 if hasattr(engine, "aggregate_ingest_metrics"):
                     try:
@@ -733,7 +733,7 @@ def register_write_ingest_tools(mcp):
                 )
 
             elif action == "cohort_create":
-                # CONCEPT:KG-2.172 — batch-ingest N papers + M repos as one research
+                # CONCEPT:AU-KG.ingest.batch-research-cohort — batch-ingest N papers + M repos as one research
                 # cohort whose barrier synthesizes the comparative feature matrix
                 # (KG-2.173) once every member drains. base_path = JSON list of paper
                 # URLs/ids; target_path = JSON list of repo paths; description = goal.
@@ -782,7 +782,7 @@ def register_write_ingest_tools(mcp):
                 return _json.dumps(cohort_status(engine, cid), indent=2)
 
             elif action == "profile":
-                # CONCEPT:OS-5.55 — per-lane/stage latency percentiles + token/cost +
+                # CONCEPT:AU-OS.observability.per-lane-latency-metrics — per-lane/stage latency percentiles + token/cost +
                 # the parallelism factor (Σ task ms ÷ wall ms). corpus_name picks the
                 # grouping dimension: lane (default) | type | tkind.
                 import json as _json
@@ -795,7 +795,7 @@ def register_write_ingest_tools(mcp):
                 )
 
             elif action == "fleet_relevance":
-                # CONCEPT:AHE-3.63 — grade every ingested research source against the
+                # CONCEPT:AU-AHE.assimilation.research-source-grading — grade every ingested research source against the
                 # whole 80+ agent-packages fleet; surface every >threshold match.
                 # corpus_name = threshold percent (default 5.0).
                 import json as _json
@@ -875,7 +875,7 @@ def register_write_ingest_tools(mcp):
                     return f"Reflect error: {e}"
 
             elif action == "materialize_source":
-                # CONCEPT:KG-2.9 — persist an enterprise source extractor
+                # CONCEPT:AU-KG.ingest.enterprise-source-extractor — persist an enterprise source extractor
                 # (camunda/aris/egeria/…) INTO the graph, then run one OWL
                 # reasoning cycle so the new BusinessProcess/BusinessTask/
                 # FLOWS_TO structure folds into the cross-vendor crosswalk
@@ -911,7 +911,7 @@ def register_write_ingest_tools(mcp):
                     return f"Materialize source error: {e}"
 
             elif action == "skill_workflows":
-                # CONCEPT:KG-2.97 — ingest the universal-skills workflow corpus
+                # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus
                 # (workflows/<domain>/<name>/SKILL.md) as dispatchable
                 # WorkflowDefinition DAGs so kg-delegate /
                 # execute_workflow can discover & fire them. ``target_path`` is
@@ -946,7 +946,7 @@ def register_write_ingest_tools(mcp):
                     return f"Skill-workflow ingest error: {e}"
 
             elif action == "curate_wiki":
-                # CONCEPT:KG-2.19 — delta-skip continuous ingest of a self-curating wiki dir.
+                # CONCEPT:AU-KG.ingest.wiki-delta-ingest — delta-skip continuous ingest of a self-curating wiki dir.
                 try:
                     from agent_utilities.knowledge_graph.ingestion.wiki_curator import (
                         curate_wiki,
@@ -962,7 +962,7 @@ def register_write_ingest_tools(mcp):
                     return f"Wiki curation error: {e}"
 
             elif action == "distill":
-                # CONCEPT:AHE-3.9 — Distill a coherent KG subgraph OUT into a
+                # CONCEPT:AU-AHE.optimization.physical-distillation-engine — Distill a coherent KG subgraph OUT into a
                 # portable skill-graph: a reference/ markdown tree + a
                 # kg_manifest.json provenance record (round-trippable via the
                 # 'ingest_knowledge_pack' action). The output dir is consumable
@@ -1037,7 +1037,7 @@ def register_write_ingest_tools(mcp):
                 "skill_graph_status",
                 "rebuild_skill_graph",
             ):
-                # CONCEPT:KG-2.7 — the unified skill-graph pipeline: acquire from any
+                # CONCEPT:AU-KG.research.skill-graph-distillation — the unified skill-graph pipeline: acquire from any
                 # source kind (web/pdf/office/dir/url_reader/rest/database/mcp_tool/
                 # generated/kg_query) into a standardized skill-graph with a
                 # sources.json provenance/freshness manifest, hybrid-auto KG ingest,
@@ -1138,7 +1138,7 @@ def register_write_ingest_tools(mcp):
                 return f"Knowledge pack from {target_path} hydrated and ingested."
 
             elif action == "import_pack":
-                # CONCEPT:AHE-3.9 — Round-trip import of a distilled skill-graph
+                # CONCEPT:AU-AHE.optimization.physical-distillation-engine — Round-trip import of a distilled skill-graph
                 # package (reference/ + kg_manifest.json): reconstruct the original
                 # subgraph here, preserving node ids + edges. The inverse of
                 # 'distill'. ``corpus_name="dedup"`` runs the IdeaBlock dedup-merge.
@@ -1162,7 +1162,7 @@ def register_write_ingest_tools(mcp):
                     return f"Import error: {e}"
 
             elif action == "fact_extract":
-                # CONCEPT:KG-2.64 — document → atomic-triple fact extraction.
+                # CONCEPT:AU-KG.enrichment.atomic-triple-extraction — document → atomic-triple fact extraction.
                 # Streams (subject)-[predicate]->(object) edges carrying
                 # confidence/evidence_span/tags, dedups them semantically with
                 # our own embedder, persists them as graph edges (variant node
@@ -1229,7 +1229,7 @@ def register_write_ingest_tools(mcp):
                 "extract_resume",
                 "extract_jsonl",
             ):
-                # CONCEPT:KG-2.65 — GPU-slot-scheduled fact extraction. Unlike the
+                # CONCEPT:AU-KG.enrichment.gpu-scheduled-extraction — GPU-slot-scheduled fact extraction. Unlike the
                 # inline 'fact_extract', these submit a job that runs on the single
                 # GPU inference slot with preempt/backfill/resume, so concurrent
                 # submissions don't oversubscribe the GPU. job_id addresses a job.
@@ -1287,7 +1287,7 @@ def register_write_ingest_tools(mcp):
     @mcp.tool(
         name="usage_query",
         description=(
-            "Query usage/cost/observability analytics (CONCEPT:ECO-4.41): token "
+            "Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): token "
             "counts, cost, model/tool/skill/db-call usage, session browser, "
             "activity heatmap, full-text search, and Langfuse trace links. One "
             "store covers both ingested agent logs and our own runtime telemetry."
@@ -1361,7 +1361,7 @@ def register_write_ingest_tools(mcp):
                     return "Error: query required for search"
                 out = [e.model_dump() for e in svc.search(query, limit=limit)]
             elif action == "series":
-                # CONCEPT:KG-2.252 — per-agent token usage over time from the engine
+                # CONCEPT:AU-KG.ingest.per-agent-token-usage — per-agent token usage over time from the engine
                 # tsdb (native range/window), not a Python re-scan. ``from_date``/
                 # ``to_date`` are epoch seconds; ``model`` carries the bucket field
                 # (default total_tokens); ``limit`` carries the window size in seconds
@@ -1396,7 +1396,7 @@ def register_write_ingest_tools(mcp):
         name="ingest_sessions",
         description=(
             "Ingest AI agent chat/session history into the usage store + KG "
-            "(CONCEPT:ECO-4.42). 'collect' auto-detects installed agents on THIS "
+            "(CONCEPT:AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS "
             "host and parses their local logs (use when the engine is local). "
             "'upload' accepts pre-parsed session bundles as JSON so a CLIENT can "
             "parse its own logs and push them to a REMOTE/central engine that has "
@@ -1426,7 +1426,7 @@ def register_write_ingest_tools(mcp):
 
                 return _json.dumps(collect_local_sessions(), default=str)
             if action == "upload":
-                # CONCEPT:KG-2.272 — NON-BLOCKING upload. Each uploaded session
+                # CONCEPT:AU-KG.ingest.drain-session-bundle — NON-BLOCKING upload. Each uploaded session
                 # expands to many usage-store rows (sessions + events + tool
                 # calls + FTS index), so the old synchronous ``record_bundle``
                 # loop blew past the 60s MCP client window under load even at
@@ -1457,7 +1457,7 @@ def register_write_ingest_tools(mcp):
 
                 # Large upload → enqueue and return. Carry the bundles on the
                 # Task node's metadata payload (same shape as ``kg_memory``,
-                # CONCEPT:KG-2.130); the host worker reads it back, parses and
+                # CONCEPT:AU-KG.compute.offloaded-memory-write); the host worker reads it back, parses and
                 # records. ``skip_dedupe`` because each batch is a distinct,
                 # idempotent (record_bundle replaces rows) payload — never collapse
                 # two real uploads into one. A unique target keeps job ids distinct.

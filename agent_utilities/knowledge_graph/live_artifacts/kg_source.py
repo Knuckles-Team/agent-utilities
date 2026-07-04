@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — KG-backed Live Artifact refresh resolver.
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — KG-backed Live Artifact refresh resolver.
 
 Re-derives an artifact's data by running its bound ``source_query`` against the epistemic KG
 (:meth:`KnowledgeGraph.query`). This is the production source registered with the gateway via

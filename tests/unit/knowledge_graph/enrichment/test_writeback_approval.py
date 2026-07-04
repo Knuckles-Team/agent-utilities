@@ -1,4 +1,4 @@
-"""High-stakes write-back: risk-tier + approval queue (CONCEPT:KG-2.9 / KG-2.247).
+"""High-stakes write-back: risk-tier + approval queue (CONCEPT:AU-KG.ingest.enterprise-source-extractor / KG-2.247).
 
 The approval queue is engine-only (``:WritebackProposal`` nodes, no JSON fallback),
 so these run against the REAL ephemeral engine the conftest provides (CONCEPT:
@@ -40,7 +40,7 @@ class _HighStakesSink:
 
 @pytest.fixture
 def sink(monkeypatch, tiny_engine):
-    # ``tiny_engine`` (CONCEPT:KG-2.238) ensures the REAL ephemeral engine is up so
+    # ``tiny_engine`` (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) ensures the REAL ephemeral engine is up so
     # the engine-only ProposalQueue (no JSON fallback) has an authority to persist
     # :WritebackProposal nodes on.
     s = _HighStakesSink()

@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.22 — SWE-bench harness end-to-end on a local fixture (no LLM, no Docker)."""
+"""CONCEPT:AU-AHE.harness.single-file-code-synthesis — SWE-bench harness end-to-end on a local fixture (no LLM, no Docker)."""
 
 from __future__ import annotations
 

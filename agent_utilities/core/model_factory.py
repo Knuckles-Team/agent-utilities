@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Model Factory Module.
 
-CONCEPT:ORCH-1.2
+CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 
 This module provides a unified factory function to create and configure
 different LLM providers (OpenAI, Anthropic, Google, Groq, Mistral, Ollama)
@@ -110,7 +110,7 @@ def get_model_config(model_id: str | None = None) -> dict | None:
 def _resolve_role_model(role: str):
     """Resolve a functional role to a concrete model via the active registry.
 
-    CONCEPT:ORCH-1.27. Loads the registry from ``config.model_registry_path`` (kept
+    CONCEPT:AU-ORCH.routing.functional-role-resolution. Loads the registry from ``config.model_registry_path`` (kept
     decoupled from the server layer on purpose) and calls ``pick_for_role``. Returns
     the selected ``ModelDefinition`` or ``None`` if no registry/match is available.
     Never raises — role resolution is best-effort and degrades to the caller's defaults.
@@ -133,7 +133,7 @@ def _resolve_role_model(role: str):
             from agent_utilities.models.model_registry import RoleSpec
 
             registry.role_routing[role] = RoleSpec.model_validate(cfg_roles[role])
-        # CONCEPT:ORCH-1.79 — route adaptively from the learned per-role confidence
+        # CONCEPT:AU-ORCH.routing.adaptive-role-routing — route adaptively from the learned per-role confidence
         # (cheaper/local when it keeps succeeding, escalate when it fails); fall back
         # to the static role pick when adaptive selection has nothing to say.
         from agent_utilities.core.model_router import pick_adaptive
@@ -157,7 +157,7 @@ def create_model(
 ):
     """Build a model and (when a KG trace sink is installed) wrap it so EVERY LLM call
     persists a GenerationNode with model/tokens/cost/latency — the always-on per-call
-    observability chokepoint (CONCEPT:OS-5.68). The wrap is a no-op when no sink is wired
+    observability chokepoint (CONCEPT:AU-OS.config.model-factory-passthrough). The wrap is a no-op when no sink is wired
     (zero overhead, e.g. unit tests), so default behavior is unchanged.
 
     ``reasoning_effort`` controls thinking on a reasoning chat model (the standard
@@ -196,7 +196,7 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
     OpenAI effort enum pydantic-ai validates but IS the value this vLLM build honors to
     suppress the reasoning block. Returns ``None`` when ``effort`` is ``None`` (caller keeps
     the model's own default) or when pydantic-ai's OpenAI settings type is unavailable."""
-    # CONCEPT:ORCH-1.99 — also fold the vLLM scheduler `priority` field (lower =
+    # CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler — also fold the vLLM scheduler `priority` field (lower =
     # sooner) from the ambient PriorityClass into extra_body, so a server started
     # with --scheduling-policy priority sees a background-ingestion enrichment call
     # as lower priority than an interactive/orchestration one. Additive: when no
@@ -261,7 +261,7 @@ def _create_model_impl(
 
         return TestModel()
 
-    # CONCEPT:ORCH-1.27 — resolve a functional role (planner/generator/learner/judge)
+    # CONCEPT:AU-ORCH.routing.functional-role-resolution — resolve a functional role (planner/generator/learner/judge)
     # to a concrete model when an explicit model_id was not supplied. Explicit args win.
     if role is not None and model_id is None:
         _resolved = _resolve_role_model(role)
@@ -450,7 +450,7 @@ def _create_model_impl(
         return HuggingFaceModel(model_name=_model_id)
 
     elif _provider in ("custom", "proxy"):
-        # CONCEPT:ORCH-1.34 — BYOK custom endpoint. The provider proxy emits OpenAI-compatible
+        # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK custom endpoint. The provider proxy emits OpenAI-compatible
         # canonical streams, so a custom endpoint is reached via an OpenAI-compatible client pointed at
         # the resolved base_url. Credentials resolve env > file > none; the base_url passes the
         # DNS-resolved SSRF egress guard before any client is constructed.

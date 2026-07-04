@@ -1,6 +1,6 @@
 """Telemetry Engine — Synthesized Observability Facade.
 
-CONCEPT:OS-5.1 — Telemetry Engine
+CONCEPT:AU-OS.observability.telemetry-observability — Telemetry Engine
 
 Provides a single entry point for all observability concerns:
 - Token usage tracking (OS-5.5 via ``TokenTracker``)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class TelemetryEngine:
     """Synthesized observability engine.
 
-    CONCEPT:OS-5.1 — Telemetry Engine
+    CONCEPT:AU-OS.observability.telemetry-observability — Telemetry Engine
 
     Usage::
 

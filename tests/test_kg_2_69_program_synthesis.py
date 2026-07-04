@@ -1,4 +1,4 @@
-"""Inductive program synthesis with an Occam/MDL prior (CONCEPT:KG-2.69).
+"""Inductive program synthesis with an Occam/MDL prior (CONCEPT:AU-KG.coordination.inductive-program-synthesis-search).
 
 Searches compositions of pure primitives for the shortest program that fits the
 examples, ranking with the MDL selection prior so the simplest fitting program wins.
@@ -15,7 +15,7 @@ from agent_utilities.harness.program_synthesis import (
 )
 from agent_utilities.harness.selection_operators import select_top_k
 
-pytestmark = pytest.mark.concept("KG-2.69")
+pytestmark = pytest.mark.concept("AU-KG.coordination.inductive-program-synthesis-search")
 
 PRIMS = {
     "inc": lambda x: x + 1,

@@ -1,4 +1,4 @@
-"""Telegram Messaging Backend (CONCEPT:ECO-4.0).
+"""Telegram Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Implements ``MessagingBackend`` for Telegram using ``python-telegram-bot``.
 Supports forum topics (threads), reactions, inline keyboards, polls,
@@ -12,7 +12,7 @@ Configuration::
 
     TELEGRAM_BOT_TOKEN=<your-bot-token>
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBackend(MessagingBackend):
-    """Telegram messaging backend using ``python-telegram-bot``. CONCEPT:ECO-4.0"""
+    """Telegram messaging backend using ``python-telegram-bot``. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -60,7 +60,7 @@ class TelegramBackend(MessagingBackend):
         return CAPABILITY_MATRIX["telegram"]
 
     async def connect(self) -> None:
-        """Connect to Telegram Bot API — send-ready, no poller. CONCEPT:ECO-4.0
+        """Connect to Telegram Bot API — send-ready, no poller. CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Polling for inbound updates is started lazily by :meth:`listen` (the inbound
         stream), NOT here, so a send-only consumer (e.g. the ``graph_reach`` MCP tool
@@ -102,7 +102,7 @@ class TelegramBackend(MessagingBackend):
                         filename=msg.document.file_name or "",
                     )
                 )
-            if msg.voice:  # CONCEPT:ECO-4.68 — voice note → transcribed downstream
+            if msg.voice:  # CONCEPT:AU-ECO.messaging.telegram-voice-note — voice note → transcribed downstream
                 file = await msg.voice.get_file()
                 attachments.append(
                     MediaAttachment(
@@ -145,10 +145,10 @@ class TelegramBackend(MessagingBackend):
         await self._app.initialize()
         await self._app.start()
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] Telegram backend connected (send-ready).")
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram backend connected (send-ready).")
 
     async def disconnect(self) -> None:
-        """Disconnect from Telegram. CONCEPT:ECO-4.0"""
+        """Disconnect from Telegram. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         if self._app:
             if self._polling:
                 await self._app.updater.stop()
@@ -166,7 +166,7 @@ class TelegramBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a Telegram message. CONCEPT:ECO-4.0
+        """Send a Telegram message. CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         The universal agent replies in Markdown; Telegram renders only a small HTML subset, so
         by default we convert Markdown → that subset and send with ``parse_mode=HTML`` —
@@ -202,7 +202,7 @@ class TelegramBackend(MessagingBackend):
         except Exception as e:
             # A formatting parse error must never lose the message — resend as plain text.
             logger.warning(
-                "[CONCEPT:ECO-4.0] Telegram %s send failed (%s); retrying as plain text.",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram %s send failed (%s); retrying as plain text.",
                 parse_mode,
                 e,
             )
@@ -215,7 +215,7 @@ class TelegramBackend(MessagingBackend):
                     channel_id=channel_id,
                 )
             except Exception as e2:  # noqa: BLE001
-                logger.error("[CONCEPT:ECO-4.0] Telegram send failed: %s", e2)
+                logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram send failed: %s", e2)
                 return SendResult(
                     success=False, platform=PlatformId.TELEGRAM, error=str(e2)
                 )
@@ -229,7 +229,7 @@ class TelegramBackend(MessagingBackend):
         thread_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send media to Telegram. CONCEPT:ECO-4.0"""
+        """Send media to Telegram. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         try:
             kwargs: dict[str, Any] = {"chat_id": int(channel_id)}
             if caption:
@@ -258,11 +258,11 @@ class TelegramBackend(MessagingBackend):
             return SendResult(success=False, platform=PlatformId.TELEGRAM, error=str(e))
 
     async def send_typing(self, channel_id: str) -> None:
-        """Send typing action. CONCEPT:ECO-4.0"""
+        """Send typing action. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         await self._app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
 
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
-        """React to a message with an emoji (CONCEPT:ECO-4.60) via setMessageReaction."""
+        """React to a message with an emoji (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction) via setMessageReaction."""
         from telegram import ReactionTypeEmoji
 
         await self._app.bot.set_message_reaction(
@@ -272,7 +272,7 @@ class TelegramBackend(MessagingBackend):
         )
 
     async def register_commands(self, commands: list[dict[str, str]]) -> None:
-        """Publish the universal command set to Telegram's command menu (CONCEPT:ECO-4.57)."""
+        """Publish the universal command set to Telegram's command menu (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher)."""
         from telegram import BotCommand
 
         try:
@@ -280,15 +280,15 @@ class TelegramBackend(MessagingBackend):
                 [BotCommand(c["command"], c["description"]) for c in commands]
             )
             logger.info(
-                "[CONCEPT:ECO-4.57] Registered %d Telegram commands.", len(commands)
+                "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Registered %d Telegram commands.", len(commands)
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:ECO-4.57] Telegram setMyCommands failed: %s", e)
+            logger.warning("[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Telegram setMyCommands failed: %s", e)
 
     async def _start_intake(self) -> None:
         """Start inbound intake once: webhook push if configured, else long-polling.
 
-        CONCEPT:ECO-4.66 — webhook mode uses python-telegram-bot's built-in receiver
+        CONCEPT:AU-ECO.messaging.telegram-webhook-receiver-started — webhook mode uses python-telegram-bot's built-in receiver
         (``start_webhook``), which validates Telegram's ``secret_token`` header and calls
         ``setWebhook`` for us. It binds a LOCAL port (``MESSAGING_WEBHOOK_PORT``) that your
         tunnel/edge (pangolin/Cloudflare/Caddy) forwards the public ``webhook_url`` to — so
@@ -316,7 +316,7 @@ class TelegramBackend(MessagingBackend):
             )
             self._polling = True
             logger.info(
-                "[CONCEPT:ECO-4.66] Telegram webhook receiver started on 127.0.0.1:%s "
+                "[CONCEPT:AU-ECO.messaging.telegram-webhook-receiver-started] Telegram webhook receiver started on 127.0.0.1:%s "
                 "(public %s/%s, secret-validated).",
                 port,
                 base.rstrip("/"),
@@ -325,10 +325,10 @@ class TelegramBackend(MessagingBackend):
         else:
             await self._app.updater.start_polling()
             self._polling = True
-            logger.info("[CONCEPT:ECO-4.0] Telegram polling started.")
+            logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram polling started.")
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Telegram events (webhook push or polling). CONCEPT:ECO-4.0/4.66"""
+        """Yield inbound Telegram events (webhook push or polling). CONCEPT:AU-ECO.messaging.native-backend-abstraction/4.66"""
         await self._start_intake()
         while self._connected:
             try:

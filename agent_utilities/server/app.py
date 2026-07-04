@@ -213,7 +213,7 @@ def build_agent_app(
         skills_list = enabled_skills
 
         if not skills_list:
-            # CONCEPT:ECO-4.0 — Register PlannerGraphSkill when graph_bundle is available
+            # CONCEPT:AU-ECO.messaging.native-backend-abstraction — Register PlannerGraphSkill when graph_bundle is available
             if graph_bundle is not None:
                 try:
                     from ..protocols.a2a_graph_skill import PlannerGraphSkill
@@ -230,7 +230,7 @@ def build_agent_app(
                     )
                     skills_list.append(planner_skill)
                     logger.info(
-                        "[CONCEPT:ECO-4.0] Registered PlannerGraphSkill as A2A-native skill"
+                        "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Registered PlannerGraphSkill as A2A-native skill"
                     )
                 except Exception as e:
                     logger.warning(f"PlannerGraphSkill registration failed: {e}")
@@ -316,7 +316,7 @@ def build_agent_app(
                     f"Automatic Knowledge Graph ingestion failed on startup: {e}"
                 )
 
-            # CONCEPT:ECO-4.0: A2A agent sync and periodic refresh
+            # CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A agent sync and periodic refresh
             _a2a_cfg = a2a_config or config.a2a_config
             if _a2a_cfg:
                 try:
@@ -337,7 +337,7 @@ def build_agent_app(
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
 
-            # CONCEPT:OS-5.8 Boot SynthesisEngine daemon
+            # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Boot SynthesisEngine daemon
             async def run_synthesis_daemon():
                 import asyncio
 
@@ -354,7 +354,7 @@ def build_agent_app(
                 engine = IntelligenceGraphEngine()
                 synthesis = SynthesisEngine(engine=engine)
 
-                # CONCEPT:KG-2.7 — preload the bundled ontology TBox into the local
+                # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
                 # OWL store at startup so OWL reasoning + the local SPARQL endpoint
                 # have the schema immediately (best-effort; a no-op when owlready2
                 # /rdflib aren't installed, e.g. the most minimal tiny profile).
@@ -515,9 +515,9 @@ def build_agent_app(
         app.include_router(ard.router)
         app.include_router(human.router)
         app.include_router(commands.router)
-        # CONCEPT:ORCH-1.34 — BYOK provider-normalizing proxy (/api/proxy/{provider}/stream).
+        # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK provider-normalizing proxy (/api/proxy/{provider}/stream).
         app.include_router(proxy.router)
-        # CONCEPT:KG-2.24 — Live Refreshable Artifacts (/api/artifacts...).
+        # CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifacts (/api/artifacts...).
         from agent_utilities.gateway.artifacts_api import artifacts_router
         from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
             install_kg_artifact_source,
@@ -526,12 +526,12 @@ def build_agent_app(
         app.include_router(artifacts_router)
         # Wire artifact refresh to re-derive from the live KG (falls back to preserve-prior on failure).
         install_kg_artifact_source()
-        # CONCEPT:AHE-3.12 — LongMemEval-S validation harness (Quarq HTTP runner compatible).
+        # CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S validation harness (Quarq HTTP runner compatible).
         from .routers import benchmark
 
         app.include_router(benchmark.router)
 
-        # CONCEPT:OS-5.33 / ORCH-1.46 — developer-workspace runtime HTTP surface
+        # CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 — developer-workspace runtime HTTP surface
         # (/api/runtime/* — create session, post typed actions, SSE the event log).
         from .routers import runtime as runtime_router
 
@@ -542,7 +542,7 @@ def build_agent_app(
 
         app.include_router(swebench_router.router)
 
-        # CONCEPT:ECO-4.43 — git issue/PR -> SWE task resolver + webhook ingress.
+        # CONCEPT:AU-ECO.connector.git-task-resolver — git issue/PR -> SWE task resolver + webhook ingress.
         from .routers import git_webhooks as git_router
 
         app.include_router(git_router.router)
@@ -556,7 +556,7 @@ def build_agent_app(
             # The full Knowledge Graph REST surface is centralized here (graph-os
             # MCP is now a thin FastMCP wrapper). Routes are mounted under /api/*.
             register_graph_routes(app, prefix="/api")
-            # CONCEPT:ECO-4.41 — usage/cost/observability surface for all 3 UIs.
+            # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/observability surface for all 3 UIs.
             app.include_router(usage_router, prefix="/api/observability")
             logger.info(
                 "Mounted centralized Gateway API "

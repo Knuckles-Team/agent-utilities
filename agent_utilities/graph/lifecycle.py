@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Graph Lifecycle Steps.
 
-CONCEPT:ORCH-1.0
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations
 
 Session lifecycle, policy enforcement, and human-in-the-loop gates.
 Extracted from the monolithic steps.py for maintainability.
@@ -97,7 +97,7 @@ async def usage_guard_step(
         )
 
     # Policy enforcement (Optional, based on tool_guard_mode / the per-job shape).
-    # CONCEPT:ORCH-1.68 — the policy check is a full LLM round; a lean shape (a trivial chat
+    # CONCEPT:AU-ORCH.execution.direct-completion-shape — the policy check is a full LLM round; a lean shape (a trivial chat
     # turn) skips it so the turn never pays an extra LLM round before the router. Mutating
     # fleet actions are still governed downstream by the fail-closed ActionPolicy gate, so a
     # passed-through trivial Q&A is not ungoverned.
@@ -108,7 +108,7 @@ async def usage_guard_step(
     ):
         logger.info(
             "UsageGuard: bypassing policy LLM round (%s).",
-            "tool guard off" if _guard_off else "lean shape — CONCEPT:ORCH-1.68",
+            "tool guard off" if _guard_off else "lean shape — CONCEPT:AU-ORCH.execution.direct-completion-shape",
         )
         _emit_node_lifecycle(
             cast(GraphDeps, ctx.deps).event_queue,

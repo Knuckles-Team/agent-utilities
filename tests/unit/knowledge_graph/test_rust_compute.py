@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.2 Rust epistemic-graph compute unit tests.
+"""CONCEPT:AU-KG.ingest.engineering-rules Rust epistemic-graph compute unit tests.
 Verifies the optimized graph functions using the Tokio-based epistemic-graph daemon.
 """
 

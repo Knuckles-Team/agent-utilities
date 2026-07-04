@@ -1,4 +1,4 @@
-"""ArchiMate model source extractor (CONCEPT:KG-2.9).
+"""ArchiMate model source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Reads an ArchiMate model (Open-Exchange, via the archimate-mcp ArchiApi) into the
 KG: elements → their ArchiMate class node (BusinessProcess, ApplicationComponent,

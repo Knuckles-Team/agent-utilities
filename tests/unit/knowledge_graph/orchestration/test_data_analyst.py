@@ -1,4 +1,4 @@
-"""DB-GPT-style text2sql data-analysis agent loop (CONCEPT:KG-2.308).
+"""DB-GPT-style text2sql data-analysis agent loop (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
 Exercises the full bounded ReAct loop with a mock LLM (an injected KG-2.305 planner +
 injected/absent synthesis) over a mock engine: happy-path schema-link → plan → execute →
@@ -17,7 +17,7 @@ import pytest
 from agent_utilities.knowledge_graph.core import nl_planner
 from agent_utilities.knowledge_graph.orchestration import data_analyst
 
-pytestmark = pytest.mark.concept("KG-2.308")
+pytestmark = pytest.mark.concept("AU-KG.query.data-gateway-rest-twin")
 
 
 class _FakeEngine:

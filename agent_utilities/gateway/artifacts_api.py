@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Live Artifact gateway routes (Wire-First entry point).
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Artifact gateway routes (Wire-First entry point).
 
 Exposes create / get / refresh for Live Artifacts over the shared :class:`LiveArtifactStore` and
 :class:`RefreshService`. Mounted in ``server/app.py``.

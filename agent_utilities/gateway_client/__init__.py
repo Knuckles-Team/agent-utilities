@@ -1,6 +1,6 @@
 """``agent_utilities.gateway_client`` — the surface-facing gateway client SDK.
 
-CONCEPT:ECO-4.37 — Surface Gateway Client SDK
+CONCEPT:AU-ECO.interop.gateway-client-sdk — Surface Gateway Client SDK
 
 The consolidation audit's top *surface-side* finding: every user-facing surface
 (agent-webui, agent-terminal-ui, geniusbot) hand-rolls its own HTTP/SSE client

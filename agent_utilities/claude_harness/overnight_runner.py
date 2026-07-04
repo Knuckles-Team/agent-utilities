@@ -3,8 +3,8 @@ from __future__ import annotations
 
 """Unattended 'run while you sleep' loop-driver core.
 
-CONCEPT:ECO-4.47 — Unattended overnight loop-driver + morning-summary write-back
-CONCEPT:SAFE-1.8 — Unattended-session stop-on-ask containment
+CONCEPT:AU-AHE.harness.overnight-loop-driver — Unattended overnight loop-driver + morning-summary write-back
+CONCEPT:AU-OS.scaling.unattended-session-stop-ask — Unattended-session stop-on-ask containment
 
 The ``unattended-loop-driver`` skill hands Claude Code a goal and a permission
 fence; this module is the testable core it leans on. It drives the existing
@@ -217,7 +217,7 @@ def _render_summary(report: dict[str, Any]) -> str:
     committed = sum(1 for c in commits if c.get("committed"))
     lines = [
         _MEMORY_START,
-        "## Unattended loop session (CONCEPT:ECO-4.47)",
+        "## Unattended loop session (CONCEPT:AU-AHE.harness.overnight-loop-driver)",
         "",
         f"- Cycles run: **{report.get('cycles_run', 0)}** "
         f"({report.get('productive_cycles', 0)} productive)",

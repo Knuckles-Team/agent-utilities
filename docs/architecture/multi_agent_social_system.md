@@ -1,6 +1,6 @@
 # Multi-Agent Social System (MASS)
 
-> **CONCEPT:ORCH-1.32** — KG-Governed Agent Swarm
+> **CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm** — KG-Governed Agent Swarm
 > **Module:** `agent_utilities/graph/social_system.py` · **Driver:** `agent_utilities/graph/parallel_engine.py`
 > **Source:** research-evolution plan b2-01 ("Social Theory Should Be a Structural Prior for Agentic AI")
 
@@ -38,7 +38,7 @@ single deterministic report:
 | **P4** drift | is the output distribution stationary? | Wasserstein-1 vs the previous run (`population_drift.wasserstein1`) |
 
 Reusing `wasserstein1` keeps one drift detector shared with the evolution
-population-health monitor (CONCEPT:AHE-3.2).
+population-health monitor (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
 ## Live wiring
 

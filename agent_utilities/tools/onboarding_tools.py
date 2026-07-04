@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Onboarding Tools Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module provides utilities for bootstrapping new agentic workspaces,
 detecting project technology stacks, and initializing core configuration files

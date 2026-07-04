@@ -1,0 +1,95 @@
+# OKF-CIS repo SLUG registry (CONCEPT:OS-5.77).
+#
+# The `<SLUG>` of a concept id is the 2-letter, globally-unique code of the repo
+# that OWNS the concept (provenance). SLUG is derived from a marker's file path
+# (which repo it physically lives in) — NEVER from its old id prefix, because the
+# old prefix conflated provenance with taxonomy (the root disease this fixes).
+#
+# This is the SINGLE provenance source: agent-packages/scripts/generate_concepts.py
+# PREFIX_MAP is regenerated from it, and the migration planner resolves SLUG here.
+# Every value MUST be exactly two uppercase letters and globally unique
+# (enforced by scripts/check_domain_vocab.py's slug-uniqueness assertion).
+#
+# Reserve a new SLUG when onboarding a repo; keep the file sorted by key.
+
+version: 1
+
+slugs:
+  # ── core framework + engine + frontends ──────────────────────────────────
+  agent-utilities: AU
+  epistemic-graph: EG
+  universal-skills: US
+  skill-graphs: SG
+  agent-webui: WU
+  agent-terminal-ui: TU
+  geniusbot: GB
+  design-system: DZ
+
+  # ── agents / MCP servers / API clients ───────────────────────────────────
+  ansible-tower-mcp: AT
+  archimate-mcp: AM
+  archivebox-api: AB
+  aris-mcp: AR
+  arr-mcp: RR
+  atlassian-agent: AL
+  audio-transcriber: AX
+  audiobookshelf-mcp: AS
+  caddy-mcp: CD
+  camunda-mcp: CM
+  ciso-assistant-api: CS
+  clarity-api: CY
+  container-manager-mcp: CN
+  data-science-mcp: DS
+  dockerhub-api: DH
+  documentdb-mcp: DD
+  egeria-mcp: EA
+  emerald-exchange: EX
+  erpnext-agent: EN
+  fan-manager: FM
+  firefly-iii-mcp: FF
+  freshrss-agent: FR
+  genius-agent: GA
+  github-agent: GH
+  gitlab-api: GL
+  gramps-mcp: GM
+  home-assistant-agent: HA
+  jellyfin-mcp: JF
+  jena-mcp: JN
+  kafka-mcp: KF
+  keycloak-agent: KC
+  langfuse-agent: LF
+  leanix-agent: LX
+  legal-peripherals-mcp: LP
+  lgtm-mcp: LG
+  listmonk-api: LM
+  mattermost-mcp: MM
+  mealie-mcp: MK
+  media-downloader: MD
+  microsoft-agent: MS
+  nextcloud-agent: NC
+  objectstore-mcp: OB
+  okta-agent: OK
+  onetrust-api: OT
+  openbao-mcp: BO
+  owncast-agent: OW
+  paperless-ngx-mcp: PL
+  plane-agent: PN
+  portainer-agent: PT
+  postiz-agent: PZ
+  pulselink-mcp: PK
+  qbittorrent-agent: QB
+  repository-manager: RM
+  rom-manager: RO
+  salesforce-agent: SF
+  scholarx: SX
+  searxng-mcp: SR
+  servicenow-api: SN
+  sql-mcp: SQ
+  stirlingpdf-agent: SP
+  systems-manager: SM
+  technitium-dns-mcp: TD
+  tunnel-manager: TM
+  twenty-mcp: TW
+  uptime-kuma-agent: UK
+  vector-mcp: VC
+  wger-agent: WG

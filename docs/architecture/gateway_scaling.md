@@ -1,6 +1,6 @@
 # Scaling the Gateway
 
-**CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening** (Python-tier Prometheus
+**CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening** (Python-tier Prometheus
 metrics, per-tenant rate limiting, engine circuit breaker, multi-worker
 readiness).
 

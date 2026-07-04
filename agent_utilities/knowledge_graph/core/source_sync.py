@@ -1,4 +1,4 @@
-"""Source-agnostic KG synchronization (CONCEPT:KG-2.9).
+"""Source-agnostic KG synchronization (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 One sync mechanism for every external source registered in the hydration
 ``CAPABILITY_REGISTRY`` (LeanIX, Camunda, ARIS, ServiceNow, …), so they share a
@@ -95,7 +95,7 @@ def _reconcile(engine: Any, source: str, live_ids: set[str]) -> dict[str, Any]:
     return {"status": "completed", "live": len(live_ids), "tombstoned": tombstoned}
 
 
-# ── Fleet capability elevation (CONCEPT:KG-2.133) ────────────────────────────
+# ── Fleet capability elevation (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical) ────────────────────────────
 #
 # The ~62 fleet MCP servers' tools were AST-ingested as generic ``Code`` symbols
 # and never elevated to capability nodes, so the KG lacked the fleet capability
@@ -199,7 +199,7 @@ def _existing_disabled(engine: Any, node_id: str) -> bool:
 
 
 def _derive_tool_mode(input_schema: dict | None) -> str:
-    """Classify a served tool as ``condensed`` or ``verbose`` (CONCEPT:KG-2.133).
+    """Classify a served tool as ``condensed`` or ``verbose`` (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
 
     The fleet exposes two surfaces per server (MCP_TOOL_MODE=both, ECO-4.82): a *condensed*
     action-routed tool (one tool with ``action`` + ``params_json``) and *verbose* 1:1 tools
@@ -351,7 +351,7 @@ def _resolve_fleet_config():
 def _sync_fleet(
     engine: Any, *, mode: str = "full", ids: list[str] | None = None, client: Any = None
 ) -> dict[str, Any]:
-    """Elevate fleet MCP-server tools to KG capability nodes (CONCEPT:KG-2.133).
+    """Elevate fleet MCP-server tools to KG capability nodes (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
 
     Probes the served multiplexer catalog (each fleet server's real tools, via a
     bounded connect→list_tools→release sweep) and writes them as ``Tool``
@@ -453,7 +453,7 @@ def _sync_leanix(
 def _sync_archivebox(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest preserved ArchiveBox snapshots into the KG (CONCEPT:KG-2.7).
+    """Ingest preserved ArchiveBox snapshots into the KG (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
     Enumerates snapshots via the ``archivebox`` mcp_tool source preset (delta =
     ``created_at__gte`` watermark; "pull all" = ``mode='full'``; ``ids`` selects
@@ -521,7 +521,7 @@ def _sync_archivebox(
 
 # PACKAGE_PRESETS packages whose upstream is ALREADY ingested by a dedicated
 # _DELTA_HANDLERS source — excluded from the fleet sweep to avoid double-ingestion
-# (CONCEPT:KG-2.151). gitlab-api→gitlab, atlassian-agent→jira/confluence,
+# (CONCEPT:AU-KG.compute.gitlab-api-gitlab-atlassian). gitlab-api→gitlab, atlassian-agent→jira/confluence,
 # plane-agent→plane, scholarx→the research feed. Keep this in sync with
 # _DELTA_HANDLERS: a package gains a dedicated handler ⇒ add it here.
 _FLEET_DEDICATED_PACKAGES: frozenset[str] = frozenset(
@@ -532,7 +532,7 @@ _FLEET_DEDICATED_PACKAGES: frozenset[str] = frozenset(
 def _sync_fleet_connectors(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Drain EVERY configured ``agent-packages/agents/*`` connector in one pass (CONCEPT:KG-2.151).
+    """Drain EVERY configured ``agent-packages/agents/*`` connector in one pass (CONCEPT:AU-KG.compute.gitlab-api-gitlab-atlassian).
 
     The fleet ships ~50 sibling packages, each a FastMCP server with a declared
     document-yielding tool (the :data:`package_manifest.PACKAGE_PRESETS` catalog —
@@ -572,7 +572,7 @@ def _sync_fleet_connectors(
         # source="all" enqueues BOTH this fleet leg AND the dedicated source for the
         # same upstream, writing under non-matching doc-id namespaces so the
         # content-hash delta can't dedup → duplicate Document/Chunk nodes every run
-        # (CONCEPT:KG-2.151). The dedicated handler owns these upstreams.
+        # (CONCEPT:AU-KG.compute.gitlab-api-gitlab-atlassian). The dedicated handler owns these upstreams.
         if package in _FLEET_DEDICATED_PACKAGES:
             skipped[package] = "covered by a dedicated delta handler"
             continue
@@ -655,16 +655,16 @@ def _as_epoch(value: Any) -> int | None:
 def _sync_freshrss(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Relevance-gated ingestion of curated FreshRSS items (CONCEPT:KG-2.115).
+    """Relevance-gated ingestion of curated FreshRSS items (CONCEPT:AU-KG.compute.homelab-rss-reader-as).
 
     Enumerates items via the ``freshrss`` mcp_tool preset over the Google-Reader API
     (delta = ``newer_than`` → GReader ``ot`` **unix-seconds** watermark on
     ``published``; ``mode='full'`` drains all). Unlike a mirror connector this source
     is INTENTIONALLY GATED: each item passes the world-model relevance gate
-    (:class:`WorldModelPipelineRunner`, CONCEPT:KG-2.116) — only items relevant to the
+    (:class:`WorldModelPipelineRunner`, CONCEPT:AU-KG.ingest.news-finance-tech-sibling) — only items relevant to the
     existing KG (taxonomy score OR concept-novelty) or agent-force flagged are fully
     ingested as ``news_article`` Documents; the rest get a marginal footprint or are
-    skipped. Research/arXiv-feed items route to the research path (CONCEPT:KG-2.117),
+    skipped. Research/arXiv-feed items route to the research path (CONCEPT:AU-KG.ingest.worldmodel-gated-ingestion),
     unifying RSS intake. ``skipped_unchanged`` plus the watermark prove the delta on a
     re-run; the write-layer content-hash delta (KG_WRITE_DELTA) is the second guard.
     """
@@ -691,7 +691,7 @@ def _sync_freshrss(
             "freshrss-mcp server to mcp_config)",
         }
 
-    # Register FreshRSS as a first-class :FeedSource node (CONCEPT:KG-2.122) for
+    # Register FreshRSS as a first-class :FeedSource node (CONCEPT:AU-KG.compute.first-class-rss-atom) for
     # symmetry with the RSS/scholarx feeds — idempotent, best-effort upsert.
     try:
         from ...automation.feed_sources import upsert_feed_source
@@ -860,12 +860,12 @@ def _sync_rss(
 def _sync_gitlab(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Index whole GitLab instances as a resolved code graph (CONCEPT:KG-2.9g).
+    """Index whole GitLab instances as a resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 
     For every configured instance (``GITLAB_INSTANCES`` JSON, else single
     ``GITLAB_URL``/``GITLAB_TOKEN``) this enumerates projects → default-branch code
     files and ships each project to the engine's ``index_repository`` resolver
-    (CONCEPT:KG-2.8r), writing ``:Code`` symbols + resolved ``calls``/``depends_on``
+    (CONCEPT:EG-KG.compute.turn-each-project), writing ``:Code`` symbols + resolved ``calls``/``depends_on``
     + ``Repository``/``File`` structure under ``source_system = gitlab:<instance>``.
     ``mode='full'`` re-indexes all; delta uses a per-instance ``last_activity_at``
     watermark; ``ids`` narrows to specific projects (webhook delta).
@@ -939,9 +939,9 @@ def _sync_gitlab(
 # GitLab pattern): a second Atlassian site or Plane workspace is a second ``*-mcp``
 # server entry + a typed ``*_instances`` config row, so the same logic ingests both.
 #
-# CONCEPT:KG-2.123 — Confluence first-class delta connector
-# CONCEPT:KG-2.124 — Jira first-class delta connector
-# CONCEPT:KG-2.125 — Plane first-class delta connector
+# CONCEPT:AU-KG.compute.confluence-first-class-delta — Confluence first-class delta connector
+# CONCEPT:AU-KG.compute.jira-first-class-delta — Jira first-class delta connector
+# CONCEPT:AU-KG.compute.plane-first-class-delta — Plane first-class delta connector
 
 
 def _resolve_tracker_instances(
@@ -1037,7 +1037,7 @@ def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) ->
         f"{where} ORDER BY updated DESC"
         if where
         # Jira Cloud /search/jql (search-and-reconcile) rejects an UNBOUNDED query
-        # (400); a wide created-bound keeps "all issues" valid (CONCEPT:KG-2.124).
+        # (400); a wide created-bound keeps "all issues" valid (CONCEPT:AU-KG.compute.jira-first-class-delta).
         else 'created >= "1970-01-01" ORDER BY updated DESC'
     )
 
@@ -1123,7 +1123,7 @@ def _jira_entities(
 def _sync_jira(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest Jira issues as typed issue/person/epic entities (CONCEPT:KG-2.124).
+    """Ingest Jira issues as typed issue/person/epic entities (CONCEPT:AU-KG.compute.jira-first-class-delta).
 
     Per configured instance, drains the ``jira`` mcp_tool preset over its
     ``atlassian-mcp`` server with a JQL ``updated >= <watermark>`` server-side delta
@@ -1131,7 +1131,7 @@ def _sync_jira(
     each record and ``ingest_external_batch``-es it. ``ids`` narrows to specific keys
     (webhook). Replaces the removed single-shot ``_hydrate_jira``.
 
-    Deployment note (CONCEPT:KG-2.124): wire ``atlassian-mcp`` in the source
+    Deployment note (CONCEPT:AU-KG.compute.jira-first-class-delta): wire ``atlassian-mcp`` in the source
     ``mcp_config`` over streamable-http (``transport``/``url`` →
     ``http://atlassian-mcp.arpa/mcp``), mirroring freshrss-mcp / plane-mcp — never a
     local ``command`` venv binary, which would (mis)spawn a stdio server on the host.
@@ -1236,7 +1236,7 @@ def _plane_entities(
 def _sync_plane(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest Plane work items as typed issue/project entities (CONCEPT:KG-2.125).
+    """Ingest Plane work items as typed issue/project entities (CONCEPT:AU-KG.compute.plane-first-class-delta).
 
     Per configured instance × project, drains the ``plane`` mcp_tool preset over its
     ``plane-mcp`` server (a SECOND Plane workspace is a second instance row pointing at
@@ -1311,7 +1311,7 @@ def _confluence_processor(engine: Any) -> Any:
 def _sync_confluence(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Full-mirror Confluence pages as ``:ConfluencePage`` Documents (CONCEPT:KG-2.123).
+    """Full-mirror Confluence pages as ``:ConfluencePage`` Documents (CONCEPT:AU-KG.compute.confluence-first-class-delta).
 
     Per configured instance × space, drains the ``confluence`` mcp_tool preset
     (Cloud-v2 ``get_pages``, recency-sorted, body inline) over its ``atlassian-mcp``
@@ -1320,7 +1320,7 @@ def _sync_confluence(
     filter + the write-layer content-hash. ``ids`` narrows to specific pages (webhook).
     NOT relevance-gated — internal wiki is curated knowledge.
 
-    Deployment note (CONCEPT:KG-2.123): the ``atlassian-mcp`` server is reached over
+    Deployment note (CONCEPT:AU-KG.compute.confluence-first-class-delta): the ``atlassian-mcp`` server is reached over
     streamable-http at its fleet URL (``http://atlassian-mcp.arpa/mcp``) — wire it in
     the source ``mcp_config`` with ``transport``/``url`` (mirroring freshrss-mcp /
     plane-mcp), never a local ``command`` venv binary. Confluence Cloud v2 paths are
@@ -1399,7 +1399,7 @@ def _sync_confluence(
     }
 
 
-# ── Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161) ──────
+# ── Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161) ──────
 #
 # Seven first-class delta connectors that reach their upstream ONLY through a fleet
 # ``*-mcp`` server (like jira/confluence/plane) and rebuild **typed** entities mapped to
@@ -1407,13 +1407,13 @@ def _sync_confluence(
 # *"the server is registered in mcp_config.json"*. Delta = a per-source ISO ``updated_at``
 # watermark + the write-layer content-hash; the server it reaches is in ``_MCP_TRACKER_SERVERS``.
 #
-# CONCEPT:KG-2.155 — DockerHub repositories → :Repository / :ContainerImage
-# CONCEPT:KG-2.156 — Langfuse traces/observations → :Trace / :Observation / :Generation
-# CONCEPT:KG-2.157 — Technitium DNS zones+records → :DnsZone / :DnsRecord
-# CONCEPT:KG-2.158 — tunnel-manager hosts → :Host / :Tunnel
-# CONCEPT:KG-2.159 — Uptime Kuma monitors → :Monitor / :HeartbeatStat
-# CONCEPT:KG-2.160 — Home Assistant states → :Device / :Entity
-# CONCEPT:KG-2.161 — Twenty CRM people/companies/opportunities → :Person / :Company / :Opportunity
+# CONCEPT:AU-KG.compute.dockerhub-repositories — DockerHub repositories → :Repository / :ContainerImage
+# CONCEPT:AU-KG.compute.langfuse-traces-observations — Langfuse traces/observations → :Trace / :Observation / :Generation
+# CONCEPT:AU-KG.compute.technitium-dns-zones-records — Technitium DNS zones+records → :DnsZone / :DnsRecord
+# CONCEPT:AU-KG.compute.tunnel-manager-hosts — tunnel-manager hosts → :Host / :Tunnel
+# CONCEPT:AU-KG.compute.uptime-kuma-monitors — Uptime Kuma monitors → :Monitor / :HeartbeatStat
+# CONCEPT:AU-KG.compute.home-assistant-states — Home Assistant states → :Device / :Entity
+# CONCEPT:AU-KG.compute.twenty-crm-people-companies — Twenty CRM people/companies/opportunities → :Person / :Company / :Opportunity
 
 
 def _configured_server(server_candidates: tuple[str, ...]) -> str | None:
@@ -1486,7 +1486,7 @@ def _ingest_typed(
 def _sync_dockerhub(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest DockerHub repositories as :Repository + :ContainerImage (CONCEPT:KG-2.155).
+    """Ingest DockerHub repositories as :Repository + :ContainerImage (CONCEPT:AU-KG.compute.dockerhub-repositories).
 
     Per configured namespace (``DOCKERHUB_NAMESPACES`` CSV, else ``DOCKERHUB_NAMESPACE``,
     else ``ids`` as namespaces) drains the ``dockerhub-repos`` preset over ``dockerhub-mcp``
@@ -1580,7 +1580,7 @@ def _sync_langfuse(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Langfuse traces + observations as :Trace / :Observation / :Generation
-    (CONCEPT:KG-2.156).
+    (CONCEPT:AU-KG.compute.langfuse-traces-observations).
 
     Drains the ``langfuse-traces`` and ``langfuse-observations`` presets over
     ``langfuse-mcp``; each trace is a :Trace, each observation a :Observation (LLM-call
@@ -1668,7 +1668,7 @@ def _sync_langfuse(
 def _sync_technitium(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest Technitium DNS zones + records as :DnsZone / :DnsRecord (CONCEPT:KG-2.157).
+    """Ingest Technitium DNS zones + records as :DnsZone / :DnsRecord (CONCEPT:AU-KG.compute.technitium-dns-zones-records).
 
     Lists zones via ``technitium_dns_zones`` (action=list_zones), then per zone lists its
     records (action=get_records, list_zone=true). Each zone → a :DnsZone; each record →
@@ -1787,7 +1787,7 @@ def _sync_technitium(
 def _sync_tunnel_manager(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest tunnel-manager host inventory as :Host / :Tunnel (CONCEPT:KG-2.158).
+    """Ingest tunnel-manager host inventory as :Host / :Tunnel (CONCEPT:AU-KG.compute.tunnel-manager-hosts).
 
     Calls ``tm_hosts`` (action=list) — a dict ``{"hosts": {alias: HostConfig}}`` (args-style,
     not a record list) — so it goes through ``call_tool_once`` directly. Each alias → a
@@ -1870,7 +1870,7 @@ def _sync_uptime_kuma(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Uptime Kuma monitors + heartbeat stats as :Monitor / :HeartbeatStat
-    (CONCEPT:KG-2.159).
+    (CONCEPT:AU-KG.compute.uptime-kuma-monitors).
 
     Calls ``uptime_kuma_monitors`` (action=get_monitors → bare list) and
     ``uptime_kuma_status`` (action=get_heartbeats → dict keyed by monitor id), both
@@ -1977,7 +1977,7 @@ def _sync_uptime_kuma(
 def _sync_home_assistant(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest Home Assistant entities/states as :Device / :Entity (CONCEPT:KG-2.160).
+    """Ingest Home Assistant entities/states as :Device / :Entity (CONCEPT:AU-KG.compute.home-assistant-states).
 
     Drains the ``home-assistant-states`` preset (action=list_states → bare list) over
     ``home-assistant-mcp``. Each ``entity_id`` → an :Entity (state + attributes); its
@@ -2060,7 +2060,7 @@ def _sync_twenty(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Twenty CRM people/companies/opportunities as :Person / :Company /
-    :Opportunity (CONCEPT:KG-2.161).
+    :Opportunity (CONCEPT:AU-KG.compute.twenty-crm-people-companies).
 
     Drains the ``twenty-people`` / ``twenty-companies`` / ``twenty-opportunities`` presets
     over ``twenty-mcp``. People with a ``companyId`` are linked ``member_of`` their company;
@@ -2190,23 +2190,23 @@ def _sync_twenty(
 
 
 # ── Media / finance / document / genealogy connectors as typed OWL entities ──────
-# (CONCEPT:KG-2.163–2.166)
+# (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors–2.166)
 #
 # Four more first-class delta connectors reaching their upstream ONLY through a fleet
 # ``*-mcp`` server (same contract as jira/dockerhub/twenty) and rebuilding **typed**
 # entities mapped to OWL classes — not generic Documents.
 #
-# CONCEPT:KG-2.163 — Audiobookshelf libraries/books/authors → :Library / :Book / :Author
-# CONCEPT:KG-2.164 — Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
-# CONCEPT:KG-2.165 — Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
-# CONCEPT:KG-2.166 — Gramps Web people/families/events → :Person / :Family / :Event
+# CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors — Audiobookshelf libraries/books/authors → :Library / :Book / :Author
+# CONCEPT:AU-KG.compute.firefly-iii-accounts-transactions — Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
+# CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents — Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
+# CONCEPT:AU-KG.compute.gramps-web-people-families — Gramps Web people/families/events → :Person / :Family / :Event
 
 
 def _sync_audiobookshelf(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Audiobookshelf libraries/books/authors as :Library / :Book / :Author
-    (CONCEPT:KG-2.163).
+    (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors).
 
     Multi-step over ``audiobookshelf-mcp``: ``library_operations(action=list)`` →
     ``{"libraries": [...]}``; per library ``action=items`` → ``{"results": [...]}`` (each
@@ -2367,7 +2367,7 @@ def _sync_firefly_iii(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Firefly III accounts/transactions/budgets as :Account / :Transaction /
-    :Budget (CONCEPT:KG-2.164).
+    :Budget (CONCEPT:AU-KG.compute.firefly-iii-accounts-transactions).
 
     Drains the ``firefly-accounts`` / ``firefly-transactions`` / ``firefly-budgets``
     presets over ``firefly-iii-mcp``. Each JSON:API record's ``attributes`` block carries
@@ -2499,7 +2499,7 @@ def _sync_paperless_ngx(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Paperless-ngx documents/correspondents/tags as :Document / :Correspondent /
-    :Tag (CONCEPT:KG-2.165).
+    :Tag (CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents).
 
     Drains the ``paperless-documents`` / ``paperless-correspondents`` / ``paperless-tags``
     presets over ``paperless-ngx-mcp`` (each tool paginates internally → a flat list). Each
@@ -2615,7 +2615,7 @@ def _sync_gramps(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Gramps Web people/families/events as :Person / :Family / :Event
-    (CONCEPT:KG-2.166).
+    (CONCEPT:AU-KG.compute.gramps-web-people-families).
 
     Calls ``gramps_people`` / ``gramps_families`` / ``gramps_events`` (action
     ``get_*``) directly via ``call_tool_once`` — each returns the ``Response`` envelope whose
@@ -2778,7 +2778,7 @@ def _sync_gramps(
     }
 
 
-# MCP-backed dedicated trackers (CONCEPT:KG-2.154) — each reaches its upstream ONLY
+# MCP-backed dedicated trackers (CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers) — each reaches its upstream ONLY
 # through a fleet ``*-mcp`` server (never a direct vendor client / env token), so unlike
 # the capability-registry sources (env-token configured) and the always-local feed/fleet
 # handlers, their "configured" signal is *"the server is registered in mcp_config.json"*.
@@ -2789,7 +2789,7 @@ _MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
     "jira": ("atlassian-mcp",),
     "confluence": ("atlassian-mcp",),
     "plane": ("plane-mcp",),
-    # Ops / platform typed connectors (CONCEPT:KG-2.155–2.161) — server-configured, so the
+    # Ops / platform typed connectors (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161) — server-configured, so the
     # sweep keeps each candidate only when its ``*-mcp`` server is in mcp_config (else drops
     # it, never mis-reporting an unconfigured connector as failed work).
     "dockerhub": ("dockerhub-mcp", "dockerhub-api"),
@@ -2799,7 +2799,7 @@ _MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
     "uptime_kuma": ("uptime-mcp", "uptime-kuma-agent", "uptime-kuma-mcp"),
     "home_assistant": ("home-assistant-mcp", "home-assistant-agent"),
     "twenty": ("twenty-mcp", "twenty"),
-    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166)
+    # Media / finance / document / genealogy connectors (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors–2.166)
     "audiobookshelf": ("audiobookshelf-mcp", "audiobookshelf-agent"),
     "firefly_iii": ("firefly-iii-mcp", "firefly-iii-agent"),
     "paperless_ngx": ("paperless-ngx-mcp", "paperless-ngx-agent"),
@@ -2866,7 +2866,7 @@ def _mcp_tracker_configured(source: str) -> bool:
     return any(_mcp_server_configured(servers, s) for s in candidate_servers)
 
 
-# ── ARD registry delta handler (CONCEPT:KG-2.188) ────────────────────────────
+# ── ARD registry delta handler (CONCEPT:AU-KG.ingest.source-sync-canonical) ────────────────────────────
 
 
 def _resolve_ard_registries() -> list[dict[str, Any]]:
@@ -2985,7 +2985,7 @@ def _ard_entities(
 def _sync_ard(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest external ARD registries as typed discoverable resources (CONCEPT:KG-2.188).
+    """Ingest external ARD registries as typed discoverable resources (CONCEPT:AU-KG.ingest.source-sync-canonical).
 
     For every registry in ``ARD_REGISTRIES`` (e.g. ``[{"name":"hf","preset":"huggingface"}]``)
     this drains the ``ard`` connector (signature-verified), maps each resource to a typed
@@ -3064,7 +3064,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "jira": _sync_jira,
     "confluence": _sync_confluence,
     "plane": _sync_plane,
-    # Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161)
+    # Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161)
     "dockerhub": _sync_dockerhub,
     "langfuse": _sync_langfuse,
     "technitium": _sync_technitium,
@@ -3072,7 +3072,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "uptime_kuma": _sync_uptime_kuma,
     "home_assistant": _sync_home_assistant,
     "twenty": _sync_twenty,
-    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166)
+    # Media / finance / document / genealogy connectors (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors–2.166)
     "audiobookshelf": _sync_audiobookshelf,
     "firefly_iii": _sync_firefly_iii,
     "paperless_ngx": _sync_paperless_ngx,
@@ -3101,11 +3101,11 @@ def sync_source(
     source = (source or "").lower().strip()
 
     # "all"/"*"/"sweep" → fan out across every configured connector in one pass
-    # so the one entrypoint also covers "ingest everything" (CONCEPT:KG-2.9).
+    # so the one entrypoint also covers "ingest everything" (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
     if source in {"all", "*", "sweep"}:
         return sweep_all_sources(engine, mode=mode if mode in SYNC_ACTIONS else "delta")
 
-    # CONCEPT:KG-2.301 — a single-source FULL drain of a LARGE corpus must NOT run inline:
+    # CONCEPT:AU-KG.ontology.single-source-full-drain — a single-source FULL drain of a LARGE corpus must NOT run inline:
     # that would block the MCP/REST request until the whole backlog is drained (timeout) or
     # force a human/agent to hand-repeat delta waves. Normalize that ONE call into a stream of
     # capacity-guarded, paginated ``connector_drain`` batch-tasks and return a handle IMMEDIATELY
@@ -3128,7 +3128,7 @@ def sync_source(
             # An UNCONFIGURED upstream (its MCP server isn't in mcp_config, no
             # creds, etc.) is a *skip*, never a task failure — the fleet sweep
             # routinely runs with only a subset of connectors provisioned
-            # (CONCEPT:KG-2.9). Real errors still propagate.
+            # (CONCEPT:AU-KG.ingest.enterprise-source-extractor). Real errors still propagate.
             msg = str(exc).lower()
             if any(
                 t in msg
@@ -3178,7 +3178,7 @@ def sweep_all_sources(
     include_materialize: bool = True,
     enqueue: bool = True,
 ) -> dict[str, Any]:
-    """Ingest every *configured* connector in one background sweep (CONCEPT:KG-2.9).
+    """Ingest every *configured* connector in one background sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
     The fleet-wide counterpart to :func:`sync_source` — it enumerates the union of
 
@@ -3199,7 +3199,7 @@ def sweep_all_sources(
     # (``source_sync source=fleet``), not on every */20m document sweep.
     candidates.discard("fleet")
 
-    # CONCEPT:KG-2.154 — the MCP-backed dedicated trackers (jira/confluence/plane) reach
+    # CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers — the MCP-backed dedicated trackers (jira/confluence/plane) reach
     # their upstream ONLY through a fleet ``*-mcp`` server, so their "configured" signal is
     # *"the server is registered in mcp_config.json"* — NOT an env token (capability-registry)
     # nor always-on (feed/fleet handlers). Keep one as a candidate when its server is in
@@ -3230,7 +3230,7 @@ def sweep_all_sources(
         except Exception:  # noqa: BLE001
             logger.debug("materialize source list unavailable", exc_info=True)
 
-    # CONCEPT:ORCH-1.77 — fan the sweep out as LANED ``connector_sync`` tasks (the 'connectors'
+    # CONCEPT:AU-ORCH.dispatch.laned-sweep-fanout — fan the sweep out as LANED ``connector_sync`` tasks (the 'connectors'
     # lane) so every connector syncs in PARALLEL instead of one slow connector (gitlab/
     # servicenow) head-of-line-blocking the rest in the sequential inline loop below. Each task
     # runs ``sync_source(src, mode)`` → the same watermark/delta machinery + content-hash delta.

@@ -1,4 +1,4 @@
-# CONCEPT:ORCH-1.8 — Parallel Engine
+# CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
 
 > **Status**: Active
 > **Pillar**: 1 — Graph Orchestration Engine (ORCH)
@@ -98,7 +98,7 @@ The universal input to the `ParallelEngine`. Every execution is expressed as a m
 
 Specification for a single agent invocation. Fan-out is expressed via `partitions`: if set, the agent is invoked once per partition with `{{partition}}` replaced in `task_template`.
 
-### SynthesisSpec (CONCEPT:ORCH-1.8)
+### SynthesisSpec (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 
 Controls how outputs from parallel agents are merged:
 - **flat**: Simple concatenation with headers — fast, no LLM cost
@@ -154,7 +154,7 @@ Per-agent-type circuit breaker prevents cascading failures:
 
 ### 5. Output Synthesis
 
-See **CONCEPT:ORCH-1.8** for detailed synthesis strategies.
+See **CONCEPT:AU-ORCH.execution.parallel-engine-visualizer** for detailed synthesis strategies.
 
 ---
 
@@ -248,7 +248,7 @@ generic preset/manifest with a deliberator step that `depends_on` the thinkers.
 ### manifest_from_preset()
 Materializes named presets (fan_out_research, fan_out_audit, etc.) with partition-based fan-out.
 
-### manifest_from_department() (CONCEPT:ORCH-1.9)
+### manifest_from_department() (CONCEPT:AU-ORCH.execution.autonomous-department-orchestration)
 Queries the KG for agents in an OWL-materialized company department with `reportsTo` hierarchy.
 
 ### manifest_for_enterprise()
@@ -256,7 +256,7 @@ Full enterprise manifest — all agents across all departments. This is the 300-
 
 ---
 
-## Company-Scale Topology (CONCEPT:ORCH-1.9)
+## Company-Scale Topology (CONCEPT:AU-ORCH.execution.autonomous-department-orchestration)
 
 ```mermaid
 graph TD
@@ -293,7 +293,7 @@ graph TD
     end
 
     subgraph COMMS["💬 Communications"]
-        MSG["ECO-4.5: 17 backends"]
+        MSG["AU-ECO.toolkit.journey-map-milestones: 17 backends"]
         ITSM["servicenow-mcp"]
         COLLAB["atlassian-mcp"]
     end
@@ -323,7 +323,7 @@ graph TD
 > `ExecutionManifestTemplate` node for preset registration are not yet persisted by the
 > engine — synthesis output is stored inline on the `ParallelExecution` node.
 
-### OWL Classes (CONCEPT:ORCH-1.9)
+### OWL Classes (CONCEPT:AU-ORCH.execution.autonomous-department-orchestration)
 
 ```turtle
 :Department rdfs:subClassOf :OrganizationalUnit
@@ -345,8 +345,8 @@ graph TD
 | ORCH-1.3 (Coordination) | `CoordinationLayer` is a subcomponent of `ParallelEngine` |
 | ORCH-1.4 (Dynamic Subgraph) | `GraphOrchestrator.synthesize_team()` generates teams → `manifest_from_teamconfig()` |
 | ORCH-1.8 (Synthesis) | Output synthesis strategies used by `ParallelEngine._synthesize()` |
-| ORCH-1.9 (Departments) | OWL-materialized departments → `manifest_from_department()` |
-| AHE-3.5 (Heavy Thinking) | K-parallel reasoning → `manifest_from_heavy_thinking()` |
+| AU-ORCH.execution.autonomous-department-orchestration (Departments) | OWL-materialized departments → `manifest_from_department()` |
+| AU-AHE.harness.self-evolution-narrative (Heavy Thinking) | K-parallel reasoning → `manifest_from_heavy_thinking()` |
 | KG-2.6 (Company Ops) | Company topology stored in KG |
 | RLM (ORCH-1.1) | RLM synthesis strategy for 50+ agent outputs |
 

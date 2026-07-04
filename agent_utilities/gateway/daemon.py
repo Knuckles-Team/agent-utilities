@@ -1,4 +1,4 @@
-"""Gateway-hosted unified KG daemon (CONCEPT:KG-2.8 / OS-5.9).
+"""Gateway-hosted unified KG daemon (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9).
 
 The API gateway is the single process that runs the ONE consolidated KG
 background daemon (queue drain + graph writer + task workers + maintenance
@@ -50,7 +50,7 @@ def start_host_daemon() -> Any:
                 _engine.start_task_workers()
         except Exception as e:  # noqa: BLE001
             logger.warning("host daemon: start_task_workers failed: %s", e)
-        # Always-on KG-native observability (CONCEPT:OS-5.68): install the trace sink
+        # Always-on KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): install the trace sink
         # backed by this host's engine, so every traced agent call persists a
         # Trace/Span/Generation subgraph that is graph-queryable. One-time injection;
         # best-effort (a failure here must never block the daemon).
@@ -62,7 +62,7 @@ def start_host_daemon() -> Any:
         except Exception as e:  # noqa: BLE001
             logger.warning("host daemon: KG trace sink install failed: %s", e)
         logger.info("Gateway host daemon started: %s", daemon_status())
-    # CONCEPT:ECO-4.73 — the inbound messaging router runs in its OWN process
+    # CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs — the inbound messaging router runs in its OWN process
     # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so
     # the host's CPU-bound maintenance (codebase ingestion / relevance sweeps) can never
     # starve the inbound reply loop. It connects to this same shared engine as a client.
@@ -124,7 +124,7 @@ def stop_host_daemon() -> None:
         except Exception as e:  # noqa: BLE001
             logger.debug("engine checkpoint on shutdown skipped: %s", e)
     try:
-        # CONCEPT:OS-5.58 — tear down any warm-fork parents this host was pooling.
+        # CONCEPT:AU-OS.host.so-they-are-idle — tear down any warm-fork parents this host was pooling.
         from agent_utilities.runtime.warm_registry import WarmParentRegistry
 
         reaped = WarmParentRegistry.drain_active()
@@ -151,7 +151,7 @@ def main() -> None:
     processes (MCP server / CLI / scripts) submit to. The singleton host lock
     (``host_lock.py``) guarantees only one host runs; a second start raises a
     descriptive ``KGHostAlreadyRunning``. Console entry point: ``graph-os-daemon``.
-    (CONCEPT:KG-2.8 / OS-5.9)
+    (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9)
 
     Flags: ``--drain-queue`` purges the durable queue before starting (recovery);
     ``--status`` prints the live host + daemon status and exits.
@@ -184,7 +184,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    # CONCEPT:KG-2.304 — self-ingest telemetry: graph-os ships its own logs into
+    # CONCEPT:AU-KG.ingest.attaching-this-root-logger — self-ingest telemetry: graph-os ships its own logs into
     # the epistemic-graph engine obs store. Opt-in (default-off); no-op when unset.
     try:
         from agent_utilities.observability.self_ingest import (

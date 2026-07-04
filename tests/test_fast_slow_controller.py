@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the Fast-Slow Training controller (CONCEPT:ORCH-1.56).
+"""Tests for the Fast-Slow Training controller (CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast).
 
 Deterministic stubs only — no I/O, no models. Exercises both loops, the live
 consumption of the real ``batch_normalized_advantage`` GRPO spine, recurrence

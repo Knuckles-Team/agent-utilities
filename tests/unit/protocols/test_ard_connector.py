@@ -1,4 +1,4 @@
-"""ARD consume connector + _sync_ard live-path tests (CONCEPT:ECO-4.96 / KG-2.188).
+"""ARD consume connector + _sync_ard live-path tests (CONCEPT:AU-ECO.connector.ingest-external-ard-registry / KG-2.188).
 
 Offline: a ``fetch_fn`` returns a canned ``ai-catalog.json``, so no network or live
 registry is needed. The live-path test drives the real connector through ``_sync_ard``

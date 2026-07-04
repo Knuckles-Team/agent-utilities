@@ -11,7 +11,7 @@ def backup_file_pre_edit(filepath: str | Path) -> str | None:
     Creates a pre-edit safety backup of the specified file in the XDG standard
     agent-utilities backups directory before any AI agent makes a destructive edit.
 
-    CONCEPT:SAFE-1.0: Tool-Agnostic File Safety Hooks
+    CONCEPT:AU-OS.safety.tool-agnostic-file-safety: Tool-Agnostic File Safety Hooks
     """
     filepath = Path(filepath)
     if not filepath.exists() or not filepath.is_file():

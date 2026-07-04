@@ -1,6 +1,6 @@
 """Unit tests for Rust-compiled Quant FFI Engine.
 
-CONCEPT:KG-2.18
+CONCEPT:AU-KG.retrieval.evidence-weighted-memory
 """
 
 import epistemic_graph.quant as eq

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Approval Manager Module.
 
-CONCEPT:OS-5.1
+CONCEPT:AU-OS.config.secrets-authentication
 
 Provides a protocol-agnostic, asyncio-based pause/resume mechanism for
 human-in-the-loop tool approval and MCP elicitation.  The core primitive
@@ -317,7 +317,7 @@ async def global_elicitation_callback(context: Any = None, params: Any = None) -
     logger.info(f"MCP elicitation triggered: {request_id}")
     await queue.put({"type": "elicitation", **request_data})
 
-    # CONCEPT:ECO-4.52 — also reach the user on their last-active channel (e.g. Telegram)
+    # CONCEPT:AU-ECO.messaging.last-active-channel — also reach the user on their last-active channel (e.g. Telegram)
     # so a blocked loop / agent question is answerable from chat, not only the web UI.
     _bridge_elicitation_to_messaging(request_id, request_data)
 
@@ -336,7 +336,7 @@ async def global_elicitation_callback(context: Any = None, params: Any = None) -
 def _bridge_elicitation_to_messaging(
     request_id: str, request_data: dict[str, Any]
 ) -> None:
-    """Push an elicitation prompt to the user's last-active channel (CONCEPT:ECO-4.52).
+    """Push an elicitation prompt to the user's last-active channel (CONCEPT:AU-ECO.messaging.last-active-channel).
 
     Spawns a background task that sends the question via the messaging service and, when
     the user replies (delivered by the inbound router), resolves the SAME elicitation —

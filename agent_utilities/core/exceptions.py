@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Custom Exceptions Module.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
 This module defines specialized exception classes used across the agent
 ecosystem to handle errors related to authentication, API communication,

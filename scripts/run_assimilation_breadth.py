@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Breadth-ingest + assimilation pilot runner (CONCEPT:KG-2.7).
+"""Breadth-ingest + assimilation pilot runner (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Thin CLI over `knowledge_graph.assimilation` for running the ecosystem-evolution
 breadth ingest and the acceptance pilot against the LIVE knowledge engine. The

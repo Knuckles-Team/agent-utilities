@@ -1,6 +1,6 @@
 """Tests for the dynamic workflow adversarial loop.
 
-CONCEPT:ORCH-1.10 — Dynamic Workflows.
+CONCEPT:AU-ORCH.reactive.event-sourcing-ledger — Dynamic Workflows.
 """
 
 from unittest.mock import AsyncMock, patch

@@ -103,7 +103,7 @@ class GraphDeps:
     router_timeout: float = DEFAULT_GRAPH_ROUTER_TIMEOUT
     verifier_timeout: float = DEFAULT_GRAPH_VERIFIER_TIMEOUT
     execution_shape: Any | None = None
-    """CONCEPT:ORCH-1.67/1.68 — the dynamically-constructed ExecutionProfile (shape) for THIS
+    """CONCEPT:AU-ORCH.execution.dynamic-execution-profile/1.68 — the dynamically-constructed ExecutionProfile (shape) for THIS
     job. Graph nodes read it to decide whether to run their work or pass through (e.g. the
     router direct-completes a trivial turn; usage_guard skips its policy-LLM round). ``None``
     keeps the full-graph behaviour for direct callers that didn't plan a shape."""
@@ -119,7 +119,7 @@ class GraphDeps:
     """Map of server_id to list of tool names found during discovery phase."""
     secrets_client: Any | None = None
     """Optional SecretsClient for encrypted credential resolution.
-    CONCEPT:OS-5.1 — Secrets & Authentication"""
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication"""
 
     plugin_registry: Any | None = None
     """Optional PluginRegistry for dynamic tool hydration (ECO-4.0).
@@ -162,30 +162,30 @@ class GraphDeps:
     cognitive_scheduler: Any | None = None
     """Optional :class:`~agent_utilities.core.cognitive_scheduler.CognitiveScheduler`
     for priority-aware agent management.  Typed as Any to avoid circular import.
-    CONCEPT:OS-5.2 — Cognitive Scheduler"""
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler"""
 
     permissions_kernel: Any | None = None
     """Optional :class:`~agent_utilities.security.permissions_kernel.PermissionsKernel`
     for identity-based tool governance.  Typed as Any to avoid circular import.
-    CONCEPT:OS-5.1 — Permissions Kernel"""
+    CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel"""
 
     agent_identity: Any | None = None
     """The signed ``AgentIdentity`` for this execution context.
     Populated by the ``PermissionsKernel`` when the graph is initialised.
-    CONCEPT:OS-5.1 — Permissions Kernel"""
+    CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel"""
 
     resource_optimizer: Any | None = None
     """Optional :class:`~agent_utilities.core.resource_optimizer.ResourceOptimizer`
     for budget-aware model tier selection.  When populated,
     :func:`pick_specialist_model` consults it for homeostatic downgrade.
-    CONCEPT:OS-5.2 — Homeostatic Model Downgrade"""
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Homeostatic Model Downgrade"""
 
     routing_percentile: float = float(config.routing_percentile or "50.0")
     """Confidence threshold percentile for adaptive model tier routing.
     Values above ``routing_percentile / 100`` trigger a tier downgrade;
     values below ``1 - threshold`` trigger escalation.  Default 50 gives
     a balanced split; lower values route more aggressively to cheap models.
-    CONCEPT:ORCH-1.2 — Confidence-Gated Router"""
+    CONCEPT:AU-ORCH.routing.confidence-gated-routing-log — Confidence-Gated Router"""
 
 
 @dataclass
@@ -209,24 +209,24 @@ class GraphState:
     exploration_notes: str = ""
     architectural_decisions: str = ""
     verification_feedback: str = ""
-    # CONCEPT:ORCH-1.39 — Invoker→spawned-agent handoff of curated context, token budget, tool scope and credential reference
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff — Invoker→spawned-agent handoff of curated context, token budget, tool scope and credential reference
     # The curated context the INVOKING agent passes to the spawned agent, budgeted to the target
     # model's window at the spawn assemblers. One source of truth read by every spawn path;
     # seeded from config at GraphState construction.
     invoker_context: str = ""
-    # CONCEPT:ORCH-1.39 — optional token budget the invoker grants the spawned agent;
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff — optional token budget the invoker grants the spawned agent;
     # enforced as UsageLimits.total_tokens_limit at the spawn run sites (None = unbounded).
     invoker_budget_tokens: int | None = None
-    # CONCEPT:ORCH-1.39 — optional least-privilege tool allow-list the invoker grants the
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff — optional least-privilege tool allow-list the invoker grants the
     # spawned agent; the spawn assemblers intersect resolved tools/toolsets with this set
     # (None/empty = no restriction).
     invoker_allowed_tools: list[str] | None = None
-    # CONCEPT:ORCH-1.39 (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
     # invoker stored in the secrets backend (e.g. an OAuth/delegated token under "cred:{sid}").
     # Resolved to the raw token ONLY at deps-build time onto the transient AgentDeps.auth_token —
     # the raw secret is NEVER stored in GraphState/graph/logs.
     invoker_cred_ref: str | None = None
-    # CONCEPT:ORCH-1.40 — the invoker↔spawned native message-channel id for this run; set onto
+    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — the invoker↔spawned native message-channel id for this run; set onto
     # the spawned agent's AgentDeps.message_channel_id so its tools can talk back. Seeded from
     # config["message_channel_id"] (opened by run_agent) at GraphState construction.
     invoker_channel_id: str | None = None
@@ -247,10 +247,10 @@ class GraphState:
     """Unique session identifier for checkpoint resumption."""
 
     parent_session_id: str | None = None
-    """CONCEPT:ORCH-1.4 — Session ID of the parent graph if this state was forked."""
+    """CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Session ID of the parent graph if this state was forked."""
 
     pinned_model_id: str | None = None
-    """CONCEPT:OS-5.0 — Topological Session Persistence.
+    """CONCEPT:AU-OS.state.topological-session-persistence — Topological Session Persistence.
     The primary model ID pinned to this session for multi-turn conversational consistency.
     Synced to the SessionNode in the Knowledge Graph to prevent jarring model-bouncing mid-thread."""
 
@@ -291,7 +291,7 @@ class GraphState:
     """Aggregated token usage and cost for this session."""
 
     execution_budget: ExecutionBudget = field(default_factory=ExecutionBudget)
-    """CONCEPT:ORCH-1.3 — Execution Budget. Defines caps for this session."""
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget. Defines caps for this session."""
 
     user_redirect_feedback: str | None = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
@@ -346,7 +346,7 @@ class GraphState:
     """List of policies applicable to the current context."""
 
     signal_board: dict[str, list[str]] = field(default_factory=dict)
-    """CONCEPT:ORCH-1.0 — Stigmergy Signal Board.
+    """CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Stigmergy Signal Board.
     Lightweight pub/sub within the graph execution session. Specialists
     emit signals (e.g., ``dependency_gap``, ``security_concern``) via
     ``emit_signal()`` and the dispatcher injects relevant signals into
@@ -355,33 +355,33 @@ class GraphState:
     Schema: ``{signal_type: [message, ...]}``."""
 
     routing_confidence_log: list[dict[str, Any]] = field(default_factory=list)
-    """CONCEPT:ORCH-1.2 — Log of confidence-gated routing decisions.
+    """CONCEPT:AU-ORCH.routing.confidence-gated-routing-log — Log of confidence-gated routing decisions.
     Each entry records the specialist id, confidence signal, original
     tier, routed tier, and timestamp for observability and diagnostics.
 
     Schema: ``[{specialist_id, confidence, original_tier, routed_tier, timestamp}, ...]``."""
 
     recursion_depth: int = 0
-    """CONCEPT:ORCH-1.1 — Current nesting depth for recursive graph orchestration.
+    """CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Current nesting depth for recursive graph orchestration.
     Incremented when a nested run_graph() is spawned as a specialist step.
     Capped at MAX_RECURSION_DEPTH (default 2, configurable via env var).
     Inspired by the RL Conductor's self-referential recursive topologies
     (Nielsen et al., ICLR 2026)."""
 
     workboard: WideSearchWorkboard | None = None
-    """CONCEPT:ORCH-1.1 — Pydantic-Native Shared Workboard.
+    """CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Pydantic-Native Shared Workboard.
     A thread-safe/merge-safe shared memory scratchpad for parallel workers
     during wide-search extraction tasks."""
 
     context_provenance: list[dict[str, Any]] = field(default_factory=list)
-    """CONCEPT:KG-2.6 — Cross-Agent Context Provenance.
+    """CONCEPT:AU-KG.temporal.cross-agent-provenance — Cross-Agent Context Provenance.
     Tracks retrieval quality scores and failure modes across agent boundaries.
     Each entry is a serialized ``ContextProvenanceRecord`` from
     ``retrieval_quality.py``. Downstream agents inspect this to assess
     the reliability of upstream context."""
 
     subagent_pattern: str | None = None
-    """CONCEPT:ORCH-1.3 — Active Subagent Lifecycle Pattern.
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — Active Subagent Lifecycle Pattern.
     Records which interaction pattern (inline_tool, fan_out, agent_pool,
     teams) was selected for this execution. Used for telemetry and
     pattern-outcome learning."""
@@ -526,7 +526,7 @@ class GraphState:
         return loaded
 
     def fork_state(self, new_session_id: str | None = None) -> GraphState:
-        """CONCEPT:ORCH-1.4 — State Forking for Speculative Execution.
+        """CONCEPT:AU-ORCH.adapter.kg-graph-materialization — State Forking for Speculative Execution.
 
         Creates a deep copy of the current state, branching execution into
         an alternate timeline. Useful for debate nodes or speculative execution.

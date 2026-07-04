@@ -1,4 +1,4 @@
-# Checkpointed Incremental Poll (CONCEPT:ECO-4.26)
+# Checkpointed Incremental Poll (CONCEPT:AU-ECO.connector.incremental-poll-watermark)
 
 ## Overview
 A serializable `ConnectorCheckpoint` (cursor / watermark / seen-ids / state) returned by a

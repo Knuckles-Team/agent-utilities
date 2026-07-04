@@ -1,4 +1,4 @@
-# OWL-Driven Semantic Subsumption (CONCEPT:KG-2.2)
+# OWL-Driven Semantic Subsumption (CONCEPT:AU-KG.ingest.engineering-rules)
 
 ## Overview
 Enables hierarchy-aware zero-shot ontology alignment by comparing new topological embeddings against OWL class prototypes to automatically infer and inject full class lineage.
@@ -9,7 +9,7 @@ Enables hierarchy-aware zero-shot ontology alignment by comparing new topologica
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Model Display Optimization (CONCEPT:KG-2.6)
+# Model Display Optimization (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Display-predict decoupling engine: optimizes model `__str__()` for LLM consumption independently of `predict()` logic. 5 strategies (linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, adaptive/SmartAdditive). Bounded complexity budgets. Based on arXiv:2605.03808.
@@ -20,7 +20,7 @@ Display-predict decoupling engine: optimizes model `__str__()` for LLM consumpti
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Versioned KG Mutations (CONCEPT:KG-2.3)
+# Versioned KG Mutations (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 ## Overview
 Git-like transactional mutation semantics for Knowledge Graph evolution: KGTransaction (batched mutations), KGCommit (atomic application with rollback data), KGVersionEngine (commit/rollback/diff), KGDiff (structural diff between graph versions). Derived from Evolving Idea Graphs (arXiv:2605.04922v1).

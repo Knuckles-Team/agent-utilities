@@ -1,4 +1,4 @@
-"""Live-path test: connector → ingestion engine → KG (CONCEPT:ECO-4.25 + KG-2.7/2.50).
+"""Live-path test: connector → ingestion engine → KG (CONCEPT:AU-ECO.connector.document-source-framework + KG-2.7/2.50).
 
 Wire-First verification — exercises the *real* ``IngestionEngine.ingest`` path with
 ``ContentType.CONNECTOR`` (not just the connector in isolation) and asserts the
@@ -33,7 +33,7 @@ class _RecordingBackend:
 
 
 @pytest.mark.integration
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 @pytest.mark.asyncio
 async def test_filesystem_connector_ingestion_live_path(tmp_path):
     (tmp_path / "a.md").write_text(
@@ -74,7 +74,7 @@ async def test_filesystem_connector_ingestion_live_path(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.concept("ECO-4.28")
+@pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 @pytest.mark.asyncio
 async def test_connector_ingestion_syncs_external_acl(tmp_path):
     (tmp_path / "secret.md").write_text("restricted content " * 8)

@@ -80,7 +80,7 @@ class KnowledgeGraph:
         self._semantic: Any = ...
         self._retrieval: CapabilityIndex | None = retrieval
         self._ontology: Any = ...
-        # Object Index Funnel (CONCEPT:KG-2.44) — lazily built over self.retrieval.
+        # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — lazily built over self.retrieval.
         self._object_funnel: Any = None
 
     # ------------------------------------------------------------------
@@ -222,7 +222,7 @@ class KnowledgeGraph:
         return self._ontology
 
     # ------------------------------------------------------------------
-    # Object Index Lifecycle — the Object Data Funnel (CONCEPT:KG-2.44)
+    # Object Index Lifecycle — the Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live)
     # ------------------------------------------------------------------
     @property
     def object_index_funnel(self) -> Any:
@@ -248,7 +248,7 @@ class KnowledgeGraph:
         return self.object_index_funnel.batch_sync(nodes)
 
     def reindex_stale_objects(self, source_nodes: Any) -> Any:
-        """Reconcile the live index against ``source_nodes`` (CONCEPT:KG-2.44).
+        """Reconcile the live index against ``source_nodes`` (CONCEPT:AU-KG.ontology.batch-incremental-sync-live).
 
         Computes content-hash drift via the staleness ledger and applies exactly
         the needed upsert/delete delta. Returns the funnel's :class:`SyncResult`.
@@ -256,7 +256,7 @@ class KnowledgeGraph:
         return self.object_index_funnel.reconcile(source_nodes)
 
     # ------------------------------------------------------------------
-    # Object permissioning — fine-grained read enforcement (CONCEPT:KG-2.46)
+    # Object permissioning — fine-grained read enforcement (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted)
     # ------------------------------------------------------------------
     def restricted_view(
         self,
@@ -275,13 +275,13 @@ class KnowledgeGraph:
         return _rv(objects, actor, mask=mask)
 
     def apply_marking(self, node_id: str, marking: Any) -> None:
-        """Attach a mandatory marking to a node (CONCEPT:KG-2.46)."""
+        """Attach a mandatory marking to a node (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted)."""
         from .ontology.permissioning import apply_marking as _am
 
         _am(node_id, marking)
 
     def process_document(self, document: Any, **kwargs: Any) -> dict[str, Any]:
-        """Process ``document`` into Document + Chunk objects (CONCEPT:KG-2.48).
+        """Process ``document`` into Document + Chunk objects (CONCEPT:AU-KG.ingest.chunk-overlap-stage).
 
         Convenience that runs the document-processing pipeline through this live
         facade's write path; returns ``{document_node, chunk_nodes, edges}``.
@@ -326,7 +326,7 @@ class KnowledgeGraph:
             results = [d for d in results if getattr(d, "id", None) in allowed]
             audit_read(ids, summary="designate")
         # Apply learned/asserted governance rules so corrections-turned-rules
-        # change behaviour (CONCEPT:KG-2.8). Best-effort; never blocks retrieval.
+        # change behaviour (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Best-effort; never blocks retrieval.
         try:
             from .retrieval.governance_rules import (
                 apply_governance_rules,
@@ -369,7 +369,7 @@ class KnowledgeGraph:
 
         rows = store.execute(scope(cypher), params or {}) or []
         rows = visible(filter_rows(rows))
-        # Fine-grained, default-ON object permissioning (CONCEPT:KG-2.46): row-drop
+        # Fine-grained, default-ON object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): row-drop
         # marked/ACL-denied rows + column-redact, allow-by-default for unmarked
         # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the
         # data's own mandatory markings/ACLs, so unmarked data passes through
@@ -378,7 +378,7 @@ class KnowledgeGraph:
         from .ontology.permissioning import enforce as enforce_fine_grained
 
         if brain_enforcement_enabled():
-            # Fail CLOSED (CONCEPT:OS-5.14): with enforcement on, an
+            # Fail CLOSED (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): with enforcement on, an
             # enforcement error must never widen into an allow — propagate.
             rows = enforce_fine_grained(rows)
         else:
@@ -390,7 +390,7 @@ class KnowledgeGraph:
         return rows
 
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
-        """Resolve the per-tenant named graph (CONCEPT:KG-2.58).
+        """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
 
         The naming discipline that makes engine sharding tenant-partitioned:
         ``tenant → named graph → HRW → shard``. ``tenant`` defaults to the

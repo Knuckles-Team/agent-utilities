@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.0"""
+"""CONCEPT:AU-OS.safety.doom-loop-detection"""
 
 import os
 

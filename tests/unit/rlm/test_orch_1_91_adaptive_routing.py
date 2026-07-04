@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.91 — reward-EMA-aware sandbox routing: route around a failing rung, bounded."""
+"""CONCEPT:AU-ORCH.sandbox.adaptive-tier-selection — reward-EMA-aware sandbox routing: route around a failing rung, bounded."""
 
 from __future__ import annotations
 

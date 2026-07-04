@@ -1,4 +1,4 @@
-# Tasks: Ground-Truth Context Authority (KG-2.14) — shipped
+# Tasks: Ground-Truth Context Authority (AU-KG.memory.ground-truth-preamble-declaring) — shipped
 
 ## T1 — Authority tier  [code] ✅
 - [x] `StartupChunk.source_authority` + `_authority_for` + `AUTHORITY_ADVISORY/STANDARD/AUTHORITATIVE` + `AUTHORITY_BOOST` (`memory_engine.py`).
@@ -13,4 +13,4 @@
 - [x] `tests/unit/knowledge_graph/test_kg_2_14_ground_truth_authority.py` (5 tests).
 
 ## T5 — Artifacts  [docs] ✅
-- [x] concepts.yaml regen (KG-2.14); per-concept doc; concept_map/overview rows; CHANGELOG; pillar summary.
+- [x] concepts.yaml regen (AU-KG.memory.ground-truth-preamble-declaring); per-concept doc; concept_map/overview rows; CHANGELOG; pillar summary.

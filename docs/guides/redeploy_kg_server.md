@@ -3,7 +3,7 @@
 > When new `graph_orchestrate` / `graph_analyze` actions are added (e.g. the
 > `assimilate` action), the **running** kg server must restart to expose them.
 > `graph_orchestrate(action="assimilate")` returning *"Unknown orchestration action"*
-> means the live build predates the code. CONCEPT:KG-2.7 / OS-5.5.
+> means the live build predates the code. CONCEPT:AU-KG.query.vendor-agnostic-traversal / OS-5.5.
 
 ## No rebuild needed — the package is editable
 

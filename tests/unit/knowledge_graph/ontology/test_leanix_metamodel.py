@@ -1,4 +1,4 @@
-"""Tests for the LeanIX metamodel → OWL compiler (CONCEPT:KG-2.9)."""
+"""Tests for the LeanIX metamodel → OWL compiler (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Graph Backend Base Interface.
 
-CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction
 
 Provides the ``GraphBackend`` ABC that all graph storage backends must implement.
 Backends may optionally support SPARQL via ``supports_sparql`` / ``execute_sparql()``.
@@ -50,7 +50,7 @@ _NON_DURABLE_BACKENDS = {
 def is_durable_backend(backend: Any) -> bool:
     """True if writes through ``backend.execute()`` survive a restart.
 
-    The dual-mode predicate the **ingest DeltaManifest** (CONCEPT:KG-2.9) reuses to
+    The dual-mode predicate the **ingest DeltaManifest** (CONCEPT:AU-KG.ingest.enterprise-source-extractor) reuses to
     decide engine-graph mode vs. its zero-infra local fallback. A pure in-memory
     backend can't persist graph-side, and a schema-constrained durable store
     (pggraph) can't hold an arbitrary label — both → the local fallback. (The
@@ -64,7 +64,7 @@ def is_durable_backend(backend: Any) -> bool:
 
 # Backends that CANNOT hold arbitrary-label nodes through ``execute()`` — a
 # graph-native ``MERGE (n:SomeLabel …)`` errors against them. The consolidated
-# engine-only stores (CONCEPT:KG-2.244-248) route around these to the engine
+# engine-only stores (CONCEPT:AU-KG.backend.cache-lives-as-248) route around these to the engine
 # authority. ``EpistemicGraphBackend`` (the engine client) IS the authority and
 # runs arbitrary-label Cypher, so — unlike the manifest's ``_NON_DURABLE_BACKENDS``
 # — it is NOT excluded here: the consolidated stores live ON the engine.
@@ -77,7 +77,7 @@ def is_engine_authority_backend(backend: Any) -> bool:
     """True if ``backend`` can run arbitrary-label Cypher against the engine.
 
     The predicate the consolidated engine-only stores (registry / card-cache /
-    timeseries / writeback / code-health, CONCEPT:KG-2.244-248) use to accept a
+    timeseries / writeback / code-health, CONCEPT:AU-KG.backend.cache-lives-as-248) use to accept a
     supplied backend as the engine authority. It admits the in-process engine
     client (``EpistemicGraphBackend``) and any fan-out/durable backend with an
     ``execute()``, and rejects only the schema-constrained relational stores that
@@ -93,7 +93,7 @@ def is_engine_authority_backend(backend: Any) -> bool:
 def require_engine_authority_backend(consumer: str) -> Any:
     """Return the active engine-authority backend, raising a clear error if absent.
 
-    The single entry point the consolidated engine-only stores (CONCEPT:KG-2.244-
+    The single entry point the consolidated engine-only stores (CONCEPT:AU-KG.backend.cache-lives-as-
     248) use when no backend is supplied. It returns the active backend when it is
     engine-capable; otherwise it builds a fresh in-process engine client backend
     (``EpistemicGraphBackend``), which connects through the OS-5.63 resolver — the
@@ -130,7 +130,7 @@ def coerce_cypher_property(value: Any) -> Any:
     fan-out *mirror* that error stalls replication permanently (the outbox entry retries
     forever, dragging the write path). Serialize such values to a JSON string so the
     write persists losslessly (readers can ``json.loads`` it back); primitives and
-    primitive arrays (e.g. embedding vectors) pass through untouched. (CONCEPT:KG-2.74)
+    primitive arrays (e.g. embedding vectors) pass through untouched. (CONCEPT:AU-KG.backend.mirror-health-repair)
     """
     if value is None or isinstance(value, str | int | float | bool):
         return value
@@ -183,7 +183,7 @@ class GraphBackend(ABC):
         conditions: dict[str, Any],
         updates: dict[str, Any],
     ) -> bool:
-        """Atomic compare-and-set on a node's fields (CONCEPT:KG-2.141).
+        """Atomic compare-and-set on a node's fields (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
         Optional capability: backends that support an atomic conditional update
         (engine L1, tiered) override this; the default declines so a caller can
@@ -224,14 +224,14 @@ class GraphBackend(ABC):
         pass
 
     # ------------------------------------------------------------------
-    # Cypher portability tier  (CONCEPT:KG-2.63)
+    # Cypher portability tier  (CONCEPT:AU-KG.backend.multi-connection-registry)
     # ------------------------------------------------------------------
 
     @property
     def cypher_support(self) -> str:
         """How much of openCypher this backend can run unchanged.
 
-        Drives capability-aware multi-connection fan-out (CONCEPT:KG-2.63): when
+        Drives capability-aware multi-connection fan-out (CONCEPT:AU-KG.backend.multi-connection-registry): when
         the SAME query is run against several connections, a backend that can
         only serve a bounded subset can be surfaced honestly rather than failing
         silently. Values:
@@ -244,7 +244,7 @@ class GraphBackend(ABC):
         """
         return "full"
 
-    # Optional SPARQL Capability  (CONCEPT:KG-2.7)
+    # Optional SPARQL Capability  (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     # ------------------------------------------------------------------
 
     @property

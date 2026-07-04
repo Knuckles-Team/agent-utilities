@@ -1,4 +1,4 @@
-"""Insider-equilibrium model tests — CONCEPT:KG-2.6 (distils arXiv:2605.27684).
+"""Insider-equilibrium model tests — CONCEPT:AU-KG.research.research-pipeline-runner (distils arXiv:2605.27684).
 
 Verifies the closed-form reduction reproduces the three headline results of
 Qiao & Xia: Kyle baseline recovery with no legal risk, criminal penalties as the

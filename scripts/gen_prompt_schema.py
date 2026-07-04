@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the canonical prompt JSON Schema from the Pydantic model.
 
-CONCEPT:ORCH-1.80. The ``StructuredPrompt`` model is the single source of truth
+CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. The ``StructuredPrompt`` model is the single source of truth
 for the system-prompt format; this writes its JSON Schema to
 ``agent_utilities/prompting/prompt.schema.json`` for editors/CI to validate
 against. It is regenerated, never hand-edited — the same generator+checker

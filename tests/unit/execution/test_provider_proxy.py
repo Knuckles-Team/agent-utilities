@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 — Provider-Normalizing Stream Proxy + SSRF guard + credential resolver.
+"""CONCEPT:AU-ORCH.adapter.byok-provider-proxy — Provider-Normalizing Stream Proxy + SSRF guard + credential resolver.
 
 Pure-unit coverage of the SSRF egress gate (DNS-resolved), three-tier credential resolution, and
 canonical stream normalization across providers; plus a live-path test that the FastAPI route rejects
@@ -21,7 +21,7 @@ from agent_utilities.security.egress import (
     validate_base_url_resolved,
 )
 
-pytestmark = pytest.mark.concept(id="ORCH-1.34")
+pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.byok-provider-proxy")
 
 
 # ── SSRF egress guard ───────────────────────────────────────────────

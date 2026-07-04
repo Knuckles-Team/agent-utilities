@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Skill-Graph Distiller — KG subgraph → packageable reference tree + manifest.
 
-CONCEPT:AHE-3.9 — Physical Knowledge Distillation (read side).
+CONCEPT:AU-AHE.optimization.physical-distillation-engine — Physical Knowledge Distillation (read side).
 
 The companion of ``physical_distiller.py``: where that module writes *evolved
 skill/tool/prompt adaptations* back to the filesystem, this module **reads** a
@@ -156,10 +156,10 @@ class SkillGraphDistiller:
 
                 config = AgentConfig()
                 if auth_secret is None:
-                    # Shared per-install secret (CONCEPT:OS-5.14) — same
+                    # Shared per-install secret (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) — same
                     # resolution the compute engine uses.
                     auth_secret, _insecure = resolve_engine_auth(config)
-                # Shard-aware (CONCEPT:KG-2.58): route to the graph's
+                # Shard-aware (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw): route to the graph's
                 # HRW-owning shard instead of assuming endpoints[0], so the
                 # distiller reads the same shard the ingestion plane wrote.
                 from agent_utilities.knowledge_graph.core.shard_topology import (
@@ -685,7 +685,7 @@ class SkillGraphDistiller:
         procedure type (or any node participating in a ``PRECEDES`` edge) become
         steps; ``PRECEDES`` edges become ``depends_on`` ordering. Emits a
         ``SKILL.md`` consumable/validatable by ``skill-workflow-builder`` plus a
-        ``kg_manifest.json`` for provenance. (CONCEPT:AHE-3.9 / KG-2.7)
+        ``kg_manifest.json`` for provenance. (CONCEPT:AU-AHE.optimization.physical-distillation-engine / KG-2.7)
         """
         selector = {
             "seed": seed,
@@ -731,7 +731,7 @@ class SkillGraphDistiller:
             "domain: kg-distilled",
             "agent: orchestrator",
             "tags: [kg-distilled, workflow, procedure]",
-            "concept: CONCEPT:KG-2.7",
+            "concept: CONCEPT:AU-KG.query.vendor-agnostic-traversal",
             "---",
             "",
             f"# {wf_name}",

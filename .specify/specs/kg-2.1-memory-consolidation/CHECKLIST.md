@@ -1,4 +1,4 @@
-# Verification Checklist: Spec: Memory Consolidation Loop (CONCEPT:KG-2.1)
+# Verification Checklist: Spec: Memory Consolidation Loop (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Functional Requirements Verification
 

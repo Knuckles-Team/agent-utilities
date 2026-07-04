@@ -6,12 +6,12 @@ description: >-
   peripherals, and Agent OS. Install this skill to gain full context about
   how to use, develop for, and extend agent-utilities.
 tags: [agent-utilities, knowledge-graph, orchestration, evolution, mcp, owl, pydantic-ai]
-concept: ECO-4.12
+concept: AU-ECO.toolkit.self-documenting-plugin-bundle
 ---
 
 # agent-utilities — Master Skill Reference
 
-**CONCEPT:ECO-4.12 — Self-Documenting Skill-Graph**
+**CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle — Self-Documenting Skill-Graph**
 
 agent-utilities is a self-evolving AI framework built on 5 pillars. This skill-graph
 provides agents (Antigravity, Claude Code, Windsurf, OpenCode) with complete context
@@ -21,9 +21,9 @@ for using, developing, and extending the framework.
 
 | Pillar | ID Prefix | Purpose | Key Modules |
 |--------|-----------|---------|-------------|
-| **Graph Orchestration** | `ORCH-1.x` | Multi-agent coordination, HTN planning, routing | `graph/`, `orchestration/` |
+| **Graph Orchestration** | `AU-ORCH.planning.orchestration-overview` | Multi-agent coordination, HTN planning, routing | `graph/`, `orchestration/` |
 | **Epistemic Knowledge Graph** | `KG-2.x` | Semantic storage, OWL ontologies, retrieval, memory | `knowledge_graph/` |
-| **Agentic Harness Engineering** | `AHE-3.x` | Self-improvement, testing, evolution | `harness/`, `agentic_evolution/` |
+| **Agentic Harness Engineering** | `AU-AHE.optimization.telemetry-optimization` | Self-improvement, testing, evolution | `harness/`, `agentic_evolution/` |
 | **Ecosystem & Peripherals** | `ECO-4.x` | MCP servers, API clients, messaging, tools | `mcp/`, `tools/`, `ecosystem/` |
 | **Agent OS Infrastructure** | `OS-5.x` | Security, scheduling, identity, guardrails | `core/`, `security/`, `observability/` |
 
@@ -42,7 +42,7 @@ for using, developing, and extending the framework.
 Every feature in agent-utilities has a `CONCEPT:X.Y` tag providing 1:1:1 traceability:
 
 ```
-CONCEPT:ORCH-1.2  →  code: graph/routing.py
+CONCEPT:AU-ORCH.adapter.hot-cache-invalidation  →  code: graph/routing.py
                   →  test: tests/unit/graph/test_routing.py
                   →  docs: docs/pillars/1_graph_orchestration/ORCH-1.2.md
 ```
@@ -72,9 +72,9 @@ See `docs/concept_map.md` for the complete registry.
 ```
 agent_utilities/
 ├── core/              # OS-5.x: Config, paths, model factory, scheduler
-├── graph/             # ORCH-1.x: Planner, executor, routing, HSM, lifecycle
+├── graph/             # AU-ORCH.planning.orchestration-overview: Planner, executor, routing, HSM, lifecycle
 ├── knowledge_graph/   # KG-2.x: Engine, memory, ontologies, KB, retrieval
-├── harness/           # AHE-3.x: Evaluation engine, evolution engine
+├── harness/           # AU-AHE.optimization.telemetry-optimization: Evaluation engine, evolution engine
 ├── mcp/               # ECO-4.x: Server factory, KG server
 ├── tools/             # ECO-4.x: X search, tool filtering
 ├── security/          # OS-5.x: Guardrails, tool guard

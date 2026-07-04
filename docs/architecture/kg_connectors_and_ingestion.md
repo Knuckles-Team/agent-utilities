@@ -3,7 +3,7 @@
 > **One entrypoint, one provenance contract, one delta model.** Every external
 > system the Knowledge Graph knows about — enterprise apps, code, documents,
 > research — flows in through the *same* mechanism and is enriched by the *same*
-> OWL/RDF reasoning. This is the map of all of them. (CONCEPT:KG-2.9)
+> OWL/RDF reasoning. This is the map of all of them. (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
 This page is the canonical inventory and architecture for how the KG is
 **hydrated**. The connector list at the bottom is **auto-generated** from the live

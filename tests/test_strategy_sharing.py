@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Strategy Sharing System."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Strategy Sharing System."""
 
 import json
 

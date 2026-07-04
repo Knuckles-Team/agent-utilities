@@ -112,13 +112,13 @@ near-free, grounded, cross-session-consistent answer with `file:line` citations;
 grep re-derives by hand what the KG already holds.
 
 The one tool is **`graph_analyze action=code_context`** (REST: `POST
-/graph/analyze/code-context`), CONCEPT:KG-2.134:
+/graph/analyze/code-context`), CONCEPT:AU-KG.retrieval.synthesized-cited-answer:
 
 - `query=<area / symbol / question>`, `target=` the **intent**:
   - **`how`** — "how does the messaging reply path work?" → definition + what it
     calls + owning CONCEPT + docs + routes.
   - **`usage`** — "where is `create_model` used?" → callers (`file:line`) +
-    near-clones + the **cross-repo** usage view across the whole fleet (KG-2.135).
+    near-clones + the **cross-repo** usage view across the whole fleet (AU-KG.retrieval.every-usage-published-symbol).
   - **`impact`** — "what breaks if I change `_conn`?" → transitive callers
     (blast radius) + git change-coupling.
 - It returns a synthesized `answer`, `citations` (`file:line`), and a
@@ -128,7 +128,7 @@ The one tool is **`graph_analyze action=code_context`** (REST: `POST
 After the task, close the loop: `graph_feedback correction_type=reads_avoided
 target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
 "correct":true,"query":"…"}` so the retriever learns which answers replace a read
-(CONCEPT:AHE-3.61). If `code_context` returns no anchor, the area may be uningested
+(CONCEPT:AU-AHE.evaluation.reads-avoided-feedback). If `code_context` returns no anchor, the area may be uningested
 — run `source_sync source=all mode=delta` (and see `agent-utilities-doctor`'s
 `ingestion_coverage` check) — then fall back to grep.
 
@@ -145,10 +145,10 @@ do yet.** The trajectory is to move more onto graph-os over time and orchestrate
 Before doing a task yourself, delegate it:
 
 - **Understanding code** → the KG, never grep first (the section above):
-  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:KG-2.134) +
+  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer) +
   `graph_query` / `graph_search` / `graph_code_nav`. If an area is uningested,
   `source_sync source=all mode=delta` first; close the loop with
-  `graph_feedback correction_type=reads_avoided` (AHE-3.61).
+  `graph_feedback correction_type=reads_avoided` (AU-AHE.evaluation.reads-avoided-feedback).
 - **Doing a task** an ingested skill / workflow / agent can already do →
   `graph_orchestrate action=execute_agent` / `action=execute_workflow` on the
   local LLM — the `agent-utilities-expert` agent for ecosystem work, or the right
@@ -156,7 +156,7 @@ Before doing a task yourself, delegate it:
   rest of the fleet through the full `engine_<domain>` MCP surface + the
   multiplexer meta-tools (`find_tools` / `load_tools`).
 - **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
-  `LoopController`), the evolution flywheel, and the AHE-3.x hardening loop;
+  `LoopController`), the evolution flywheel, and the AU-AHE.optimization.telemetry-optimization hardening loop;
   **REVIEW** their proposals through the spec / prompt review-veto gates
   (propose-and-hold is the default) rather than hand-doing what the flywheel
   produces.
@@ -165,7 +165,7 @@ Your role becomes two things:
 
 1. **Orchestrate.** Decompose a goal, dispatch it to graph-os / the local LLM, and
    **steer** it: query live `EvolutionState`, the `:ToolCall` / `RunTrace`
-   provenance (CONCEPT:KG-2.296), reprioritize, approve/veto.
+   provenance (CONCEPT:AU-KG.temporal.message-history-read), reprioritize, approve/veto.
 2. **Resolve exceptions.** When a delegated run fails, returns a wrong or
    ungrounded answer, or the system couldn't self-troubleshoot — **that** is your
    job. Query the `RunTrace` / `:ToolCall` to see exactly what the local LLM did
@@ -174,13 +174,13 @@ Your role becomes two things:
    **re-delegate**. You are the backstop the autonomous system escalates to.
 
 Full visibility + steerability is guaranteed by design: every delegated run writes
-`:ToolCall` / `RunTrace` to the epistemic-graph (CONCEPT:KG-2.296) — query it via
+`:ToolCall` / `RunTrace` to the epistemic-graph (CONCEPT:AU-KG.temporal.message-history-read) — query it via
 graph-os. The **resource-priority edict** (interactive / orchestration work
-outranks background ingestion, CONCEPT:ORCH-1.98/1.99) guarantees your
+outranks background ingestion, CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99) guarantees your
 orchestration is never starved by ingestion.
 
 Every exception you resolve should **harden** the system (a new skill, a fixed tool
-binding, a hardened prompt — via the AHE-3.x hardening loop) so it handles that
+binding, a hardened prompt — via the AU-AHE.optimization.telemetry-optimization hardening loop) so it handles that
 case itself next time. The goal is orchestrating completely off the harness.
 
 ## Architecture Reference (current)
@@ -212,8 +212,8 @@ case itself next time. The goal is orchestrating completely off the harness.
   *live* facade (store / `owl_bridge` / retrieval), so interface targeting, derived-property
   compute, Functions-on-Objects, and ACL enforcement resolve against the real graph. Modules:
   `interfaces` (KG-2.38), `value_types` (KG-2.39), `derived_properties` (KG-2.40),
-  `functions/` (KG-2.41), `edits/` (KG-2.43), `indexing/` (KG-2.44), `object_set` (KG-2.45),
-  `permissioning` (KG-2.46), `property_types` (KG-2.47), `document_processing` (KG-2.48), and
+  `functions/` (AU-KG.ontology.default-runtime-bound-import), `edits/` (KG-2.43), `indexing/` (AU-KG.ontology.batch-incremental-sync-live), `object_set` (KG-2.45),
+  `permissioning` (AU-KG.ontology.redact-object-materialize-restricted), `property_types` (KG-2.47), `document_processing` (KG-2.48), and
   `links` (KG-2.26); action types live in `knowledge_graph/actions/` (KG-2.42). Conventions:
   registries ship **real built-ins at import** (never an empty shell); cite the Foundry/AIP doc
   in the module docstring and name from purpose, not the vendor; surface new capability over the
@@ -225,9 +225,9 @@ case itself next time. The goal is orchestrating completely off the harness.
   (`security/request_identity.py`, `security/auth.py`, OS-5.14). State:
   `STATE_DB_URI` externalizes checkpoints/sessions/queues onto shared Postgres
   with SKIP LOCKED claims + advisory-lock daemon leadership
-  (`core/state_store.py`, `core/leadership.py`, OS-5.16–5.18). Engines shard
+  (`core/state_store.py`, `core/leadership.py`, AU-OS.state.unified-durable-state-externalization–5.18). Engines shard
   by tenant behind client-side HRW routing (`GRAPH_SERVICE_ENDPOINTS`,
-  `knowledge_graph/core/shard_topology.py`, KG-2.58). Work scales via
+  `knowledge_graph/core/shard_topology.py`, AU-KG.sharding.tenant-partitioned-sharding-hrw). Work scales via
   fail-loud queue backends (`TASK_QUEUE_BACKEND`, KG-2.55–2.57) and
   queue-driven dispatch (`AGENT_DISPATCH_BACKEND=queue`,
   `orchestration/agent_dispatch*.py`, ORCH-1.45) consumed by the
@@ -235,9 +235,9 @@ case itself next time. The goal is orchestrating completely off the harness.
   every mutating fleet action passes the fail-closed ActionPolicy gate
   (`orchestration/action_policy.py` + `deploy/action-policy.default.yml`,
   OS-5.24) feeding the reconciler/playbooks/deploy-watch/autoscaler
-  (OS-5.25–5.27, OS-5.29). Observability: Prometheus `/metrics`
-  (`observability/gateway_metrics.py`, OS-5.23); multiplexer children are
-  individually supervised (`mcp/child_resilience.py`, ECO-4.34). Docs:
+  (AU-OS.config.desired-state-fleet-reconciler–5.27, OS-5.29). Observability: Prometheus `/metrics`
+  (`observability/gateway_metrics.py`, AU-OS.observability.no-op-without-metrics); multiplexer children are
+  individually supervised (`mcp/child_resilience.py`, AU-ECO.mcp.profile-differences-from-client). Docs:
   `docs/architecture/{state_externalization,engine_sharding,agent_dispatch,fleet_autonomy,gateway_scaling}.md`.
 - **Single source of truth for concepts:** `docs/concepts.yaml` (regenerate via
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
@@ -297,7 +297,7 @@ discipline*.) Core (`agent-utilities`) is the lean serving plane; heavy work is 
 
 **Ontology — extend the canonical, never sprawl a new `.ttl`.** The ontology is ONE consolidated
 library (`core/ontology.ttl` + the domain `ontology_*.ttl`), validated by the valid/connected/SHACL
-gate (CONCEPT:KG-2.112). New classes/links/value-types go **into the existing ontology file for that
+gate (CONCEPT:AU-KG.maintenance.canonical-ontology-library). New classes/links/value-types go **into the existing ontology file for that
 domain** via `interfaces.to_owl`/`owl_bridge`. A new top-level ontology file is a **build break**
 unless it's a genuinely new domain registered into the ontology library + gate. Don't create a
 per-feature `.ttl`; don't redefine a class that already exists — extend it.
@@ -305,7 +305,7 @@ per-feature `.ttl`; don't redefine a class that already exists — extend it.
 **Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
 the graph-os MCP surface, the multiplexer, the ingest/dispatch workers, and ~62 `*-mcp` services. A
 new capability is almost always **a new action/tool on an existing service**, or a **connector
-preset** (CONCEPT:KG-2.59 `mcp_tool` — external sources are declarative presets, NEVER new connector
+preset** (CONCEPT:AU-KG.ingest.mcp-tool-connector `mcp_tool` — external sources are declarative presets, NEVER new connector
 modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
 responsibility that fits no existing process — and even then it is a thin transport over the core
 orchestrator (see *Universal capability*). "I'll spin up a service for this" is the wrong default.
@@ -416,7 +416,7 @@ They are **injected into each MCP server's `env`**, not committed:
   (e.g. `mcpServers.mcp-multiplexer.env`). The mint path is
   `mcp/client_credentials.py` (`bearer_header`/`get_token`); the multiplexer
   attaches it to children and spawned agents inherit it
-  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:ORCH-1.21/OS-5.32).
+  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap/AU-OS.identity.so-jwt-protected-children).
 
 **To run/debug an authenticated path** (e.g. `execute_agent` against a `*.arpa`
 server): the creds must be present in the debug process's env — export them from
@@ -435,10 +435,10 @@ access, so a human performs the one-time cred load (or pre-authorizes the
 specific command in their own `.claude/settings.local.json`). This boundary is
 intentional and is not something to engineer around.
 
-## Reward / preference / RL-method primitives (AHE-3.x) — conventions
+## Reward / preference / RL-method primitives (AU-AHE.optimization.telemetry-optimization) — conventions
 
 When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine and the
-AHE-3.15/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
+AU-AHE.reward.this-is-read-back/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
 work (`.specify/specs/reasoning-rl-2026/`):
 
 - **Opt-in, default-unchanged.** A new parameter on an existing reward primitive MUST default
@@ -455,7 +455,7 @@ work (`.specify/specs/reasoning-rl-2026/`):
   test-time fan-out — over re-implementing GRPO (already `training_signals.batch_normalized_advantage`).
 - **Cite the paper in the docstring, name from purpose.** Provenance (arXiv id) goes in the
   docstring/CHANGELOG, never the identifier (`agent_step_po.py`, not `arpo_v1.py`). New
-  `CONCEPT:AHE-3.x` tags are picked up by `scripts/build_concepts_yaml.py`; run
+  `CONCEPT:AU-AHE.optimization.telemetry-optimization` tags are picked up by `scripts/build_concepts_yaml.py`; run
   `scripts/check_concepts.py` (CI gate) after adding one.
 
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
@@ -588,7 +588,7 @@ wired, defaulted on, and exposed on both surfaces in the same change.
 
 agent-utilities is both the **hub** that discovers fleet-contributed skills/prompts
 (`core/providers.py` → `agent_utilities.skill_providers` / `agent_utilities.prompt_providers`)
-**and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:OS-5.52):
+**and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
 - Its unique skills live in **`agent_utilities/skills/`** (atomic skills at the top level,
   the genesis workflow under `skills/workflows/agent-os-genesis/`, and the `agent-utilities`
@@ -806,9 +806,9 @@ Pick the most specific accurate noun for the behavior/domain (a suite of groundi
 + safety + retrieval-quality checks → *reliability* scorers). Provenance (which
 plan/paper it came from) belongs in the docstring/CHANGELOG, not the identifier.
 
-### External data sources — one reuse path (KG-2.59)
+### External data sources — one reuse path (AU-KG.ingest.mcp-tool-connector)
 
-New external data sources are `mcp_tool` source presets (KG-2.59:
+New external data sources are `mcp_tool` source presets (AU-KG.ingest.mcp-tool-connector:
 `protocols/source_connectors/connectors/mcp_tool.py`, `MCP_TOOL_PRESETS`) —
 **never** new `UniversalConnector` dialects or bespoke connector modules. The
 fleet's ~58 MCP servers already wrap the external systems; a new source is a

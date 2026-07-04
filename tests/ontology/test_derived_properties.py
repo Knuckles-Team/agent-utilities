@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for derived (function-backed / computed) properties (CONCEPT:KG-2.40).
+"""Tests for derived (function-backed / computed) properties (CONCEPT:AU-KG.ontology.derived-property-registry).
 
 Exercises all four backings: FUNCTION + EMBEDDING end-to-end (offline, via the
 real FunctionRuntime and a real CapabilityIndex), CYPHER dispatch against a

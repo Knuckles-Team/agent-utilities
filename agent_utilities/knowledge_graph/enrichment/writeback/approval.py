@@ -1,11 +1,11 @@
-"""Approval queue for high-stakes write-backs (CONCEPT:KG-2.9 / KG-2.247).
+"""Approval queue for high-stakes write-backs (CONCEPT:AU-KG.ingest.enterprise-source-extractor / KG-2.247).
 
 High-stakes sinks (finance trades, legal filings, destructive infra) must NEVER
 auto-execute. Their proposed writes are persisted here as ``pending`` proposals; a
 human/gate later ``approve``s a proposal id, which replays the exact ops through
 :func:`run_writeback` with an approval token.
 
-Engine-only (CONCEPT:KG-2.247): proposals live as ``:WritebackProposal`` nodes ON
+Engine-only (CONCEPT:AU-KG.enrichment.proposals-live-as): proposals live as ``:WritebackProposal`` nodes ON
 THE ONE epistemic-graph engine authority — queryable, beside the graph — with NO
 local ``writeback_proposals.json`` fallback. When no engine backend is supplied
 the queue resolves the active engine backend (the OS-5.63 resolver auto-starts the
@@ -28,7 +28,7 @@ _LABEL = "WritebackProposal"
 class ProposalQueue:
     """Engine-backed pending/approved write-back proposals, keyed by a stable id.
 
-    CONCEPT:KG-2.247 — proposals are ``:WritebackProposal`` nodes on the one
+    CONCEPT:AU-KG.enrichment.proposals-live-as — proposals are ``:WritebackProposal`` nodes on the one
     epistemic-graph engine authority; there is no JSON-file fallback.
     """
 
@@ -42,7 +42,7 @@ class ProposalQueue:
             self._backend: Any = backend
         else:
             self._backend = require_engine_authority_backend(
-                "high-stakes write-back approval queue (CONCEPT:KG-2.247)"
+                "high-stakes write-back approval queue (CONCEPT:AU-KG.enrichment.proposals-live-as)"
             )
 
     # -- public API ------------------------------------------------------
@@ -74,7 +74,7 @@ class ProposalQueue:
             status=status,
         )
 
-    # -- engine-graph implementation (CONCEPT:KG-2.247) ------------------
+    # -- engine-graph implementation (CONCEPT:AU-KG.enrichment.proposals-live-as) ------------------
     def _next_seq(self, target: str) -> int:
         existing = self._backend.nodes_by_label(_LABEL)
         same_target = sum(

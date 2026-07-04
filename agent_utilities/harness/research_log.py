@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Research-craft discipline primitives: failure triage + disconfirming-evidence log.
 
-CONCEPT:AHE-3.36 — Research-Craft Discipline
+CONCEPT:AU-AHE.harness.research-craft-discipline — Research-Craft Discipline
 
 Operationalizes two pieces of researcher craft that keep self-improving
 agents honest about their own failures and beliefs:
@@ -79,7 +79,7 @@ class BeliefEntry:
 
 
 class FailureTriage:
-    """Pull-N-failures → sort into piles → attack the biggest (CONCEPT:AHE-3.36).
+    """Pull-N-failures → sort into piles → attack the biggest (CONCEPT:AU-AHE.harness.research-craft-discipline).
 
     A deterministic triage queue: every failing case is added with a pile label,
     piles are ranked by size, and the largest pile is surfaced as the one to
@@ -222,7 +222,7 @@ class FailureTriage:
 
 
 class ResearchLog:
-    """Disconfirming-evidence belief log (CONCEPT:AHE-3.36).
+    """Disconfirming-evidence belief log (CONCEPT:AU-AHE.harness.research-craft-discipline).
 
     Records evidence for and against hypotheses, with the disconfirming kind
     made first-class so it can't be quietly dropped. The log never reads a clock

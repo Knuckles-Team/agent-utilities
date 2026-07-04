@@ -3,11 +3,11 @@
 > Pool and dedup vLLM's KV cache into the epistemic-graph engine via LMCache, so
 > inference workers share prefill work by token-hash instead of recomputing it.
 >
-> **Concepts:** `CONCEPT:EG-187` (engine kvcache-server HTTP surface) ·
-> `CONCEPT:KG-2.306` (`EpistemicGraphKVBackend` Python connector) ·
-> `CONCEPT:KG-2.311` (`EpistemicGraphL2Connector` — the LMCache `native_plugin` L2 adapter) ·
-> `CONCEPT:EG-185` (tiered hot/warm/cold cache) · `CONCEPT:EG-186` (content-addressed
-> shared dedup) · `CONCEPT:EG-174`/`EG-307` (Redis RESP wire).
+> **Concepts:** `CONCEPT:EG-KG.backend.is-configured-so-co` (engine kvcache-server HTTP surface) ·
+> `CONCEPT:AU-KG.backend.kvcache-vllm-connector` (`EpistemicGraphKVBackend` Python connector) ·
+> `CONCEPT:AU-KG.backend.lmcache-native-connector` (`EpistemicGraphL2Connector` — the LMCache `native_plugin` L2 adapter) ·
+> `CONCEPT:EG-KG.memory.byte-bounded-tiers` (tiered hot/warm/cold cache) · `CONCEPT:EG-KG.enrichment.content-address-separation` (content-addressed
+> shared dedup) · `CONCEPT:EG-KG.ontology.resp2-resp3-codec-round`/`EG-KG.txn.pubsub-transactions` (Redis RESP wire).
 
 ## Why
 
@@ -22,8 +22,8 @@ long documents, multi-turn history) and letting the box offload KV under memory
 pressure instead of dropping it.
 
 The epistemic-graph engine is that remote backend. Its KV-cache server
-(`CONCEPT:EG-187`) is a small HTTP surface over the same tiered cache
-(`CONCEPT:EG-185`) and **content-addressed shared dedup** (`CONCEPT:EG-186`) the
+(`CONCEPT:EG-KG.backend.is-configured-so-co`) is a small HTTP surface over the same tiered cache
+(`CONCEPT:EG-KG.memory.byte-bounded-tiers`) and **content-addressed shared dedup** (`CONCEPT:EG-KG.enrichment.content-address-separation`) the
 engine already runs — so an identical KV page produced twice is stored **once**,
 and every vLLM process on the box (or, later, across boxes) pools into one store.
 
@@ -42,8 +42,8 @@ flowchart LR
         l1 -. miss .-> remote
 
         subgraph egk["epistemic-kvcache (engine, feature kvcache-server + redis-wire)"]
-            http["EG-187 HTTP:\nGET|PUT|HEAD /kv/&lt;hash&gt;\nGET /kv/stats"]
-            resp["EG-174/307 Redis RESP :6379"]
+            http["EG-KG.backend.is-configured-so-co HTTP:\nGET|PUT|HEAD /kv/&lt;hash&gt;\nGET /kv/stats"]
+            resp["EG-KG.ontology.resp2-resp3-codec-round/307 Redis RESP :6379"]
             tier["EG-185 tiered hot/warm/cold\n+ EG-186 content-addressed dedup"]
             http --> tier
             resp --> tier
@@ -58,12 +58,12 @@ Two wiring paths reach the **same** engine store — pick one:
 
 | | **Path A — custom connector** | **Path B — Redis drop-in** |
 |---|---|---|
-| LMCache backend | external `EpistemicGraphExternalBackend` → EG-187 HTTP | built-in remote → EG-174/307 Redis wire |
+| LMCache backend | external `EpistemicGraphExternalBackend` → EG-KG.backend.is-configured-so-co HTTP | built-in remote → EG-KG.ontology.resp2-resp3-codec-round/307 Redis wire |
 | Custom code | one adapter class (shipped) | **none** |
 | Surface used | `GET/PUT/HEAD /kv/<hash>`, `GET /kv/stats` (dedup counters, exists probe) | Redis RESP |
 | When | you want the native HTTP semantics / stats | **default / simplest** — recommended to start |
 
-Both hit `CONCEPT:EG-185`/`EG-186`, so dedup + tiering are identical; the only
+Both hit `CONCEPT:EG-KG.memory.byte-bounded-tiers`/`EG-186`, so dedup + tiering are identical; the only
 difference is the wire LMCache speaks.
 
 ## Files
@@ -72,13 +72,13 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
 
 | File | Role |
 |---|---|
-| `compose.kvcache.yml` | the **epistemic-kvcache** engine server (EG-187 + Redis wire) on GB10 |
+| `compose.kvcache.yml` | the **epistemic-kvcache** engine server (EG-KG.backend.is-configured-so-co + Redis wire) on GB10 |
 | `Dockerfile.lmcache` | vLLM nightly + `pip install lmcache` (+ `agent-utilities` for Path A) |
 | `compose.lmcache.yml` | **opt-in override** — adds `--kv-transfer-config` + `LMCACHE_CONFIG_FILE` to the live `vllm-llm` |
 | `lmcache/lmcache.redis.yaml` | Path B config (`remote_url: redis://localhost:6379`) |
 | `lmcache/lmcache.epistemic.yaml` | Path A config (`external_backends` → the adapter) |
 | `lmcache/epistemic_graph_backend.py` | Path A `StorageBackendInterface` adapter → `EpistemicGraphKVBackend` (KG-2.306) |
-| `agent_utilities/kvcache/l2_native_connector.py` | the engine-native EG-187 **`native_plugin` L2 adapter** connector `EpistemicGraphL2Connector` (KG-2.311) — for the `lmcache server --l2-adapter` |
+| `agent_utilities/kvcache/l2_native_connector.py` | the engine-native EG-KG.backend.is-configured-so-co **`native_plugin` L2 adapter** connector `EpistemicGraphL2Connector` (AU-KG.backend.lmcache-native-connector) — for the `lmcache server --l2-adapter` |
 | `lmcache/epistemic_graph_l2_adapter.py` | baked re-export shim so `--l2-adapter` can load the above via `epistemic_graph_lmcache.epistemic_graph_l2_adapter` |
 
 ## LMCache integration mechanism (confirmed)
@@ -107,7 +107,7 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
   The adapter (`epistemic_graph_backend.py`) implements the interface's abstract
   methods (`contains` / `batched_submit_put_task` / `get_blocking` / `remove` /
   `pin` / `close` / …) and delegates byte transport to `EpistemicGraphKVBackend`
-  (`CONCEPT:KG-2.306`), which drives the EG-187 HTTP surface. The connector reads
+  (`CONCEPT:AU-KG.backend.kvcache-vllm-connector`), which drives the EG-KG.backend.is-configured-so-co HTTP surface. The connector reads
   `EPISTEMIC_GRAPH_KVCACHE_URL|ADDR|TOKEN` from env (`KvCacheConfig.from_env`).
 
 > **Version note.** Pin `lmcache` in `Dockerfile.lmcache` to the version your vLLM
@@ -162,24 +162,24 @@ restarts and dedups**. vLLM + server both run `ipc:host` + host network (the KV 
 CUDA-IPC "ptr" mode). This is what makes cross-restart / cross-instance reuse possible on ANY
 model — the differentiated capability over vLLM's in-HBM APC.
 
-### L2 adapter: engine-native EG-187 (dedup + `/kv/stats`) vs the `resp` drop-in
+### L2 adapter: engine-native EG-KG.backend.is-configured-so-co (dedup + `/kv/stats`) vs the `resp` drop-in
 
 The `lmcache server` writes its **L2 tier** through an `--l2-adapter '<JSON>'` plugin. There
 are two ways to land it in the epistemic-graph engine — they reach the **same** durable,
 tiered store (EG-185) but differ in whether the engine's content-addressed dedup (EG-186) and
-the EG-187 `/kv/stats` counters apply:
+the EG-KG.backend.is-configured-so-co `/kv/stats` counters apply:
 
-| | **Engine-native EG-187 adapter** (recommended) | **`resp` Redis adapter** (zero-code) |
+| | **Engine-native EG-KG.backend.is-configured-so-co adapter** (recommended) | **`resp` Redis adapter** (zero-code) |
 |---|---|---|
 | `--l2-adapter` type | `native_plugin` → `EpistemicGraphL2Connector` | `resp` (built-in) |
-| Wire | EG-187 HTTP `GET/PUT/HEAD /kv/<hash>` | Redis RESP `:6379` |
+| Wire | EG-KG.backend.is-configured-so-co HTTP `GET/PUT/HEAD /kv/<hash>` | Redis RESP `:6379` |
 | Lands in | the **content-addressed dedup KV tier** (EG-186) | the engine's **generic Redis keyspace** |
 | Engine-side dedup (EG-186) | ✅ `dedup_hits` increment on repeat keys | ❌ (generic keyspace) |
-| `/kv/stats` counters (EG-187) | ✅ `unique_blocks` / `logical_bytes` / `dedup_hits` move | ❌ do **not** move |
-| Custom code | one native-client class (shipped, KG-2.311) | none |
-| Concept | `CONCEPT:KG-2.311` (+ KG-2.306 transport) | `CONCEPT:EG-174/307` |
+| `/kv/stats` counters (EG-KG.backend.is-configured-so-co) | ✅ `unique_blocks` / `logical_bytes` / `dedup_hits` move | ❌ do **not** move |
+| Custom code | one native-client class (shipped, AU-KG.backend.lmcache-native-connector) | none |
+| Concept | `CONCEPT:AU-KG.backend.lmcache-native-connector` (+ KG-2.306 transport) | `CONCEPT:EG-KG.ontology.resp2-resp3-codec-round/307` |
 
-**Engine-native spec** (CONCEPT:KG-2.311). The adapter is LMCache's `native_plugin`: LMCache's
+**Engine-native spec** (CONCEPT:AU-KG.backend.lmcache-native-connector). The adapter is LMCache's `native_plugin`: LMCache's
 `NativeConnectorL2Adapter` owns the event-fd / task-demux machinery and drives a small **native
 client** — `EpistemicGraphL2Connector`
 (`agent_utilities.kvcache.l2_native_connector`) — that runs the HTTP I/O on a thread pool,
@@ -206,7 +206,7 @@ degrades to a cache miss (KG-2.306), so an unreachable engine never crashes toke
 > `module_path` can point at either the wheel module or the baked plugin). The `resp` adapter has
 > no such dependency — use it if the native-adapter image is unavailable.
 
-**Standalone check (no vLLM reboot).** Because the adapter is plain Python over EG-187, you can
+**Standalone check (no vLLM reboot).** Because the adapter is plain Python over EG-KG.backend.is-configured-so-co, you can
 exercise it directly against a running `epistemic-kvcache` — instantiate `EpistemicGraphL2Connector`,
 `submit_batch_set` a blob, `submit_batch_get` it back, and watch `GET /kv/stats`: `unique_blocks`
 and `logical_bytes` grow on a first put, and a **repeat-key** put trips `dedup_hits` while
@@ -249,7 +249,7 @@ docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile --push .
 ```
 
-`kvcache-server` exposes EG-187; `redis-wire` exposes the EG-174/307 Redis wire
+`kvcache-server` exposes EG-KG.backend.is-configured-so-co; `redis-wire` exposes the EG-KG.ontology.resp2-resp3-codec-round/307 Redis wire
 (only needed for Path B). (These features ship on epistemic-graph branch
 `feat/udb-w21-kvcache` — merge to `main` so the fleet CI build carries them.)
 
@@ -293,7 +293,7 @@ Enable the override (recreates `vllm-llm` on the custom image — the windowed r
 ```bash
 # pick the path in compose.lmcache.yml's LMCACHE_CONFIG_FILE:
 #   Path B (default): /etc/lmcache/lmcache.redis.yaml   (-> engine Redis wire :6379)
-#   Path A:           /etc/lmcache/lmcache.epistemic.yaml (-> EG-187 HTTP :9130)
+#   Path A:           /etc/lmcache/lmcache.epistemic.yaml (-> EG-KG.backend.is-configured-so-co HTTP :9130)
 
 DOCKER_HOST=ssh://genius@10.0.0.18 \
   docker compose -f compose.standalone.yml -f compose.lmcache.yml up -d vllm-llm
@@ -303,7 +303,7 @@ DOCKER_HOST=ssh://genius@10.0.0.18 \
 
 ### Validate the adapter directly (no vLLM reboot)
 
-The native EG-187 L2 adapter (KG-2.311) is plain Python over the HTTP KV surface, so you can
+The native EG-KG.backend.is-configured-so-co L2 adapter (AU-KG.backend.lmcache-native-connector) is plain Python over the HTTP KV surface, so you can
 exercise it against a running `epistemic-kvcache` **without touching vLLM** — the fastest way
 to confirm dedup + `/kv/stats` before committing to a windowed vLLM restart:
 

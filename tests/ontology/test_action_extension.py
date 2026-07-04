@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.42 — Action-Type extension tests (extends KG-2.25).
+"""CONCEPT:AU-KG.ontology.batch-actions-executor — Action-Type extension tests (extends KG-2.25).
 
 Provenance (Palantir AIP doc: *action-types/overview*): typed multi-effect
 actions journaled as durable edits, submission-criteria gating, undo/revert,
@@ -32,7 +32,7 @@ from agent_utilities.observability.escalation_matrix import make_decision_provid
 from agent_utilities.security.permissions_kernel import AgentRole, PermissionsKernel
 
 # These mutating actions are HIGH-risk (mutation + non-idempotent); the HITL
-# escalation gate (CONCEPT:OS-5.12) requires an operator/admin approval, so the
+# escalation gate (CONCEPT:AU-OS.observability.empty-derive-from-effect) requires an operator/admin approval, so the
 # tests supply an approving decision_provider — exercising the full governed path
 # (authorize → escalate-approve → validate → submission-criteria → side-effects).
 APPROVE = make_decision_provider(

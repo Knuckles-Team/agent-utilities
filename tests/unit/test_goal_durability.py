@@ -1,4 +1,4 @@
-"""Durable goal registry + restart rehydration (CONCEPT:KG-2.78 / OS-5.18).
+"""Durable goal registry + restart rehydration (CONCEPT:AU-KG.research.these-properties-carry / OS-5.18).
 
 ``active_goals``/``background_goal_runs`` are process memory; the durable source of
 truth is now the **KG Loop node** (a develop ``Concept``) — the ``goals`` SQLite table

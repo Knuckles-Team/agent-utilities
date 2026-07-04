@@ -13,7 +13,7 @@ multiplexer can be deployed as either a **stdio** or **streamable-http** server.
 The proven child-server lifecycle, algorithmic collision-free prefixing, and
 enable/disable tool filtering are preserved (see :class:`MCPMultiplexer`).
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ _INSTANCE_ID_RE = re.compile(r"^[a-z]{0,4}\d+[a-z0-9]*$")
 def auto_server_prefix(server_name: str) -> str:
     """Algorithmically derive a short, readable prefix for ANY MCP server name —
     no lookup table, so out-of-ecosystem / third-party servers are fully
-    supported (CONCEPT:ECO-4.36). Uniqueness across the fleet is guaranteed
+    supported (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Uniqueness across the fleet is guaranteed
     separately by the catalog-aware collision resolver.
 
     Rules (after dropping noise words mcp/server/agent/api/…):
@@ -206,14 +206,14 @@ class MCPMultiplexer:
         self.config_path = config_path
         self.exit_stack = contextlib.AsyncExitStack()
         self.sessions: dict[str, ClientSession] = {}
-        # Per-child hardening layer (CONCEPT:ECO-4.34): concurrency limits and
+        # Per-child hardening layer (CONCEPT:AU-ECO.mcp.profile-differences-from-client): concurrency limits and
         # bounded queueing live on the ChildRuntime, not the raw session.
         self.children: dict[str, ChildRuntime] = {}
         self.tool_to_server: dict[
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
         self.aggregated_tools: list[mcp.types.Tool] = []
-        # CONCEPT:ECO-4.36 — dynamic tool gateway state. The catalog is the
+        # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — dynamic tool gateway state. The catalog is the
         # full set of mountable servers parsed from config WITHOUT spawning
         # them, so find_tools/load_tools know what exists before any child is
         # started. ``_exposed`` tracks prefixed tool names currently registered
@@ -221,7 +221,7 @@ class MCPMultiplexer:
         self._catalog: dict[str, dict] | None = None
         # ``_exposed`` tracks prefixed tools registered as live FastMCP tools
         # (process-global, so lazy mounts don't double-register). Visibility,
-        # however, is PER-SESSION on a shared HTTP server (CONCEPT:ECO-4.36,
+        # however, is PER-SESSION on a shared HTTP server (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog,
         # plan Phase 5): a forwarder is registered once but only listed/callable
         # for sessions that have ``load_tools``-ed it. ``_session_loaded`` maps a
         # session id -> the prefixed names that session has loaded; meta-tools and
@@ -229,12 +229,12 @@ class MCPMultiplexer:
         self._exposed: set[str] = set()
         self._session_loaded: dict[str, set[str]] = {}
         self._global_visible: set[str] = set()
-        # CONCEPT:ECO-4.36 — self-catalog: per-server {"tools": [...], "error": str|None}
+        # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — self-catalog: per-server {"tools": [...], "error": str|None}
         # learned by probing each child (connect → list_tools → release), cached so
         # find_tools ranks real fleet-wide tools without holding connections and
         # without depending on the (separately-flaky) KG live discovery.
         self._probe_cache: dict[str, dict] = {}
-        # CONCEPT:ECO-4.36 — catalog-aware, collision-free prefix assignment,
+        # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — catalog-aware, collision-free prefix assignment,
         # computed deterministically over the whole server set so similarly
         # named servers (e.g. scholarx/searxng, both preferring "sx") never
         # share a namespace however the fleet scales. Built lazily from catalog.
@@ -318,13 +318,13 @@ class MCPMultiplexer:
             headers = cfg.get("headers")
             if headers:
                 headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
-            # A0 (CONCEPT:OS-5.32): authenticate jwt-protected children with the
+            # A0 (CONCEPT:AU-OS.identity.so-jwt-protected-children): authenticate jwt-protected children with the
             # multiplexer's service-account bearer. Opt-in via
             # MCP_CLIENT_AUTH=oidc-client-credentials; never overrides a child's
             # own Authorization header; a mint failure degrades to no auth.
             # Use a per-request httpx.Auth (not a frozen header): the child's
             # pooled session is long-lived, so a baked-in short-lived token would
-            # expire mid-session and wedge calls on a 401 (CONCEPT:OS-5.32).
+            # expire mid-session and wedge calls on a 401 (CONCEPT:AU-OS.identity.so-jwt-protected-children).
             from agent_utilities.mcp.client_credentials import bearer_auth
 
             _svc_auth = bearer_auth(headers)
@@ -388,7 +388,7 @@ class MCPMultiplexer:
         args = cfg.get("args", [])
         timeout = float(cfg.get("timeout", 300.0))
 
-        # Session-pool sizing (CONCEPT:ECO-4.34): remote children may hold N
+        # Session-pool sizing (CONCEPT:AU-ECO.mcp.profile-differences-from-client): remote children may hold N
         # independent connections for parallel in-flight calls; stdio children
         # are single-pipe and always keep exactly one session.
         from agent_utilities.core.config import config as agent_config
@@ -456,7 +456,7 @@ class MCPMultiplexer:
 
     def load_catalog(self) -> dict[str, dict]:
         """Parse the config once into the mountable-server catalog WITHOUT
-        spawning any child (CONCEPT:ECO-4.36).
+        spawning any child (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
         Idempotent: the parsed ``{server_name: cfg}`` map is cached on
         ``self._catalog`` and reused. Self (``mcp-multiplexer``) and entries
@@ -506,7 +506,7 @@ class MCPMultiplexer:
         return clean.replace("-", "_").lower().strip("_")
 
     def _build_prefix_map(self) -> None:
-        """Assign every catalog server a unique prefix (CONCEPT:ECO-4.36).
+        """Assign every catalog server a unique prefix (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
         Each server starts from its preferred prefix (:func:`get_server_prefix`
         — config override or auto-derived). Collisions are resolved
@@ -541,7 +541,7 @@ class MCPMultiplexer:
         self._prefix_reverse = {p: n for n, p in assigned.items()}
 
     def server_prefix(self, server_name: str) -> str:
-        """The unique, collision-free prefix for a server (CONCEPT:ECO-4.36).
+        """The unique, collision-free prefix for a server (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
         Falls back to the bare derived prefix for names outside the catalog."""
         if self._prefix_map is None:
             self._build_prefix_map()
@@ -580,7 +580,7 @@ class MCPMultiplexer:
         Shared by eager :meth:`start_children` and lazy :meth:`mount_child` so
         the enable/disable filtering and prefixing logic lives in one place.
         """
-        # The per-child hardening runtime (CONCEPT:ECO-4.34) carries the
+        # The per-child hardening runtime (CONCEPT:AU-ECO.mcp.profile-differences-from-client) carries the
         # session pool, concurrency limits, and restart supervisor. Plain
         # session payloads (externally owned connections) are wrapped in a
         # supervisor-less runtime: limits apply, auto-restart does not.
@@ -628,7 +628,7 @@ class MCPMultiplexer:
 
             # Preserve _meta (carries FastMCP tags) so downstream consumers — the
             # verbose-tool hold-back, visibility filtering — can read the child's
-            # tags off the aggregated tool. (CONCEPT:ECO-4.82)
+            # tags off the aggregated tool. (CONCEPT:AU-ECO.multiplexer.condensed-server-load)
             prefixed_tool = mcp.types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
@@ -641,7 +641,7 @@ class MCPMultiplexer:
 
     async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
         """Start ONE configured child on demand and register its tools
-        (CONCEPT:ECO-4.36).
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
         Idempotent: if the child is already mounted, its already-registered
         prefixed tools are returned without re-spawning. Returns ``[]`` for an
@@ -693,7 +693,7 @@ class MCPMultiplexer:
             self._register_child_result(server_name, payload, tools, cfg)
 
     # ------------------------------------------------------------------
-    # Dynamic tool gateway (CONCEPT:ECO-4.36)
+    # Dynamic tool gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
     # ------------------------------------------------------------------
 
     def _server_for_prefixed(self, prefixed_name: str) -> str | None:
@@ -765,7 +765,7 @@ class MCPMultiplexer:
         self, server_name: str, force: bool = False, timeout: float | None = None
     ) -> dict:
         """Probe ONE catalog server for its tool list: connect → list_tools →
-        release (CONCEPT:ECO-4.36). Returns (and caches) ``{"tools": [...],
+        release (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Returns (and caches) ``{"tools": [...],
         "error": str|None}``. An already-mounted child reuses its live tools
         instead of reconnecting; an unreachable server records its error string
         (so find_tools/load_tools can report *why* it is unavailable) rather
@@ -880,7 +880,7 @@ class MCPMultiplexer:
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None
     ) -> dict:
         """Rank candidate tools across the whole fleet for an NL ``query``
-        (CONCEPT:ECO-4.36), without exposing or holding any child.
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), without exposing or holding any child.
 
         Backbone is the self-catalog (:meth:`probe_catalog` — each server's real
         tools, learned by a cached connect→list→release probe), ranked by token
@@ -956,7 +956,7 @@ class MCPMultiplexer:
         return {"results": results, "unavailable": unavailable}
 
     async def list_catalog(self, server: str = "", include_tools: bool = True) -> dict:
-        """Browse the WHOLE fleet catalog (CONCEPT:ECO-4.36) — every configured
+        """Browse the WHOLE fleet catalog (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) — every configured
         server, its tool count + (optionally) tool names, reachability, and
         mount state. This is the flat "show me everything" view; ``find_tools``
         is the semantic "find me the right tool for X" search. Both ride the
@@ -1063,7 +1063,7 @@ class MCPMultiplexer:
         if requested_tools:
             wanted = set(requested_tools)
         else:
-            # CONCEPT:ECO-4.82 — a SERVER-level load exposes only the condensed action
+            # CONCEPT:AU-ECO.multiplexer.condensed-server-load — a SERVER-level load exposes only the condensed action
             # surface; verbose 1:1 tools stay loadable by EXPLICIT name (via requested_tools)
             # so ``load_tools(servers=[X])`` never floods a session's context with X's whole
             # granular surface. Mirrors the always-on mount's verbose-hold.
@@ -1176,7 +1176,7 @@ def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
     ``_meta``). Verbose 1:1 tools (e.g. graph-os's granular per-action surface)
     are kept in the catalog but NOT auto-exposed by an always-on child — they
     load on demand via ``find_tools``/``load_tools`` to conserve context
-    (CONCEPT:ECO-4.82)."""
+    (CONCEPT:AU-ECO.multiplexer.condensed-server-load)."""
     meta = getattr(tool, "meta", None)
     if not isinstance(meta, dict):
         return False
@@ -1207,7 +1207,7 @@ def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
 
 
 def _register_status_tool(mcp, mux: MCPMultiplexer) -> None:
-    """Register the always-present fleet-health meta-tool (CONCEPT:ECO-4.34)."""
+    """Register the always-present fleet-health meta-tool (CONCEPT:AU-ECO.mcp.profile-differences-from-client)."""
 
     async def _status() -> ToolResult:
         snapshot = mux.status_snapshot()
@@ -1272,7 +1272,7 @@ def _session_key() -> str:
 
 
 class SessionVisibilityMiddleware(Middleware):
-    """Per-session progressive disclosure (CONCEPT:ECO-4.36, plan Phase 5).
+    """Per-session progressive disclosure (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog, plan Phase 5).
 
     Child forwarders are registered process-globally (once) but a shared server
     must not leak one session's ``load_tools`` to another. This middleware scopes
@@ -1311,7 +1311,7 @@ class SessionVisibilityMiddleware(Middleware):
 
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
-    """Register the dynamic-gateway meta-tools (CONCEPT:ECO-4.36):
+    """Register the dynamic-gateway meta-tools (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
     ``find_tools`` (semantic discovery over the whole fleet), ``list_catalog``
     (flat browse of every server + its tools), ``load_tools`` / ``unload_tools``
     (mount/expose and retract tools at runtime, notifying the client each time),
@@ -1572,7 +1572,7 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
 
         mode = (agent_config.mcp_multiplexer_mode or "eager").lower()
         if mode == "dynamic":
-            # CONCEPT:ECO-4.36 — expose only the meta-tools plus the always-on
+            # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — expose only the meta-tools plus the always-on
             # children at boot; everything else is mounted on demand.
             mux.load_catalog()
             always_on = agent_config.mcp_dynamic_always_on or []
@@ -1583,7 +1583,7 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
                     # Verbose 1:1 tools stay mounted (in the catalog, loadable via
                     # find_tools/load_tools) but are NOT auto-exposed — so a session
                     # sees only the condensed action surface by default and pulls
-                    # granular tools on demand. (CONCEPT:ECO-4.82)
+                    # granular tools on demand. (CONCEPT:AU-ECO.multiplexer.condensed-server-load)
                     if _tool_is_verbose(tool):
                         verbose_held += 1
                         continue

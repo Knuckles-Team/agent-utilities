@@ -13,7 +13,7 @@ and a copy-paste annotated template.
 > Validate any `workspace.yml` from the CLI:
 > `agent-utilities-doctor --only workspace_config`
 > (the `workspace_config` check parses it through the same loader and reports
-> errors/warnings with fixes — CONCEPT:OS-5.67).
+> errors/warnings with fixes — CONCEPT:AU-OS.deployment.os-4).
 
 ## Where it lives
 
@@ -87,7 +87,7 @@ flowchart LR
     L -->|clone_missing_projects| BOOT["Bootstrap: git clone every repo<br/>under path"]
     L -->|workspace_project_roots| KG["KG breadth ingestion<br/>self-configures repo roots — KG-2.7"]
     L -->|fleet_target_profiles| REL[Fleet relevance keyword profiles]
-    L -->|find_workspace_manifest| DOC[doctor: ingestion_coverage + workspace_config — OS-5.67]
+    L -->|find_workspace_manifest| DOC[doctor: ingestion_coverage + workspace_config — AU-OS.deployment.os-4]
     YML -.maintenance/services.-> EXT[repository-manager / fleet reconciler]
 ```
 
@@ -107,7 +107,7 @@ flowchart LR
 
 ## Validate it (the `workspace_config` doctor check)
 
-The `agent-utilities-doctor` `workspace_config` check (CONCEPT:OS-5.67) validates
+The `agent-utilities-doctor` `workspace_config` check (CONCEPT:AU-OS.deployment.os-4) validates
 the manifest **through the same loader** — it never re-parses with a second
 schema. It:
 

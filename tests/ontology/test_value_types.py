@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unit tests for ontology value types (CONCEPT:KG-2.39).
+"""Unit tests for ontology value types (CONCEPT:AU-KG.ontology.value-type-shacl-load).
 
 Covers per-built-in constraint pass/fail (runtime validator), the
 schema_definition/base coercion bridge, and asserts the emitted SHACL turtle and

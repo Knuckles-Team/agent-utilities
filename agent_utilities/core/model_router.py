@@ -1,12 +1,12 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Adaptive local-LLM router (CONCEPT:ORCH-1.79).
+"""Adaptive local-LLM router (CONCEPT:AU-ORCH.routing.adaptive-role-routing).
 
 Closes the economics loop the platform had the parts for but never connected: the
 tiered model ladder (`ModelRegistry` light→medium→heavy→reasoning), the cost signal
 (`ModelCostRate`, zero = local/free), and the confidence-gated selector
-(`pick_for_task_adaptive`, built for CONCEPT:ORCH-1.2 but with **no live caller**)
+(`pick_for_task_adaptive`, built for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation but with **no live caller**)
 existed as three islands. This wires them: every role-routed model selection now
 flows through a *learned* confidence so a role whose cheap/local model keeps
 succeeding is routed DOWN the ladder (cheaper) and one that keeps failing is

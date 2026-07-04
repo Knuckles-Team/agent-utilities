@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""CONCEPT:OS-5.6 — Deterministic Replay Engine.
+"""CONCEPT:AU-OS.observability.deterministic-replay — Deterministic Replay Engine.
 
 Records exact execution paths, input/output structures, and resource/gas bounds as queryable,
 compliance-ready OWL-aligned sub-graphs.

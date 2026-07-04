@@ -531,7 +531,7 @@ def test_discover_all_specialists(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # chat_persistence.py - knowledge-graph backed (no engine)
-# CONCEPT:KG-2.1 — Cross-Session Chat Recall
+# CONCEPT:AU-KG.memory.tiered-memory-caching — Cross-Session Chat Recall
 # ---------------------------------------------------------------------------
 
 

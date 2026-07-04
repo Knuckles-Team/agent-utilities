@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.13 — Layered Pre-Emit Gate Pipeline tests.
+"""CONCEPT:AU-AHE.harness.pre-emit-quality-gate — Layered Pre-Emit Gate Pipeline tests.
 
 Covers the anti-slop registry, P0/P1/P2 checklist parsing + blocking, the multi-dimensional critique
 (score 1-5, weakest dimension, pass threshold), the composed pre-emit gate (warn vs block), and the
@@ -20,7 +20,7 @@ from agent_utilities.harness.quality_gates import (
     parse_checklist,
 )
 
-pytestmark = pytest.mark.concept(id="AHE-3.13")
+pytestmark = pytest.mark.concept(id="AU-AHE.harness.pre-emit-quality-gate")
 
 
 # ── anti-slop registry ──────────────────────────────────────────────

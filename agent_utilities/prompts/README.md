@@ -12,7 +12,7 @@ The `prompts/` module uses **JSON-as-Code** for high-precision task specificatio
 Moving away from free-form Markdown, these blueprints conform to a standardized
 Pydantic schema to ensure consistency, versioning, and programmatic manipulation.
 
-## Canonical schema (CONCEPT:ORCH-1.80)
+## Canonical schema (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)
 
 The schema is **owned by the Pydantic model `StructuredPrompt` in
 [`../prompting/structured.py`](../prompting/structured.py)** — the single source of
@@ -34,7 +34,7 @@ Required / standard fields:
 Optional but standardized: `metadata` (description/topic/tone/style/audience),
 `identity` (role/goal/personality), the rest of `instructions`
 (responsibilities/capabilities/workflow/quality_checklist/methodology/output_format),
-`engineering_rules` (CONCEPT:KG-2.2), `rules`, `skills` (skill slugs the prompt
+`engineering_rules` (CONCEPT:AU-KG.ingest.engineering-rules), `rules`, `skills` (skill slugs the prompt
 expects installed), `tools`, and the composition fields `extends`
 (e.g. `"agent-utilities:base"`) + `compose` (`append` | `prepend` | `replace`).
 

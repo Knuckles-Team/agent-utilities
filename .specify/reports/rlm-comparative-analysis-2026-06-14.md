@@ -41,8 +41,8 @@ here; its remaining advantages were **proof** and a **native trained model** —
 |---|---|---|
 | 1 | No benchmark scoreboard (only LongMemEval-S existed) | **Closed (Track A)** — `rlm/benchmarks/` harness over all 5 tasks + paper-comparison scoreboard (AHE-3.32) |
 | 2 | RunTrace token usage never populated → no cost column | **Closed** — usage now captured (root + folded sub-call) in `repl.py`, surfaced via `run_rlm` (AHE-3.32) |
-| 3 | No drop-in `rlm.completion()` surface | **Closed (Track C1)** — `agent_utilities.rlm.RLM` (ORCH-1.54) |
-| 4 | One fixed system prompt across model families (paper failure mode) | **Closed (Track C2)** — family-aware prompt, `prompt_family` config (ORCH-1.54) |
+| 3 | No drop-in `rlm.completion()` surface | **Closed (Track C1)** — `agent_utilities.rlm.RLM` (AU-ORCH.execution.drop-rlm-completion-client) |
+| 4 | One fixed system prompt across model families (paper failure mode) | **Closed (Track C2)** — family-aware prompt, `prompt_family` config (AU-ORCH.execution.drop-rlm-completion-client) |
 | 5 | No validated 10M-token result | **Closed (Track C3)** — `live` S-NIAH stress at ~40M chars |
 | 6 | Native trained RLM model (RLM-Qwen3-8B analog) | **Deferred (Track B)** — substrate exists in data-science-mcp; wiring documented in the plan appendix |
 

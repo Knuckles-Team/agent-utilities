@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Live Refreshable Artifact package.
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact package.
 
 Refreshable, provenance-tracked data products over the epistemic KG: template + bounded data +
 provenance that re-derive from KG source nodes on refresh, preserving the prior render on failure.

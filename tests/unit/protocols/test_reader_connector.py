@@ -1,4 +1,4 @@
-"""Tests for the readability reader connector (CONCEPT:KG-2.66).
+"""Tests for the readability reader connector (CONCEPT:AU-KG.enrichment.multimodal-readers).
 
 Offline: a ``fetch_fn`` is injected so the local readability tier runs without a
 network call or a JINA key.

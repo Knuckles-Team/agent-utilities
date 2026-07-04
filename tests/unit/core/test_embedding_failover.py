@@ -1,4 +1,4 @@
-"""Automatic embedder endpoint failover + capacity guard (CONCEPT:KG-2.299).
+"""Automatic embedder endpoint failover + capacity guard (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
 The embedding plane runs against a PRIMARY embedder (a dedicated ``gr1080-embed``,
 ``gpu_group="gr1080"``) and fails over to a FALLBACK (the shared ``vllm-embed`` on

@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.0"""
+"""CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
 import logging
 from typing import Any
@@ -32,7 +32,7 @@ async def invoke_specialized_agent(
 ) -> str:
     """Delegate a targeted task to a specialized sub-agent (local MCP/prompt or remote A2A).
 
-    CONCEPT:ECO-4.77 — ONE delegation surface. This is a thin wrapper over the SAME
+    CONCEPT:AU-ECO.toolkit.unified-delegation-surface — ONE delegation surface. This is a thin wrapper over the SAME
     orchestration core as ``graph_orchestrate(action="execute_agent", ...)`` —
     ``Orchestrator.execute_agent`` → ``run_agent`` — which resolves the specialist from the
     Knowledge Graph (server / skill / a2a) and runs it. There is no separate discovery /
@@ -112,7 +112,7 @@ async def reach_user(
 ) -> str:
     """Message the human operator on their last-active channel (e.g. Telegram).
 
-    CONCEPT:ECO-4.53 — Universal agent reach_user tool over the messaging reach service.
+    CONCEPT:AU-ECO.messaging.universal-agent-reach-user — Universal agent reach_user tool over the messaging reach service.
     Use it to proactively tell the user something, or to ask a question and optionally wait
     for their reply. Routing follows the user's most-recently-used channel, falling back to
     the configured default; the send is governed by the ActionPolicy gate.
@@ -140,7 +140,7 @@ async def reach_user(
     return f"send failed: {result.error}"
 
 
-# ── AgentBus native tools (CONCEPT:ECO-4.88) ─────────────────────────────────
+# ── AgentBus native tools (CONCEPT:AU-ECO.bus.agent-bus-awareness) ─────────────────────────────────
 # Universal, in-process tools so EVERY agent (orchestrator + every spawned swarm
 # sub-agent) can coordinate over the AgentBus without needing the graph-os MCP bound.
 # Thin wrappers over agent_utilities.messaging.bus.AgentBus (the one core).
@@ -163,7 +163,7 @@ async def bus_join(
 ) -> str:
     """Announce yourself on the AgentBus so other agents can discover and message you.
 
-    CONCEPT:ECO-4.88 — call this once before sending/receiving. ``capabilities`` is a
+    CONCEPT:AU-ECO.bus.agent-bus-awareness — call this once before sending/receiving. ``capabilities`` is a
     comma-separated list of what you can do (helps peers route work to you).
     """
     from agent_utilities.messaging.bus import AgentBus
@@ -198,7 +198,7 @@ async def bus_send(
 ) -> str:
     """Send a message to one peer (``to=``) or every subscriber of a ``topic=`` on the bus.
 
-    CONCEPT:ECO-4.88 — agent-to-agent messaging. Governed by the ActionPolicy ``bus.send`` gate.
+    CONCEPT:AU-ECO.bus.agent-bus-awareness — agent-to-agent messaging. Governed by the ActionPolicy ``bus.send`` gate.
     """
     from agent_utilities.messaging.bus import AgentBus
 

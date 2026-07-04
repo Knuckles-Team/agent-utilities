@@ -1,6 +1,6 @@
 """Unified model pricing catalog.
 
-CONCEPT:ECO-4.40 — single source of token cost for the whole stack, replacing
+CONCEPT:AU-ECO.toolkit.token-cost-source — single source of token cost for the whole stack, replacing
 the scattered hard-coded pricing dicts. Seeds from an embedded offline table
 (zero-config, no network) and refreshes from LiteLLM via the daemon.
 """

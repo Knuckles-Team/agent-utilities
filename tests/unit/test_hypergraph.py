@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.4"""
+"""CONCEPT:AU-KG.compute.cross-pillar-synergy"""
 
 from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractionEncoder
 from agent_utilities.numeric import xp as np

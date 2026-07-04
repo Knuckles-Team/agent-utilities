@@ -56,68 +56,68 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | Engine durable snapshot dir |
 | `GRAPH_DB_HOST/PORT/NAME/USER/PASSWORD/PATH` | — | DSN parts (legacy; prefer `GRAPH_DB_URI`) |
 | `GRAPH_FUSEKI_URL/USER/PASSWORD/DATASET` | — | SPARQL endpoint (optional backend) |
-| `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:KG-2.9g) |
+| `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:AU-KG.backend.declared-columns-so-schema) |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Postgres schema |
 | `AGENT_UTILITIES_{CONFIG,DATA,CACHE,LOG,MEMORY,RUNTIME}_DIR` | XDG | Path overrides (resolved in `core/paths.py`) |
 | `AGENT_UTILITIES_TOKEN_SECRET` | — | Run-scoped tool-token secret |
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
-| `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:OS-5.16) |
-| `STATE_DB_POOL_SIZE` | `8` | Max connections in the ONE shared state-store psycopg pool (CONCEPT:OS-5.16) |
-| `TASK_QUEUE_BACKEND` | none (auto) | Ingest task queue: `sqlite`\|`postgres`\|`kafka`. Unset = auto (postgres when `STATE_DB_URI` set, else sqlite). Explicit kafka/postgres is FAIL-LOUD at startup (CONCEPT:KG-2.55) |
-| `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:KG-2.56) |
-| `AGENT_DISPATCH_BACKEND` | `inline` | How agent turns (goal runs / orchestrator jobs) dispatch: `inline` keeps the in-process execution; `queue` publishes a session-keyed envelope onto the `agent_turns` queue (transport follows `TASK_QUEUE_BACKEND`) and returns a job handle for the `agent-dispatch-worker` fleet (CONCEPT:ORCH-1.45) |
-| `AGENT_TURNS_PARTITIONS` | `6` | Partitions ensured on the `agent_turns` topic when Kafka carries dispatched agent turns (grow-only); bounds fleet-wide concurrent-session parallelism (CONCEPT:ORCH-1.45) |
-| `ENGINE_MODE` | `auto` | How the ONE resolver (`engine_resolver.resolve_engine`, CONCEPT:OS-5.63) reaches the engine for EVERY entrypoint: `auto` (derive from `graph_service_*` — remote if configured, else share-running-local, else autostart) · `remote` (connect to `ENGINE_ENDPOINT`/configured endpoint, NEVER autostart — "engine deployed elsewhere") · `shared` (reuse a running local engine, autostart if none) · `embedded` (always provision a local engine) |
-| `ENGINE_ENDPOINT` | unset | Explicit remote engine override for `engine_mode=remote` (e.g. `tcp://engine.internal:9100`); folded into endpoint resolution like a single `GRAPH_SERVICE_ENDPOINTS` entry (CONCEPT:OS-5.63) |
-| `ENGINE_LIFECYCLE` | `refcounted` | Lifecycle of an autostarted local engine (CONCEPT:OS-5.63): `refcounted` = reference-counted idle shutdown (self-stops `ENGINE_IDLE_SHUTDOWN_SECS` after the last client disconnects — the shared-tiny default, auto-stops when idle) · `persistent` = LONG-LIVING, never auto-stops even when idle (runs like a local service; forces idle-shutdown off). A remote/cluster engine is inherently persistent |
-| `ENGINE_IDLE_SHUTDOWN_SECS` | `60` | Idle-shutdown grace (seconds) for a `refcounted` autostarted engine; `>0` passes `--idle-shutdown-secs <secs>` to the engine. `<=0` (or `engine_lifecycle=persistent`) = long-living, no flag passed. Gracefully omitted against an older engine binary that doesn't advertise the flag (CONCEPT:OS-5.63) |
-| `EPISTEMIC_GRAPH_AUTOSTART` | `1` (auto-bundle) | Local-engine autostart opt-OUT: set `0` for a connect-only process (the resolver's `auto`/`embedded`/`shared` modes autostart a local `unix://` endpoint by default; never remote shards) (CONCEPT:OS-5.63) |
-| `GRAPH_SERVICE_ENDPOINTS` | unset | Engine shard endpoints (comma/JSON list). 2+ entries = tenant-partitioned sharding via HRW over graph names; unset/1 = single-engine zero-infra default (CONCEPT:KG-2.58) |
-| `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; in sharded mode the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before HRW (CONCEPT:KG-2.58) |
-| `KG_WATCH_DIRS` | unset | Operator document directories the file-watcher auto-ingests **recursively**, unified with the built-in ScholarX/research download dirs. New files are ingested and modified files re-ingested on the 5s watch tick; unchanged files delta-skip by content hash (CONCEPT:KG-2.8). Value is a JSON array or an `os.pathsep`/comma-separated list of paths (`~` expanded), e.g. `~/Documents`. config.json key: `kg_watch_dirs`. Resolved by `sdd/watcher.py:get_watched_directories()` |
-| `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:OS-5.14) |
-| `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:OS-5.14) |
-| `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:OS-5.14) |
-| `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:OS-5.14) |
-| `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:OS-5.14) |
-| `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:OS-5.14) |
-| `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over KG-2.58 routing); `0` = per-use construction (CONCEPT:KG-2.62) |
-| `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when a durable mirror holds the data** (CONCEPT:KG-2.62) |
-| `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:OS-5.23) |
-| `GATEWAY_RATE_LIMIT` | `0` (off) | Per-tenant token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:OS-5.23) |
-| `GATEWAY_RATE_BURST` | `0` (→ 2× rate) | Token-bucket burst capacity (CONCEPT:OS-5.23) |
-| `GATEWAY_WORKERS` | `1` | Pre-forked gateway worker processes on one shared listen socket; the flock host-lock elects ONE KG host among them (CONCEPT:OS-5.23) |
-| `ENGINE_BREAKER_THRESHOLD` | `5` | Consecutive engine connect/timeout failures before the client circuit opens (0 = off) (CONCEPT:OS-5.23) |
-| `ENGINE_BREAKER_COOLDOWN` | `15` | Seconds an open engine circuit waits before the half-open probe (CONCEPT:OS-5.23) |
-| `MCP_CHILD_MAX_CONCURRENCY` | `8` | Max in-flight tool calls per multiplexer child (0 = unlimited); per-server `max_concurrency` override in `mcp_config.json` (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_QUEUE_TIMEOUT` | `30` | Seconds an excess call queues for a child slot before the typed `MCPChildBusyError`; per-server `queue_timeout` override (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_POOL_SIZE` | `1` | Session-pool size for remote (streamable-http/SSE) children — N round-robin connections for parallel calls; stdio stays single-pipe; per-server `pool_size` override (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_MAX_RESTARTS` | `5` | Auto-restarts a crashed child may consume inside the window before being parked `failed` (0 = no auto-restart); per-server `max_restarts` override (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_RESTART_WINDOW` | `300` | Sliding window (s) for the restart budget; older restarts are forgiven; per-server `restart_window` override (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_BREAKER_THRESHOLD` | `5` | Consecutive transport failures/timeouts before a child's circuit opens (typed `MCPChildCircuitOpenError`, 0 = off); per-server `breaker_threshold` override (CONCEPT:ECO-4.34) |
-| `MCP_CHILD_BREAKER_COOLDOWN` | `15` | Seconds an open child circuit waits before the half-open probe; per-server `breaker_cooldown` override (CONCEPT:ECO-4.34) |
-| `MCP_MULTIPLEXER_MODE` | `eager` | Tool-exposure strategy: `eager` spawns every child and exposes all tools at boot (historical); `dynamic` exposes only the `find_tools`/`load_tools`/`unload_tools`/`multiplexer_status` meta-tools + always-on children, mounting other tools on demand with a `tools/list_changed` notification (CONCEPT:ECO-4.36) |
-| `MCP_DYNAMIC_ALWAYS_ON` | `["graph-os"]` | Child servers mounted at boot in `dynamic` mode (in addition to meta-tools); defaults to the KG server so `find_tools` can rank semantically (CONCEPT:ECO-4.36) |
-| `MCP_DYNAMIC_TOP_K` | `8` | Default number of ranked candidates `find_tools` returns when `top_k` is unspecified (CONCEPT:ECO-4.36) |
-| `MCP_TOOL_MODE` | `condensed` | Per-agent tool surface: `condensed` (action-routed tools, default), `verbose` (one 1:1 tool per API method), or `both`. Read fleet-wide via `tool_mode()`; verbose tools are tagged `verbose` for `--tools`/tag filtering. See [MCP Tool Modes](../guides/mcp-tool-modes.md) (CONCEPT:ECO-4.82) |
-| `ACTION_POLICY_PATH` | shipped default | Operational ActionPolicy YAML; empty → conservative `deploy/action-policy.default.yml` (everything mutating = approval_required). KG `governance_rule` overrides win (CONCEPT:OS-5.24) |
-| `FLEET_RECONCILER` | `false` | Opt-in leader-only desired-state fleet reconciler tick — diff registry vs observed, converge through the ActionPolicy gate + actuator seam (CONCEPT:OS-5.25) |
-| `FLEET_RECONCILER_INTERVAL` | `120` | Seconds between fleet-reconciler ticks (CONCEPT:OS-5.25) |
-| `FLEET_RECONCILER_MAX_ACTIONS` | `5` | Storm guard: max convergence actions per tick, rest deferred (CONCEPT:OS-5.25) |
-| `FLEET_REGISTRY_PATH` | shipped registry | Fleet service registry YAML; empty → `deploy/mcp-fleet.registry.yml` (CONCEPT:OS-5.25) |
-| `FLEET_DESIRED_STATE_PATH` | unset | Optional desired-state override YAML (per-service `replicas`/`desired`/`version`) layered on the registry (CONCEPT:OS-5.25) |
-| `FLEET_ACTUATOR` | `dryrun` | Actuator selection: `dryrun` (records intent, mutates nothing) or `docker` (reference CLI actuator). Portainer/Swarm actuators are deployment-wired via `set_fleet_actuator()` (CONCEPT:OS-5.25) |
-| `DEPLOY_WATCH_WINDOW` | `300` | Health-watch window (s) after a deploy/restart; failure inside the window triggers the policy-gated rollback (CONCEPT:OS-5.27) |
-| `DEPLOY_WATCH_POLL` | `15` | Seconds between health probes inside a deploy watch (CONCEPT:OS-5.27) |
-| `FLEET_AUTOSCALER` | `false` | Opt-in leader-only reactive replica autoscaler tick — load signal → registry-declared min/max bounds → policy-gated `scale_service` + deploy watch (CONCEPT:OS-5.29) |
-| `FLEET_AUTOSCALER_INTERVAL` | `60` | Seconds between autoscaler ticks (CONCEPT:OS-5.29) |
-| `SCALING_PROMETHEUS_URL` | unset | Prometheus base URL for autoscaling signals (instant `/api/v1/query` GETs); unset → zero-infra in-process gauges; injected provider via `set_scaling_signal_provider()` wins (CONCEPT:OS-5.29) |
+| `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
+| `STATE_DB_POOL_SIZE` | `8` | Max connections in the ONE shared state-store psycopg pool (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
+| `TASK_QUEUE_BACKEND` | none (auto) | Ingest task queue: `sqlite`\|`postgres`\|`kafka`. Unset = auto (postgres when `STATE_DB_URI` set, else sqlite). Explicit kafka/postgres is FAIL-LOUD at startup (CONCEPT:AU-KG.backend.selectable-queue-backend) |
+| `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:AU-KG.backend.keyed-ingest-partitions) |
+| `AGENT_DISPATCH_BACKEND` | `inline` | How agent turns (goal runs / orchestrator jobs) dispatch: `inline` keeps the in-process execution; `queue` publishes a session-keyed envelope onto the `agent_turns` queue (transport follows `TASK_QUEUE_BACKEND`) and returns a job handle for the `agent-dispatch-worker` fleet (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
+| `AGENT_TURNS_PARTITIONS` | `6` | Partitions ensured on the `agent_turns` topic when Kafka carries dispatched agent turns (grow-only); bounds fleet-wide concurrent-session parallelism (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
+| `ENGINE_MODE` | `auto` | How the ONE resolver (`engine_resolver.resolve_engine`, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) reaches the engine for EVERY entrypoint: `auto` (derive from `graph_service_*` — remote if configured, else share-running-local, else autostart) · `remote` (connect to `ENGINE_ENDPOINT`/configured endpoint, NEVER autostart — "engine deployed elsewhere") · `shared` (reuse a running local engine, autostart if none) · `embedded` (always provision a local engine) |
+| `ENGINE_ENDPOINT` | unset | Explicit remote engine override for `engine_mode=remote` (e.g. `tcp://engine.internal:9100`); folded into endpoint resolution like a single `GRAPH_SERVICE_ENDPOINTS` entry (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `ENGINE_LIFECYCLE` | `refcounted` | Lifecycle of an autostarted local engine (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): `refcounted` = reference-counted idle shutdown (self-stops `ENGINE_IDLE_SHUTDOWN_SECS` after the last client disconnects — the shared-tiny default, auto-stops when idle) · `persistent` = LONG-LIVING, never auto-stops even when idle (runs like a local service; forces idle-shutdown off). A remote/cluster engine is inherently persistent |
+| `ENGINE_IDLE_SHUTDOWN_SECS` | `60` | Idle-shutdown grace (seconds) for a `refcounted` autostarted engine; `>0` passes `--idle-shutdown-secs <secs>` to the engine. `<=0` (or `engine_lifecycle=persistent`) = long-living, no flag passed. Gracefully omitted against an older engine binary that doesn't advertise the flag (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `EPISTEMIC_GRAPH_AUTOSTART` | `1` (auto-bundle) | Local-engine autostart opt-OUT: set `0` for a connect-only process (the resolver's `auto`/`embedded`/`shared` modes autostart a local `unix://` endpoint by default; never remote shards) (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `GRAPH_SERVICE_ENDPOINTS` | unset | Engine shard endpoints (comma/JSON list). 2+ entries = tenant-partitioned sharding via HRW over graph names; unset/1 = single-engine zero-infra default (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
+| `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; in sharded mode the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before HRW (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
+| `KG_WATCH_DIRS` | unset | Operator document directories the file-watcher auto-ingests **recursively**, unified with the built-in ScholarX/research download dirs. New files are ingested and modified files re-ingested on the 5s watch tick; unchanged files delta-skip by content hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Value is a JSON array or an `os.pathsep`/comma-separated list of paths (`~` expanded), e.g. `~/Documents`. config.json key: `kg_watch_dirs`. Resolved by `sdd/watcher.py:get_watched_directories()` |
+| `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over AU-KG.sharding.tenant-partitioned-sharding-hrw routing); `0` = per-use construction (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
+| `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when a durable mirror holds the data** (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
+| `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `GATEWAY_RATE_LIMIT` | `0` (off) | Per-tenant token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `GATEWAY_RATE_BURST` | `0` (→ 2× rate) | Token-bucket burst capacity (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `GATEWAY_WORKERS` | `1` | Pre-forked gateway worker processes on one shared listen socket; the flock host-lock elects ONE KG host among them (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `ENGINE_BREAKER_THRESHOLD` | `5` | Consecutive engine connect/timeout failures before the client circuit opens (0 = off) (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `ENGINE_BREAKER_COOLDOWN` | `15` | Seconds an open engine circuit waits before the half-open probe (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `MCP_CHILD_MAX_CONCURRENCY` | `8` | Max in-flight tool calls per multiplexer child (0 = unlimited); per-server `max_concurrency` override in `mcp_config.json` (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_QUEUE_TIMEOUT` | `30` | Seconds an excess call queues for a child slot before the typed `MCPChildBusyError`; per-server `queue_timeout` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_POOL_SIZE` | `1` | Session-pool size for remote (streamable-http/SSE) children — N round-robin connections for parallel calls; stdio stays single-pipe; per-server `pool_size` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_MAX_RESTARTS` | `5` | Auto-restarts a crashed child may consume inside the window before being parked `failed` (0 = no auto-restart); per-server `max_restarts` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_RESTART_WINDOW` | `300` | Sliding window (s) for the restart budget; older restarts are forgiven; per-server `restart_window` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_BREAKER_THRESHOLD` | `5` | Consecutive transport failures/timeouts before a child's circuit opens (typed `MCPChildCircuitOpenError`, 0 = off); per-server `breaker_threshold` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_BREAKER_COOLDOWN` | `15` | Seconds an open child circuit waits before the half-open probe; per-server `breaker_cooldown` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_MULTIPLEXER_MODE` | `eager` | Tool-exposure strategy: `eager` spawns every child and exposes all tools at boot (historical); `dynamic` exposes only the `find_tools`/`load_tools`/`unload_tools`/`multiplexer_status` meta-tools + always-on children, mounting other tools on demand with a `tools/list_changed` notification (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
+| `MCP_DYNAMIC_ALWAYS_ON` | `["graph-os"]` | Child servers mounted at boot in `dynamic` mode (in addition to meta-tools); defaults to the KG server so `find_tools` can rank semantically (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
+| `MCP_DYNAMIC_TOP_K` | `8` | Default number of ranked candidates `find_tools` returns when `top_k` is unspecified (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
+| `MCP_TOOL_MODE` | `condensed` | Per-agent tool surface: `condensed` (action-routed tools, default), `verbose` (one 1:1 tool per API method), or `both`. Read fleet-wide via `tool_mode()`; verbose tools are tagged `verbose` for `--tools`/tag filtering. See [MCP Tool Modes](../guides/mcp-tool-modes.md) (CONCEPT:AU-ECO.mcp.tool-mode-standardization) |
+| `ACTION_POLICY_PATH` | shipped default | Operational ActionPolicy YAML; empty → conservative `deploy/action-policy.default.yml` (everything mutating = approval_required). KG `governance_rule` overrides win (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) |
+| `FLEET_RECONCILER` | `false` | Opt-in leader-only desired-state fleet reconciler tick — diff registry vs observed, converge through the ActionPolicy gate + actuator seam (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_RECONCILER_INTERVAL` | `120` | Seconds between fleet-reconciler ticks (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_RECONCILER_MAX_ACTIONS` | `5` | Storm guard: max convergence actions per tick, rest deferred (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_REGISTRY_PATH` | shipped registry | Fleet service registry YAML; empty → `deploy/mcp-fleet.registry.yml` (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_DESIRED_STATE_PATH` | unset | Optional desired-state override YAML (per-service `replicas`/`desired`/`version`) layered on the registry (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_ACTUATOR` | `dryrun` | Actuator selection: `dryrun` (records intent, mutates nothing) or `docker` (reference CLI actuator). Portainer/Swarm actuators are deployment-wired via `set_fleet_actuator()` (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `DEPLOY_WATCH_WINDOW` | `300` | Health-watch window (s) after a deploy/restart; failure inside the window triggers the policy-gated rollback (CONCEPT:AU-OS.config.health-gated-deploy-rollback) |
+| `DEPLOY_WATCH_POLL` | `15` | Seconds between health probes inside a deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback) |
+| `FLEET_AUTOSCALER` | `false` | Opt-in leader-only reactive replica autoscaler tick — load signal → registry-declared min/max bounds → policy-gated `scale_service` + deploy watch (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
+| `FLEET_AUTOSCALER_INTERVAL` | `60` | Seconds between autoscaler ticks (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
+| `SCALING_PROMETHEUS_URL` | unset | Prometheus base URL for autoscaling signals (instant `/api/v1/query` GETs); unset → zero-infra in-process gauges; injected provider via `set_scaling_signal_provider()` wins (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
 
 These genuinely vary per host and aren't derivable. **Action:** ensure each is a typed
 `AgentConfig` field; remove duplicate bare reads (`GRAPH_DB_URI` is read in 4 places,
 `AGENT_UTILITIES_CONFIG_DIR` in 5).
 
-### A.1 Engine resolution — ONE resolver, every entrypoint (CONCEPT:OS-5.63)
+### A.1 Engine resolution — ONE resolver, every entrypoint (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision)
 
 Every entrypoint (graph-os MCP, the gateway/host daemon, `IntelligenceGraphEngine`,
 the facade, `EpistemicGraphBackend`, the tenant engine pool, messaging,
@@ -193,7 +193,7 @@ hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
 
 | Flag | Default | What it gates |
 |---|---|---|
-| `KG_ALLOW_FULL_SCAN` | `false` | Permit an unscoped Cypher query to enumerate the whole graph (ORCH-1.40). Off by default so a buggy unscoped query can never silently full-scan; deliberate opt-in only. Typed `config.kg_allow_full_scan`, read in `backends/epistemic_graph_backend.py`. |
+| `KG_ALLOW_FULL_SCAN` | `false` | Permit an unscoped Cypher query to enumerate the whole graph (AU-ORCH.session.session-anchored-collections-native). Off by default so a buggy unscoped query can never silently full-scan; deliberate opt-in only. Typed `config.kg_allow_full_scan`, read in `backends/epistemic_graph_backend.py`. |
 
 ## C. Ingest-throughput knobs — REMOVED ✓
 
@@ -258,7 +258,7 @@ opt-in, all off by default, single typed source of truth.
 |---|---|---|
 | `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 5 | remaining experiment gates — graduate (always-on) or delete |
 
-**`KG_PROCESS_WRITEBACK` — outbound process-intelligence writeback (`CONCEPT:KG-2.8`,
+**`KG_PROCESS_WRITEBACK` — outbound process-intelligence writeback (`CONCEPT:EG-KG.storage.nonblocking-checkpoint`,
 default off).** Opt-in because it performs *outbound* mutating calls into external
 systems (Camunda process-instance variables, ARIS model attributes) — exactly the
 "expensive / side-effecting on every run" case the opt-in tier is reserved for. When
@@ -269,13 +269,13 @@ connector connection/credentials themselves are **not** agent-utilities config �
 live in the `camunda-mcp` / `aris-mcp` packages' own environment
 (`CAMUNDA7_*`/`CAMUNDA8_*`, `ARIS_*`), read by each connector's `auth.get_client()`.
 
-**`EVOLUTION_WORKTREE_ROOT` — evolution→branch bridge (`CONCEPT:AHE-3.21`), typed on
+**`EVOLUTION_WORKTREE_ROOT` — evolution→branch bridge (`CONCEPT:AU-AHE.harness.evolution-branch-bridge`), typed on
 `AgentConfig` (`evolution_worktree_root`).** Root directory the `LocalBranchPublisher`
 creates fresh git worktrees under when publishing a promoted proposal as a reviewable
 local branch. Empty (default) resolves to `data_dir()/evolution_worktrees` — publication
 never writes into a canonical checkout's working tree.
 
-**`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AHE-3.18`), typed on `AgentConfig`,
+**`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AU-AHE.harness.failure-evolution`), typed on `AgentConfig`,
 opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 (`"True"`/`"False"`, consistent with the fleet's other toggles). See
 [`failure_driven_evolution.md`](./failure_driven_evolution.md).
@@ -286,10 +286,10 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | daemon tick interval (s) |
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
 | `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
-| `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AHE-3.46) |
+| `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) |
 | `KG_DSPY_OPTIMIZATION_INTERVAL` | `3600` | DSPy optimization sweep interval (s) |
 
-**`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:KG-2.52`), typed on
+**`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:AU-KG.ontology.authoritative-tbox`), typed on
 `AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
 modules (the authoritative TBox) to an optional enterprise Fuseki triplestore for SPARQL
 federation. Off by default — Fuseki is optional infrastructure.
@@ -300,7 +300,7 @@ federation. Off by default — Fuseki is optional infrastructure.
 | `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
 
-**`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:ORCH-1.42`),
+**`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:AU-ORCH.execution.ontology-validation-execution-path`),
 typed on `AgentConfig`, default ON.** `execute_workflow` AND its background twin
 `dispatch_workflow` (REST twin `/api/graph/orchestrate/dispatch-workflow`) SHACL-validate
 the stored `WorkflowDefinition` (+ steps) against the governance shapes before dispatch and
@@ -312,7 +312,7 @@ the existing `KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new 
 |---|---|---|
 | `KG_WORKFLOW_SHAPE_GATE` | `True` | SHACL-validate stored workflows before execution |
 
-**Langfuse (`CONCEPT:AHE-3.18` / `AHE-3.0`) — official SDK variable names only.** The host
+**Langfuse (`CONCEPT:AU-AHE.harness.failure-evolution` / `AHE-3.0`) — official SDK variable names only.** The host
 variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
 greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
 `langfuse_secret_key`.
@@ -360,7 +360,7 @@ therefore environment-settable; none are internal-only.
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` | `None` | DeepSeek fallback credentials |
 | `VLLM_BASE_URL` | `None` | Dedicated vLLM inference server base URL |
 | `MODEL_REGISTRY_PATH` | `None` | YAML/JSON model-registry file |
-| `MODEL_ROLE_ROUTING` | `{}` | Role→{tier,tags} overrides for planner/generator/learner/judge selection (CONCEPT:ORCH-1.27); empty roles use `models/model_registry.py` defaults |
+| `MODEL_ROLE_ROUTING` | `{}` | Role→{tier,tags} overrides for planner/generator/learner/judge selection (CONCEPT:AU-ORCH.routing.conductor-per-step-model); empty roles use `models/model_registry.py` defaults |
 | `ROUTING_STRATEGY` | `hybrid` | Graph routing strategy |
 | `ROUTING_PERCENTILE` | `50.0` | Routing percentile tunable |
 
@@ -416,10 +416,10 @@ therefore environment-settable; none are internal-only.
 | `AUTH_JWT_AUDIENCE` | `None` | Expected JWT audience claim |
 | `OIDC_CONFIG_URL` | `None` | OIDC discovery URL (any compliant IdP) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | `None` | OAuth 2.0 client credentials |
-| `ENABLE_DELEGATION` | `false` | RFC 8693 token exchange for downstream APIs (CONCEPT:ECO-4.0) |
+| `ENABLE_DELEGATION` | `false` | RFC 8693 token exchange for downstream APIs (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `AUDIENCE` | `None` | Target audience for delegated tokens |
 | `DELEGATED_SCOPES` | `api` | Space-separated delegation scopes |
-| `FLEET_EVENTS_TOKEN` | `None` | Shared secret for `POST /api/fleet/events` webhook ingress (`X-Fleet-Events-Token` header); unset = no token required (CONCEPT:OS-5.15) |
+| `FLEET_EVENTS_TOKEN` | `None` | Shared secret for `POST /api/fleet/events` webhook ingress (`X-Fleet-Events-Token` header); unset = no token required (CONCEPT:AU-OS.config.fleet-event-ingress) |
 
 ### G.5 Secrets backends
 
@@ -452,16 +452,16 @@ therefore environment-settable; none are internal-only.
 | `KG_EMBEDDING_DIM` | `768` | Must match the embedding model's output dimension; the schema vector column size derives from it |
 | `KG_BACKUPS` | `3` | KG backup retention count |
 | `KG_INGESTION_WORKERS` | `None` (auto) | Ingestion worker count override; unset auto-sizes |
-| `KG_ADAPTIVE_CONCURRENCY` | `true` | Auto-scale per-model LLM/embedding fan-out to real vLLM serving capacity (CONCEPT:KG-2.145). Off → static `model_capacity` only. See `architecture/adaptive_model_concurrency.md` |
+| `KG_ADAPTIVE_CONCURRENCY` | `true` | Auto-scale per-model LLM/embedding fan-out to real vLLM serving capacity (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal). Off → static `model_capacity` only. See `architecture/adaptive_model_concurrency.md` |
 | `MODEL_MAX_CONCURRENCY` | `512` | Ceiling the adaptive per-model concurrency target can ramp to (no hardcoded small cap; static `model_capacity` is the floor) |
-| `GPU_CONCURRENCY_BUDGETS` | `{}` (unset → no cap) | JSON `group -> int`: total concurrent in-flight calls across all models sharing one physical GPU (CONCEPT:KG-2.146). Caps the SUM of member adaptive targets so they can't jointly oversubscribe the device, reserving latency-sensitive roles' floors first. Unset → per-model behaviour (no regression). See `architecture/distributed_gpu_concurrency.md` |
-| `GPU_RESERVED_ROLES` | `chat,generator,default,lite,super` | Roles whose static floor is reserved off the top of a GPU budget (CONCEPT:KG-2.146); best-effort roles (embedding/batch) get the remainder and yield to these under contention |
+| `GPU_CONCURRENCY_BUDGETS` | `{}` (unset → no cap) | JSON `group -> int`: total concurrent in-flight calls across all models sharing one physical GPU (CONCEPT:AU-KG.compute.pure-config-enumeration-fail). Caps the SUM of member adaptive targets so they can't jointly oversubscribe the device, reserving latency-sensitive roles' floors first. Unset → per-model behaviour (no regression). See `architecture/distributed_gpu_concurrency.md` |
+| `GPU_RESERVED_ROLES` | `chat,generator,default,lite,super` | Roles whose static floor is reserved off the top of a GPU budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail); best-effort roles (embedding/batch) get the remainder and yield to these under contention |
 | `KG_ANALYSIS_MAX_DEPTH` | `2` | Max recursion depth for background research daemons |
 | `MAX_RECURSION_DEPTH` | `2` | Graph recursion depth tunable |
 | `KNOWLEDGE_GRAPH_SYNC_BACKGROUND` | `true` | Background task workers for the KG pipeline |
 | `ENABLE_SDD_WATCHER` | `true` | Plan/task watcher thread in the KG MCP server |
-| `KG_ANOMALY_CONSUMER` | `true` | Drain unconsumed PerformanceAnomaly nodes into failure_gap topics; LLM-free, bounded, propose-only (CONCEPT:AHE-3.19) |
-| `SPARQL_ENDPOINTS` | `["https://query.wikidata.org/sparql"]` | External SPARQL endpoints to federate (CONCEPT:KG-2.7) |
+| `KG_ANOMALY_CONSUMER` | `true` | Drain unconsumed PerformanceAnomaly nodes into failure_gap topics; LLM-free, bounded, propose-only (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer) |
+| `SPARQL_ENDPOINTS` | `["https://query.wikidata.org/sparql"]` | External SPARQL endpoints to federate (CONCEPT:AU-KG.query.vendor-agnostic-traversal) |
 | `JENA_FUSEKI_URL` | `None` | Local Jena Fuseki URL (distinct from the `KG_FUSEKI_*` publish tick in section E) |
 | `KAFKA_BOOTSTRAP_SERVERS` | `None` | Kafka brokers (task-queue/event transport; one of the three scale knobs in `docs/scaling/capacity_model.md`) |
 | `KAFKA_TOPIC` | `None` | Default Kafka topic for messaging/event ingestion |
@@ -479,7 +479,7 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `OTEL_EXPORTER_OTLP_HEADERS` | `None` | OTLP headers |
 | `OTEL_EXPORTER_OTLP_PUBLIC_KEY` / `OTEL_EXPORTER_OTLP_SECRET_KEY` | `None` | OTLP keypair (Langfuse-style basic auth) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP protocol |
-| `LANGFUSE_DATASET_CAPTURE_THRESHOLD` | `0.0` | Score threshold for dataset capture (AHE-3.18 regression datasets) |
+| `LANGFUSE_DATASET_CAPTURE_THRESHOLD` | `0.0` | Score threshold for dataset capture (AU-AHE.harness.failure-evolution regression datasets) |
 | `LANGFUSE_LATENCY_BASELINE_SECONDS` | `60` | Latency baseline for anomaly scoring |
 | `LANGFUSE_TOKEN_BASELINE` | `20000` | Token-usage baseline for anomaly scoring |
 | `LANGFUSE_VERIFIER_FALLBACK_LIMIT` | `1` | Verifier fallback attempts |
@@ -492,7 +492,7 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `A2A_BROKER_URL` | `None` | Broker URL when not in-memory |
 | `A2A_STORAGE` | `in-memory` | A2A storage backend |
 | `A2A_STORAGE_URL` | `None` | Storage URL when not in-memory |
-| `A2A_CONFIG` | `None` | `a2a_config.json` path for external agent discovery (CONCEPT:ECO-4.0) |
+| `A2A_CONFIG` | `None` | `a2a_config.json` path for external agent discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `A2A_REFRESH_INTERVAL` | `300` | Agent-card re-fetch interval (s) |
 
 ### G.9 Orchestration, scheduler & guardrails
@@ -502,26 +502,26 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `MIN_CONFIDENCE` | `0.4` | Minimum confidence gate |
 | `VALIDATION_MODE` | `false` | Validation-only execution mode |
 | `APPROVAL_TIMEOUT` | `0` | Approval wait timeout (s; 0 = no wait) |
-| `COGNITIVE_SCHEDULER_ENABLED` | `true` | Priority-aware agent scheduler (CONCEPT:OS-5.2) |
-| `MAX_CONCURRENT_AGENTS` | `5` | Concurrent specialist agents (CONCEPT:OS-5.2) |
-| `AGENT_TOKEN_QUOTA` | `100000` | Per-agent token budget before preemption (CONCEPT:OS-5.2) |
+| `COGNITIVE_SCHEDULER_ENABLED` | `true` | Priority-aware agent scheduler (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) |
+| `MAX_CONCURRENT_AGENTS` | `5` | Concurrent specialist agents (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) |
+| `AGENT_TOKEN_QUOTA` | `100000` | Per-agent token budget before preemption (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) |
 | `PREEMPTION_THRESHOLD_PCT` | `0.85` | Quota usage triggering preemption warning |
 | `AGENT_POLICIES_PATH` | `None` | `agent_policies.json` for identity-based governance |
 | `PERMISSIONS_SIGNING_KEY` | `None` (auto) | HMAC key for agent identity tokens; auto-generated if unset |
 | `SPECIALIST_REGISTRY_PATH` | `None` | Local specialist registry dir |
-| `MAX_PARALLEL_AGENTS` | `60` | Global engine-wide execution semaphore (CONCEPT:ORCH-1.8) |
-| `WORKER_POOL_SIZE` | `8` | Workers per node for agent turns / graph mutations; active-concurrency scale knob (CONCEPT:ORCH-1.8) |
+| `MAX_PARALLEL_AGENTS` | `60` | Global engine-wide execution semaphore (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer) |
+| `WORKER_POOL_SIZE` | `8` | Workers per node for agent turns / graph mutations; active-concurrency scale knob (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer) |
 | `PARALLEL_BATCH_SIZE` | `25` | Agents per execution wave |
-| `SYNTHESIS_STRATEGY` | `auto` | `auto` \| `flat` \| `hierarchical` \| `progressive` \| `rlm` (CONCEPT:ORCH-1.26) |
+| `SYNTHESIS_STRATEGY` | `auto` | `auto` \| `flat` \| `hierarchical` \| `progressive` \| `rlm` (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling) |
 | `SYNTHESIS_RATIO` | `10` | Outputs per hierarchical synthesis sub-node |
 | `AGENT_EXECUTION_TIMEOUT` | `120` | Per-agent timeout (s) |
 | `CIRCUIT_BREAKER_THRESHOLD` | `3` | Consecutive failures disabling an agent type |
 | `ENABLE_PROGRESSIVE_SYNTHESIS` | `true` | Streaming synthesis as agents complete |
-| `HOMEOSTATIC_DOWNGRADE_ENABLED` | `true` | Auto model-tier downgrade under budget pressure (CONCEPT:OS-5.2) |
-| `ADVERSARIAL_VERIFICATION` | `false` | Adversarial verification pass — opt-in, doubles verification cost (CONCEPT:AHE-3.1) |
+| `HOMEOSTATIC_DOWNGRADE_ENABLED` | `true` | Auto model-tier downgrade under budget pressure (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) |
+| `ADVERSARIAL_VERIFICATION` | `false` | Adversarial verification pass — opt-in, doubles verification cost (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort) |
 | `MAINTENANCE_TOKEN_BUDGET` | `0` (unlimited) | Token budget for the autonomous maintenance cron |
 | `MAINTENANCE_PRIORITY` | `LOW` | Maintenance task priority (LOW/MEDIUM/HIGH) |
-| `WATCHDOG_PATTERNS` | `pyproject.toml, mcp_config.json, requirements*.txt` | File patterns for the file-watcher trigger (CONCEPT:OS-5.0) |
+| `WATCHDOG_PATTERNS` | `pyproject.toml, mcp_config.json, requirements*.txt` | File patterns for the file-watcher trigger (CONCEPT:AU-OS.safety.doom-loop-detection) |
 | `TOOL_GUARD_MODE` | `strict` | Sensitive-tool guard mode |
 | `SENSITIVE_TOOL_PATTERNS` | 67 regexes | Tool-name patterns treated as mutating/sensitive (delete/exec/deploy/...); override only to extend |
 
@@ -532,7 +532,7 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `CUSTOM_SKILLS_DIRECTORY` | `None` | Extra skills directory |
 | `SKILL_TYPES` | `None` | Skill-type filter (JSON list) |
 
-### G.11 Native messaging backends (CONCEPT:ECO-4.0)
+### G.11 Native messaging backends (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 | Flag | Default | What it sets |
 |---|---|---|
@@ -625,7 +625,7 @@ OFF and are opt-in:
 |---|---|---|
 | `X_TOOLS` | `False` | X/Grok social search + post browsing via xAI (needs `XAI_API_KEY`); production X/Grok deployments must set `X_TOOLS=1` explicitly |
 | `MEDIA_TOOLS` | `False` | Media generation / transcription services (ECO-4.30/4.31) |
-| `DB_TOOLS` | `False` | Native database traversal tools (ECO-4.33) |
+| `DB_TOOLS` | `False` | Native database traversal tools (AU-ECO.toolkit.database-traversal-tools) |
 
 (The always-available local toolsets — `WORKSPACE_TOOLS`, `GIT_TOOLS`,
 `A2A_TOOLS`, `SCHEDULER_TOOLS`, `BROWSER_TOOLS`, `DEVELOPER_TOOLS` — default

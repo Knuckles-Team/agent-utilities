@@ -1,4 +1,4 @@
-"""Usage / cost / session analytics store (CONCEPT:ECO-4.39).
+"""Usage / cost / session analytics store (CONCEPT:AU-OS.observability.usage-analytics-store).
 
 Backend-abstracted: SQLite+FTS5 is the zero-dependency native default; Postgres
 and DuckDB are enterprise-scale options. One store, two data planes — ingested

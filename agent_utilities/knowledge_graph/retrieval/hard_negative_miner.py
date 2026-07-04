@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.3 — Hard Negative Mining for Retrieval Calibration.
+"""CONCEPT:AU-KG.retrieval.hard-negative-mining — Hard Negative Mining for Retrieval Calibration.
 
 Continuously improves retriever precision by mining challenging distractors.
 Directly from BrowseComp-Plus (arXiv:2508.06600): query decomposition →
@@ -40,7 +40,7 @@ class HardNegative(BaseModel):
 class HardNegativeMiner:
     """Mines hard negatives from query decomposition for retriever calibration.
 
-    CONCEPT:KG-2.3 — Hard Negative Mining (BrowseComp-Plus)
+    CONCEPT:AU-KG.retrieval.hard-negative-mining — Hard Negative Mining (BrowseComp-Plus)
 
     Uses the existing ``_decompose_query()`` in ``HybridRetriever`` to break
     complex queries into sub-queries, fetches results per sub-query, and

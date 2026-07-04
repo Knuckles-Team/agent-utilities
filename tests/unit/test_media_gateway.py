@@ -1,4 +1,4 @@
-"""Tests for the media generation + transcription gateway (CONCEPT:ECO-4.30/4.31).
+"""Tests for the media generation + transcription gateway (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path/4.31).
 
 Offline: every HTTP call is routed through an injected ``http_fn`` returning a
 fake response object, so no media services are contacted.
@@ -35,7 +35,7 @@ class _Resp:
         return None
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_image_generator_base64_response():
     def http(method, url, **kw):
         return _Resp(j={"image": base64.b64encode(b"PNGDATA").decode()})
@@ -44,7 +44,7 @@ def test_image_generator_base64_response():
     assert img == b"PNGDATA"
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_image_generator_raw_bytes_response():
     def http(method, url, **kw):
         return _Resp(content=b"RAWPNG", headers={"content-type": "image/png"})
@@ -53,13 +53,13 @@ def test_image_generator_raw_bytes_response():
     assert img == b"RAWPNG"
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_image_backend_selection_and_error():
     with pytest.raises(MediaServiceError):
         generate_image("x", backend="does-not-exist")
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_speech_synthesizer_resolves_studio_speaker():
     seen = []
 
@@ -76,13 +76,13 @@ def test_speech_synthesizer_resolves_studio_speaker():
     assert "studio_speakers" in seen and "tts" in seen
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_speech_requires_text():
     with pytest.raises(MediaServiceError):
         SpeechSynthesizer(http_fn=lambda *a, **k: _Resp(j={})).synthesize("   ")
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_video_generator_inline_and_job():
     def inline(method, url, **kw):
         return _Resp(j={"video": base64.b64encode(b"MP4").decode(), "status": "done"})
@@ -97,7 +97,7 @@ def test_video_generator_inline_and_job():
     assert out2["job_id"] == "j1" and out2["video"] is None
 
 
-@pytest.mark.concept("ECO-4.31")
+@pytest.mark.concept("AU-ECO.toolkit.media-transcription-bridge")
 def test_transcriber_openai_compatible():
     def http(method, url, **kw):
         assert "transcriptions" in url
@@ -107,13 +107,13 @@ def test_transcriber_openai_compatible():
     assert Transcriber(http_fn=http).transcribe(b"AUDIO") == "hello there"
 
 
-@pytest.mark.concept("ECO-4.31")
+@pytest.mark.concept("AU-ECO.toolkit.media-transcription-bridge")
 def test_transcriber_requires_audio():
     with pytest.raises(MediaServiceError):
         Transcriber(http_fn=lambda *a, **k: _Resp(j={})).transcribe(b"")
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_media_tools_registered_under_gate():
     from agent_utilities.tools.media_tools import media_tools
 
@@ -126,7 +126,7 @@ def test_media_tools_registered_under_gate():
     }
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_named_backend_registries():
     from agent_utilities.ecosystem.media import (
         list_image_backends,
@@ -140,7 +140,7 @@ def test_named_backend_registries():
     assert {"xtts", "openai"} <= set(list_speech_backends())
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_comfyui_client_workflow_image():
     from agent_utilities.ecosystem.media import ComfyUIClient
 
@@ -173,7 +173,7 @@ def test_comfyui_client_workflow_image():
     assert img == b"PNGBYTES"
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_comfyui_backed_image_via_named_backend():
     from agent_utilities.ecosystem.media.gateway import ComfyUIClient
 
@@ -207,7 +207,7 @@ def test_comfyui_backed_image_via_named_backend():
     assert out == b"IMG"
 
 
-@pytest.mark.concept("ECO-4.30")
+@pytest.mark.concept("AU-ECO.toolkit.media-gateway-failure-path")
 def test_unknown_backends_raise():
     from agent_utilities.ecosystem.media import (
         generate_image,

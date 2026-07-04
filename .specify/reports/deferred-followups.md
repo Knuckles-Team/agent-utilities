@@ -24,7 +24,7 @@ The harness is built + unit-tested but the actual 500-question eval was never ex
   `merge_plan` computes survivor union(tags)+max(importance); the survivor is updated and each duplicate
   is soft-retired (`status=MERGED` + `valid_to` + `MERGED_INTO` edge, never deleted). Tests in
   `test_kg_2_17_memory_hygiene.py`.
-- **KG-2.14 cross-turn injection dedup.** The authority hierarchy + preamble shipped; the
+- **AU-KG.memory.ground-truth-preamble-declaring cross-turn injection dedup.** The authority hierarchy + preamble shipped; the
   *per-session, cross-turn* dedup of injected context (memory-os `multi-source-surgical-injection`)
   was not added because `StartupContextBuilder` is a one-shot startup payload, not a per-turn hook.
   **Action:** add a per-turn injection hook with a session-scoped seen-set if/when a live pre-call
@@ -109,7 +109,7 @@ decorator self-registration (`registered_via_plugin`) and no longer false-flags 
 live REPL loop populates a structured `RunTrace` (per-iteration step + `FailureClass`) exposed as
 `env.last_run_trace`. Live-path test: `tests/unit/rlm/test_orch_1_29_runtrace_live_path.py`.
 
-**Fan-out per-target timeout (CONCEPT:KG-2.63).** A `graph_query/graph_search/graph_write target='all'`
+**Fan-out per-target timeout (CONCEPT:AU-KG.backend.multi-connection-registry).** A `graph_query/graph_search/graph_write target='all'`
 fan-out iterated connections *sequentially with no timeout*, so one slow/unreachable backend (e.g. a
 mirror under heavy drain) stalled the whole call (~300s). ✅ RESOLVED — `kg_server.fanout_execute()` runs
 every target concurrently under a shared per-target wall-clock budget (`GRAPH_FANOUT_TIMEOUT`, default

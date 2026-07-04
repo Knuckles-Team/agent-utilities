@@ -1,4 +1,4 @@
-"""AU-as-engine NL→query planner (CONCEPT:KG-2.305).
+"""AU-as-engine NL→query planner (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
 
 The fleet LLM is substituted (an injected ``run`` / a monkeypatched ``create_model`` +
 ``Agent``) so we assert the KG-2.305 provider: the AU-configured model produces a query
@@ -16,7 +16,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core import nl_planner
 
-pytestmark = pytest.mark.concept("KG-2.305")
+pytestmark = pytest.mark.concept("AU-KG.query.ask-gateway-rest-twin")
 
 
 class _FakeEngine:

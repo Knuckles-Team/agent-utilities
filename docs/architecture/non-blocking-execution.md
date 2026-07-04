@@ -2,13 +2,13 @@
 
 > **Status:** design + measured profiling. This document is the architecture
 > output of a performance investigation into why a single simple chat turn on
-> the consolidated messaging → universal-graph path (CONCEPT:ECO-4.78) took
+> the consolidated messaging → universal-graph path (CONCEPT:AU-ECO.messaging.universal-graph-agent) took
 > **> 90 seconds**. It records the measured root cause and proposes a universal,
 > non-blocking, hierarchical task-queue model built on the *existing* durable
 > queue / worker / leadership infrastructure — not a parallel system.
 >
-> CONCEPT:ORCH-1.21 · ECO-4.78 · KG-2.1 (fast path) · KG-2.55–2.57 (queues) ·
-> ORCH-1.45 (queue dispatch) · KG-2.113 (priority queue) · OS-5.16–5.18 (state).
+> CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap · ECO-4.78 · KG-2.1 (fast path) · KG-2.55–2.57 (queues) ·
+> ORCH-1.45 (queue dispatch) · AU-KG.ingest.hardened-priority-scheduled-task (priority queue) · AU-OS.state.unified-durable-state-externalization–5.18 (state).
 
 ## 1. The hot path (as built)
 
@@ -41,7 +41,7 @@ flowchart TD
 
 The **persist/enrich/memento-compress** work (ingest, episodic memory, the
 per-session memento) is already correctly pushed off the reply path into a
-background task (`_spawn_bg(_persist_and_enrich(...))`, CONCEPT:ECO-4.74). That
+background task (`_spawn_bg(_persist_and_enrich(...))`, CONCEPT:AU-ECO.messaging.debounce-timer-cancel). That
 part is healthy. The latency is entirely in the **synchronous reply generation**
 above it.
 
@@ -184,14 +184,14 @@ so a turn reuses a warm graph. Toolset *connections* stay per-run; only the
 Build on the **existing** durable infrastructure — do not invent a new system:
 
 - `core/state_store.py` — `STATE_DB_URI` durable checkpoints/sessions/queues with
-  `SELECT … FOR UPDATE SKIP LOCKED` claims (OS-5.16–5.18).
+  `SELECT … FOR UPDATE SKIP LOCKED` claims (AU-OS.state.unified-durable-state-externalization–5.18).
 - `TASK_QUEUE_BACKEND` fail-loud queue backends (KG-2.55–2.57) +
   `compute_ingest_worker_count()` auto-sizing (`core/engine_tasks.py`).
 - `AGENT_DISPATCH_BACKEND=queue` + `orchestration/agent_dispatch*.py` (ORCH-1.45),
   drained by the `kg-ingest-worker` / `agent-dispatch-worker` console scripts.
-- The hardened priority queue (KG-2.113): buckets 0–3, equality-claim, scheduled /
+- The hardened priority queue (AU-KG.ingest.hardened-priority-scheduled-task): buckets 0–3, equality-claim, scheduled /
   blocked / eta, retry → backoff → dead_letter, promotion sweep.
-- `core/leadership.py` advisory-lock daemon leadership (OS-5.18).
+- `core/leadership.py` advisory-lock daemon leadership (AU-OS.state.fleet-supervisory-plane-at).
 
 ### Tiers (who enqueues, who drains, backpressure)
 
@@ -200,7 +200,7 @@ flowchart LR
     subgraph Reply["Reply path (latency-critical)"]
       T0["Tier 0: interactive reply<br/>(in-process, fast path / chat profile)"]
     end
-    subgraph Queue["Durable priority queue (KG-2.113)"]
+    subgraph Queue["Durable priority queue (AU-KG.ingest.hardened-priority-scheduled-task)"]
       T1["Tier 1: agent dispatch<br/>(spawned specialists, A2A)"]
       T2["Tier 2: ingestion / enrichment<br/>(episodic memory, memento, KG ingest)"]
       T3["Tier 3: KG compute / maintenance<br/>(reindex, similarity, sweeps)"]
@@ -218,7 +218,7 @@ flowchart LR
   (leader-elected via `core/leadership.py`, auto-sized via
   `compute_ingest_worker_count()`). Priority bucket = tier.
 - **Backpressure** is the queue's existing claim/retry/backoff/dead-letter machinery
-  (KG-2.113); the reply path never blocks on a full queue — it enqueues and returns.
+  (AU-KG.ingest.hardened-priority-scheduled-task); the reply path never blocks on a full queue — it enqueues and returns.
 - The **chat reply stays fast** because the only synchronous work on Tier 0 is one
   LLM round (or the cached fast-path); memory writes, ingestion, memento compression,
   enrichment, and any heavy compute are Tier 2/3 work that the workers drain.
@@ -249,12 +249,12 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
 
 ## 9. Prioritized roadmap
 
-**P0 — latency (chat answers fast):** ✅ **DONE** (CONCEPT:ORCH-1.62/1.63, KG-2.131)
+**P0 — latency (chat answers fast):** ✅ **DONE** (CONCEPT:AU-ORCH.execution.chat-profile-timeouts/1.63, AU-KG.memory.refresh-per-session-memento)
 1. ✅ Widen the fast-path classifier (rules-first intent/altitude) — most simple turns
    take one lite-model round. (§6.1) — `graph/routing/strategies/fast_path.py`:
    `is_trivial_query` is now rules-first (a `needs_full_orchestration` escalation gate); a
    normal short question answers on the fast path, only tool/plan/slash-command/multi-clause/
-   long turns escalate. (CONCEPT:ORCH-1.63)
+   long turns escalate. (CONCEPT:AU-ORCH.routing.original-rule-was-far)
 2. ✅ Add a `chat` execution profile with chat-budget node timeouts; align
    `MESSAGING_REPLY_TIMEOUT` so turns resolve inside the graph, not via the
    plain-chat fallback; stop the routine double-LLM tax. (§6.1) —
@@ -264,21 +264,21 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
    `_build_execution_config` → graph config; `task` keeps the 300 s defaults. The messaging
    reply path now returns a graceful message on a backend **timeout** instead of a second
    full LLM call to the same degraded endpoint (double-LLM tax removed; plain-chat fallback
-   fires only on a genuine non-timeout graph error). (CONCEPT:ORCH-1.62)
+   fires only on a genuine non-timeout graph error). (CONCEPT:AU-ORCH.execution.chat-profile-timeouts)
 3. ✅ Session memento cache + background refresh so priming never blocks. (§6.2) —
    `knowledge_graph/memory/session_memento_cache.py` (`SessionMementoCache`,
    `refresh_session_memento_cache`): `run_agent` reads the cache (zero I/O) via
    `_prime_recent_mementos`; a cold miss fetches once via `to_thread`; the background
-   `_persist_and_enrich` pass (ECO-4.74) refreshes the cache after each turn so turn N+1
-   reads turn N's memento from memory. (CONCEPT:KG-2.131)
+   `_persist_and_enrich` pass (AU-ECO.messaging.debounce-timer-cancel) refreshes the cache after each turn so turn N+1
+   reads turn N's memento from memory. (CONCEPT:AU-KG.memory.refresh-per-session-memento)
 
-**P1 — non-blocking:** ✅ **DONE** (CONCEPT:ORCH-1.64/1.65) — except item 6 (deferred)
+**P1 — non-blocking:** ✅ **DONE** (CONCEPT:AU-ORCH.routing.structural-build-reuse/1.65) — except item 6 (deferred)
 4. ✅ Cache the built graph per routing-config. (§6.3) — `graph/builder.py`
    (`_BuiltGraphCache`, `_graph_cache_key`, `_build_graph_config`): the structural topology +
    `discover_agents()` are memoized keyed by a hash of (tag_prompts, models, routing strategy,
    sub-agents, custom-node presence); a turn reuses a warm graph. Toolset connections stay
    per-run (only the toolset-free / custom-node-free build — the messaging chat default — is
-   cached). (CONCEPT:ORCH-1.64)
+   cached). (CONCEPT:AU-ORCH.routing.structural-build-reuse)
 5. ✅ `to_thread`-wrap (or pre-prime) the remaining sync KG calls on the reply path:
    `_resolve_agent_from_kg`, router discovery. (§4) — `run_agent` runs
    `_resolve_agent_from_kg` via `to_thread`; `graph/_router_impl.py::router_step` runs the
@@ -286,11 +286,11 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
    `search_hybrid` + `find_relevant_policies` + `find_relevant_processes`) in ONE `to_thread`
    pass, plus `find_matching_team_config` off the loop. The router **N+1** is collapsed:
    `find_agent_for_tool` is called once over the **unique** keyword set (deduped), not per
-   query word. A `TODO(CONCEPT:ORCH-1.62 P2)` references the engine `discover()` contract.
-   (CONCEPT:ORCH-1.65)
+   query word. A `TODO(CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2)` references the engine `discover()` contract.
+   (CONCEPT:AU-ORCH.routing.offload-sync-roundtrip)
 6. ⏳ **Deferred** — Route `_persist_and_enrich` background work through the durable priority
    queue (Tiers 1–3) instead of process-local `asyncio` tasks. (§7) Not in this change; the
-   background work already runs off the reply path via `_spawn_bg` (ECO-4.74), so it is a
+   background work already runs off the reply path via `_spawn_bg` (AU-ECO.messaging.debounce-timer-cancel), so it is a
    durability/leadership task, not a latency item.
 
 **P2 — Rust-offload (NOT in this change — separate epistemic-graph effort):**

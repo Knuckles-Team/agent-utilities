@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Universal Browser-based OAuth PKCE & Token Lifecycle Manager.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 """
 
 import base64

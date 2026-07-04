@@ -1,4 +1,4 @@
-# KG-2.33 — Zero-LLM Pack-Driven Link Inference
+# AU-KG.research.zero-llm-pack-link — Zero-LLM Pack-Driven Link Inference
 
 **Pillar:** 2 — Epistemic Knowledge Graph · **Status:** live
 

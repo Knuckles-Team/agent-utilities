@@ -1,4 +1,4 @@
-"""Tests for SDD task-management ergonomics (CONCEPT:ORCH-1.47)."""
+"""Tests for SDD task-management ergonomics (CONCEPT:AU-ORCH.execution.swe-agent-system-prompt)."""
 
 from __future__ import annotations
 

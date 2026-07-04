@@ -1,6 +1,6 @@
 """UsageStore (SQLite+FTS5 default) round-trip + analytics tests.
 
-CONCEPT:ECO-4.39. Exercises write_bundle, summary/breakdown/tools/activity,
+CONCEPT:AU-OS.observability.usage-analytics-store. Exercises write_bundle, summary/breakdown/tools/activity,
 session detail, FTS search, dedup, the sync skip-cache, and the runtime
 recorder (plane B).
 """

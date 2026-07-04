@@ -1,6 +1,6 @@
 # Structured Prompts
 
-> CONCEPT:ORCH-1.0 — Structured Prompting System
+> CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Structured Prompting System
 
 ## Overview
 

@@ -1,4 +1,4 @@
-"""Codex CLI session parser (CONCEPT:ECO-4.38).
+"""Codex CLI session parser (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 Reads ``~/.codex/sessions/**/*.jsonl``. Lines are ``{type, payload}`` records:
 ``session_meta`` (id/cwd), ``turn_context`` (model), ``response_item``

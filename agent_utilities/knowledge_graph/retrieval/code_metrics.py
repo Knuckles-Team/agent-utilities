@@ -1,7 +1,7 @@
 """Code-scoped graph analytics over the resolved ``:Code`` subgraph.
 
-CONCEPT:KG-2.210 — god nodes, communities and "surprising connections" scoped to
-the code call/inheritance graph, and CONCEPT:KG-2.213 — the architecture report
+CONCEPT:AU-KG.retrieval.god-nodes-communities — god nodes, communities and "surprising connections" scoped to
+the code call/inheritance graph, and CONCEPT:AU-KG.retrieval.architecture-report — the architecture report
 synthesized from them.
 
 Assimilated from Graphify's in-package analytics (``god_nodes`` = degree ranking,
@@ -317,7 +317,7 @@ def build_code_metrics(
         )
     ]
 
-    # Bounded render payload (CONCEPT:KG-2.214): the top nodes by degree + edges
+    # Bounded render payload (CONCEPT:AU-KG.query.top-nodes-by-degree): the top nodes by degree + edges
     # among them, so the force-directed canvas stays responsive on large graphs.
     render_ids = set(
         sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[
@@ -359,7 +359,7 @@ def build_code_metrics(
 
 
 def build_arch_report(engine: Any, scope: str = "", top_k: int = 10) -> dict[str, Any]:
-    """CONCEPT:KG-2.213 — a regenerable architecture report (GRAPH_REPORT.md analog).
+    """CONCEPT:AU-KG.retrieval.architecture-report — a regenerable architecture report (GRAPH_REPORT.md analog).
 
     Composes :func:`build_code_metrics` with import-cycle detection into a Markdown
     document plus the structured metrics. The caller persists it as a node.

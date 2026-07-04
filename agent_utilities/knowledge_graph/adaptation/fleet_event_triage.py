@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Fleet-event triage (CONCEPT:OS-5.15 — Fleet Event Ingress).
+"""Fleet-event triage (CONCEPT:AU-OS.config.fleet-event-ingress — Fleet Event Ingress).
 
 The acting half of the fleet-events ingress: the gateway's
 ``POST /api/fleet/events`` receiver (:mod:`agent_utilities.gateway.fleet_events`)
@@ -188,6 +188,6 @@ def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
     return {"triaged": True, "event_id": event_node_id, **report}
 
 
-# Register the jira/plane ticket-driven workflow playbooks (CONCEPT:ORCH-1.60) when the
+# Register the jira/plane ticket-driven workflow playbooks (CONCEPT:AU-ORCH.scheduling.ticket-workflow-playbook) when the
 # triage system loads — the import side-effect calls register_playbook("jira"/"plane").
 from . import ticket_playbooks  # noqa: E402,F401 — registration side-effect

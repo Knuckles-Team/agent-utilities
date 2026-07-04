@@ -1,6 +1,6 @@
 """Test that prompt JSON files load correctly via load_specialized_prompts.
 
-CONCEPT:ORCH-1.0 — Structured Prompting
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Structured Prompting
 """
 
 import json

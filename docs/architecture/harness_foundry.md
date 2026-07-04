@@ -99,7 +99,7 @@ existing machinery rather than rebuilding it.
 
 ---
 
-## 3. Layer 1 — Operational ontology + substitution algebra (KG-2.107, KG-2.109)
+## 3. Layer 1 — Operational ontology + substitution algebra (AU-KG.ontology.harness-ontology, AU-KG.ontology.harness-gate)
 
 The paper enforces composition safety with a runtime type system; we make the same
 guarantees a **reasoned** check so they hold over data the KG already stores.
@@ -135,19 +135,19 @@ shapes turn the paper's runtime type-safety into reasoned gates:
 
 ---
 
-## 4. Layer 2 — AEGIS adaptation loop (AHE-3.52, AHE-3.57, AHE-3.60)
+## 4. Layer 2 — AEGIS adaptation loop (AU-AHE.harness.run-aegis-loop-over, AU-AHE.harness.per-dimension-ship-outcome, AU-AHE.harness.manifest-verify)
 
 `AegisLoop` wires our existing machinery into HarnessX's Digester → Planner → Evolver
 → Critic shape, dependency-injected so it runs offline with no LLM or engine.
 
-### Selective invocation + patience (AHE-3.57)
+### Selective invocation + patience (AU-AHE.harness.per-dimension-ship-outcome)
 
 The Evolver may decline to produce a candidate when nothing is actionable; the loop
 short-circuits that round as **idle** instead of forcing an edit, and **patience**
 early-stops after *P* consecutive idle rounds — no point burning rounds on an
 exhausted landscape.
 
-### Reputation audit — the declining-yield defense (AHE-3.57)
+### Reputation audit — the declining-yield defense (AU-AHE.harness.per-dimension-ship-outcome)
 
 A per-dimension **ship-outcome ledger** records every edit's success. When a
 dimension's recent hit-rate falls below a floor, the Planner marks it *discouraged*
@@ -155,7 +155,7 @@ and emits a `strategy_concern`, diverting exploration. This is complementary to 
 concentration gate: **over-concentration ≠ declining yield** — the concentration gate
 counts ships; the reputation audit watches whether those ships keep working.
 
-### The complete deterministic gate sequence (AHE-3.60)
+### The complete deterministic gate sequence (AU-AHE.harness.manifest-verify)
 
 ```mermaid
 flowchart TB
@@ -178,7 +178,7 @@ edited processor actually instantiates and runs before it can reach the gate.
 
 ---
 
-## 5. Layer 3 — The SHACL Critic gate (AHE-3.53, KG-2.109)
+## 5. Layer 3 — The SHACL Critic gate (AHE-3.53, AU-KG.ontology.harness-gate)
 
 The Critic builds a harness-evolution RDF graph from the accumulated + candidate
 facts and validates it against five shapes in `harness.shapes.ttl`:
@@ -188,12 +188,12 @@ facts and validates it against five shapes in `harness.shapes.ttl`:
 | `HarnessConcentrationShape` | ≥3 shipped edits on one dimension within a 5-round window | **The headline.** Detects *sub-threshold coupling* before the tipping point — the τ³-Bench failure the paper's per-edit pass@2 gate could not see. |
 | `HarnessNoRegressionShape` | an accepted variant applying an edit that regresses a previously-passing task | The formal seesaw, evaluated **per variant** over its cluster (Layer 4). |
 | `HarnessRewardHackingShape` | a shipped edit grounded only in verifier/format evidence | Pathology detected *structurally*, not from trace symptoms. |
-| `HarnessHookContractShape` | an edit modifying a read-only hook | Type-safety as reasoning (KG-2.109). |
-| `HarnessSingletonExclusionShape` | two accepted processors in one `(hook, group)` | Substitution-algebra mutual exclusion (KG-2.109). |
+| `HarnessHookContractShape` | an edit modifying a read-only hook | Type-safety as reasoning (AU-KG.ontology.harness-gate). |
+| `HarnessSingletonExclusionShape` | two accepted processors in one `(hook, group)` | Substitution-algebra mutual exclusion (AU-KG.ontology.harness-gate). |
 
 ---
 
-## 6. Layer 4 — Variant isolation via ensemble routing (AHE-3.54, AHE-3.59)
+## 6. Layer 4 — Variant isolation via ensemble routing (AHE-3.54, AU-AHE.harness.variant-pool)
 
 HarnessX's documented failure on heterogeneous task sets: single-harness evolution
 **stagnates** because an edit that helps one task cluster but hurts another is rejected
@@ -221,7 +221,7 @@ variant isolation ships it.
 
 ---
 
-## 7. Layer 5 — Falsifiable change manifests (AHE-3.58)
+## 7. Layer 5 — Falsifiable change manifests (AU-AHE.evaluation.edit-claims-fix)
 
 Every edit declares, at proposal time, a falsifiable claim:
 
@@ -237,7 +237,7 @@ loophole **at proposal time** — HarnessX only detects reward-hacking after the
 
 ---
 
-## 8. Layer 6 — Harness–model co-evolution (AHE-3.55, AHE-3.56)
+## 8. Layer 6 — Harness–model co-evolution (AU-AHE.harness.co-evolution-loop, AU-AHE.harness.kg-held-out-certification)
 
 ```mermaid
 flowchart LR
@@ -259,7 +259,7 @@ split — the evaluation HarnessX explicitly lacks.
 
 ---
 
-## 9. Layer 7 — Connector grounding + ARA-Seal (KG-2.108)
+## 9. Layer 7 — Connector grounding + ARA-Seal (AU-KG.retrieval.harness-grounding)
 
 Harness evolution is grounded in the whole fleet, not one benchmark verifier. A
 `harness-runs` `mcp_tool` preset + `source_sync` delta handler feed harness-run traces
@@ -276,7 +276,7 @@ harness-edit → dimension → service → node.
 
 No extra wiring: because the harness edges (`targets_dimension`, `exhibits_pathology`,
 `causes_regression`, `at_hook`) are promotable, `OntologyReasoningDriver.extrapolate`
-(KG-2.79) already turns inferred pathology/concentration facts into research/evolution
+(AU-KG.research.best-effort-lightweight-never) already turns inferred pathology/concentration facts into research/evolution
 Loop topics. A detected concentration risk *schedules* the next AEGIS cycle that
 diversifies it — the code graph feeds the Loop, and the Loop drives the next edit.
 
@@ -301,18 +301,18 @@ diversifies it — the code graph feeds the Loop, and the Loop drives the next e
 
 | Concept | Mechanism |
 |---------|-----------|
-| KG-2.107 | Operational ontology (Harness/Edit/Variant/Dimension/Pathology classes + inverses) |
-| KG-2.108 | Connector-grounded evidence + ARA-Seal + ecosystem linking |
-| KG-2.109 | Substitution-algebra type safety: 8 hooks + read-only contract + singleton groups + edit operations |
-| AHE-3.51 | Operational ontology not mirror |
-| AHE-3.52 | AEGIS unified loop |
+| AU-KG.ontology.harness-ontology | Operational ontology (Harness/Edit/Variant/Dimension/Pathology classes + inverses) |
+| AU-KG.retrieval.harness-grounding | Connector-grounded evidence + ARA-Seal + ecosystem linking |
+| AU-KG.ontology.harness-gate | Substitution-algebra type safety: 8 hooks + read-only contract + singleton groups + edit operations |
+| AU-KG.ontology.owl-bridge | Operational ontology not mirror |
+| AU-AHE.harness.run-aegis-loop-over | AEGIS unified loop |
 | AHE-3.53 | SHACL concentration / no-regression / pathology gate |
-| AHE-3.54 / AHE-3.59 | Variant isolation / ensemble routing (modelled / **runtime-wired**) |
-| AHE-3.55 | Cross-harness GRPO co-evolution |
-| AHE-3.56 | Held-out certification |
-| AHE-3.57 | Selective invocation + reputation audit (declining-yield diversion) |
-| AHE-3.58 | Falsifiable manifests (attribution signature + capability evidence) |
-| AHE-3.60 | Complete deterministic gate sequence (config-normalize + smoke) |
+| AHE-3.54 / AU-AHE.harness.variant-pool | Variant isolation / ensemble routing (modelled / **runtime-wired**) |
+| AU-AHE.harness.co-evolution-loop | Cross-harness GRPO co-evolution |
+| AU-AHE.harness.kg-held-out-certification | Held-out certification |
+| AU-AHE.harness.per-dimension-ship-outcome | Selective invocation + reputation audit (declining-yield diversion) |
+| AU-AHE.evaluation.edit-claims-fix | Falsifiable manifests (attribution signature + capability evidence) |
+| AU-AHE.harness.manifest-verify | Complete deterministic gate sequence (config-normalize + smoke) |
 
 ## 13. Key files
 

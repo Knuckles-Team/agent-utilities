@@ -1,4 +1,4 @@
-"""Live-path tests for the extraction job manager (CONCEPT:KG-2.65).
+"""Live-path tests for the extraction job manager (CONCEPT:AU-KG.compute.code-intelligence-tools).
 
 Drives the manager end-to-end (submit → GPU-slot scheduler → runner → persist)
 against a fake engine, with the LLM call monkeypatched so no GPU is required.

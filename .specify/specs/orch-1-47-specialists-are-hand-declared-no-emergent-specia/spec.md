@@ -6,18 +6,18 @@
 > role — using `agent_utilities/graph/social_system.py` (MASS heterogeneity, ORCH-1.32) as
 > the promotion objective. Reuse, do not rebuild: the `MutationProposal` graph path and the
 > `CoordinationTrace`/`Episode` reads already exist (`graph/coordination.py`,
-> `models/knowledge_graph.py`); `graph/manifest_generators.py` (ORCH-1.9) consumes the
+> `models/knowledge_graph.py`); `graph/manifest_generators.py` (AU-ORCH.execution.autonomous-department-orchestration) consumes the
 > resulting `TeamComposition` role unchanged.
 
 ## Pre-Flight Checklist
 - [x] Extension target identified: `TeamEvolutionEngine.evaluate_and_evolve`
   (`graph/team_evolution.py`) — currently proposes a single hard-coded label.
-- [x] New `CONCEPT:ORCH-1.47` justified: AHE-3.4 *proposes a known mutation*; ORCH-1.47 adds
+- [x] New `CONCEPT:AU-ORCH.execution.swe-agent-system-prompt` justified: AHE-3.4 *proposes a known mutation*; ORCH-1.47 adds
   the missing **discovery** axis — *what* specialization the task stream is under-served by.
   Distinct capability (niche detection), not a tweak to the existing proposer.
 - [x] Wire-First confirmed: discovery runs **inside** the existing live
   `evaluate_and_evolve` path; output flows through the existing `MutationProposal` →
-  regression-gated golden-loop (AHE-3.18) → `manifest_generators` consumer. No new entry point.
+  regression-gated golden-loop (AU-AHE.harness.failure-evolution) → `manifest_generators` consumer. No new entry point.
 - [x] Success metric: on a synthetic failing/expensive task stream with an under-served niche,
   the discovered specialist's role label/prompt is **derived from the niche cluster** (not a
   constant), and the proposal is gated to only promote when it **raises MASS archetype entropy

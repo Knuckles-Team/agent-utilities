@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Retrieval Quality Gate & CONCEPT:KG-2.6 — Context Provenance."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Retrieval Quality Gate & CONCEPT:AU-KG.research.research-pipeline-runner — Context Provenance."""
 
 import time
 
@@ -191,7 +191,7 @@ class TestTemporalFreshness:
 
 
 class TestContextProvenance:
-    """Tests for CONCEPT:KG-2.6 provenance tracking."""
+    """Tests for CONCEPT:AU-KG.research.research-pipeline-runner provenance tracking."""
 
     def test_create_provenance_record(self, gate):
         report = RetrievalQualityReport(

@@ -1,6 +1,6 @@
 """Connector → skill synthesis: mapped processes → propose-only skill candidates.
 
-CONCEPT:KG-2.90 / KG-2.91 — a KG-native, propose-only background distiller that
+CONCEPT:AU-KG.ontology.connector-agnostic-proposal / KG-2.91 — a KG-native, propose-only background distiller that
 turns the mapped processes of **all** connected systems (egeria / leanix / aris /
 camunda) into NEW atomic-skill and skill-workflow PROPOSALS. The distiller is
 generic over the ONTOLOGY (``BusinessProcess`` / ``BusinessTask`` / ``flowsTo`` /
@@ -123,7 +123,7 @@ class DistillReport:
 class ConnectorSkillDistiller:
     """Distil mapped connector processes into propose-only skill candidates.
 
-    CONCEPT:KG-2.90 — connector-agnostic over the ontology; propose-only. Reuses
+    CONCEPT:AU-KG.ontology.connector-agnostic-proposal — connector-agnostic over the ontology; propose-only. Reuses
     the same engine traversal surface as :class:`ProcessPlanCompiler` (the warm L1
     compute mirror, then the backend Cypher fallback) so it works on a seeded
     in-memory engine and a live daemon alike.
@@ -177,7 +177,7 @@ class ConnectorSkillDistiller:
     ) -> list[tuple[str, dict[str, Any]]]:
         """``(id, props)`` nodes of the given types (compute mirror, then backend).
 
-        BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a whole-graph
+        BOUNDED per-label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.264) — never a whole-graph
         ``GetNodes`` dump, which the engine refuses (``RESULT_TOO_LARGE``) on a large
         multi-tenant graph and which previously failed the distill_skills stage.
         """

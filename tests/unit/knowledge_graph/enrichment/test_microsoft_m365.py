@@ -1,4 +1,4 @@
-"""Phase-fixup — Microsoft 365 async ingestion path (CONCEPT:KG-2.9).
+"""Phase-fixup — Microsoft 365 async ingestion path (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Proves the sync-over-async bridge that lets the fully-async Microsoft Graph
 client flow through the synchronous materialize/extractor path, plus the M365

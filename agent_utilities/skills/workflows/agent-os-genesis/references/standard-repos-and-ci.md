@@ -1,6 +1,6 @@
 # Standard operator-owned private repos + generalized CI (genesis Step 9b)
 
-> CONCEPT:OS-5.74 / CONCEPT:OS-5.75. The standard, **abstract** set of private repos
+> CONCEPT:AU-OS.deployment.standard-repo-templates / CONCEPT:AU-OS.deployment.concept-2. The standard, **abstract** set of private repos
 > every genesis deployment provisions — so an operator's environment lives in *their*
 > repos + XDG config, **never in the public agent-utilities repo**.
 

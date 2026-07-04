@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.43 — git issue/PR resolver: parse -> classify -> ingest KG object -> enqueue."""
+"""CONCEPT:AU-ECO.connector.git-task-resolver — git issue/PR resolver: parse -> classify -> ingest KG object -> enqueue."""
 
 from __future__ import annotations
 

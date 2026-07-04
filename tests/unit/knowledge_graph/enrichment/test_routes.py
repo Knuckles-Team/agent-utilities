@@ -1,4 +1,4 @@
-"""HTTP route extraction + code↔service linking (CONCEPT:KG-2.102)."""
+"""HTTP route extraction + code↔service linking (CONCEPT:AU-KG.compute.http-route-graph)."""
 
 from __future__ import annotations
 

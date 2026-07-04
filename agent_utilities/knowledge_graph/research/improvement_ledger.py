@@ -3,8 +3,8 @@ from __future__ import annotations
 
 """Recursive-improvement velocity ledger.
 
-CONCEPT:AHE-3.26 — recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
-CONCEPT:SAFE-1.3 — recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal
+CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating — recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
+CONCEPT:AU-OS.audit.recursive-improvement-velocity-tracker — recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal
 
 The deployed loop already *writes* an audit trail every cycle — ``EvolutionCycle``
 nodes (`loop_controller._finalize_metrics`), ``ProposalPublication`` nodes

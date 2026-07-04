@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Tests for Chat Search, Agents MD, and Engineering Patterns facade modules.
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 
 Validates the facade modules that were referenced in overview.md but
 previously existed only as inline implementations scattered across
@@ -21,7 +21,7 @@ import pytest
 # ========================================================================
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestChatSearchFacade:
     """Tests for agent_utilities.knowledge_graph.chat_search."""
 
@@ -101,7 +101,7 @@ class TestChatSearchFacade:
 # ========================================================================
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestAgentsMdFacade:
     """Tests for agent_utilities.knowledge_graph.agents_md."""
 
@@ -253,7 +253,7 @@ class TestAgentsMdFacade:
 # ========================================================================
 
 
-@pytest.mark.concept("AHE-3.14")
+@pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 class TestEngineeringPatternsFacade:
     """Tests for agent_utilities.harness.engineering."""
 

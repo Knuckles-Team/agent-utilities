@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.12 — Structured-output contracts on the RLM subagent fan-out.
+"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime — Structured-output contracts on the RLM subagent fan-out.
 
 Proves the article's "v2 (success)" pattern: subagents called from inside the
 REPL return *schema-constrained, typed* values (e.g. a boolean), validated with
@@ -47,7 +47,7 @@ def _make_fake_agent(script):
     return _FakeAgent
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 @pytest.mark.asyncio
 async def test_rlm_query_with_bool_schema_returns_typed_value(monkeypatch):
     """rlm_query(prompt, ctx, schema=bool) returns a real Python bool, not a string."""
@@ -61,7 +61,7 @@ async def test_rlm_query_with_bool_schema_returns_typed_value(monkeypatch):
     assert isinstance(result, bool)
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 @pytest.mark.asyncio
 async def test_subagent_schema_violation_retries_without_restart(monkeypatch):
     """A sub-RLM whose FINAL violates the schema gets schema+error feedback and retries."""
@@ -85,7 +85,7 @@ async def test_subagent_schema_violation_retries_without_restart(monkeypatch):
     assert result is True
 
 
-@pytest.mark.concept(id="ORCH-1.12")
+@pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
 @pytest.mark.asyncio
 async def test_run_parallel_sub_calls_honours_per_call_schema(monkeypatch):
     """Each call dict may carry its own `schema`; results come back as typed values."""

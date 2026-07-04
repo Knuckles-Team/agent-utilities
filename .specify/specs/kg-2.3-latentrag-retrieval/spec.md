@@ -1,4 +1,4 @@
-# Spec: Latent-Space Retrieval Optimization (CONCEPT:KG-2.3)
+# Spec: Latent-Space Retrieval Optimization (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
@@ -58,4 +58,4 @@
 - [x] Pre-commit hooks pass cleanly
 - [x] Documentation updated in `docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md`
 - [x] New functionality wired into kg_search and kg_inspect MCP tools
-- [x] CONCEPT:KG-2.3 tags in all new code and tests
+- [x] CONCEPT:AU-KG.memory.auto-similarity-memory-graph tags in all new code and tests

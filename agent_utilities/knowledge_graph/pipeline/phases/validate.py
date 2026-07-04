@@ -1,4 +1,4 @@
-"""Post-ingestion validation pipeline phase (CONCEPT:KG-2.3).
+"""Post-ingestion validation pipeline phase (CONCEPT:AU-KG.ingest.non-blocking-graph-validation).
 
 Runs the ``GraphValidator`` as a non-blocking post-ingestion step.
 Auto-fixes recoverable issues and logs integrity/quality reports.
@@ -21,7 +21,7 @@ async def execute_validate(
 ) -> dict[str, Any]:
     """Run graph integrity validation as a post-ingestion phase.
 
-    CONCEPT:KG-2.3 — Non-blocking graph validation.
+    CONCEPT:AU-KG.ingest.non-blocking-graph-validation — Non-blocking graph validation.
 
     Auto-fixes Tier 1 issues, logs Tier 2/3/4 issues.
     Stores validation metrics in eval_capture for trend analysis.

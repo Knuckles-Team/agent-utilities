@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for Structured Retry Manager (CONCEPT:ORCH-1.3)."""
+"""Tests for Structured Retry Manager (CONCEPT:AU-ORCH.execution.execution-budget-caps)."""
 
 
 import pytest

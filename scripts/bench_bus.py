@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Wire-level load harness for the AgentBus (CONCEPT:ECO-4.87).
+"""Wire-level load harness for the AgentBus (CONCEPT:AU-ECO.bus.operator-view-agentbus).
 
 Benchmarks a *live* graph-os hub through its REST twin ``/graph/bus`` (the same path a
 remote session uses), so it measures the real cross-host send/receive cost — not an

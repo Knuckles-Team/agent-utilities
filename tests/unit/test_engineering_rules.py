@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Unit tests for the Engineering Rules Engine (CONCEPT:KG-2.2).
+"""Unit tests for the Engineering Rules Engine (CONCEPT:AU-KG.ingest.engineering-rules).
 
 Tests the rule ingestor's markdown parser, node creation, conflict
 resolution, and prompt rendering capabilities.

@@ -1,4 +1,4 @@
-"""Tests for Enterprise Banking Domain (CONCEPT:KG-2.6)."""
+"""Tests for Enterprise Banking Domain (CONCEPT:AU-KG.research.research-pipeline-runner)."""
 
 from agent_utilities.domains.finance.banking import (
     ISO20022MessageFactory,

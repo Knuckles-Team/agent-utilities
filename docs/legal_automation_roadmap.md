@@ -231,7 +231,7 @@ graph TD
     Start["User Request:<br/>Create LLC/Trust"] --> HTN["HTN Planner [ORCH-1.1]<br/>Decomposes Goal into Tasks"]
     HTN --> Route["Ontological Specialist Router [ORCH-1.2]<br/>Selects Specialist Coalition"]
 
-    subgraph Coalition ["Specialist Coalition [ORCH-1.9]"]
+    subgraph Coalition ["Specialist Coalition [AU-ORCH.execution.autonomous-department-orchestration]"]
         Research["jurisdiction_researcher_agent<br/>Checks statutory fees & name availability"]
         Draftsman["corporate_draftsman_agent<br/>Drafts legal structures"]
         Validator["compliance_verifier_agent<br/>Validates clauses & SHACL compliance"]
@@ -253,7 +253,7 @@ graph TD
   6. Execute SHACL validation.
   7. Route to Human-in-the-Loop approval gate.
   8. Finalize funding transfers under secure ledger rules.
-- **Specialist Routing & Department Orchestration (`ORCH-1.2` & `ORCH-1.9`)**: Allocate roles to specific specialized agents using `TeamConfigNode` under a dynamic legal department, leveraging the unified `legal_compliance_coordinator.json` structure.
+- **Specialist Routing & Department Orchestration (`ORCH-1.2` & `AU-ORCH.execution.autonomous-department-orchestration`)**: Allocate roles to specific specialized agents using `TeamConfigNode` under a dynamic legal department, leveraging the unified `legal_compliance_coordinator.json` structure.
 
 ---
 
@@ -267,7 +267,7 @@ To guarantee legal and logical soundness before any documents are presented to t
   Enforces structural completeness on legal nodes before they are written to the graph backend:
   - An `LLC` node must have an assigned `registered_agent_name`, `state_of_incorporation`, and at least one member with `memberInterest` totaling exactly `1.0`.
   - A `LegalTrust` node must have distinct entities for `settlor_id` and at least one `beneficiary_id` to prevent merger of legal and equitable title (except in standard revocable living trusts governed by state statutes).
-- **Interpretability and Safety Testing (`AHE-3.8`)**:
+- **Interpretability and Safety Testing (`AU-AHE.harness.self-improvement-overview`)**:
   Drafted documents are audited by the `compliance_verifier_agent` using strict, multi-dimensional scorecards:
   - **Statutory Alignment**: Does the Wyoming Operating Agreement contain the exact LLC liability limitation clauses required under *W.S. § 17-29-101 et seq.*?
   - **Clause Risk Scoring**: Every drafted indemnification or spendthrift clause is assigned a risk classification (High, Medium, Low) against historical precedents in the graph.
@@ -336,7 +336,7 @@ graph TD
 - Drafting scripts, template compilation, and local state integrations are executed inside our **existing** `agent_utilities.core.wasm_runner.WasmAgentRunner` micro-agent sandbox.
 - Standard memory bounds (`limit_memory_pages: int = 16`) are enforced to completely isolate third-party legal data and prevent any prompt-injection exploits from compromising the host system.
 
-#### C. Budget Guardrails (`OS-5.3`)
+#### C. Budget Guardrails (`AU-OS.governance.reactive-multi-axis-budget`)
 - State filing fees represent real-world financial transactions. The `budget_guardrail` enforces a strict threshold—agents can never execute credit card transactions or filing fee payments; they must compile the filing payload and hand it off as a **Pending Payment Action** to a human operator.
 
 ---
@@ -420,7 +420,7 @@ sequenceDiagram
 
 ## 5. Phase-by-Phase Execution Plan (From Point A to Point B)
 
-To successfully implement this, we lay out a **4-Phase Spec-Driven Development Plan** in alignment with `CONCEPT:ORCH-1.5` (DSTDD Pipeline).
+To successfully implement this, we lay out a **4-Phase Spec-Driven Development Plan** in alignment with `CONCEPT:AU-ORCH.planning.legal-automation-roadmap` (DSTDD Pipeline).
 
 ```
 Phase 1: Ontological Core (Week 1)
@@ -447,7 +447,7 @@ Phase 4: Real-World Integrations & Pilot (Week 4)
 ### Phase 1: Ontological Core & Schema Definitions
 - Extend `ontology_legal.ttl` with detailed properties for Trusts and LLCs.
 - Register new Pydantic nodes in `agent_utilities/models/company.py` and `agent_utilities/domains/law/models.py`.
-- Run active reasoner tests using the OWL bridge (`knowledge_graph/core/owl_bridge.py`, `CONCEPT:KG-2.23` Rust-accelerated reasoning with a Python RDFS+ fallback) to verify transitive inheritance (e.g. ensuring `LegalTrust` correctly inherits from BFO concepts).
+- Run active reasoner tests using the OWL bridge (`knowledge_graph/core/owl_bridge.py`, `CONCEPT:AU-KG.domains.legal-automation` Rust-accelerated reasoning with a Python RDFS+ fallback) to verify transitive inheritance (e.g. ensuring `LegalTrust` correctly inherits from BFO concepts).
 
 ### Phase 2: Agent Scaffolding
 - Deploy the specialized legal agents by creating their prompt JSON descriptors in `agent_utilities/prompts/`.
@@ -460,7 +460,7 @@ Phase 4: Real-World Integrations & Pilot (Week 4)
 - Implement the SHACL validator wrapper to verify nodes dynamically prior to graph-write.
 
 ### Phase 4: Integration & Validation
-- Develop a mock environment simulating the IRS EIN Assistant portal and a state corporate registry to support rigorous automated testing (`AHE-3.6: Backtest & Curriculum`).
+- Develop a mock environment simulating the IRS EIN Assistant portal and a state corporate registry to support rigorous automated testing (`AU-AHE.harness.evolution-checkpoint: Backtest & Curriculum`).
 - Conduct a complete, E2E sandbox trial run: generate a full LLC formation filing, verify that the active database registers the correct graph-edges, and hand off the print-ready filing package to the console.
 - Output an execution report and update the project's `walkthrough.md`.
 

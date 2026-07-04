@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.100 — the agent-utilities-expert is a well-formed, registry-loadable
+"""CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — the agent-utilities-expert is a well-formed, registry-loadable
 prompt that is wired into a dispatchable AgentTemplate.
 
 These are LIVE-PATH tests (Wire-First): they exercise the real prompt-loading
@@ -97,7 +97,7 @@ def test_expert_is_a_dispatchable_agent_template() -> None:
     assert "graph-os" in meta["capabilities"]
     assert "Agent Utilities Ecosystem Expert" in meta["system_prompt"]
 
-    # CONCEPT:ORCH-1.101 — resolution surfaces the persona AND the toolset_ids;
+    # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — resolution surfaces the persona AND the toolset_ids;
     # _build_execution_config must turn those toolset_ids into LIVE MCP toolsets so
     # the dispatched expert can query graph-os and ground its answer (the fix that
     # stops the prompt-only hallucination). Assert the binding + the routing
@@ -117,7 +117,7 @@ def test_expert_is_a_dispatchable_agent_template() -> None:
 def test_resolve_toolset_ids_binds_live_toolsets() -> None:
     """``_resolve_toolset_ids`` turns a list of fleet server ids into live toolsets.
 
-    CONCEPT:ORCH-1.101 — the binding seam. With no ``:Server`` node present it falls
+    CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam. With no ``:Server`` node present it falls
     back to the fleet served-URL convention (the same resolution the focused-tools
     path uses), binding one callable ``MCPToolset`` per id.
     """

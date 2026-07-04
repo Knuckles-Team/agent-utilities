@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.60 — ARD datapoint signing (Ed25519 publisher verification).
+"""CONCEPT:AU-OS.identity.ard-datapoint-signing — ARD datapoint signing (Ed25519 publisher verification).
 
 Agentic Resource Discovery (ARD) treats publisher verification as a first-class
 citizen: each catalog datapoint is signed with the publisher's Ed25519 key and an

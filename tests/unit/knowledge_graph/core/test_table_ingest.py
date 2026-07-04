@@ -1,4 +1,4 @@
-"""Connector / ETL → native engine SQL tables (CONCEPT:KG-2.266).
+"""Connector / ETL → native engine SQL tables (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 A fake engine records the SQL statements issued through ``graph_compute.sql_exec`` so
 we can assert CREATE TABLE + bulk INSERT are emitted, and a fake connector verifies
@@ -11,7 +11,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core import table_ingest
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 
 class _FakeGraphCompute:

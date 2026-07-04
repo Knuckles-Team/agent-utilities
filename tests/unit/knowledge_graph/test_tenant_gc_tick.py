@@ -1,4 +1,4 @@
-"""Periodic tenant GC for leaked community-detection tenants (CONCEPT:KG-2.8).
+"""Periodic tenant GC for leaked community-detection tenants (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 The per-job `{graph}__enrich_comm_{uuid}` tenant leaks when a process is killed
 mid-ingest, and every leak is re-serialized on each checkpoint. `_tick_tenant_gc`

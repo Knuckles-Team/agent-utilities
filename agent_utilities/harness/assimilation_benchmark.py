@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Measured-lift benchmark suite for the assimilated-paper mechanisms.
 
-CONCEPT:AHE-3.47 — empirical parity evidence for the assimilation program.
+CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation — empirical parity evidence for the assimilation program.
 
 We adopted eight research mechanisms as shipped code, but parity has so far been
 *asserted*, not *measured*: each module ports a paper's mechanism, yet nothing
@@ -650,7 +650,7 @@ def bench_sgs(*, seed: int = 0) -> BenchmarkResult:
 # Aggregation + reporting
 # ----------------------------------------------------------------------------
 # NOTE: the trained-pause-token PauseRec benchmark (the literal
-# trainable-``<pause>``-token mechanism via gradient descent, CONCEPT:KG-2.93
+# trainable-``<pause>``-token mechanism via gradient descent, CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative
 # training track) was re-homed to data-science-mcp
 # (data_science_mcp.training.pause_token_trainer) so agent-utilities core stays
 # torch-free — see AGENTS.md "Dependency discipline". The inference-time

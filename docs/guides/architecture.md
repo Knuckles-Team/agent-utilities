@@ -57,13 +57,13 @@ graph TD
             DAL["ORCH-1.2: get_discovery_registry()"]
             KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"]
             KG_Registry --> DAL
-            DAL --> DSRoster["ECO-4.6: MCPAgentRegistryModel"]
+            DAL --> DSRoster["AU-ECO.mcp.toolkit-live-discovery: MCPAgentRegistryModel"]
         end
 
         DSRoster --> Graph
         Graph --> Specialists["ORCH-1.2: Specialist Superstates"]
         Specialists --> MCP["ECO-4.0: MCP Servers"]
-        Specialists --> Skills["ECO-4.6: Universal Skills, Skill Graphs"]
+        Specialists --> Skills["AU-ECO.mcp.toolkit-live-discovery: Universal Skills, Skill Graphs"]
 
         subgraph ElicitationFlow [Human-in-the-Loop Flow]
             MCP -- 1. Tool needs approval --> TG[OS-5.2: tool_guard: requires_approval]
@@ -117,23 +117,23 @@ The fast path is gated on:
 The **ACP adapter** uses pydantic-acp's `agent_factory` callback for per-session agent creation, binding graph context directly to each session's closure.
 
 The **A2A path** now supports two modes:
-1. **Graph-native (CONCEPT:ECO-4.0)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
+1. **Graph-native (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
 2. **LLM-mediated (fallback)**: For multi-agent negotiation scenarios, the legacy `run_graph_flow` tool call path is retained.
 
-### 3-Stage Hybrid Routing (CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:KG-2.1)
+### 3-Stage Hybrid Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation, CONCEPT:AU-AHE.evaluation.interpretability-tests, CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 The router implements a cascading 3-stage routing strategy that avoids unnecessary LLM inference:
 
 ```
-Stage 1: TeamConfig Match (CONCEPT:AHE-3.3)
+Stage 1: TeamConfig Match (CONCEPT:AU-AHE.evaluation.interpretability-tests)
   └─ Check KG for a proven specialist coalition matching the query pattern
   └─ If found → skip LLM, dispatch the team directly
 
-Stage 2: Self-Model Bias (CONCEPT:KG-2.1)
+Stage 2: Self-Model Bias (CONCEPT:AU-KG.memory.tiered-memory-caching)
   └─ Inject domain proficiency scores into the specialist prompt
   └─ High-proficiency domains are weighted higher in LLM selection
 
-Stage 3: LLM Planning (filtered via CONCEPT:ORCH-1.2)
+Stage 3: LLM Planning (filtered via CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
   └─ Registry Hot Cache provides only top-7 relevant specialists
   └─ LLM sees a focused prompt instead of 50+ specialist descriptions
 ```
@@ -266,7 +266,7 @@ graph TB
 
 > **Note:** MCP ecosystem agents (AdGuard, Jellyfin, Ansible Tower, etc.) are dynamically spawned as `CallableResource` nodes in the Knowledge Graph. They are discovered at runtime from `mcp_config.json` and do not appear in this static diagram.
 >
-> ### Unified Toolkit Ingestion (CONCEPT:ECO-4.0)
+> ### Unified Toolkit Ingestion (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 >
 > ```mermaid
 > graph LR
@@ -350,7 +350,7 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 | `rlm/` | Recursive Language Model handlers for autonomous sub-shells and self-prompting loops. | `repl.py` |
 | `sdd/` | Spec-Driven Development pipelines decomposing `.specify` files into actionable graphs. | `orchestrator.py` |
 | `server/` | FastAPI applications hosting all HTTP, ACP, and SSE routes. | `app.py`, `routers/` |
-| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:OS-5.9). 50 widget types, aggregator, REST+WS API. Synthesized from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
+| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:AU-OS.config.gateway-service-dashboard). 50 widget types, aggregator, REST+WS API. Synthesized from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
 
 ## Hierarchical State Machine (HSM) Architecture
 
@@ -439,14 +439,14 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 | `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
 | `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
 | `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph |
-| `/api/dashboard/layout` | GET/PUT | Dashboard (OS-5.9) | Get or save dashboard service layout |
-| `/api/dashboard/data` | GET | Dashboard (OS-5.9) | Fetch all widget data from 50 services |
-| `/api/dashboard/data/{id}` | GET | Dashboard (OS-5.9) | Fetch single service widget data |
-| `/api/dashboard/full` | GET | Dashboard (OS-5.9) | Layout + data in single request (initial load) |
-| `/api/dashboard/widgets` | GET | Dashboard (OS-5.9) | List available widget types |
-| `/api/dashboard/health` | GET | Dashboard (OS-5.9) | Health check across all services |
-| `/api/dashboard/discover` | GET | Dashboard (OS-5.9) | Auto-discover services from mcp_config |
-| `/ws/dashboard` | WS | Dashboard (OS-5.9) | Real-time streaming updates |
+| `/api/dashboard/layout` | GET/PUT | Dashboard (AU-OS.config.gateway-service-dashboard) | Get or save dashboard service layout |
+| `/api/dashboard/data` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | Fetch all widget data from 50 services |
+| `/api/dashboard/data/{id}` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | Fetch single service widget data |
+| `/api/dashboard/full` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | Layout + data in single request (initial load) |
+| `/api/dashboard/widgets` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | List available widget types |
+| `/api/dashboard/health` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | Health check across all services |
+| `/api/dashboard/discover` | GET | Dashboard (AU-OS.config.gateway-service-dashboard) | Auto-discover services from mcp_config |
+| `/ws/dashboard` | WS | Dashboard (AU-OS.config.gateway-service-dashboard) | Real-time streaming updates |
 
 ## The Complete Execution Journey
 

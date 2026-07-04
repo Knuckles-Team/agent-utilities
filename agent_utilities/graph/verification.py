@@ -71,7 +71,7 @@ async def join_step(
                 ctx.state.needs_replan = False  # Reset for the next plan
                 return "router_step"
 
-            # CONCEPT:ORCH-1.1 — Hybrid Pydantic Validation Gate for Wide-Search
+            # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Hybrid Pydantic Validation Gate for Wide-Search
             if ctx.state.workboard is not None:
                 wb = ctx.state.workboard
                 try:
@@ -112,7 +112,7 @@ async def join_step(
 async def wide_search_joiner_step(
     ctx: StepContext,
 ) -> str:
-    """CONCEPT:ORCH-1.1 — Slow-Path LLM Repair for WideSearch extraction.
+    """CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Slow-Path LLM Repair for WideSearch extraction.
 
     This node is triggered when the Fast-Path Pydantic validation fails in join_step.
     It uses an LLM to attempt to repair schema mismatches, standardize formatting,
@@ -174,7 +174,7 @@ async def verifier_step(
     execution results.  It does NOT synthesize the final response —
     that is handled by :func:`synthesizer_step`.
 
-    Routing decisions (CONCEPT:ORCH-1.37 proportional verification):
+    Routing decisions (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid proportional verification):
     - trivial runs (≤1-step plan / direct dispatch) with results skip the
       gate and go straight to ``'synthesizer'``
     - **score >= 0.7** → ``'synthesizer'`` for final response composition
@@ -212,12 +212,12 @@ async def verifier_step(
         [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
     )
 
-    # CONCEPT:ORCH-1.37 (perf) — proportional verification. A trivial, single-step
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — proportional verification. A trivial, single-step
     # (or plan-less direct-dispatch) read produces a result that doesn't warrant the full
     # LLM quality gate + re-plan machinery — which was scoring correct answers 0.00 for not
     # volunteering fields the query never asked for, then looping until context overflow.
     # Trust a non-empty result for low-risk runs and go straight to synthesis.
-    # CONCEPT:ORCH-1.74 — the dynamic shaper owns this decision: when the shape opts out of
+    # CONCEPT:AU-ORCH.execution.dynamic-shaper-authority — the dynamic shaper owns this decision: when the shape opts out of
     # verification (``run_verifier=False``) and a result exists, skip the quality gate straight
     # to synthesis. The proportional heuristic below stays as a floor for shape-less callers.
     _shape = getattr(ctx.deps, "execution_shape", None)
@@ -277,7 +277,7 @@ async def verifier_step(
                     f"feedback on what literal requirement is unmet."
                 ),
             )
-            # CONCEPT:ORCH-1.37 (perf) — a verifier needs few requests; cap it (default 50).
+            # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — a verifier needs few requests; cap it (default 50).
             from pydantic_ai.usage import UsageLimits
 
             from agent_utilities.core.config import setting
@@ -312,7 +312,7 @@ async def verifier_step(
                 # Very low scores (< 0.4) suggest the approach itself was wrong and a fresh
                 # plan is needed; moderate scores suggest the right plan was executed poorly
                 # and can be re-dispatched.
-                # CONCEPT:ORCH-1.37 (perf) — re-planning is the most expensive action
+                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — re-planning is the most expensive action
                 # (rebuilds the whole plan + context). Only do it ONCE, and only when there
                 # are NO partial results to salvage; otherwise prefer cheap re-dispatch.
                 # This stops the score-0.00 → full-replan storm that overflowed context.
@@ -339,11 +339,11 @@ async def verifier_step(
                 return "dispatcher"
             logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
 
-            # CONCEPT:AHE-3.4: Cross-Rollout Critique (Distill Experience)
+            # CONCEPT:AU-AHE.evaluation.backtest-harness: Cross-Rollout Critique (Distill Experience)
             if ctx.state.verification_attempts > 0 or ctx.state.retry_count > 0:
                 await _distill_experience_from_retry(ctx, results_summary)
 
-            # CONCEPT:AHE-3.1 — Adversarial Verification (opt-in)
+            # CONCEPT:AU-AHE.evaluation.adversarial-verification — Adversarial Verification (opt-in)
             # If ADVERSARIAL_VERIFICATION=true, run a second "hacker agent"
             # pass to stress-test the implementation.  Only fires when the
             # quality gate has already passed.
@@ -370,13 +370,13 @@ async def verifier_step(
                                 + ". Fix these before re-submitting."
                             )
                             logger.warning(
-                                "[CONCEPT:AHE-3.1] Adversarial FAIL (severity: %s). Re-dispatching.",
+                                "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial FAIL (severity: %s). Re-dispatching.",
                                 adversarial_result.severity,
                             )
                             ctx.state.step_cursor = 0
                             return "dispatcher"
                         logger.info(
-                            "[CONCEPT:AHE-3.1] Adversarial found %s issues (severity: %s) "
+                            "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial found %s issues (severity: %s) "
                             "— proceeding to synthesis with advisory.",
                             len(adversarial_result.findings),
                             adversarial_result.severity,
@@ -469,7 +469,7 @@ async def verifier_step(
                 ctx.state.verification_attempts += 1
                 ctx.state.validation_feedback = validation.feedback
 
-                # CONCEPT:ORCH-1.37 (perf) — re-plan once, only when nothing salvageable
+                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — re-plan once, only when nothing salvageable
                 # (mirrors the structured path; prevents the re-plan storm).
                 if (
                     validation.score < 0.4
@@ -624,7 +624,7 @@ async def synthesizer_step(
     except Exception as e:
         logger.debug(f"Failed to write execution memory: {e}")
 
-    # CONCEPT:KG-2.1 — Post-execution feedback loop
+    # CONCEPT:AU-KG.maintenance.post-execution-feedback — Post-execution feedback loop
     # Record execution outcome into Self-Model and TeamConfig for learning.
     execution_success = bool(result_text and result_text.lower() != "none")
     if ctx.deps.knowledge_engine:
@@ -635,7 +635,7 @@ async def synthesizer_step(
             memory_retriever = MemoryRetriever(ctx.deps.knowledge_engine)
             memory_retriever.update_after_session(ctx.state)
             logger.info(
-                "[CONCEPT:KG-2.1] Self-Model updated: domain=%s, success=%s",
+                "[CONCEPT:AU-KG.maintenance.post-execution-feedback] Self-Model updated: domain=%s, success=%s",
                 ctx.state.routed_domain,
                 execution_success,
             )
@@ -655,14 +655,14 @@ async def synthesizer_step(
                         team_config_id, reward=reward
                     )
                     logger.info(
-                        "[CONCEPT:AHE-3.3] TeamConfig '%s' outcome recorded: reward=%.1f",
+                        "[CONCEPT:AU-AHE.evaluation.interpretability-tests] TeamConfig '%s' outcome recorded: reward=%.1f",
                         team_config_id,
                         reward,
                     )
         except Exception as e:
             logger.debug(f"TeamConfig feedback failed: {e}")
 
-        # CONCEPT:ORCH-1.8 — Workflow Distillation Hook (async background)
+        # CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Hook (async background)
         # If the execution was successful, fire the distillation hook to
         # potentially promote this workflow pattern to a reusable template.
         if execution_success:
@@ -781,7 +781,7 @@ async def error_recovery_step(
 async def _distill_experience_from_retry(
     ctx: StepContext, results_summary: str
 ) -> None:
-    """CONCEPT:AHE-3.4: Contrastive self-correction distillation.
+    """CONCEPT:AU-AHE.evaluation.backtest-harness: Contrastive self-correction distillation.
 
     Extracts an ExperienceNode by contrasting a successful retry against
     its previous failure feedback.
@@ -844,18 +844,18 @@ async def _distill_experience_from_retry(
 async def parallel_trajectory_distiller(
     deps: GraphDeps, trajectories: list[dict[str, Any]], query: str = ""
 ) -> None:
-    """CONCEPT:AHE-3.4: Memory-Aware Test-Time Scaling (Parallel Experience Distillation).
+    """CONCEPT:AU-AHE.evaluation.backtest-harness: Memory-Aware Test-Time Scaling (Parallel Experience Distillation).
 
     Extracts an ExperienceNode by evaluating a batch of parallel trajectory attempts
     (both successes and failures). Unlike sequential retry loops, this batch processing
     distills a holistic reasoning memory that guides test-time scaling.
 
-    Leverages CONCEPT:KG-2.4 (Inductive Knowledge Hypergraphs) to map derived tactics to
+    Leverages CONCEPT:AU-KG.compute.positional-interaction-encoding (Inductive Knowledge Hypergraphs) to map derived tactics to
     hyperedges, enabling zero-shot structural generalization across novel topologies.
     """
     if not deps.knowledge_engine:
         return
-    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AHE-3.4)...")
+    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AU-AHE.evaluation.backtest-harness)...")
 
     try:
         from pydantic import BaseModel, Field
@@ -915,7 +915,7 @@ async def parallel_trajectory_distiller(
                 success_rate=res_data.confidence,
             )
 
-            # CONCEPT:KG-2.4: Compute positional interaction encoding for structural generalization
+            # CONCEPT:AU-KG.compute.positional-interaction-encoding: Compute positional interaction encoding for structural generalization
             # We map the condition (position 1) to the action (position 2) in the hypergraph
             encoder = PositionalInteractionEncoder()
             enc_pi = encoder.encode_interaction(1, 2)
@@ -927,7 +927,7 @@ async def parallel_trajectory_distiller(
             ogm = KGMapper(deps.knowledge_engine)
             ogm.upsert(node)
             logger.info(
-                f"Distilled Parallel Experience Node (CONCEPT:AHE-3.4): {exp_id} with EncPI mapping."
+                f"Distilled Parallel Experience Node (CONCEPT:AU-AHE.evaluation.backtest-harness): {exp_id} with EncPI mapping."
             )
 
     except Exception as e:

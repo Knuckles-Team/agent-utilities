@@ -1,4 +1,4 @@
-"""Ingestion coverage + freshness SLA assessment tests (CONCEPT:OS-5.47)."""
+"""Ingestion coverage + freshness SLA assessment tests (CONCEPT:AU-OS.deployment.flagging-repos)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.ingestion.coverage import (
 _NOW = datetime(2026, 6, 20, tzinfo=UTC)
 
 
-@pytest.mark.concept("OS-5.47")
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_enumerate_agent_packages_repos(tmp_path):
     manifest = tmp_path / "workspace.yml"
     manifest.write_text(
@@ -52,7 +52,7 @@ class FakeBackend:
         return []  # AGE returns no rows for a zero aggregate -> treated as 0
 
 
-@pytest.mark.concept("OS-5.47")
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_repo_symbol_counts_handles_zero_and_missing():
     backend = FakeBackend({"agent-utilities": 4200, "epistemic-graph": 0})
     counts = repo_symbol_counts(
@@ -61,7 +61,7 @@ def test_repo_symbol_counts_handles_zero_and_missing():
     assert counts == {"agent-utilities": 4200, "epistemic-graph": 0, "ghost": 0}
 
 
-@pytest.mark.concept("OS-5.47")
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_assess_coverage_flags_missing_and_stale():
     repos = ["alpha-api", "bravo-mcp", "charlie-agent"]
     counts = {"alpha-api": 100, "bravo-mcp": 0, "charlie-agent": 50}
@@ -79,7 +79,7 @@ def test_assess_coverage_flags_missing_and_stale():
     assert rep["coverage_pct"] == pytest.approx(66.7, abs=0.1)
 
 
-@pytest.mark.concept("OS-5.47")
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_assess_coverage_stale_uses_most_recent_sync():
     # A repo synced 30d ago AND 1d ago (codebase + codebase_file watermarks) is
     # NOT stale — the most-recent sync governs.
@@ -96,7 +96,7 @@ def test_assess_coverage_stale_uses_most_recent_sync():
     assert rep["stale"] == []
 
 
-@pytest.mark.concept("OS-5.47")
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_assess_coverage_all_good():
     rep = assess_coverage(
         ["solo-api"],

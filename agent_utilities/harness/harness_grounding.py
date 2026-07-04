@@ -1,4 +1,4 @@
-"""Connector-grounded harness evolution + ARA-Seal (CONCEPT:KG-2.108).
+"""Connector-grounded harness evolution + ARA-Seal (CONCEPT:AU-KG.retrieval.harness-grounding).
 
 HarnessX evolves over benchmark verifiers only, and its co-evolution needs one team
 owning harness+model ("impractical without cross-team coordination"). Our ONE
@@ -30,7 +30,7 @@ def ground_variant(variant_id: str, evidence_ids: list[str]) -> list[dict[str, A
 
 def seal_level_for(cert: CertificationResult) -> str:
     """Map a held-out certification to a Seal level: L3 (certified with a clear
-    margin), L2 (certified), L1 (uncertified/baseline) (CONCEPT:AHE-3.56)."""
+    margin), L2 (certified), L1 (uncertified/baseline) (CONCEPT:AU-AHE.harness.kg-held-out-certification)."""
     if not getattr(cert, "certified", False):
         return "L1"
     margin = (getattr(cert, "ci_lower", 0.0) or 0.0) - (

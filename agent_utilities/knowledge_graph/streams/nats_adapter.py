@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Real NATS JetStream stream adapter (CONCEPT:KG-2.6).
+"""Real NATS JetStream stream adapter (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Implements ``BaseStreamAdapter`` over ``nats-py`` (optional dependency). A
 subscription may be injected for tests so the adapter is exercisable offline.
