@@ -259,7 +259,9 @@ def derive_part_of_edges(
 
 
 # ===========================================================================
-# OKF-CIS — the unified cross-repo Concept-ID standard (CONCEPT:OS-5.77).
+# CONCEPT:OS-5.77 — OKF-CIS: the unified cross-repo Concept-ID standard.
+#
+# Grammar:
 #
 #   <SLUG>-<PILLAR>.<domain>.<concept>[.<facet>...]
 #       AU-KG.ingest.entropy-dedup
