@@ -95,6 +95,7 @@ nav:
       - Recursive Language Models (RLM): guides/rlm.md
       - Building Fleet API Clients: guides/building-fleet-api-clients.md
       - MCP Tool Modes (condensed/verbose/both): guides/mcp-tool-modes.md
+      - The kg-* Skill Suite (discoverable graph-os surface): guides/kg-skill-suite.md
       - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
       - Agentic Harness Engineering: pillars/3_agentic_harness_engineering.md
       - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
@@ -121,6 +122,7 @@ nav:
       - LLM/Embedding Server-Capacity Guard (never OOM the model host): architecture/llm-server-capacity-guard.md
       - Ontology-Guided Ingestion & Entity Resolution (exceeds sift-kg): architecture/ontology-guided-ingestion.md
       - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
+      - Ontology Federation & Package Migration (domain ttls in owning repos): architecture/ontology-federation.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Orchestration Execution Seam (ingested capability → executed): architecture/orchestration-execution-seam.md
       - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md
