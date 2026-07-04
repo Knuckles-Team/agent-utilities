@@ -68,6 +68,27 @@ For `typing.Protocol` classes that define structural contracts.
 
 ---
 
+## Fleet skill & prompt names — globally unique (CONCEPT:AU-OS.deployment.agent-factory-autoload)
+
+Every agent-package contributes skills via `agent_utilities.skill_providers`. When the
+whole fleet's skills are installed together with `universal-skills` and the hub's own
+`agent_utilities/skills`, **two skills sharing a `name:` frontmatter value shadow each
+other** in the agent's skill directory. So skill names MUST be **globally unique across
+the installable namespace** (agents/* + universal-skills + agent-utilities skills;
+`skill_graphs`/`skill-graphs` KG-ingestion corpora are excluded).
+
+- **Hard rule (enforced):** no duplicate skill `name:`; no duplicate prompt `task` within a
+  package's `prompts/`. Gate: `scripts/check_skill_name_collision.py` (pre-commit + CI
+  `guardrails.yml`), baseline-gated via `scripts/skill_collision_baseline.txt`.
+- **Recommended convention (advisory):** prefix a package's skills with its slug —
+  `<pkg-slug>-<capability>` (e.g. `servicenow-cmdb`, `fan-manager-thermal`). The
+  `<short>-starter` scaffolded name uses `slug.rsplit("-",1)[0]` (e.g. `arr-mcp` → `arr`).
+- **Capability-domain names** (e.g. `dns-record-manager`, `ipmi-bmc-manager`,
+  `secret-vault-manager`, the deliberately cross-package `caddy-uptime-sync`) are allowed
+  **only while they stay globally unique** — the gate flags them as advisories, not failures.
+- Prompt specialists are namespaced `prompt:<source>/<task>` so cross-package `task` reuse is
+  safe; keep `<source>` = the package slug.
+
 ## Migration Guide
 
 Existing class names are **NOT** being renamed in this phase to avoid import breakage. This convention applies to **new code only**.

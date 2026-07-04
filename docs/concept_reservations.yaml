@@ -297,3 +297,5 @@
 - {id: OS-5.79, namespace: OS-5, session: xdg-unified-install, reserved_at: '2026-07-03T20:51:03.516196+00:00', expires_at: '2026-07-10T20:51:03.516196+00:00', status: landed, design_doc: 'feat/xdg-unified-install: unified XDG install of skills+prompts+ontologies', landed_at: '2026-07-03T20:58:19.813192+00:00'}
 - {id: OS-5.80, namespace: OS-5, session: 'RW710:1833337', reserved_at: '2026-07-04T04:16:00.748855+00:00', expires_at: '2026-07-05T04:16:00.748855+00:00', status: reserved, design_doc: workspace/plans/kg-skill-suite-spec.md}
 - {id: OS-5.81, namespace: OS-5, session: 'RW710:1834864', reserved_at: '2026-07-04T04:16:12.035456+00:00', expires_at: '2026-07-05T04:16:12.035456+00:00', status: reserved, design_doc: workspace/plans/kg-skill-suite-spec.md}
+- {id: OS-5.82, namespace: OS-5, session: 'RW710:1588555', reserved_at: '2026-07-04T19:19:10.755628+00:00', expires_at: '2026-07-05T19:19:10.755628+00:00', status: reserved}
+- {id: OS-5.83, namespace: OS-5, session: 'RW710:1589089', reserved_at: '2026-07-04T19:19:21.434638+00:00', expires_at: '2026-07-05T19:19:21.434638+00:00', status: reserved}
