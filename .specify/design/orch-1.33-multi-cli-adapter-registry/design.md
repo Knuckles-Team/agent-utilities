@@ -56,7 +56,7 @@ C4Context
         System(reg, "ORCH-1.33 Adapter Registry", "AdapterDefinition + PATH detection + streamFormat dispatch")
         System(engine, "core/execution/engine.py", "UnifiedExecutionEngine.run(manifest)")
         System(role, "ORCH-1.27 Role Routing", "pick_for_role")
-        System(kg, "KG-2.x", "provenance: which CLI produced this")
+        System(kg, "AU-KG.compute.kg-x", "provenance: which CLI produced this")
     }
     System_Ext(entry, "graph_orchestrate / /api/proxy", "entry points")
     Rel(entry, engine, "dispatch step")

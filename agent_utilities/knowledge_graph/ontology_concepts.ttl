@@ -2773,6 +2773,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
     skos:broader <http://knuckles.team/kg/concept/AU/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/AU/KG/compute> .
+<http://knuckles.team/kg/concept/AU/KG/compute/kg-x> a :GovernedConcept ;
+    :dottedId "AU-KG.compute.kg-x" ;
+    :flatId "KG-2.x" ;
+    skos:prefLabel "kg x" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
+    skos:broader <http://knuckles.team/kg/concept/AU/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/AU/KG/compute> .
 <http://knuckles.team/kg/concept/AU/KG/compute/lane-bound-task> a :GovernedConcept ;
     :dottedId "AU-KG.compute.lane-bound-task" ;
     :flatId "KG-2.286" ;
