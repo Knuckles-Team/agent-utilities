@@ -175,7 +175,7 @@ The Company Brain is not a standalone product — it is the **substrate** that t
 | Pillar | How It Integrates with Company Brain |
 |:-------|:-------------------------------------|
 | **AU-ORCH.planning.orchestration-overview** (Orchestration) | Routes work to agents based on Company Brain state; uses tenant-scoped routing |
-| **KG-2.x** (Knowledge Graph) | **IS** the Company Brain substrate; all 6 primitives extend KG-2.0 |
+| **AU-KG.compute.kg-x** (Knowledge Graph) | **IS** the Company Brain substrate; all 6 primitives extend KG-2.0 |
 | **AU-AHE.optimization.telemetry-optimization** (Harness Engineering) | Self-improvement feeds back into the brain; reward signals update provenance |
 | **ECO-4.x** (Ecosystem) | 40-repo ecosystem provides peripheral sensors; event streaming ingests ecosystem state |
 | **OS-5.x** (Agent OS) | Permissions, security, observability wrap the brain in governance |

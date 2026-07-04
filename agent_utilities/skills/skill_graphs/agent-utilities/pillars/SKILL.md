@@ -30,7 +30,7 @@ agents → executor manages state via HSM → results feed back to KG.
 
 ---
 
-## Pillar 2: Epistemic Knowledge Graph (KG-2.x)
+## Pillar 2: Epistemic Knowledge Graph (AU-KG.compute.kg-x)
 
 **Purpose**: Semantic storage, OWL reasoning, tiered memory, retrieval, domain knowledge.
 

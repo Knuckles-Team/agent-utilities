@@ -65,7 +65,7 @@ tests/
 ├── unit/
 │   ├── core/              # OS-5.x tests
 │   ├── graph/             # AU-ORCH.planning.orchestration-overview tests
-│   ├── knowledge_graph/   # KG-2.x tests
+│   ├── knowledge_graph/   # AU-KG.compute.kg-x tests
 │   └── harness/           # AU-AHE.optimization.telemetry-optimization tests
 ├── integration/           # Cross-pillar integration tests
 └── conftest.py            # Shared fixtures

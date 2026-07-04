@@ -9,8 +9,8 @@
    DS-AHE.trainer.gpu-slot
 ```
 
-The old `KG-2.134` / `ORCH-1.98` / `EG-352` / `PREFIX-NNN` forms are **retired** — the
-grammar is regex-incompatible with them, so a legacy `CONCEPT:KG-2.7` marker now **fails
+The old `KG-2.134` / `AU-ORCH.scheduling.resource-priority-edict` / `EG-KG.compute.capability-reference` / `PREFIX-NNN` forms are **retired** — the
+grammar is regex-incompatible with them, so a legacy `CONCEPT:AU-KG.query.vendor-agnostic-traversal` marker now **fails
 CI** (`scripts/check_no_legacy_markers.py`). This page tells you (1) how to write new
 markers and (2) how to migrate an in-flight branch that still has old ones.
 
@@ -49,7 +49,7 @@ a resolvable RDF IRI (`http://knuckles.team/kg/concept/AU/KG/ingest/entropy-dedu
 
 ## 2. Migrating an IN-FLIGHT branch (do this before you merge to main)
 
-Your branch has legacy markers (`CONCEPT:KG-2.x` etc.). Rewrite them to OKF-CIS:
+Your branch has legacy markers (`CONCEPT:AU-KG.compute.kg-x` etc.). Rewrite them to OKF-CIS:
 
 ```bash
 # from your worktree, with agent-utilities on PATH:

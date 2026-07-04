@@ -247,7 +247,7 @@ becomes meaningful.
 - **Risks:** re-ingestion needs healthy engine/embeddings (GB10/vLLM); the A3 capability schema
   must match what the dispatcher's specialist routing expects (coordinate with that); aho-corasick
   per-request vs cached (start simple).
-- **Concept IDs to reserve:** `KG-2.x` (ingestion capability elevation), `EG-x`
+- **Concept IDs to reserve:** `AU-KG.compute.kg-x` (ingestion capability elevation), `EG-x`
   (`match_ontology_terms`), `AU-ORCH.planning.orchestration-overview` (ontology-driven cascade, extends `AU-ORCH.execution.residual-ambiguous`).
 - **No-legacy:** B3 deletes the keyword list outright (no dual path); the gate is the engine.
 - **Worktree:** `feat-classify` (branch `feat/classify-fix`) holds this doc + the Telegram fix

@@ -22,7 +22,7 @@ for using, developing, and extending the framework.
 | Pillar | ID Prefix | Purpose | Key Modules |
 |--------|-----------|---------|-------------|
 | **Graph Orchestration** | `AU-ORCH.planning.orchestration-overview` | Multi-agent coordination, HTN planning, routing | `graph/`, `orchestration/` |
-| **Epistemic Knowledge Graph** | `KG-2.x` | Semantic storage, OWL ontologies, retrieval, memory | `knowledge_graph/` |
+| **Epistemic Knowledge Graph** | `AU-KG.compute.kg-x` | Semantic storage, OWL ontologies, retrieval, memory | `knowledge_graph/` |
 | **Agentic Harness Engineering** | `AU-AHE.optimization.telemetry-optimization` | Self-improvement, testing, evolution | `harness/`, `agentic_evolution/` |
 | **Ecosystem & Peripherals** | `ECO-4.x` | MCP servers, API clients, messaging, tools | `mcp/`, `tools/`, `ecosystem/` |
 | **Agent OS Infrastructure** | `OS-5.x` | Security, scheduling, identity, guardrails | `core/`, `security/`, `observability/` |
@@ -73,7 +73,7 @@ See `docs/concept_map.md` for the complete registry.
 agent_utilities/
 ├── core/              # OS-5.x: Config, paths, model factory, scheduler
 ├── graph/             # AU-ORCH.planning.orchestration-overview: Planner, executor, routing, HSM, lifecycle
-├── knowledge_graph/   # KG-2.x: Engine, memory, ontologies, KB, retrieval
+├── knowledge_graph/   # AU-KG.compute.kg-x: Engine, memory, ontologies, KB, retrieval
 ├── harness/           # AU-AHE.optimization.telemetry-optimization: Evaluation engine, evolution engine
 ├── mcp/               # ECO-4.x: Server factory, KG server
 ├── tools/             # ECO-4.x: X search, tool filtering

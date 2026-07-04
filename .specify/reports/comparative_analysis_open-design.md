@@ -25,7 +25,7 @@ backend-agnostic execution substrate and a wired-in quality-gate loop.
 | Backend-agnostic agent execution (any CLI / any provider) | **Strong** — declarative adapter registry + BYOK proxy | **Absent** — `core/execution/engine.py` is a stub; `model_factory` is pydantic-ai-only |
 | Human-in-the-loop + pre-emit quality gates | **Strong** — discovery form, P0 checklist, 5-dim critique | **Partial** — harness exists (AHE-3.1) but no `MultiDimensionalCritique`, no wired pre-emit gate |
 | Refreshable, provenance-tracked outputs | **Strong** — Live Artifacts (template+data+provenance) | **Latent** — bi-temporal/evidence-weighted/self-curating KG exists, but no artifact abstraction over it |
-| Knowledge graph / semantic memory | minimal | **Strong** — KG-2.x is the spine |
+| Knowledge graph / semantic memory | minimal | **Strong** — AU-KG.compute.kg-x is the spine |
 | Self-evolution / continuous evaluation | absent | **Strong** — AU-AHE.optimization.telemetry-optimization evolution + variant pool |
 | Multi-agent orchestration / HTN planning | absent (delegates to one CLI) | **Strong** — AU-ORCH.planning.orchestration-overview router/planner/parallel engine |
 | Concept traceability / SDD discipline | good (specs/, CONTEXT.md) | **Strong** — DSTDD, concept registry, Wire-First |
