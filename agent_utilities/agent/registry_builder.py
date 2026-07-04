@@ -149,10 +149,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
       3. operator overlay  — ``prompts_dir()`` (``~/.config/agent-utilities/prompts``)
     """
     from agent_utilities.core.paths import prompts_dir
-    from agent_utilities.core.providers import (
-        PROMPT_PROVIDER_GROUP,
-        iter_provider_dirs,
-    )
+    from agent_utilities.core.providers import resolve_prompt_provider_dirs
 
     sources: list[tuple[str, Path]] = []
 
@@ -160,7 +157,9 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     if base.exists():
         sources += [(_BASE_SOURCE, f) for f in sorted(base.glob("*.json"))]
 
-    for provider_name, pdir in iter_provider_dirs(PROMPT_PROVIDER_GROUP):
+    # XDG-first (CONCEPT:OS-5.78): the materialized unified tree when populated, else
+    # live ``prompt_providers`` entry-point discovery.
+    for provider_name, pdir in resolve_prompt_provider_dirs():
         try:
             sources += [(provider_name, f) for f in sorted(pdir.glob("*.json"))]
         except OSError as e:  # pragma: no cover - defensive

@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Kronos Foundation Model Forecaster."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.kronos_forecaster import (
@@ -10,6 +9,7 @@ from agent_utilities.domains.finance.kronos_forecaster import (
     KronosForecaster,
     KronosPredictor,
 )
+from agent_utilities.numeric import xp as np
 
 
 @pytest.fixture

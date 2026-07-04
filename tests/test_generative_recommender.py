@@ -9,7 +9,6 @@ embeddings is encoded into semantic IDs via a real (seeded)
 end to end.
 """
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.generative_recommender import (
@@ -20,6 +19,7 @@ from agent_utilities.knowledge_graph.retrieval.generative_recommender import (
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
+from agent_utilities.numeric import xp as np
 
 _DIM = 16
 _N_PER_CLUSTER = 12

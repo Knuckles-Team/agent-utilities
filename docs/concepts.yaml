@@ -22,7 +22,7 @@ pillars:
 - EG-186
 - EG-187
 - EG-321
-- EG-346
+- EG-356
 - KG-1
 - KG-2
 - LGC-1
@@ -2541,17 +2541,17 @@ concepts:
   - EG-321
   canonical_pillar: EG-0
   needs_curation: true
-- id: EG-346
-  name: is installed, the kernel-discovery loop below finds
-  pillar: EG-346
+- id: EG-356
+  name: / KG-2.324
+  pillar: EG-356
   status: live
   code_paths:
   - agent_utilities/numeric/__init__.py
-  doc: is installed, the kernel-discovery loop below finds
-  dotted: EG-0.346
+  doc: / KG-2.324
+  dotted: EG-0.356
   aliases:
-  - EG-0.346
-  - EG-346
+  - EG-0.356
+  - EG-356
   canonical_pillar: EG-0
   needs_curation: true
 - id: KG-1.0
@@ -6584,18 +6584,6 @@ concepts:
   - KG-2.314
   canonical_pillar: KG-2
   needs_curation: false
-- id: KG-2.315
-  name: the shim goes **kernel-LIVE**. Once the
-  pillar: KG-2
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: the shim goes **kernel-LIVE**. Once the
-  dotted: KG-2.315
-  aliases:
-  - KG-2.315
-  canonical_pillar: KG-2
-  needs_curation: false
 - id: KG-2.316
   name: Memory→weights distillation EXPORT path
   pillar: KG-2
@@ -6606,18 +6594,6 @@ concepts:
   dotted: KG-2.316
   aliases:
   - KG-2.316
-  canonical_pillar: KG-2
-  needs_curation: false
-- id: KG-2.317
-  name: the kernel is the **PRIMARY** numeric backend; numpy is **demoted to
-  pillar: KG-2
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: the kernel is the **PRIMARY** numeric backend; numpy is **demoted to
-  dotted: KG-2.317
-  aliases:
-  - KG-2.317
   canonical_pillar: KG-2
   needs_curation: false
 - id: KG-2.318
@@ -6631,18 +6607,6 @@ concepts:
   dotted: KG-2.318
   aliases:
   - KG-2.318
-  canonical_pillar: KG-2
-  needs_curation: false
-- id: KG-2.319
-  name: the full numpy drop
-  pillar: KG-2
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: the full numpy drop
-  dotted: KG-2.319
-  aliases:
-  - KG-2.319
   canonical_pillar: KG-2
   needs_curation: false
 - id: KG-2.320
@@ -6696,6 +6660,18 @@ concepts:
   dotted: KG-2.323
   aliases:
   - KG-2.323
+  canonical_pillar: KG-2
+  needs_curation: false
+- id: KG-2.324
+  name: '**the hard numpy/scipy drop'
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/numeric/__init__.py
+  doc: '**the hard numpy/scipy drop'
+  dotted: KG-2.324
+  aliases:
+  - KG-2.324
   canonical_pillar: KG-2
   needs_curation: false
 - id: LGC-1.0
@@ -9306,15 +9282,44 @@ concepts:
   canonical_pillar: OS-5
   needs_curation: false
 - id: OS-5.77
-  name: OKF-CIS
+  name: materialize the XDG tree + the skill toolkit
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/core/paths.py
+  - agent_utilities/core/unified_install.py
   - agent_utilities/governance/concept_hierarchy.py
-  doc: OKF-CIS
+  doc: materialize the XDG tree + the skill toolkit
   dotted: OS-5.77
   aliases:
   - OS-5.77
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.78
+  name: the materialized unified tree when populated, else
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/providers.py
+  - agent_utilities/knowledge_graph/core/ontology_federation.py
+  doc: the materialized unified tree when populated, else
+  dotted: OS-5.78
+  aliases:
+  - OS-5.78
+  canonical_pillar: OS-5
+  needs_curation: false
+- id: OS-5.79
+  name: OS-5.79
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  doc: OS-5.79
+  dotted: OS-5.79
+  aliases:
+  - OS-5.79
   canonical_pillar: OS-5
   needs_curation: false
 - id: SAFE-1.0

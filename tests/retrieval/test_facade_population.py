@@ -7,9 +7,8 @@ no embedding model, no network, no running store.
 
 from __future__ import annotations
 
-import numpy as np
-
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+from agent_utilities.numeric import xp as np
 
 DIM = 16
 

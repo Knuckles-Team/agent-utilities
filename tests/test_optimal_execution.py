@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Optimal Execution Engine."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.core.optimal_execution import (
@@ -11,6 +10,7 @@ from agent_utilities.knowledge_graph.core.optimal_execution import (
     CointegrationPairsTrader,
     SignalAdaptiveExecutor,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestAlmgrenChrissDiscrete:

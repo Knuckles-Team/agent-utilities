@@ -1,15 +1,14 @@
-"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:KG-2.312).
+"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:KG-2.312, KG-2.324).
 
 Every ``xp`` op is asserted ``np.allclose`` vs numpy on randomized inputs, with
-mandatory edge cases (nan/inf, singular matrices, empty arrays). The test runs in
-BOTH modes:
-
-* **kernel present** (``epistemic_graph.numeric`` importable) — exercises the
-  compiled faer/ndarray kernel (Surface A).
-* **kernel absent** — exercises the numpy fallback.
-
-Both must pass, which is the whole point of the ``xp`` abstraction: the shim is a
-drop-in for numpy whether or not the engine wheel has been rebuilt.
+mandatory edge cases (nan/inf, singular matrices, empty arrays). This is the ONE
+place numpy is imported directly — as **ground truth** to prove the compiled
+``epistemic_graph.numeric`` kernel (the sole runtime numeric backend) matches numpy
+bit-for-bit. It is a **dev/test-only** dependency, never a runtime one: numpy is
+declared in the ``[dev]`` optional group (``pyproject.toml``), and this module
+``pytest.importorskip("numpy")`` s so the suite skips cleanly where numpy (the
+ground-truth reference) is not installed. The shim itself never falls back to numpy
+(CONCEPT:KG-2.324) — it raises ImportError when the kernel is absent.
 
 Decomposition ops (svd/eigh/qr/cholesky/pinv/lstsq) are compared via
 reconstruction, not raw factors, because factor signs/bases are implementation
@@ -18,10 +17,11 @@ reconstruction, not raw factors, because factor signs/bases are implementation
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-from agent_utilities.numeric import HAVE_KERNEL, xp
+np = pytest.importorskip("numpy")  # dev/test-only ground-truth reference (KG-2.324)
+
+from agent_utilities.numeric import HAVE_KERNEL, xp  # noqa: E402
 
 
 def _close(a, b, atol=1e-6, rtol=1e-6):
@@ -219,8 +219,8 @@ def test_kernel_flag_is_bool():
 # --------------------------------------------------------------------------- #
 # ufunc-method surface (CONCEPT:KG-2.314) — xp.maximum / xp.minimum expose the
 # numpy ufunc-method API (.accumulate / .reduce / .outer / .at) while keeping
-# plain-call behaviour identical. Exercised on both HAVE_KERNEL branches (kernel
-# absent here -> numpy fallback; the kernel .accumulate hook is getattr-guarded).
+# plain-call behaviour identical. The kernel .accumulate hook is getattr-guarded and
+# used on bare 1-D float64; other inputs use the kernel-internal numpy ufunc.
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "x",

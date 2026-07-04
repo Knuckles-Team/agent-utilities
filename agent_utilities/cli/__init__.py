@@ -97,39 +97,66 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--workspace", default=None)
     sr.add_argument("--no-commit", action="store_true")
 
-    # CONCEPT:OS-5.52 — the quick "install the skills" path. Install the AU skill
-    # toolkit (incl. the agent-utilities skill-graph) into the calling agent tool
-    # so it unlocks how to use everything else. Thin delegate to the universal-skills
-    # installer (single source of truth) — defaults: every detected tool + the
-    # agent-utilities XDG home, graphs included.
-    isk = sub.add_parser(
-        "install-skills",
-        help="install the agent-utilities skill toolkit into agent tool(s)",
+    # CONCEPT:OS-5.77 — the unified install path. `install` materializes every provider
+    # contribution (skills + prompts + ontologies, incl. the hub's OWN) into the ONE XDG
+    # data tree the runtime reads from, then (unless --no-toolkit) also installs the AU
+    # skill toolkit into the calling agent tool(s) — the CONCEPT:OS-5.52 behavior.
+    # `install-skills` is kept as a backward-compatible alias.
+    def _add_install_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--tool",
+            default=None,
+            help="target one tool (e.g. claude, agent-utilities)",
+        )
+        parser.add_argument(
+            "--path", default=None, help="explicit skills dir to install into"
+        )
+        parser.add_argument(
+            "--layer",
+            choices=["all", "atomic", "workflows"],
+            default="all",
+            help="which layer to install (default: all)",
+        )
+        parser.add_argument(
+            "--skills", default="", help="comma-separated skill names (default: all)"
+        )
+        parser.add_argument(
+            "--group",
+            default=None,
+            help="install only skills in this category/path part",
+        )
+        parser.add_argument(
+            "--no-graphs",
+            action="store_true",
+            help="skip skill-graphs (the agent-utilities skill-graph is installed by default)",
+        )
+        parser.add_argument(
+            "--force", action="store_true", help="overwrite existing skills"
+        )
+        parser.add_argument(
+            "--symlink",
+            action="store_true",
+            help="symlink instead of copy (auto-updates)",
+        )
+        parser.add_argument(
+            "--no-toolkit",
+            action="store_true",
+            help="only materialize the unified XDG tree; skip installing the skill "
+            "toolkit into agent tools",
+        )
+
+    _add_install_args(
+        sub.add_parser(
+            "install",
+            help="materialize all provider skills+prompts+ontologies into the unified "
+            "XDG tree (+ the skill toolkit into agent tools)",
+        )
     )
-    isk.add_argument(
-        "--tool", default=None, help="target one tool (e.g. claude, agent-utilities)"
-    )
-    isk.add_argument("--path", default=None, help="explicit skills dir to install into")
-    isk.add_argument(
-        "--layer",
-        choices=["all", "atomic", "workflows"],
-        default="all",
-        help="which layer to install (default: all)",
-    )
-    isk.add_argument(
-        "--skills", default="", help="comma-separated skill names (default: all)"
-    )
-    isk.add_argument(
-        "--group", default=None, help="install only skills in this category/path part"
-    )
-    isk.add_argument(
-        "--no-graphs",
-        action="store_true",
-        help="skip skill-graphs (the agent-utilities skill-graph is installed by default)",
-    )
-    isk.add_argument("--force", action="store_true", help="overwrite existing skills")
-    isk.add_argument(
-        "--symlink", action="store_true", help="symlink instead of copy (auto-updates)"
+    _add_install_args(
+        sub.add_parser(
+            "install-skills",
+            help="alias of `install` (backward-compatible)",
+        )
     )
 
     # CONCEPT:ECO-4.42 — client-side chat/session ingestion for Claude + Antigravity
@@ -206,6 +233,23 @@ def _sleep_run(args: argparse.Namespace) -> dict[str, Any]:
         commit=not args.no_commit,
         workspace=args.workspace,
     )
+
+
+def _install(args: argparse.Namespace) -> dict[str, Any]:
+    """Unified install (CONCEPT:OS-5.77) — materialize the XDG tree + the skill toolkit.
+
+    1. Materialize every provider contribution (skills + prompts + ontologies, incl. the
+       hub's OWN) into the one XDG data tree the runtime reads from
+       (:func:`agent_utilities.core.unified_install.install_unified`, overwrite-on-reinstall).
+    2. Unless ``--no-toolkit``, also install the AU skill toolkit into the detected agent
+       tool(s) — the backward-compatible CONCEPT:OS-5.52 behavior.
+    """
+    from agent_utilities.core.unified_install import install_unified
+
+    out: dict[str, Any] = {"unified_tree": install_unified(force=True)}
+    if not getattr(args, "no_toolkit", False):
+        out["skill_toolkit"] = _install_skills(args)
+    return out
 
 
 def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
@@ -352,8 +396,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _harness_fence(args)
     elif args.command == "sleep-run":
         out = _sleep_run(args)
-    elif args.command == "install-skills":
-        out = _install_skills(args)
+    elif args.command in ("install", "install-skills"):
+        out = _install(args)
     elif args.command == "ingest-sessions":
         out = _ingest_sessions(args)
     elif args.command == "concept":

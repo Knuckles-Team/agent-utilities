@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Cross Market Arbitrage."""
 
-import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.cross_market_arb import (
@@ -9,6 +8,7 @@ from agent_utilities.domains.finance.cross_market_arb import (
     EventArbitrageEngine,
     OrnsteinUhlenbeckModel,
 )
+from agent_utilities.numeric import xp as np
 
 
 class TestCointegrationAnalyzer:
