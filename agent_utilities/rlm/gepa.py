@@ -1,6 +1,6 @@
 """GEPA (Genetic-Pareto) Prompt Optimization Loop for Recursive LMs.
 
-CONCEPT:ORCH-1.13 — GEPA Reflective Prompt Optimizer
+CONCEPT:AU-ORCH.optimization.optimize-skill-prompt-gepa — GEPA Reflective Prompt Optimizer
 """
 
 import logging
@@ -39,7 +39,7 @@ class GEPAInstance(BaseModel):
     rubric: str = ""
 
 
-# ── CONCEPT:ORCH-1.30 — Generalizing GEPA (held-out split, AgentSpec grounding, patch-merge) ──
+# ── CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — Generalizing GEPA (held-out split, AgentSpec grounding, patch-merge) ──
 # Assimilated from the GEPA paper (Agrawal et al., ICLR 2026; D_train → D_feedback + D_pareto) and
 # predict-rlm's AgentSpec (anti-overfit grounding). Makes optimized skills *transfer* off the split.
 
@@ -47,7 +47,7 @@ class GEPAInstance(BaseModel):
 class AgentSpec(BaseModel):
     """Grounds the proposer so optimized skills capture a general SOP, not benchmark glue.
 
-    CONCEPT:ORCH-1.30. ``counterfactual_axis`` names the dimension the skill must generalize across
+    CONCEPT:AU-ORCH.optimization.selection-on-unseen-data. ``counterfactual_axis`` names the dimension the skill must generalize across
     (e.g. "different app/API set"), steering the proposer away from memorizing the training split.
     """
 
@@ -106,7 +106,7 @@ def select_best_on_heldout(
 ) -> Candidate:
     """Pick the candidate with the highest held-out score (GEPA selection; patch-merge graft).
 
-    CONCEPT:ORCH-1.30 — selection happens on UNSEEN data, so a candidate that merely memorized the
+    CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — selection happens on UNSEEN data, so a candidate that merely memorized the
     feedback minibatch does not win. Ties break toward the earlier generation (simpler) candidate.
     """
     if not candidates:
@@ -126,7 +126,7 @@ class ParetoCandidatePool:
         self.objectives = objectives  # e.g., ["accuracy", "efficiency", "error_rate"]
         self.max_size = max_size
         self.pool: list[Candidate] = []
-        # CONCEPT:ORCH-1.30 — DW-GRPO anti-seesaw reward weighting (opt-in).
+        # CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — DW-GRPO anti-seesaw reward weighting (opt-in).
         self._weighter: Any = None
         if dynamic_weighting:
             from .dynamic_reward import DynamicRewardWeighter
@@ -192,7 +192,7 @@ class ParetoCandidatePool:
     def observe(self) -> dict[str, float]:
         """Record the current best-per-objective into the DW-GRPO weighter.
 
-        No-op (returns ``{}``) when dynamic weighting is disabled. CONCEPT:ORCH-1.30.
+        No-op (returns ``{}``) when dynamic weighting is disabled. CONCEPT:AU-ORCH.optimization.selection-on-unseen-data.
         """
         if self._weighter is None or not self.pool:
             return {}
@@ -204,7 +204,7 @@ class ParetoCandidatePool:
         return self._weighter.weights()
 
     def weighted_best(self) -> Candidate | None:
-        """Best candidate by DW-GRPO weighted scalarization (CONCEPT:ORCH-1.30).
+        """Best candidate by DW-GRPO weighted scalarization (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data).
 
         Falls back to the primary-objective best (identical to ``get_frontier()[0]``)
         when dynamic weighting is off or there is not yet a slope signal — so
@@ -224,7 +224,7 @@ class ParetoCandidatePool:
             return {obj: 1.0 / n for obj in self.objectives}
         return self._weighter.weights()
 
-    # ── CONCEPT:ORCH-1.31 — Graph-Native Optimization State (resumable GEPA) ──────────
+    # ── CONCEPT:AU-ORCH.optimization.graph-native-optimization-state — Graph-Native Optimization State (resumable GEPA) ──────────
 
     def to_snapshot(self) -> list[dict[str, Any]]:
         """Serialize the frontier (candidates + ancestry) for durable persistence (pure)."""
@@ -262,7 +262,7 @@ class ReflectiveMutator:
     ) -> Candidate:
         """Propose a mutated prompt variant using natural language gradients.
 
-        CONCEPT:ORCH-1.30 — when an ``agent_spec`` is supplied, its grounding (use cases, runtime
+        CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — when an ``agent_spec`` is supplied, its grounding (use cases, runtime
         surface, counterfactual axis) is prepended so the proposer writes a general SOP rather than
         rules that overfit the training minibatch.
         """
@@ -386,14 +386,14 @@ class GEPAOptimizer:
         self.evaluator_fn = evaluator_fn
         self.config = config or RLMConfig()
         self.graph_deps = graph_deps
-        self.agent_spec = agent_spec  # CONCEPT:ORCH-1.30 anti-overfit grounding
+        self.agent_spec = agent_spec  # CONCEPT:AU-ORCH.optimization.selection-on-unseen-data anti-overfit grounding
 
         self.objectives = objectives or ["accuracy", "efficiency"]
-        # CONCEPT:ORCH-1.30 — DW-GRPO anti-seesaw weighting on by default for the optimizer.
+        # CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — DW-GRPO anti-seesaw weighting on by default for the optimizer.
         self.pool = ParetoCandidatePool(
             objectives=self.objectives, dynamic_weighting=True
         )
-        # CONCEPT:ORCH-1.27 — the proposer is the STRONG model (resolved via the rlm-proposer role),
+        # CONCEPT:AU-ORCH.optimization.proposer-strong-model — the proposer is the STRONG model (resolved via the rlm-proposer role),
         # decoupled from the cheap executor/sub-LM. Falls back to the configured small model.
         from .roles import rlm_role_model
 
@@ -423,7 +423,7 @@ class GEPAOptimizer:
     ) -> Candidate:
         """Run the GEPA optimization loop over the provided dataset.
 
-        CONCEPT:ORCH-1.30 — when ``dev_fraction > 0``, the dataset is split into a feedback set (for
+        CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — when ``dev_fraction > 0``, the dataset is split into a feedback set (for
         proposing) and a held-out Pareto/dev set; the final candidate is selected by held-out score
         so optimized skills generalize off the optimization split (no overfitting to the minibatch).
         """
@@ -525,11 +525,11 @@ class GEPAOptimizer:
                 )
                 new_candidates.append(crossover_child)
 
-            # 3. Update Pool + advance DW-GRPO reward weights (anti-seesaw, CONCEPT:ORCH-1.30)
+            # 3. Update Pool + advance DW-GRPO reward weights (anti-seesaw, CONCEPT:AU-ORCH.optimization.selection-on-unseen-data)
             self.pool.update(new_candidates)
             self.pool.observe()
 
-        # CONCEPT:ORCH-1.30 — select the final candidate on the HELD-OUT pareto set (generalization),
+        # CONCEPT:AU-ORCH.optimization.selection-on-unseen-data — select the final candidate on the HELD-OUT pareto set (generalization),
         # not on the feedback minibatch the candidates were tuned on.
         frontier = self.pool.get_frontier()
         if pareto_set and len(frontier) > 1:
@@ -544,7 +544,7 @@ class GEPAOptimizer:
             )
         else:
             # DW-GRPO anti-seesaw selection (falls back to frontier[0] until the
-            # slope signal is meaningful) — CONCEPT:ORCH-1.30.
+            # slope signal is meaningful) — CONCEPT:AU-ORCH.optimization.selection-on-unseen-data.
             best_candidate = self.pool.weighted_best() or frontier[0]
             logger.info(
                 "Optimization finished. Best candidate: %s (reward weights=%s)",
@@ -556,7 +556,7 @@ class GEPAOptimizer:
     async def _score_candidate_on(
         self, candidate: Candidate, instances: list[GEPAInstance]
     ) -> float:
-        """Mean accuracy of a candidate prompt over a (held-out) instance set (CONCEPT:ORCH-1.30)."""
+        """Mean accuracy of a candidate prompt over a (held-out) instance set (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data)."""
         total = 0.0
         for instance in instances:
             harness = PredictRLM(
@@ -688,12 +688,12 @@ class GEPAOptimizer:
         except Exception as e:
             logger.warning(f"Could not persist trajectory node to graph: {e}")
 
-    # ── CONCEPT:ORCH-1.31 — Graph-Native Optimization State ──────────────────────────
+    # ── CONCEPT:AU-ORCH.optimization.graph-native-optimization-state — Graph-Native Optimization State ──────────────────────────
 
     async def persist_frontier(self, run_id: str) -> bool:
         """Snapshot the Pareto frontier (candidates + ancestry) to the durable epistemic-graph.
 
-        CONCEPT:ORCH-1.31 — enables resumable, cross-session GEPA: a killed run can resume from the
+        CONCEPT:AU-ORCH.optimization.graph-native-optimization-state — enables resumable, cross-session GEPA: a killed run can resume from the
         persisted frontier, and prior frontiers accumulate as reusable optimization state. Best-effort.
         """
         import json as _json
@@ -727,7 +727,7 @@ class GEPAOptimizer:
     async def resume_frontier(self, run_id: str) -> int:
         """Load a persisted frontier snapshot into the pool. Returns candidates restored (0 if none).
 
-        CONCEPT:ORCH-1.31. Best-effort: a missing snapshot or absent backend returns 0.
+        CONCEPT:AU-ORCH.optimization.graph-native-optimization-state. Best-effort: a missing snapshot or absent backend returns 0.
         """
         import json as _json
 

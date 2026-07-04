@@ -1,4 +1,4 @@
-# Semantic Compactor & Refactorer (CONCEPT:KG-2.7)
+# Semantic Compactor & Refactorer (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
 ## Overview
 The **Semantic Compactor** resolves the exponential database bloat caused by active agents generating millions of step-by-step reasoning traces.

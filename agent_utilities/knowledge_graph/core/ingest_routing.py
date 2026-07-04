@@ -1,5 +1,5 @@
-# CONCEPT:KG-2.269 - Ingestion graph routing: map each ingestion item to a per-source/per-repo/per-tenant destination graph so writes spread across the engine's K-way redb shard writers (EG-026) instead of funnelling into the single __commons__ graph; unified query preserved by fanning reads across the active content-graph set.
-"""Ingestion graph routing (CONCEPT:KG-2.269).
+# CONCEPT:AU-KG.ingest.unified-query-routing - Ingestion graph routing: map each ingestion item to a per-source/per-repo/per-tenant destination graph so writes spread across the engine's K-way redb shard writers (EG-026) instead of funnelling into the single __commons__ graph; unified query preserved by fanning reads across the active content-graph set.
+"""Ingestion graph routing (CONCEPT:AU-KG.ingest.unified-query-routing).
 
 The problem this removes (north-star roadmap item A). The durable engine shards
 its redb writer K ways by ``FNV-1a(graph_name) % K`` (epistemic-graph EG-026), so
@@ -119,7 +119,7 @@ def route_graph(
     1. **routing disabled** → the tenant graph (if a tenant is in scope) else the
        configured default graph — byte-for-byte today's behaviour.
     2. **tenant in scope** → the per-tenant graph (a tenant stays wholly on one
-       graph, as today; CONCEPT:KG-2.58).
+       graph, as today; CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
     3. **codebase** (``kind="code"`` or a ``repo``) → ``code:<repo>``.
     4. **chat** (``kind="chat"``) → ``chat:<agent>``.
     5. **research** (``kind="research"``) → ``research:<source_type|repo>``.
@@ -246,7 +246,7 @@ def engine_for_graph(name: str) -> Any:
     """A cached read engine bound to content graph ``name``.
 
     Builds an ``IntelligenceGraphEngine`` over an ``EpistemicGraphBackend`` bound
-    to ``name`` (CONCEPT:KG-2.148) so the standard query/search surface runs
+    to ``name`` (CONCEPT:AU-KG.backend.schedule-on-control-graph) so the standard query/search surface runs
     against that one graph. Cached per graph — connections are reused across
     fan-out reads.
     """
@@ -277,7 +277,7 @@ def safe_engine_for_graph(name: str) -> tuple[Any, str | None]:
 
 
 def _reset_for_tests() -> None:
-    """Test hook: drop the active set + cached engines (CONCEPT:KG-2.269)."""
+    """Test hook: drop the active set + cached engines (CONCEPT:AU-KG.ingest.unified-query-routing)."""
     global _seeded
     with _active_lock:
         _active_graphs.clear()

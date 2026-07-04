@@ -37,7 +37,7 @@ def test_is_trivial_query_rules():
     assert is_trivial_query("thanks a lot") is True
     # Structural escalators are NOT trivial (slash-command / multi-clause / over-length).
     # Domain/action vocabulary is no longer scored here — escalation for a turn that names a
-    # real capability is the KG lexical gate's job (CONCEPT:EG-010/ORCH-1.73).
+    # real capability is the KG lexical gate's job (CONCEPT:EG-ORCH.routing.lexical-capability-escalation/ORCH-1.73).
     assert is_trivial_query("/optimize my portfolio") is False
     assert is_trivial_query("compute the frontier and then plot the results") is False
     assert is_trivial_query("") is False

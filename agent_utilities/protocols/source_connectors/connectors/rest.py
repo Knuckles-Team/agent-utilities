@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Generic paginated REST/JSON document-source connector.
 
-CONCEPT:ECO-4.25 — reference ``Load`` + ``Poll`` connector.
-CONCEPT:ECO-4.26 — cursor-based incremental poll.
+CONCEPT:AU-ECO.connector.document-source-framework — reference ``Load`` + ``Poll`` connector.
+CONCEPT:AU-ECO.connector.incremental-poll-watermark — cursor-based incremental poll.
 
 Fetches a JSON list endpoint and maps each record to a :class:`SourceDocument`
 via a declarative field map (``id_field`` / ``title_field`` / ``text_field`` /
@@ -69,7 +69,7 @@ def _make_httpx_fetch(
 class RestJsonConnector(LoadConnector, PollConnector):
     """Map a paginated JSON list endpoint to documents.
 
-    CONCEPT:ECO-4.25.
+    CONCEPT:AU-ECO.connector.document-source-framework.
 
     Config:
         url: List endpoint (required).
@@ -195,7 +195,7 @@ class RestJsonConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Fetch the next page only, carrying the cursor across calls.
 
-        CONCEPT:ECO-4.26 — each ``poll`` advances one page; ``has_more`` and the
+        CONCEPT:AU-ECO.connector.incremental-poll-watermark — each ``poll`` advances one page; ``has_more`` and the
         ``cursor`` in the returned checkpoint drive the drain loop.
         """
         cursor = checkpoint.cursor if checkpoint else None

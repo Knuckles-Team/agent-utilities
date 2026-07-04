@@ -111,7 +111,7 @@ running daemon**. Restart the tmux host daemon (or normal supervisor) to make th
 `graph_orchestrate` path. (The host should also move from the ad-hoc tmux session back under the
 normal supervisor for durability.)
 
-## 11. ORCH-1.40 Phases 1–4 — DONE (session-anchored collections + native channels)
+## 11. AU-ORCH.session.session-anchored-collections-native Phases 1–4 — DONE (session-anchored collections + native channels)
 Robust deferral-remediation pass, all in the worktree, live-validated against the real engine:
 - **P1 (hardening, `09b4484`):** `_legacy_execute` no longer returns the whole graph for an
   unscoped query (opt-in `KG_ALLOW_FULL_SCAN`); regression test.

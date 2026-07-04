@@ -11,10 +11,10 @@
 Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 
 > **Update — Phases 1–4 shipped.** The keystones (Phase 1) plus Phases 2–4 are now
-> built, tested, and merged to local main. Concepts: KG-2.136 (context plane),
-> KG-2.137 (ops), KG-2.138 (deploy), KG-2.139 (entity), KG-2.140 (gotchas), AHE-3.62
-> (action-outcome), OS-5.48 (connector coverage), OS-5.49 (autonomy ramp), OS-5.50
-> (self-deploy + DX scripts), OS-5.51 (invisible coordination), ORCH-1.78 (goals-as-
+> built, tested, and merged to local main. Concepts: AU-KG.retrieval.route-question-its-domain (context plane),
+> AU-KG.retrieval.ops-context (ops), AU-KG.retrieval.kg-2 (deploy), AU-KG.retrieval.kg-3 (entity), AU-KG.ingest.gotcha-feedback-capture (gotchas), AU-AHE.evaluation.action-outcome-feedback
+> (action-outcome), AU-OS.deployment.connector-coverage-check (connector coverage), OS-5.49 (autonomy ramp), AU-OS.deployment.os-2
+> (self-deploy + DX scripts), AU-OS.governance.reserve-concepts-hook (invisible coordination), AU-ORCH.session.escalate-breached-goals (goals-as-
 > contracts), ORCH-1.79 (adaptive model router). Items still marked 🔭 below are
 > deliberately deferred (they need live connector data or a frontier-model pool).
 
@@ -24,10 +24,10 @@ Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 
 | Item | Concept | What |
 |---|---|---|
-| **Context plane** | KG-2.136 | `context_plane.synthesize_context(domain, query, intent)` — a provider registry generalizing `code_context`. `graph_analyze action=explain` + REST `/graph/analyze/explain`. Providers: `code`, `ops`. The cockpit is *more providers here*, not new subsystems. |
-| **Ops diagnosis** | KG-2.137 | `ops_context.diagnose_ops` — synthesizes the live `:Task`/lane/queue state into "is it healthy / why is the maint lane backing up / what's poisoned" with task+lane citations and a remediation hint. |
-| **Universal action-outcome** | AHE-3.62 | `FeedbackService.record_action_outcome` + `graph_feedback correction_type=action_outcome` — ANY action (a context answer, a deploy, a ticket close, a routing choice) reports `{success, reward?, expected?, observed?}` → reward-EMA + eval case. The back-half of the operating loop. |
-| **Shared source paths** | KG-2.136 | `core/source_paths.py` — one home for mount-alias (`/au`→canonical) normalization + repo labeling (was duplicated in `code_context`). |
+| **Context plane** | AU-KG.retrieval.route-question-its-domain | `context_plane.synthesize_context(domain, query, intent)` — a provider registry generalizing `code_context`. `graph_analyze action=explain` + REST `/graph/analyze/explain`. Providers: `code`, `ops`. The cockpit is *more providers here*, not new subsystems. |
+| **Ops diagnosis** | AU-KG.retrieval.ops-context | `ops_context.diagnose_ops` — synthesizes the live `:Task`/lane/queue state into "is it healthy / why is the maint lane backing up / what's poisoned" with task+lane citations and a remediation hint. |
+| **Universal action-outcome** | AU-AHE.evaluation.action-outcome-feedback | `FeedbackService.record_action_outcome` + `graph_feedback correction_type=action_outcome` — ANY action (a context answer, a deploy, a ticket close, a routing choice) reports `{success, reward?, expected?, observed?}` → reward-EMA + eval case. The back-half of the operating loop. |
+| **Shared source paths** | AU-KG.retrieval.route-question-its-domain | `core/source_paths.py` — one home for mount-alias (`/au`→canonical) normalization + repo labeling (was duplicated in `code_context`). |
 | **Gen-script self-resolution** | — | `gen_graphos_manifest.py` inserts its own repo root on `sys.path` so regenerating from a worktree reflects the worktree, not the editable-installed copy (a real trap that silently dropped new actions). |
 
 ---
@@ -45,7 +45,7 @@ its loaded git rev at startup**, so the provider can say "served rev R₀ vs can
 R₁ → your change is/ isn't live; restart to guarantee." Surface: `graph_analyze
 action=explain target=deploy:status`.
 
-### 2.2 Per-connector coverage + freshness (generalize OS-5.47)
+### 2.2 Per-connector coverage + freshness (generalize AU-OS.deployment.flagging-repos)
 **Problem:** the world-model is only trustworthy for *code* today. Every domain
 (tickets, deploys, processes) needs the same coverage/freshness SLA or the agent
 falls back to hitting source systems.

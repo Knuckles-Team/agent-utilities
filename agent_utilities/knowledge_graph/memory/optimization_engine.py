@@ -5,7 +5,7 @@ from __future__ import annotations
 
 """Knowledge Stability Engine.
 
-CONCEPT:AHE-3.4 — Knowledge Stability Engine
+CONCEPT:AU-AHE.evaluation.backtest-harness — Knowledge Stability Engine
 
 Consolidated engine for maintaining embedding health across the Knowledge Graph.
 Combines four previously separate capabilities into a single configurable engine:
@@ -261,7 +261,7 @@ def check_knowledge_drift(
 class MemoryOptimizationEngine:
     """Consolidated engine for embedding stability, diagnostics, and repair.
 
-    CONCEPT:AHE-3.4 — Knowledge Stability Engine
+    CONCEPT:AU-AHE.evaluation.backtest-harness — Knowledge Stability Engine
 
     Provides:
     - ``detect_drift()`` — Temporal drift detection
@@ -743,7 +743,7 @@ class MemoryOptimizationEngine:
 
 """Auto-Similarity Memory Graph.
 
-CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
+CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Auto-Similarity Memory Graph
 
 Provides automatic similarity edge creation and exponential decay scoring
 for memory nodes in the Knowledge Graph. Adapted from contextplus's
@@ -790,7 +790,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 class AutoSimilarityLinker:
     """Creates and manages auto-similarity edges between KG memory nodes.
 
-    CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
+    CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Auto-Similarity Memory Graph
 
     On node insertion, finds similar existing nodes via cosine similarity
     and creates weighted edges with exponential decay.
@@ -897,7 +897,7 @@ class AutoSimilarityLinker:
         engine: Any = None,
         nodes: list[RegistryNode] | None = None,
     ) -> list[SimilarityEdgeNode]:
-        """Build ALL similarity edges across the graph in one batch (CONCEPT:KG-2.3).
+        """Build ALL similarity edges across the graph in one batch (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).
 
         Unlike :meth:`link_new_node` (incremental, one node vs N candidates — correctly kept in
         in-process numpy), the all-pairs O(n²) construction is **collapsed onto the epistemic-graph
@@ -1037,7 +1037,7 @@ class AutoSimilarityLinker:
 
 """KG Eval Capture — Regression testing for Knowledge Graph changes.
 
-CONCEPT:AHE-3.1 — Eval & Distillation
+CONCEPT:AU-AHE.optimization.eval-distillation — Eval & Distillation
 
 Records real queries and their retrieved results natively to the Knowledge Graph
 as EvaluationRecordNode entries, enabling replay-based regression testing.
@@ -1072,7 +1072,7 @@ class EvalReplayResult(BaseModel):
 class EvaluationCapture:
     """Lightweight eval harness for Knowledge Graph retrieval regression testing.
 
-    CONCEPT:AHE-3.1 — Eval & Distillation
+    CONCEPT:AU-AHE.optimization.eval-distillation — Eval & Distillation
 
     Stores query-result pairs as EvaluationRecordNode entries directly in the KG.
     Provides replay functionality to measure retrieval drift after KG changes.
@@ -1201,7 +1201,7 @@ class EvaluationCapture:
 # --- FROM drift_tracker.py ---
 """Drift tracker — consolidated into knowledge_stability_engine.py.
 
-CONCEPT:AHE-3.4 — All drift detection now lives in
+CONCEPT:AU-AHE.evaluation.backtest-harness — All drift detection now lives in
 :mod:`agent_utilities.knowledge_graph.memory.knowledge_stability_engine`.
 """
 
@@ -1209,7 +1209,7 @@ CONCEPT:AHE-3.4 — All drift detection now lives in
 # --- FROM ewc.py ---
 """EWC module — consolidated into knowledge_stability_engine.py.
 
-CONCEPT:AHE-3.4 — All EWC functionality now lives in
+CONCEPT:AU-AHE.evaluation.backtest-harness — All EWC functionality now lives in
 :mod:`agent_utilities.knowledge_graph.memory.knowledge_stability_engine`.
 """
 
@@ -1217,7 +1217,7 @@ CONCEPT:AHE-3.4 — All EWC functionality now lives in
 # --- FROM latent_space_regularizer.py ---
 """Latent space regularizer — consolidated into knowledge_stability_engine.py.
 
-CONCEPT:KG-2.6 — Anti-collapse now lives in
+CONCEPT:AU-KG.memory.anti-collapse — Anti-collapse now lives in
 :mod:`agent_utilities.knowledge_graph.memory.knowledge_stability_engine`.
 """
 
@@ -1227,7 +1227,7 @@ CONCEPT:KG-2.6 — Anti-collapse now lives in
 
 """LLM-Powered Reflection Condenser.
 
-CONCEPT:KG-2.1 -- Observational Memory Bridge
+CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
 
 Condenses observations into durable long-term reflections using LLM.
 Wired into the existing SynthesisEngine (KG-2.4) pipeline.
@@ -1479,7 +1479,7 @@ def _stamp_timestamps(text: str, updated: str) -> str:
 
 """Cognitive Consolidation Engine.
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 
 Implements the *systems-consolidation* analogue (hippocampus → neocortex,
 McClelland, McNaughton & O'Reilly 1995) for the Unified Intelligence Graph.
@@ -1733,7 +1733,7 @@ class DecisionToPrincipleRule:
 class TraceToSkillRule:
     """Rule 3 — Trace → Skill distillation.
 
-    CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1), MEMO (2504.01990v2)
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Research: ParamMem (2604.27707v1), MEMO (2504.01990v2)
 
     **Heuristic:** N ≥ ``min_evidence_count`` ChatTurn/ExecutionTrace nodes
     that share a common tool or approach pattern with positive outcomes →
@@ -1837,7 +1837,7 @@ def ebbinghaus_decay(
 ) -> float:
     """Apply Ebbinghaus forgetting curve decay to a relevance score.
 
-    CONCEPT:KG-2.1 — Research: MEMO Survey (2504.01990v2) §3.2
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Research: MEMO Survey (2504.01990v2) §3.2
 
     Formula: relevance = base_score × exp(-λt)
     where λ = ln(2) / half_life

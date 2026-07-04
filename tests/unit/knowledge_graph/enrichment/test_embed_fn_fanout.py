@@ -1,4 +1,4 @@
-"""make_embed_fn fans batches out up to embedding capacity (CONCEPT:KG-2.143)."""
+"""make_embed_fn fans batches out up to embedding capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing)."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def test_unavailable_embedder_fails_loud_not_stub(monkeypatch):
     ``create_embedding_model()`` raised ``ModuleNotFoundError: No module named
     'llama_index.embeddings'``. The old fallback silently returned 1-dim ``[[0.0]]``
     stub vectors, so enrichment "succeeded" while corrupting the vector store and the
-    failure was invisible. It must fail loud instead. (CONCEPT:KG-2.3)
+    failure was invisible. It must fail loud instead. (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
     """
     import agent_utilities.core.embedding_utilities as eu
     from agent_utilities.knowledge_graph.enrichment.semantic import make_embed_fn
@@ -129,7 +129,7 @@ def test_available_embedder_returns_real_multidim_vectors(monkeypatch):
 
     Asserts the constructed embed fn returns the model's true multi-dimensional
     vectors — proving the document-ingest embedding path produces usable embeddings
-    rather than the degenerate 1-dim zero stub. (CONCEPT:KG-2.3)
+    rather than the degenerate 1-dim zero stub. (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
     """
     from agent_utilities.knowledge_graph.enrichment.semantic import make_embed_fn
 

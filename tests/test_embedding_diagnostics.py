@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Embedding Alignment Diagnostics."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Embedding Alignment Diagnostics."""
 
 import pytest
 

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +16,7 @@ from agent_utilities.models.knowledge_graph import (
 
 @pytest.fixture
 def mock_graph(tiny_engine):
-    # CONCEPT:KG-2.238 — run against the REAL ephemeral engine. ``tiny_engine``
+    # CONCEPT:AU-KG.memory.provides-real-ephemeral-one — run against the REAL ephemeral engine. ``tiny_engine``
     # guarantees a live engine for the session; the autouse
     # ``isolate_graph_compute_engine`` fixture pins this GraphComputeEngine AND
     # the IntelligenceGraphEngine the dependent tests build to ONE per-test

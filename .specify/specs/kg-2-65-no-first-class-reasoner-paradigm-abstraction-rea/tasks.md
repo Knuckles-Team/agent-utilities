@@ -14,8 +14,8 @@ Wire-first, ordered. Cite the real files; reuse the three engines, do not rewrit
 
 3. **Register the three existing paradigms as thin adapters** (delegate, never duplicate):
    - `PredictRLM` → `agent_utilities/rlm/predict_rlm.py` (ORCH-1.12), tag `tool-use`.
-   - `GEPAOptimizer` → `agent_utilities/rlm/gepa.py` (ORCH-1.13), tag `evolutionary-search`.
-   - `OWLBridge` → `agent_utilities/knowledge_graph/core/owl_bridge.py` (KG-2.23), tag
+   - `GEPAOptimizer` → `agent_utilities/rlm/gepa.py` (AU-ORCH.optimization.optimize-skill-prompt-gepa), tag `evolutionary-search`.
+   - `OWLBridge` → `agent_utilities/knowledge_graph/core/owl_bridge.py` (AU-KG.domains.legal-automation), tag
      `deductive-symbolic`.
    Adapters live under `agent_utilities/reasoning/adapters/`; built-ins register at import
    (per the ontology registry convention — real built-ins, never an empty shell).
@@ -30,6 +30,6 @@ Wire-first, ordered. Cite the real files; reuse the three engines, do not rewrit
    "fourth paradigm" case; add a `*_live_path` test asserting the selected reasoner's `reason(...)`
    actually ran on the seam.
 
-6. **Concept + docs.** Add `CONCEPT:KG-2.65` markers in the new modules; regenerate
+6. **Concept + docs.** Add `CONCEPT:AU-KG.compute.code-intelligence-tools` markers in the new modules; regenerate
    `docs/concepts.yaml` via `scripts/build_concepts_yaml.py`; run `scripts/check_concepts.py`; author the
    per-concept doc. `pre-commit run --all-files` green.

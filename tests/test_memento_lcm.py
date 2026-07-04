@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for LCM convergence guarantee + hierarchical summary-DAG recovery (b1-05).
 
-CONCEPT:KG-2.20
+CONCEPT:AU-KG.memory.mementified-context
 """
 
 from unittest.mock import MagicMock
@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.memory.memento_compressor import (
     recover_chain,
 )
 
-pytestmark = pytest.mark.concept("KG-2.20")
+pytestmark = pytest.mark.concept("AU-KG.memory.mementified-context")
 
 
 # --- convergence guarantee --------------------------------------------------

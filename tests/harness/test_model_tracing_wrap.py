@@ -1,4 +1,4 @@
-"""Per-LLM-call GenerationNode capture via the model wrap (CONCEPT:OS-5.68).
+"""Per-LLM-call GenerationNode capture via the model wrap (CONCEPT:AU-OS.config.model-factory-passthrough).
 
 create_model wraps the model (when a KG sink is installed) so every LLM request records
 a GenerationNode — CI-safe here with pydantic-ai's TestModel (no network).

@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.pagination (CONCEPT:ECO-4.35).
+"""Tests for agent_utilities.http.pagination (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Drives the iterators with fake page fetchers across all five dialects:
 cursor, page/page_size, offset, Link-header, since-id.

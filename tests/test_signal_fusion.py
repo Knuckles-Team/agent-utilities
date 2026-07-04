@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Signal Fusion and Alpha Combination Engine."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Signal Fusion and Alpha Combination Engine."""
 
 from agent_utilities.domains.finance.signal_fusion import (
     AlphaCombinationEngine,
@@ -30,7 +30,7 @@ class TestBayesianSignalFusion:
         assert post < 0.5
 
     def test_seed_from_kg_filters_and_weights(self):
-        """CONCEPT:EE-033 — seed fusion from stored MicrostructureSignal priors,
+        """CONCEPT:AU-AHE.assimilation.microstructure-signal-fusion — seed fusion from stored MicrostructureSignal priors,
         dropping overfit (pbo>0.5) and edgeless (sharpe<=0) signals; weight =
         directional_accuracy * standalone_sharpe."""
         from agent_utilities.models.domains.finance import MicrostructureSignalNode

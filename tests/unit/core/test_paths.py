@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.0"""
+"""CONCEPT:AU-OS.safety.doom-loop-detection"""
 
 import tempfile
 from pathlib import Path
@@ -8,7 +8,7 @@ import pytest
 from agent_utilities.core import paths
 
 
-@pytest.mark.concept("CONCEPT:OS-5.0")
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_path_defaults():
     # Verify that paths resolve dynamically and aren't empty
     assert paths.config_dir() is not None
@@ -21,7 +21,7 @@ def test_path_defaults():
     assert isinstance(paths.log_dir(), Path)
 
 
-@pytest.mark.concept("CONCEPT:OS-5.0")
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_path_overrides(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -36,7 +36,7 @@ def test_path_overrides(monkeypatch):
         assert paths.log_dir() == tmp_path / "log"
 
 
-@pytest.mark.concept("CONCEPT:OS-5.0")
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_ensure_dirs(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -61,7 +61,7 @@ def test_ensure_dirs(monkeypatch):
         assert (tmp_path / "log").exists()
 
 
-@pytest.mark.concept("CONCEPT:OS-5.0")
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_kg_db_path_resolution(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -73,7 +73,7 @@ def test_kg_db_path_resolution(monkeypatch):
         assert db_path == tmp_path / "data" / "kg" / "knowledge_graph.db"
 
 
-@pytest.mark.concept("CONCEPT:OS-5.0")
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_kg_db_path_explicit_override(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)

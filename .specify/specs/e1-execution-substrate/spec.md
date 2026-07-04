@@ -6,7 +6,7 @@
 ## Pre-Flight Checklist
 - [x] Design docs exist with KG-nearest-concepts tables (ORCH-1.33 max 0.58, ORCH-1.34 max 0.61 — both <0.70).
 - [x] Extension points identified (engine.py stub; model_factory; guardrails egress).
-- [x] New CONCEPT:ORCH-1.33/1.34 justified as new (runtime-backend + BYOK-normalization axes).
+- [x] New CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch/1.34 justified as new (runtime-backend + BYOK-normalization axes).
 - [x] Wire-First confirmed: ≤2 hops from `/api/proxy/<provider>/stream` and `graph_orchestrate`.
 - [ ] Live `kg_search` confirms similarities <0.70 before committing markers.
 - [ ] `code-enhancer` audit run against proposed changes.

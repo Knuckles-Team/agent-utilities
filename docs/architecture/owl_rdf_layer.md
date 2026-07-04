@@ -1,4 +1,4 @@
-# OWL/RDF Layer — always-on, local, fast (CONCEPT:KG-2.7)
+# OWL/RDF Layer — always-on, local, fast (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
 OWL/RDF is a **core, always-on** layer, not an enterprise add-on. It works
 identically over *any* configured LPG storage backend (epistemic-graph, LadybugDB,
@@ -9,7 +9,7 @@ dependencies**. Apache Jena Fuseki / Stardog are an *optional* enterprise
 scale-out (federation, a durable triplestore) — never required, and never on the
 critical path for the zero-dep "tiny" / Raspberry-Pi profile.
 
-## Engine-native semantic web (CONCEPT:KG-2.242)
+## Engine-native semantic web (CONCEPT:AU-KG.compute.native-sparql-owl-shacl)
 
 SPARQL, OWL DL reasoning, and SHACL are served by the **engine's native RDF
 surface** (`client.rdf.*`), not a Python rdflib/owlready2/pyshacl stack:
@@ -39,10 +39,10 @@ agent_utilities` + a `kg_server` boot need none of them.
 
 ```mermaid
 graph TB
-    ING["Ingest / write path"] --> SH["SHACL gate\n(governance + value-type shapes)\nCONCEPT:KG-2.39"]
+    ING["Ingest / write path"] --> SH["SHACL gate\n(governance + value-type shapes)\nCONCEPT:AU-KG.ontology.value-type-shacl-load"]
     SH --> LPG["LPG store\n(epistemic_graph | ladybug | pg-age/AGE | neo4j | falkordb)"]
 
-    subgraph "OWL/RDF layer — engine-native (CONCEPT:KG-2.242)"
+    subgraph "OWL/RDF layer — engine-native (CONCEPT:AU-KG.compute.native-sparql-owl-shacl)"
         TBOX["Bundled ontologies (TBox)\n+ pack object-property axioms\n(emitted as Turtle)"]
         REASON["engine OWL 2 reasoner\nclient.rdf.owl_reason\n(EL⁺/RL, confidence-weighted)"]
         BRIDGE["OWLBridge\npromote → reason → downfeed"]
@@ -85,9 +85,9 @@ regex scan.
 
 The SHACL gate (`pipeline/phases/shacl_gate.py`, on by default) validates writes
 against the bundled `governance.shapes.ttl` **and** value-type generated shapes
-(`ValueType.to_shacl()`, CONCEPT:KG-2.39). The data graph it validates is **sourced
+(`ValueType.to_shacl()`, CONCEPT:AU-KG.ontology.value-type-shacl-load). The data graph it validates is **sourced
 from the engine's RDF projection** (`get_triples` — one round-trip over the live
-graph, CONCEPT:KG-2.242), falling back to per-node LPG iteration only when no engine
+graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl), falling back to per-node LPG iteration only when no engine
 is reachable; pyshacl stays the validator (the engine has no native SHACL op).
 Violating nodes are quarantined, not silently dropped.
 
@@ -110,7 +110,7 @@ before reasoning* — transitive/symmetric/inverse/domain-range/property-chain c
 subClassOf/equivalentClass — **across the whole ecosystem at once**, so a research concept
 can be inferred to relate to a deployed service or an agent capability, not siloed.
 
-Every long-running objective is a **Loop** (KG-2.78) — kind `research`, `develop`, or
+Every long-running objective is a **Loop** (AU-KG.research.these-properties-carry) — kind `research`, `develop`, or
 `skill` — and the **one** `LoopController` (formerly the "golden loop") advances every
 active Loop through a single hot path: research loops acquire sources + reason, `develop`
 loops run act→validate (their `validation_cmd`), `skill` loops execute their skill /
@@ -128,19 +128,19 @@ daemon's `active_loops` intake so a goal is never double-driven.
 
 **Durable checkpointing is cross-cutting, not goal-specific.** `LoopController.run_loop`
 drives one Loop of any kind to completion durably: it resumes from the last checkpoint
-(`DurableExecutionManager`, backend-selected SQLite/Postgres via `state_store`, OS-5.16),
+(`DurableExecutionManager`, backend-selected SQLite/Postgres via `state_store`, AU-OS.state.unified-durable-state-externalization),
 runs each iteration under an idempotency key (at-least-once retries, exactly-once effect),
 and honors corrigible interruption (a fleet pause/kill signal → checkpoint and yield,
 SAFE-1.5). The same durable engine that runs autonomous goals therefore resumes a
 research or skill Loop after a crash.
 
-The research path runs the **`OntologyReasoningDriver`** (KG-2.79) each cycle: it promotes
+The research path runs the **`OntologyReasoningDriver`** (AU-KG.research.best-effort-lightweight-never) each cycle: it promotes
 the loop's working set + the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle`
 (promote → reason → downfeed), and **harvests the newly-inferred cross-domain relationships
 back as fresh research topics** — a closed extrapolation loop. This replaced the old
 one-shot enrichment that ran reasoning and never consumed the inferences.
 
-**Agent-Native Research Artifacts (ARA, KG-2.80)** are the OWL-native output: a 4-layer
+**Agent-Native Research Artifacts (ARA, AU-KG.ontology.verified-by-implemented-by)** are the OWL-native output: a 4-layer
 artifact (`/logic` claims, `/src` code specs, `/trace` exploration DAG with dead-ends and
 pivots, `/evidence` raw outputs) whose layers are **first-class ontology classes + typed
 object-properties** (`research_artifact`/`claim`/`code_spec`/`evidence`/`exploration_node`;
@@ -149,7 +149,7 @@ inverse, so reasoning chains a claim → evidence → ecosystem code/service aut
 which is why we extrapolate cross-domain links from the *first* compiled artifact rather
 than only "at critical mass". The ARA Compiler grounds each claim to the ecosystem it
 touches; the ARA Seal verifies it (L1 = SHACL + interface conformance + OWL consistency,
-L2 = rigor, L3 = exec-reproducibility with `/evidence` withheld via markings, KG-2.46) and
+L2 = rigor, L3 = exec-reproducibility with `/evidence` withheld via markings, AU-KG.ontology.redact-object-materialize-restricted) and
 emits a signed `seal_certificate`. Both surfaces are exposed identically — the
 `research_artifact` MCP tool and `POST {prefix}/research/*` REST — over one shared service.
 
@@ -157,10 +157,10 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
 
 - `knowledge_graph/core/owl_bridge.py` — promote/reason/downfeed + `query_sparql`;
   ARA forensic-edge characteristics (transitive `grounded_in`, `grounded_in`↔`supports`).
-- `knowledge_graph/research/ara/` — `reasoning_driver` (reasoning-as-engine, KG-2.79),
-  `artifact`/`compiler`/`seal`/`exploration`/`live_manager`/`service` (ARA, KG-2.80).
+- `knowledge_graph/research/ara/` — `reasoning_driver` (reasoning-as-engine, AU-KG.research.best-effort-lightweight-never),
+  `artifact`/`compiler`/`seal`/`exploration`/`live_manager`/`service` (ARA, AU-KG.ontology.verified-by-implemented-by).
 - `knowledge_graph/research/loops.py` — the `Loop` long-running-objective unit +
-  `submit_loop`/`active_loops`/`mark_loop_status` (KG-2.78).
+  `submit_loop`/`active_loops`/`mark_loop_status` (AU-KG.research.these-properties-carry).
 - `knowledge_graph/research/loop_controller.py` — the one `LoopController` advancing all
   Loop kinds (research stages + develop act→validate + skill execution).
 - `gateway/research_api.py` — granular `{prefix}/research/*` typed routes (single SoT);
@@ -168,6 +168,6 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
 - `knowledge_graph/backends/owl/` — `owlready2` backend + Stardog (full-DL last-resort fallback only).
 - `knowledge_graph/backends/sparql/jena_fuseki_backend.py` — optional Fuseki tier.
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.
-- `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_triples()` — the engine-native RDF surface (CONCEPT:KG-2.242): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetTriples`.
+- `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_triples()` — the engine-native RDF surface (CONCEPT:AU-KG.compute.native-sparql-owl-shacl): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetTriples`.
 - `epistemic-graph` `crates/eg-rdf` (`rdf`/`sparql`/`owl` features, pure-Rust oxrdf/oxttl/spargebra) — the native RDF/SPARQL/OWL substrate (`client.rdf.*`).
 - `core/ontology_publisher.py` — bundled-ontology collection + optional Fuseki push.

@@ -34,7 +34,7 @@ classDiagram
 
 ---
 
-## 2. Hardened WASM Sandbox Executor (OS-5.4)
+## 2. Hardened WASM Sandbox Executor (AU-OS.governance.wasm-micro-agent-sandbox)
 
 Rather than executing raw local subprocesses, the kernel runs untrusted tools inside a **WebAssembly (WASM) Sandbox** (`WasmAgentRunner`, `agent_utilities/core/wasm_runner.py`). This guarantees memory safety, execution limits, and microsecond-level isolation.
 
@@ -43,7 +43,7 @@ Rather than executing raw local subprocesses, the kernel runs untrusted tools in
 2. **Output Buffer Cap**: Output reads are capped at 4096 bytes to prevent unbounded extraction.
 3. **Restricted Callbacks**: The default linker imports **zero** host functions — no filesystem, network, env, clock, random, or stdio — unless explicitly granted.
 
-See [OS-5.4 — Hardened WASM Sandbox Executor](OS-5.7-Hardened_WASM_Executor.md) for the full gas/memory/syscall model.
+See [AU-OS.governance.wasm-micro-agent-sandbox — Hardened WASM Sandbox Executor](OS-5.7-Hardened_WASM_Executor.md) for the full gas/memory/syscall model.
 
 ---
 
@@ -59,7 +59,7 @@ $$\text{Priority Score} = \text{Base Priority} \times (1.0 + \alpha \times \text
 
 ---
 
-## 4. Ontological Guardrail Engine (OS-5.10)
+## 4. Ontological Guardrail Engine (AU-OS.safety.ontological-guardrail)
 
 High-risk tools (e.g. writing system configurations, executing financial transactions) must be verified prior to execution. The **Ontological Guardrail Engine** intercepts the tool schema and argument payload, checking for safety violation proofs against active OWL policy constraints using subsumption reasoning.
 

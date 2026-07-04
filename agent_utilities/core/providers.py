@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Entry-point provider discovery for fleet-contributed skills and prompts.
 
-CONCEPT:OS-5.52 — Modular skill/prompt contribution.
+CONCEPT:AU-OS.deployment.modular-skill-prompt-contribution — Modular skill/prompt contribution.
 
 Any installed agent-package can contribute its own skills and/or system-prompt
 blueprints to the central hub by declaring a setuptools entry-point that points
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 SKILL_PROVIDER_GROUP = "agent_utilities.skill_providers"
 PROMPT_PROVIDER_GROUP = "agent_utilities.prompt_providers"
-# CONCEPT:KG-2.320 — the third federation leg: any installed agent-package can
+# CONCEPT:AU-KG.ontology.federation-provider-leg — the third federation leg: any installed agent-package can
 # contribute its own OWL/RDF ontology module(s) to the central hub by declaring an
 # ``agent_utilities.ontology_providers`` entry-point pointing at a *data-only*
 # ``<pkg>.ontology`` subpackage carrying ``*.ttl`` (+ optional ``shapes/*.ttl``).
@@ -45,7 +45,7 @@ ONTOLOGY_PROVIDER_GROUP = "agent_utilities.ontology_providers"
 
 
 def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
-    """XDG-first prompt-provider resolution (CONCEPT:OS-5.78).
+    """XDG-first prompt-provider resolution (CONCEPT:AU-OS.deployment.unified-install-tree).
 
     Prefer the materialized unified tree (``$XDG.../prompts/<provider>/``, written by
     ``agent-utilities install``); fall back to live entry-point discovery

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Cross Market Arbitrage."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Cross Market Arbitrage."""
 
 import pytest
 

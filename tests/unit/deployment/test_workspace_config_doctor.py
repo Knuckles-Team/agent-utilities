@@ -1,6 +1,6 @@
 """Tests for the ``workspace_config`` doctor check + its loader-side validator.
 
-The check (CONCEPT:OS-5.67) validates ``workspace.yml`` through the same loader the
+The check (CONCEPT:AU-OS.deployment.os-4) validates ``workspace.yml`` through the same loader the
 bootstrap/ingestion code uses. These tests build a manifest in ``tmp_path`` (never
 the real root file) and assert: a valid manifest passes, a malformed one is flagged
 fail, and a structurally-coherent-but-incomplete one warns.

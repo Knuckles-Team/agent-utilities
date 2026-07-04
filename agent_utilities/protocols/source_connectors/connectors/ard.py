@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Agentic Resource Discovery (ARD) registry connector — consume side.
 
-CONCEPT:ECO-4.96 — ingest an external ARD registry (Hugging Face and others) as
+CONCEPT:AU-ECO.connector.ingest-external-ard-registry — ingest an external ARD registry (Hugging Face and others) as
 discoverable resources. ARD is a public discovery *protocol* (a static signed
 ``ai-catalog.json`` at a well-known URL plus a ``POST /search`` API), not an MCP-wrapped
 system — so it is a native protocol connector in the same family as ``rss``/``web``/
@@ -84,7 +84,7 @@ def _catalog_url(base: str) -> str:
 
 @register_source("ard")
 class ArdRegistryConnector(LoadConnector, PollConnector):
-    """Fetch + parse an external ARD registry into resource documents (CONCEPT:ECO-4.96).
+    """Fetch + parse an external ARD registry into resource documents (CONCEPT:AU-ECO.connector.ingest-external-ard-registry).
 
     Config:
         preset: A key in :data:`ARD_PRESETS` (e.g. ``huggingface``) seeding the rest.

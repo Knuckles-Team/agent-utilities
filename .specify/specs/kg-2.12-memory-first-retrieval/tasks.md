@@ -14,4 +14,4 @@
 - [x] `tests/unit/knowledge_graph/test_kg_2_12_memory_first_retrieval.py` — AC1–AC6 (10 tests).
 
 ## T5 — Artifacts (NFR)  [docs]
-- [x] concepts.yaml regen (KG-2.12); CHANGELOG; README KG-2 count; pillar doc note.
+- [x] concepts.yaml regen (KG-2.12); CHANGELOG; README EG-KG.compute.backend count; pillar doc note.

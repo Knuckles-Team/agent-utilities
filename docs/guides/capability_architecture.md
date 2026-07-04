@@ -1,6 +1,6 @@
 # Capability-Based Architecture Guide
 
-> **CONCEPT:KG-2.6 — Capability Abstraction Layer**
+> **CONCEPT:AU-KG.research.research-pipeline-runner — Capability Abstraction Layer**
 
 ## Overview
 
@@ -144,7 +144,7 @@ To add a new hydration source (e.g., a new monitoring tool):
 4. **No changes needed** in `hydrate_source()`, `hydrate_all()`, or the
    MCP server `graph_hydrate` tool — they resolve dynamically.
 
-## Universal Relationship Properties (CONCEPT:KG-2.6)
+## Universal Relationship Properties (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 Beyond capabilities, the core ontology provides **31 universal relationship
 properties** that apply across all domains.  These use BFO root classes as
@@ -266,7 +266,7 @@ SELECT ?fork WHERE { :OriginalRepo :hasDescendant ?fork . ?fork a :SoftwareProje
 
 | File | Change |
 |------|--------|
-| `ontology.ttl` | Added 31 universal relationship properties (CONCEPT:KG-2.6), `owl:imports` for capability ontology |
+| `ontology.ttl` | Added 31 universal relationship properties (CONCEPT:AU-KG.research.research-pipeline-runner), `owl:imports` for capability ontology |
 | `ontology_capability.ttl` | **[NEW]** Capability classes, VPN taxonomy, domain/standard classes |
 | `ontology_enterprise.ttl` | Replaced `ARISProcess` → `ProcessModel`, `LeanIXFactSheet` → `EAFactSheet` |
 | `ontology_infrastructure.ttl` | Generalized vendor-specific comments |

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1 — Adaptive Reasoning Effort (Test-Time Compute Scaling).
+"""CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Adaptive Reasoning Effort (Test-Time Compute Scaling).
 
 Continuous 0.0–1.0 float scale for reasoning effort budgeting.
 Inspired by BrowseComp-Plus (arXiv:2508.06600).
@@ -27,7 +27,7 @@ class ReasoningBudget(BaseModel):
     context_window: int = Field(ge=2)
     enable_decomposition: bool
     max_decomposition_subtasks: int = Field(ge=1)
-    # VPO (CONCEPT:AHE-3.16): width of the *diverse* best-of-k fan-out — harder
+    # VPO (CONCEPT:AU-AHE.harness.width-diverse-best-k): width of the *diverse* best-of-k fan-out — harder
     # queries get a wider, more diverse candidate search to raise best@k/pass@k.
     diversity_width: int = Field(default=1, ge=1)
 

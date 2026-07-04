@@ -1,12 +1,12 @@
-# Multi-Session Concept-ID Coordination (CONCEPT:OS-5.42)
+# Multi-Session Concept-ID Coordination (CONCEPT:AU-OS.governance.atomic-concept-id-reservation)
 
 > How many Claude sessions/worktrees claim concept ids without colliding, and how
 > the generated registries merge without overwriting each other.
 
 ## The problem
 
-Concept ids — the `CONCEPT:<PILLAR>-<n>` markers in code (`KG-2.101`, `AHE-3.49`,
-`OS-5.42`, and the per-package `KEY-001`/`GL-003` …) — are the **single contended
+Concept ids — the `CONCEPT:<PILLAR>-<n>` markers in code (`EG-KG.compute.model-free-similar-code`, `AU-AHE.reward.cache-rollout-signals`,
+`OS-5.42`, and the per-package `AU-KG.ontology.package-scoped-concept`/`GL-003` …) — are the **single contended
 resource** when several sessions work the ecosystem in parallel. Each session runs
 in its own git worktree under `/home/apps/worktrees/`, all merging to a shared
 `main`. The marker is the source of truth and `docs/concepts.yaml` is generated
@@ -45,10 +45,10 @@ Implementation: `agent_utilities/governance/concept_allocator.py`.
 
 | Kind | Example | Next-id form |
 |------|---------|--------------|
-| Pillar (agent-utilities) | `KG-2`, `OS-5`, `AHE-3` | dotted: `KG-2.102` |
+| Pillar (agent-utilities) | `EG-KG.compute.backend`, `OS-5`, `AHE-3` | dotted: `KG-2.102` |
 | Package prefix | `KEY`, `GL`, `SNOW` | zero-padded: `KEY-004` |
 
-Pass the **major number** for pillars (`KG-2`, not `KG`). Package prefixes are the
+Pass the **major number** for pillars (`EG-KG.compute.backend`, not `KG`). Package prefixes are the
 letters-only codes in `agent-packages/scripts/generate_concepts.py` (`PREFIX_MAP`).
 
 ## Claiming an id
@@ -58,12 +58,12 @@ letters-only codes in `agent-packages/scripts/generate_concepts.py` (`PREFIX_MAP
 CLI (offline-capable — no gateway needed, the right tool inside a worktree):
 
 ```bash
-# Reserve the next KG-2 id, recording the design doc that justifies it:
-agent-utilities --json concept reserve --ns KG-2 --design-doc .specify/design/my-feature/
+# Reserve the next EG-KG.compute.backend id, recording the design doc that justifies it:
+agent-utilities --json concept reserve --ns EG-KG.compute.backend --design-doc .specify/design/my-feature/
 
 # Inspect / free / reconcile:
 agent-utilities --json concept list
-agent-utilities --json concept release --id KG-2.150
+agent-utilities --json concept release --id AU-KG.ingest.agent-utilities-checkout
 agent-utilities --json concept reconcile
 
 # A per-package repo's ledger (pass its repo root):
@@ -73,8 +73,8 @@ agent-utilities --json concept reserve --ns KEY --repo agent-packages/agents/key
 MCP / REST (when driving through graph-os):
 
 ```
-concept_registry(action="reserve", namespace="KG-2", design_doc="…")   # MCP tool
-POST /concept/registry  {"action":"reserve","namespace":"KG-2"}        # REST twin
+concept_registry(action="reserve", namespace="EG-KG.compute.backend", design_doc="…")   # MCP tool
+POST /concept/registry  {"action":"reserve","namespace":"EG-KG.compute.backend"}        # REST twin
 ```
 
 Then write the marker in code using the id you were given, and (optionally) run
@@ -135,7 +135,7 @@ in the design doc is one no other session can take.
 
 ## Related
 
-* `docs/centralized_kg_coordination.md` (CONCEPT:KG-2.5) — runtime/data-plane
+* `docs/centralized_kg_coordination.md` (CONCEPT:AU-KG.compute.spectral-cluster-navigator) — runtime/data-plane
   coordination (gateway election, backpressure). This file is the *source-plane*
   (concept-id / git) counterpart.
 * `AGENTS.md` → "Working with Git Worktrees" — the worktree workflow this builds on.

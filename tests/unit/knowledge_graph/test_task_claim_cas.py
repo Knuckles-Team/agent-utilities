@@ -1,4 +1,4 @@
-"""Backend-agnostic :Task claim via the engine compare-and-set (CONCEPT:KG-2.141).
+"""Backend-agnostic :Task claim via the engine compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
 The worker claim used to be a single-host ``threading.Lock`` + Postgres advisory
 lock guarding a read-then-``SET``. It is now arbitrated by the engine's atomic
@@ -49,7 +49,7 @@ class _ClaimHarness:
         return self._tok
 
     # The claim CAS now routes through the control-plane accessor
-    # (CONCEPT:KG-2.148): ``_control`` falls back to ``self.backend`` when no
+    # (CONCEPT:AU-KG.backend.schedule-on-control-graph): ``_control`` falls back to ``self.backend`` when no
     # isolated ``control_backend`` is set, so binding the real property keeps the
     # CAS pointed at the mocked backend in these tests.
     control_backend = None

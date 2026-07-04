@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.17 — Memory Hygiene.
+"""CONCEPT:EG-KG.compute.compiled-semantic-reasoner — Memory Hygiene.
 
 Covers decay classification (archive/alert/exempt/keep), the importance-tiered half-life, the
 semantic-merge grouping with length-ratio pre-filter, and soft-archival (valid_to set, never
@@ -28,13 +28,13 @@ def _old(days: int) -> str:
     return (NOW - timedelta(days=days)).isoformat()
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_half_life_tiers():
     assert half_life_days(0.5) == 90.0  # important → slow decay
     assert half_life_days(0.1) == 30.0  # low importance → fast decay
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_decay_score_monotonic():
     fresh = decay_score(0, 0.5)
     old = decay_score(365, 0.5)
@@ -42,7 +42,7 @@ def test_decay_score_monotonic():
     assert 0.0 < old < fresh
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_classify_exempt_human_and_procedural():
     assert (
         classify_node(
@@ -58,7 +58,7 @@ def test_classify_exempt_human_and_procedural():
     )
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_classify_archive_vs_alert_vs_keep():
     # Fresh AI memory → keep.
     assert (
@@ -103,7 +103,7 @@ def test_classify_archive_vs_alert_vs_keep():
     )
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_plan_decay_buckets():
     nodes = [
         {"id": "h", "source_type": "human", "created_at": _old(999)},
@@ -127,7 +127,7 @@ def test_plan_decay_buckets():
     )
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_semantic_merge_groups_and_length_prefilter():
     a = {"id": "a", "content": "x" * 100, "embedding": [1.0, 0.0]}
     b = {
@@ -166,7 +166,7 @@ class _FakeEngine:
         self.backend = _FakeBackend(rows)
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_run_archives_via_valid_to_not_delete():
     rows = [
         {
@@ -196,7 +196,7 @@ def test_run_archives_via_valid_to_not_delete():
     assert not any("DELETE" in w[0].upper() for w in writes)
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_dry_run_does_not_write():
     rows = [
         {
@@ -215,12 +215,12 @@ def test_dry_run_does_not_write():
     assert eng.backend.writes == []
 
 
-# ── CONCEPT:KG-2.17 — semantic-merge APPLY (not just count) ──────────────────────
+# ── CONCEPT:EG-KG.compute.compiled-semantic-reasoner — semantic-merge APPLY (not just count) ──────────────────────
 
 from agent_utilities.knowledge_graph.memory.hygiene import merge_plan  # noqa: E402
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_merge_plan_unions_tags_and_max_importance():
     nodes = [
         {"id": "a", "tags": ["x"], "importance_score": 0.4},
@@ -254,7 +254,7 @@ class _MergeEngine:
         self.edges.append((src, dst, rel))
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_run_applies_merge_soft_retire_and_edge():
     # Two identical-vector, similar-length AI memories → a merge group.
     rows = [

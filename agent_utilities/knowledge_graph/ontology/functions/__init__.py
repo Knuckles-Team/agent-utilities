@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Functions runtime (CONCEPT:KG-2.41).
+"""Ontology Functions runtime (CONCEPT:AU-KG.ontology.default-runtime-bound-import).
 
 Palantir Foundry ``functions/overview`` parity for the ontology layer: typed,
 versioned, releasable user *Functions* with declared inputs/outputs, the three
@@ -24,7 +24,7 @@ Module-level live paths (populated/bound at import, never empty shells):
   - :data:`DEFAULT_FUNCTION_REGISTRY` — carries built-in ``object.summarize``
     (ON_OBJECTS) and ``numeric.aggregate`` (QUERY) functions.
   - :data:`DEFAULT_FUNCTION_RUNTIME` — a runtime bound to that registry; the
-    contract Actions (CONCEPT:KG-2.25) and derived-properties consume.
+    contract Actions (CONCEPT:AU-KG.ontology.ontology-action-system) and derived-properties consume.
 """
 
 from .objects import ObjectFunctionContext

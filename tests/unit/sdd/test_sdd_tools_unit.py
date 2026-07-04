@@ -1,6 +1,6 @@
 """Tests for SDD tools (setup, spec save, status).
 
-CONCEPT:ORCH-1.3 — Spec-Driven Development Pipeline
+CONCEPT:AU-ORCH.execution.execution-budget-caps — Spec-Driven Development Pipeline
 """
 
 from unittest.mock import MagicMock, patch

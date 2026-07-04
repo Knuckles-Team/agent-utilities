@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.29 — RunTrace is populated by the LIVE run_full_rlm loop (not just available).
+"""CONCEPT:AU-ORCH.execution.typed-failure-classification — RunTrace is populated by the LIVE run_full_rlm loop (not just available).
 
 Drives the existing `RLMEnvironment.run_full_rlm` with a fake agent + execute, and asserts a
 structured RunTrace is built as a side effect — proving the telemetry is on the live path.
@@ -29,7 +29,7 @@ class _FakeAgent:
         return _FakeRes()
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 @pytest.mark.asyncio
 async def test_run_full_rlm_populates_runtrace(monkeypatch):
     monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
@@ -53,7 +53,7 @@ async def test_run_full_rlm_populates_runtrace(monkeypatch):
     assert "Max turns reached" in result
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 @pytest.mark.asyncio
 async def test_run_full_rlm_records_failure_class(monkeypatch):
     monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)

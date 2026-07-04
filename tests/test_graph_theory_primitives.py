@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Formal Graph Theory Primitives."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Formal Graph Theory Primitives."""
 
 from typing import Any
 

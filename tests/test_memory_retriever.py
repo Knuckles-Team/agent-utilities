@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for CONCEPT:KG-2.1 — Persistent Self-Model."""
+"""Tests for CONCEPT:AU-KG.memory.tiered-memory-caching — Persistent Self-Model."""
 
 
 from dataclasses import dataclass, field

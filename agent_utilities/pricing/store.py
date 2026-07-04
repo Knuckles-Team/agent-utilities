@@ -1,6 +1,6 @@
 """Pricing refresh orchestration.
 
-CONCEPT:ECO-4.40 — Unified model pricing catalog.
+CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Fetches LiteLLM rates and overlays them onto the process-wide catalog,
 optionally persisting the resolved rows into a usage backend's

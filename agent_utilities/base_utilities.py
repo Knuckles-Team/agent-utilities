@@ -5,7 +5,7 @@ This module provides a collection of low-level helper functions and classes used
 the agent-utilities package for type conversion, environment variable expansion,
 package management, and dynamic object patching.
 
-CONCEPT:ORCH-1.3 Serialization Safety
+CONCEPT:AU-ORCH.execution.execution-budget-caps Serialization Safety
 """
 
 import inspect
@@ -52,7 +52,7 @@ __version__ = "1.0.2"
 def to_float(string=None) -> float:
     """Convert a value to a float.
 
-    CONCEPT:UTIL-1.0 — Data Type Conversion
+    CONCEPT:AU-OS.config.data-type-conversion — Data Type Conversion
 
     Args:
         string: The value to convert. Defaults to None.
@@ -76,7 +76,7 @@ def to_float(string=None) -> float:
 def to_boolean(string=None) -> bool:
     """Convert a value to a boolean.
 
-    CONCEPT:UTIL-1.0 — Data Type Conversion
+    CONCEPT:AU-OS.config.data-type-conversion — Data Type Conversion
 
     Args:
         string: The value to convert. Defaults to None.
@@ -98,7 +98,7 @@ def to_boolean(string=None) -> bool:
 def to_integer(string=None) -> int:
     """Convert a value to an integer.
 
-    CONCEPT:UTIL-1.0 — Data Type Conversion
+    CONCEPT:AU-OS.config.data-type-conversion — Data Type Conversion
 
     Args:
         string: The value to convert. Defaults to None.
@@ -122,7 +122,7 @@ def to_integer(string=None) -> int:
 def to_list(string: str | list | None = None) -> list:
     """Convert a value to a list.
 
-    CONCEPT:UTIL-1.0 — Data Type Conversion
+    CONCEPT:AU-OS.config.data-type-conversion — Data Type Conversion
 
     Args:
         string: The value to convert (JSON string or list). Defaults to None.
@@ -147,7 +147,7 @@ def to_list(string: str | list | None = None) -> list:
 def to_dict(string: str | dict | None = None) -> dict:
     """Convert a value to a dictionary.
 
-    CONCEPT:UTIL-1.0 — Data Type Conversion
+    CONCEPT:AU-OS.config.data-type-conversion — Data Type Conversion
 
     Args:
         string: The value to convert (JSON string or dict). Defaults to None.
@@ -363,7 +363,7 @@ def load_env_vars(override: bool = False) -> None:
 def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     """Serialize a model object to a JSON file (safe alternative to pickle).
 
-    CONCEPT:ORCH-1.3 Serialization Safety
+    CONCEPT:AU-ORCH.execution.execution-budget-caps Serialization Safety
 
     Supports Pydantic BaseModel instances (via .model_dump()), dicts, lists,
     and any JSON-serializable object.
@@ -391,7 +391,7 @@ def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") 
 def safe_load_model(file: str) -> Any:
     """Deserialize a model object from a JSON file (safe alternative to pickle).
 
-    CONCEPT:ORCH-1.3 Serialization Safety
+    CONCEPT:AU-ORCH.execution.execution-budget-caps Serialization Safety
 
     Args:
         file: Path to the JSON file.

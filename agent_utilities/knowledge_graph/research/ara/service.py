@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""ARAService — the single dispatch point for ARA over MCP + REST (CONCEPT:KG-2.80).
+"""ARAService — the single dispatch point for ARA over MCP + REST (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 
 One service, one source of truth: the MCP ``research_artifact`` tool and the gateway
 ``/api/research/*`` routes both call :meth:`ARAService.run`, so the surfaces never drift.
@@ -94,7 +94,7 @@ class ARAService:
         materialize: bool = True,
         **_: Any,
     ) -> dict[str, Any]:
-        """Run a native multi-perspective inquiry over ``topic`` (CONCEPT:KG-2.127).
+        """Run a native multi-perspective inquiry over ``topic`` (CONCEPT:AU-KG.research.perspectival-inquiry).
 
         The on-demand twin of the loop's perspectival acquire: derives expert lenses,
         fans KG probes across their questions, and returns the contradiction map +

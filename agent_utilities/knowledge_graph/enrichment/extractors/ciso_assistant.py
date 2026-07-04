@@ -1,4 +1,4 @@
-"""CISO Assistant GRC source extractor (CONCEPT:KG-2.110 / CISO-002).
+"""CISO Assistant GRC source extractor (CONCEPT:AU-KG.enrichment.ciso-assistant-extraction / CISO-002).
 
 Self-registering extractor that folds intuitem **CISO Assistant** GRC records
 (policies, controls, risks, threats, assessments, frameworks, assets, incidents,

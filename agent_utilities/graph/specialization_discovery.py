@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Emergent specialization: discover under-served niches and propose specialists.
 
-CONCEPT:ORCH-1.52 — an emergent-specialization discovery pass that clusters the failing or expensive task stream and proposes a new specialist archetype for any niche no existing archetype covers, so the collective autonomously increases its division of labour
+CONCEPT:AU-ORCH.routing.emergent-specialization-discovery-pass — an emergent-specialization discovery pass that clusters the failing or expensive task stream and proposes a new specialist archetype for any niche no existing archetype covers, so the collective autonomously increases its division of labour
 
 The paper (§5.4/§5.3) makes *cognitive division of labour* — and the pressure to
 specialize — the engine of collective superintelligence: specialization should increase

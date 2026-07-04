@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.23 — SWE-failure-driven remediation: unresolved -> gap Concept -> regression gate."""
+"""CONCEPT:AU-AHE.harness.capability-ratchet — SWE-failure-driven remediation: unresolved -> gap Concept -> regression gate."""
 
 from __future__ import annotations
 

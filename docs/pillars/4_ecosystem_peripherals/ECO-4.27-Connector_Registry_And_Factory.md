@@ -1,4 +1,4 @@
-# Connector Registry + Factory (CONCEPT:ECO-4.27)
+# Connector Registry + Factory (CONCEPT:AU-ECO.connector.factory-ingestion-adaptor)
 
 ## Overview
 A `@register_source` decorator + `build_connector(source_type, config)` factory + `pkgutil`

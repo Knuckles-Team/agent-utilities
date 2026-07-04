@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.19 — Self-Curating Wiki.
+"""CONCEPT:EG-KG.query.wire-protocol — Self-Curating Wiki.
 
 Covers SHA-256 delta detection (only changed pages re-ingested), atomic state persistence, and the
 dry-run path — using an injected ingest_fn so no real IngestionEngine is needed.
@@ -20,7 +20,7 @@ def _write(d, name, text):
     return p
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_file_hash_changes_with_content(tmp_path):
     p = _write(tmp_path, "a.md", "hello")
     h1 = file_hash(p)
@@ -28,7 +28,7 @@ def test_file_hash_changes_with_content(tmp_path):
     assert file_hash(p) != h1
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_first_run_ingests_all_then_delta_skips(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
@@ -50,7 +50,7 @@ def test_first_run_ingests_all_then_delta_skips(tmp_path):
     assert ingested == []
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_only_changed_page_reingested(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
@@ -66,7 +66,7 @@ def test_only_changed_page_reingested(tmp_path):
     assert ingested == ["b.md"] and s["ingested"] == 1 and s["skipped"] == 1
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_changed_files_lists_new_and_modified(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
@@ -75,7 +75,7 @@ def test_changed_files_lists_new_and_modified(tmp_path):
     assert [p.name for p in curator.changed_files(wiki)] == ["a.md"]
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_dry_run_does_not_ingest_or_write_state(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
@@ -89,7 +89,7 @@ def test_dry_run_does_not_ingest_or_write_state(tmp_path):
     assert not state.exists()  # no state committed
 
 
-@pytest.mark.concept(id="KG-2.19")
+@pytest.mark.concept(id="EG-KG.query.wire-protocol")
 def test_state_persisted_atomically(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()

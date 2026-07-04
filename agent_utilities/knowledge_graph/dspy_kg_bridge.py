@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """DSPy to Knowledge Graph Bridge.
 
-CONCEPT:KG-2.2 — DSPy Integration
-CONCEPT:ORCH-1.8 — RLM-GEPA OptimizationTrajectory
-CONCEPT:AHE-3.40 — generalized to persist *any* optimized component (prompt, tool
+CONCEPT:AU-KG.ontology.dspy-integration — DSPy Integration
+CONCEPT:AU-ORCH.optimization.gepa-optimization-trajectory — RLM-GEPA OptimizationTrajectory
+CONCEPT:AU-AHE.optimization.persist-optimized-components — generalized to persist *any* optimized component (prompt, tool
 description, skill), not just prompts, so the unified DSPy target registry has one
 durable, queryable optimization-trajectory sink.
 
@@ -45,7 +45,7 @@ class DSPyKGBridge:
         demos: list[Any] | None = None,
         traces: list[Any] | None = None,
     ) -> None:
-        """Persist any DSPy-optimized component to the KG (CONCEPT:AHE-3.40).
+        """Persist any DSPy-optimized component to the KG (CONCEPT:AU-AHE.optimization.persist-optimized-components).
 
         Generalizes the prompt-only path: ``kg_label`` selects the node class
         (``EvolvedPromptNode`` / ``EvolvedToolDescriptionNode`` / ``EvolvedSkillNode``,
@@ -93,7 +93,7 @@ class DSPyKGBridge:
     async def ingest_evolved_prompt(
         self, file_path: str, blueprint: dict[str, Any], traces: list[Any] | None = None
     ) -> None:
-        """Ingest an evolved system-prompt blueprint (CONCEPT:KG-2.2).
+        """Ingest an evolved system-prompt blueprint (CONCEPT:AU-KG.ontology.dspy-integration).
 
         Thin convenience over :meth:`ingest_evolved_component` for the system-prompt case.
         """

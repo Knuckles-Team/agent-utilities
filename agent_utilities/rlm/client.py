@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.54 — Drop-in RLM completion client and model-family-aware REPL prompt.
+"""CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — Drop-in RLM completion client and model-family-aware REPL prompt.
 
 A thin, paper-shaped client so RLM can replace a plain ``llm.completion(prompt)`` call without
 learning the structured ``run_rlm(task, input_text=...)`` signature:
@@ -41,7 +41,7 @@ class RLMResponse:
 
 
 class RLM:
-    """A drop-in recursive-LM client wrapping ``run_rlm`` (CONCEPT:ORCH-1.54).
+    """A drop-in recursive-LM client wrapping ``run_rlm`` (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client).
 
     ``backend``/``backend_kwargs`` mirror the reference RLM library ergonomics: the resolved
     ``{backend}:{model_name}`` becomes the root model. Pass an explicit ``config`` to control

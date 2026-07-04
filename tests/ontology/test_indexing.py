@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the Object Index Lifecycle / Object Data Funnel (CONCEPT:KG-2.44).
+"""Tests for the Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live).
 
 Covers: batch full-build, incremental upsert + delete reflected on the live
 index without a full rebuild, DataRestriction excluding ineligible objects,

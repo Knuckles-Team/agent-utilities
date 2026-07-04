@@ -1,4 +1,4 @@
-"""AgentBus — federated agent-to-agent bus over the KG (CONCEPT:ECO-4.84 / KG-2.141).
+"""AgentBus — federated agent-to-agent bus over the KG (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent / KG-2.141).
 
 Exercises the core (presence, durable mailbox + cursor, pub/sub, governed send, dispatch
 bridge) against an in-memory graph fake that interprets the handful of Cypher patterns the bus
@@ -281,7 +281,7 @@ def test_send_blocked_by_policy(monkeypatch, bus):
 
 
 def test_dispatch_submits_loop(monkeypatch, bus):
-    """dispatch bridges a message to fleet work via submit_loop (CONCEPT:ORCH-1.80)."""
+    """dispatch bridges a message to fleet work via submit_loop (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)."""
     captured = {}
 
     def fake_submit_loop(engine, objective, *, kind="research", prio_bucket=2, **kw):

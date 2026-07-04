@@ -1,4 +1,4 @@
-"""End-to-end tests for the evolution→branch bridge (CONCEPT:AHE-3.21).
+"""End-to-end tests for the evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge).
 
 Promoted proposals become reviewable git branches: change synthesis (embedded
 file artifacts → code change sets, prose → SDD plan skeletons), RLM-sandbox
@@ -6,7 +6,7 @@ validation, the ChangePublisher seam with the default LocalBranchPublisher
 (fresh worktree, local branch, NO push), and the governed publication flow
 through the OS-5.24 ActionPolicy's reserved ``merge_promotion`` kind.
 
-@pytest.mark.concept("AHE-3.21")
+@pytest.mark.concept("AU-AHE.harness.evolution-branch-bridge")
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from agent_utilities.knowledge_graph.research.change_synthesis import (  # noqa:
     synthesize_change_set,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.21")
+pytestmark = pytest.mark.concept("AU-AHE.harness.evolution-branch-bridge")
 
 
 class BridgeEngine(FakeEngine):
@@ -111,7 +111,7 @@ def _prose_proposal() -> dict:
         "name": "Improve ranking heuristics",
         "goal": "Ranking misses synergy signals",
         "description": "Blend synergy-bundle membership into the rank score.",
-        "concept_ids": ["KG-2.7"],
+        "concept_ids": ["AU-KG.query.vendor-agnostic-traversal"],
     }
 
 
@@ -201,7 +201,7 @@ class TestChangeSynthesis:
         spec_md = change.files[0].content
         assert "proposal:prose-1" in spec_md
         assert "Ranking misses synergy signals" in spec_md
-        assert "KG-2.7" in spec_md
+        assert "AU-KG.query.vendor-agnostic-traversal" in spec_md
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ class TestLocalBranchPublisher:
         assert result.branch in _git("branch", "--list", result.branch, cwd=target_repo)
         message = _git("log", "-1", "--format=%B", result.branch, cwd=target_repo)
         assert "proposal:code-1" in message
-        assert "AHE-3.21" in message
+        assert "AU-AHE.harness.evolution-branch-bridge" in message
         # Published file landed in the fresh worktree, not the canonical tree.
         assert (Path(result.worktree_path) / "pkg/cache.py").exists()
         assert not (target_repo / "pkg").exists()

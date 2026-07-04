@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Synergy bundles + leverage ranking (VU-4).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
@@ -11,7 +11,7 @@ from agent_utilities.knowledge_graph.assimilation import (
     synergy_bundles,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:
@@ -55,7 +55,7 @@ def _f(concept, sources=(), status="open"):
 
 def test_cross_pillar_community_becomes_bundle():
     engine = _Engine(
-        {"f_kg": _f("KG-2.1"), "f_orch": _f("ORCH-1.2"), "f_iso": _f("AHE-3.0")}
+        {"f_kg": _f("AU-KG.memory.tiered-memory-caching"), "f_orch": _f("AU-ORCH.adapter.hot-cache-invalidation"), "f_iso": _f("AU-AHE.harness.harness-evolution")}
     )
     engine.link_nodes("f_kg", "f_orch", "SIMILAR_TO", properties={"_rel": "SIMILAR_TO"})
     report = synergy_bundles(engine, min_pillars=2)
@@ -72,14 +72,14 @@ def test_cross_pillar_community_becomes_bundle():
 
 
 def test_same_pillar_community_is_not_a_bundle():
-    engine = _Engine({"a": _f("KG-2.1"), "b": _f("KG-2.5")})
+    engine = _Engine({"a": _f("AU-KG.memory.tiered-memory-caching"), "b": _f("AU-KG.compute.spectral-cluster-navigator")})
     engine.link_nodes("a", "b", "SIMILAR_TO", properties={"_rel": "SIMILAR_TO"})
     report = synergy_bundles(engine, min_pillars=2)
     assert report.bundles == []  # single pillar → no synergy
 
 
 def test_supersedes_edges_excluded_from_synergy():
-    engine = _Engine({"a": _f("KG-2.1"), "b": _f("ORCH-1.2")})
+    engine = _Engine({"a": _f("AU-KG.memory.tiered-memory-caching"), "b": _f("AU-ORCH.adapter.hot-cache-invalidation")})
     # only a duplicate edge connects them → not a synergy
     engine.link_nodes("a", "b", "SUPERSEDES", properties={"_rel": "SUPERSEDES"})
     report = synergy_bundles(engine, min_pillars=2)
@@ -89,8 +89,8 @@ def test_supersedes_edges_excluded_from_synergy():
 def test_rank_features_by_leverage():
     engine = _Engine(
         {
-            "hi": _f("KG-2.1", sources=["p1", "p2", "p3"]),  # 3 sources
-            "lo": _f("ORCH-1.2", sources=["p1"]),  # 1 source
+            "hi": _f("AU-KG.memory.tiered-memory-caching", sources=["p1", "p2", "p3"]),  # 3 sources
+            "lo": _f("AU-ORCH.adapter.hot-cache-invalidation", sources=["p1"]),  # 1 source
         }
     )
     ranked = rank_features(engine)
@@ -101,8 +101,8 @@ def test_rank_features_by_leverage():
 def test_rank_features_uses_open_only():
     engine = _Engine(
         {
-            "open1": _f("KG-2.1", sources=["p1"]),
-            "done1": _f("ORCH-1.2", sources=["p1", "p2"], status="implemented"),
+            "open1": _f("AU-KG.memory.tiered-memory-caching", sources=["p1"]),
+            "done1": _f("AU-ORCH.adapter.hot-cache-invalidation", sources=["p1", "p2"], status="implemented"),
         }
     )
     ranked = rank_features(engine)  # feature_ids=None → open_features()
@@ -119,7 +119,7 @@ def test_engine_pagerank_fast_path_used(monkeypatch):
         def pagerank(self):
             return [("a", 0.9), ("b", 0.1)]
 
-    engine = _PR({"a": _f("KG-2.1", sources=["p1"]), "b": _f("KG-2.5", sources=["p1"])})
+    engine = _PR({"a": _f("AU-KG.memory.tiered-memory-caching", sources=["p1"]), "b": _f("AU-KG.compute.spectral-cluster-navigator", sources=["p1"])})
     ranked = rank_features(engine, feature_ids=["a", "b"])
     # 'a' has higher centrality from the engine → ranks first at equal source_count
     assert ranked[0].feature_id == "a" and ranked[0].centrality == 0.9

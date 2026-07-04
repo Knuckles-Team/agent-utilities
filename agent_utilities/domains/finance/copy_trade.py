@@ -1,5 +1,5 @@
 """
-Copy-Trade Pipeline — CONCEPT:KG-2.6
+Copy-Trade Pipeline — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Engine-grounded scanner → brain → execution → exit pipeline for prediction-market
 copy-trading, wired over the EXISTING swarm-consensus machinery. This is the
@@ -59,7 +59,7 @@ def _engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numpy kernel when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())

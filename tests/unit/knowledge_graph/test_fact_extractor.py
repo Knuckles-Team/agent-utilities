@@ -1,4 +1,4 @@
-"""Unit tests for the document fact-extraction core (CONCEPT:KG-2.64).
+"""Unit tests for the document fact-extraction core (CONCEPT:AU-KG.enrichment.atomic-triple-extraction).
 
 No live LLM/embedder: the stream and embed fns are injected fakes, so these
 exercise the prompt-independent machinery — incremental parse, multi-round

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for CONCEPT:KG-2.3 — Structural Fingerprint Engine."""
+"""Tests for CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Structural Fingerprint Engine."""
 
 import os
 import textwrap

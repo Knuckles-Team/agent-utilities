@@ -1,4 +1,4 @@
-"""Cross-source inventory push tests (CONCEPT:KG-2.9)."""
+"""Cross-source inventory push tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """Guard that the enterprise-architecture ontology modules stay in the TBox.
 
-CONCEPT:KG-2.42 — the ArchiMate and LeanIX TTL modules ship as part of the
+CONCEPT:AU-KG.ontology.batch-actions-executor — the ArchiMate and LeanIX TTL modules ship as part of the
 vendor-neutral enterprise ontology; they must be in ``ontology.ttl``'s
 ``owl:imports`` closure or the reasoner never sees their classes (a shipped-but-
 dead TTL). This pins them to the import list so a future edit can't silently drop
@@ -23,7 +23,7 @@ _ONTOLOGY = (
 )
 
 
-@pytest.mark.concept("KG-2.42")
+@pytest.mark.concept("AU-KG.ontology.batch-actions-executor")
 def test_archimate_and_leanix_are_in_the_import_closure():
     graph = OntologyLoader().load_with_imports(_ONTOLOGY)
     serialized = graph.serialize(format="turtle").lower()

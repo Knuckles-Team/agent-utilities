@@ -1,4 +1,4 @@
-"""Unit tests for the fan-out (N-way mirror) backend (CONCEPT:KG-2.74).
+"""Unit tests for the fan-out (N-way mirror) backend (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Verifies the lossless-mirroring contract with recording fakes (no real
 Postgres/Neo4j/FalkorDB server required):
@@ -96,7 +96,7 @@ def _stop_drainers(fan: FanOutBackend) -> None:
 
 def _drain_outbox_sync(fan: FanOutBackend) -> None:
     """Drive the full mirror hand-off synchronously: first flush the in-memory ring
-    into the durable outbox (the persister's job, CONCEPT:KG-2.273), then apply every
+    into the durable outbox (the persister's job, CONCEPT:AU-KG.backend.authority-has-already-acked), then apply every
     mirror's outbox tail (the drainer's apply→ack path). The background threads must
     already be stopped (see :func:`_stop_drainers`) so nothing races this drain.
     Deterministic regardless of box load."""
@@ -133,7 +133,7 @@ def test_write_fans_out_to_every_mirror(tmp_path):
 
 
 def test_ack_does_not_wait_on_mirror_enqueue(tmp_path):
-    """THE KEY PRINCIPLE (CONCEPT:KG-2.273): the authority ack must NOT wait on the
+    """THE KEY PRINCIPLE (CONCEPT:AU-KG.backend.authority-has-already-acked): the authority ack must NOT wait on the
     mirror enqueue. A slow/blocked durable outbox ``append`` is absorbed by the async
     hand-off — the write returns immediately — and the mirror still receives the write
     asynchronously once the persister catches up. Operator's law: blocked time on the
@@ -168,7 +168,7 @@ def test_ack_does_not_wait_on_mirror_enqueue(tmp_path):
 
 
 def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
-    """Bounded + backpressure (CONCEPT:KG-2.273): when the in-memory ring is full
+    """Bounded + backpressure (CONCEPT:AU-KG.backend.authority-has-already-acked): when the in-memory ring is full
     (the persister can't keep up), a further write does NOT block the ack and is NOT
     dropped — it appends straight to the durable outbox (loud, reconcilable). Memory
     stays bounded."""
@@ -193,7 +193,7 @@ def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
 
 
 def test_handoff_write_lands_durably_before_mirror_ships(tmp_path):
-    """Crash-safety preserved (CONCEPT:KG-2.273): an async-handed-off write reaches the
+    """Crash-safety preserved (CONCEPT:AU-KG.backend.authority-has-already-acked): an async-handed-off write reaches the
     DURABLE outbox (so it survives a crash and replays from the cursor on restart)
     before any mirror applies it — proven here while the mirror is DOWN."""
     down = RecordingBackend("down")
@@ -282,7 +282,7 @@ def test_concurrent_writer_waits_not_locked(tmp_path):
     shared ``graph_mirror_outbox.db``) must WAIT for the write lock, not fail with
     "database is locked". Reproduces the split-storage throttle and proves the
     busy_timeout fix: while a raw connection holds the write lock, ``append`` blocks
-    briefly and then succeeds once the lock is released (CONCEPT:KG-2.74)."""
+    briefly and then succeeds once the lock is released (CONCEPT:AU-KG.backend.mirror-health-repair)."""
     import sqlite3
     import time
 

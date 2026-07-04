@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 / ORCH-1.46 — HTTP surface for the developer-workspace runtime.
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 — HTTP surface for the developer-workspace runtime.
 
 Lets the gateway (and the agent-webui SWE view, OS-5.34) drive a sandboxed workspace over REST:
 create a session, post typed actions, and stream the action/observation event log over SSE. The
@@ -116,7 +116,7 @@ async def stream_events(sid: str) -> StreamingResponse:
 
 @router.get("/sessions/{sid}/provenance")
 async def provenance(sid: str) -> dict[str, Any]:
-    """CONCEPT:OS-5.34 — the KG-provenance panel data for a run: the action/observation
+    """CONCEPT:AU-OS.scaling.kg-provenance-panel-data — the KG-provenance panel data for a run: the action/observation
     trajectory and the ``Code`` symbols each edit mutated (KG-2.64).
 
     This is what the agent-webui SWE view renders alongside the live SSE event stream — the

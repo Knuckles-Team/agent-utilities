@@ -1,10 +1,10 @@
-"""First-class multimodal memory over the engine BLOB substrate (CONCEPT:KG-2.251).
+"""First-class multimodal memory over the engine BLOB substrate (CONCEPT:AU-KG.ingest.list-durable-media).
 
 Media (an image a user sent, a voice note, a chart) used to be ephemeral and absent
 from the KG: the messaging layer transcribed audio then ``os.unlink``ed it, wrapped
 images as inline ``BinaryContent`` then discarded them, and persisted only TEXT. This
 module makes media **durable and first-class** by storing the raw bytes in the engine's
-content-addressed BLOB store (CONCEPT:KG-2.206) and recording a ``:MediaAsset`` KG node
+content-addressed BLOB store (CONCEPT:EG-KG.storage.blob-namespace) and recording a ``:MediaAsset`` KG node
 that references the blob — so "show me the chart they sent yesterday" becomes a real
 query.
 
@@ -15,7 +15,7 @@ The store is built on the ONE engine authority (no second database):
   carries that digest as its graph-side handle.
 * **One cross-modal ACID txn.** The ``:MediaAsset`` node, its ``__blob__`` reference
   (``txn.blob_ref``), and — when an embedding is supplied — its vector all land in ONE
-  ``client.txn`` commit (CONCEPT:KG-2.225): a reader never sees a node without its blob.
+  ``client.txn`` commit (CONCEPT:EG-KG.txn.reader-never-sees-node): a reader never sees a node without its blob.
 * **GC-safe.** ``blob.incref`` is called for each referencing ``:MediaAsset`` so the
   engine's refcount GC never reclaims a blob the graph still points at.
 
@@ -59,7 +59,7 @@ class StoredMedia:
 class MediaStore:
     """Persist + retrieve media as durable, content-addressed KG-linked blobs.
 
-    CONCEPT:KG-2.251. Bind to a live :class:`GraphComputeEngine` (or anything exposing
+    CONCEPT:AU-KG.ingest.list-durable-media. Bind to a live :class:`GraphComputeEngine` (or anything exposing
     a ``._client`` sync engine client with ``.blob``/``.txn``/``.nodes`` and a
     ``graph_name``). All methods are best-effort safe to call from the messaging
     background-persist path: a failure logs and returns ``None`` rather than raising.
@@ -105,7 +105,7 @@ class MediaStore:
         Steps, all on the ONE engine authority:
 
         1. ``blob.store(data)`` — content-addressed + deduped → ``digest``.
-        2. ONE cross-modal ACID txn (CONCEPT:KG-2.225): stage the ``:Blob`` node (if
+        2. ONE cross-modal ACID txn (CONCEPT:EG-KG.txn.reader-never-sees-node): stage the ``:Blob`` node (if
            new), the ``:MediaAsset`` node, the ``blob_ref`` linking asset→blob, and the
            asset embedding when supplied — then commit atomically.
         3. ``blob.incref(digest)`` so the asset's reference is counted for GC.
@@ -120,7 +120,7 @@ class MediaStore:
         try:
             digest = client.blob.store(data)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:KG-2.251] blob store failed: %s", e)
+            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] blob store failed: %s", e)
             return None
 
         blob_id = f"{_BLOB_PREFIX}{digest}"
@@ -157,24 +157,24 @@ class MediaStore:
                     },
                 )
             client.txn.add_node(txn, asset_id, asset_props)
-            # The durable graph-side reference asset→blob (CONCEPT:KG-2.225). Lands
+            # The durable graph-side reference asset→blob (CONCEPT:EG-KG.txn.reader-never-sees-node). Lands
             # atomically with the node (+ embedding) in this one commit.
             client.txn.blob_ref(txn, asset_id, digest)
             if embedding:
                 client.txn.add_embedding(txn, asset_id, list(embedding))
             committed = client.txn.commit(txn)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:KG-2.251] media ACID txn failed: %s", e)
+            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] media ACID txn failed: %s", e)
             return None
         if not committed:
-            logger.warning("[CONCEPT:KG-2.251] media txn conflict (not committed)")
+            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] media txn conflict (not committed)")
             return None
 
         # Count this asset's reference so GC never reclaims the blob underneath it.
         try:
             client.blob.incref(digest)
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:KG-2.251] blob incref skipped: %s", e)
+            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] blob incref skipped: %s", e)
 
         # Link asset→blob (:hasBlob) and asset→message (:attachedToMessage) edges so the
         # graph is navigable. Best-effort, outside the txn (pure graph edges).
@@ -183,10 +183,10 @@ class MediaStore:
             if message_id:
                 client.edges.add(asset_id, message_id, {"type": "attachedToMessage"})
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:KG-2.251] media edge link skipped: %s", e)
+            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media edge link skipped: %s", e)
 
         logger.info(
-            "[CONCEPT:KG-2.251] stored media asset %s (digest=%s, %d bytes, new=%s)",
+            "[CONCEPT:AU-KG.ingest.list-durable-media] stored media asset %s (digest=%s, %d bytes, new=%s)",
             asset_id,
             digest[:12],
             len(data),
@@ -205,7 +205,7 @@ class MediaStore:
         try:
             return self._client.blob.fetch(digest)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:KG-2.251] blob fetch failed (%s): %s", digest, e)
+            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] blob fetch failed (%s): %s", digest, e)
             return None
 
     def fetch_asset(self, asset_id: str) -> bytes | None:
@@ -214,7 +214,7 @@ class MediaStore:
             props = self._client.nodes.properties(asset_id) or {}
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "[CONCEPT:KG-2.251] asset lookup failed (%s): %s", asset_id, e
+                "[CONCEPT:AU-KG.ingest.list-durable-media] asset lookup failed (%s): %s", asset_id, e
             )
             return None
         digest = props.get("content_digest")

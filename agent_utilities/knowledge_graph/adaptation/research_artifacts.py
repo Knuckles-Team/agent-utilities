@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.6 — Research Artifact Generator.
+"""CONCEPT:AU-KG.research.research-pipeline-runner — Research Artifact Generator.
 
 Generates actionable LLM artifacts from KG-ingested research papers,
 producing structured summaries, innovation extractions, concept linkages,
@@ -15,11 +15,11 @@ Architecture:
     - **DigestArtifact**: Periodic summary of research discoveries.
 
 Integrates with:
-    - CONCEPT:KG-2.6 (ResearchPipelineRunner): Paper ingestion source
-    - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Graph traversal
-    - CONCEPT:KG-2.6 (KGSourceResolver): Content materialization
+    - CONCEPT:AU-KG.research.research-pipeline-runner (ResearchPipelineRunner): Paper ingestion source
+    - CONCEPT:AU-KG.query.object-graph-mapper (IntelligenceGraphEngine): Graph traversal
+    - CONCEPT:AU-KG.research.research-pipeline-runner (KGSourceResolver): Content materialization
 
-See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6
+See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:AU-KG.research.research-pipeline-runner
 """
 
 
@@ -97,7 +97,7 @@ class DigestArtifact(BaseModel):
 
 
 class ResearchArtifactGenerator:
-    """CONCEPT:KG-2.6 — Generates actionable LLM artifacts from KG-ingested research.
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Generates actionable LLM artifacts from KG-ingested research.
 
     Each artifact contains:
     - Structured summary (key contributions, methods, results)
@@ -241,7 +241,7 @@ class ResearchArtifactGenerator:
         filepath = output_dir / filename
         filepath.write_text(digest.markdown, encoding="utf-8")
 
-        logger.info("[CONCEPT:KG-2.6] Digest saved: %s", filepath)
+        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Digest saved: %s", filepath)
         return str(filepath)
 
     def _extract_contributions(self, content: str) -> list[str]:

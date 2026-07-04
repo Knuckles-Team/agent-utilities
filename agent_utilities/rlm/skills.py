@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.28 — Composable Skills + Generic Environment Adapter.
+"""CONCEPT:AU-ORCH.adapter.composable-skills-environment — Composable Skills + Generic Environment Adapter.
 
 Assimilated from predict-rlm (`Trampoline-AI/predict-rlm@edaddfe`, `src/predict_rlm/rlm_skills.py`)
 and the AppWorld RLM-GEPA "less harness" thesis. Two pieces:
@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 
 class Skill(BaseModel):
-    """A composable unit of agent capability (CONCEPT:ORCH-1.28)."""
+    """A composable unit of agent capability (CONCEPT:AU-ORCH.adapter.composable-skills-environment)."""
 
     name: str
     instructions: str = ""
@@ -73,7 +73,7 @@ def merge_skills(skills: list[Skill], *, name: str = "merged") -> Skill:
 
 
 class EnvironmentAdapter(Protocol):
-    """Minimal tool surface over an external environment (CONCEPT:ORCH-1.28).
+    """Minimal tool surface over an external environment (CONCEPT:AU-ORCH.adapter.composable-skills-environment).
 
     The adapter preserves the environment's state and evaluator; the RLM supplies only the policy.
     """

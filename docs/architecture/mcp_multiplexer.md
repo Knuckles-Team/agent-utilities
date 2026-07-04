@@ -6,8 +6,8 @@ endpoint, and (in `dynamic` mode) turns that aggregation into a
 up front and pulls in exactly the tools it needs at runtime — instead of being
 flooded with every tool in the fleet.
 
-> CONCEPT:ECO-4.0 (aggregation) · CONCEPT:ECO-4.34 (per-child resilience) ·
-> CONCEPT:ECO-4.36 (dynamic tool gateway)
+> CONCEPT:AU-ECO.messaging.native-backend-abstraction (aggregation) · CONCEPT:AU-ECO.mcp.profile-differences-from-client (per-child resilience) ·
+> CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog (dynamic tool gateway)
 
 ## Why
 
@@ -144,7 +144,7 @@ disambiguates). Examples: `github-mcp → gith`, `container-manager-mcp → cm`,
 
 `mount_child` spawns exactly one child on demand (stdio subprocess **or**
 streamable-http connection) inside the serving event loop. Each child is wrapped
-in a `ChildRuntime` (CONCEPT:ECO-4.34): bounded concurrency + queue, circuit
+in a `ChildRuntime` (CONCEPT:AU-ECO.mcp.profile-differences-from-client): bounded concurrency + queue, circuit
 breaker, auto-restart, session pool. A down server fails *its* mount/probe
 gracefully and is reported — it never takes down the gateway.
 
@@ -164,7 +164,7 @@ subprocess via `command`. Typical homelab setup: `graph-os` local stdio
 | `MCP_MULTIPLEXER_MODE` | `eager` | `eager` exposes all tools at boot; `dynamic` exposes meta-tools + always-on and mounts on demand. |
 | `MCP_DYNAMIC_ALWAYS_ON` | `["graph-os"]` | Children mounted at boot in dynamic mode (so `find_tools` can rank semantically). |
 | `MCP_DYNAMIC_TOP_K` | `8` | Default candidate count for `find_tools`. |
-| `MCP_CHILD_MAX_CONCURRENCY` / `_QUEUE_TIMEOUT` / `_POOL_SIZE` / `_MAX_RESTARTS` / `_RESTART_WINDOW` / `_BREAKER_THRESHOLD` / `_BREAKER_COOLDOWN` | see [configuration.md](configuration.md) | Per-child resilience (CONCEPT:ECO-4.34). |
+| `MCP_CHILD_MAX_CONCURRENCY` / `_QUEUE_TIMEOUT` / `_POOL_SIZE` / `_MAX_RESTARTS` / `_RESTART_WINDOW` / `_BREAKER_THRESHOLD` / `_BREAKER_COOLDOWN` | see [configuration.md](configuration.md) | Per-child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client). |
 
 ### `mcp_config.json` (child servers)
 

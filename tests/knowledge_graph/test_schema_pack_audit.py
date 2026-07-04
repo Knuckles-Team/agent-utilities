@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for the Schema-Pack candidate-type audit.
 
-CONCEPT:KG-2.35 — Schema-Pack Lifecycle, Loader & Audit
+CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit — Schema-Pack Lifecycle, Loader & Audit
 """
 
 

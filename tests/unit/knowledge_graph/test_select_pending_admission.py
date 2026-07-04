@@ -1,5 +1,5 @@
 """Admission gate composes with the lane/type rotation in the claim path
-(CONCEPT:ORCH-1.81).
+(CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
 These bind the REAL ``_select_pending_task`` over a fake ``query_cypher`` that
 serves controlled pending rows, plus the REAL ``WorkerRegistry`` + an
@@ -43,7 +43,7 @@ class _SelectHarness:
         return []
 
     # :Task selection now reads the isolated control plane via _control_cypher
-    # (CONCEPT:KG-2.148); in these tests the control plane is the same fake query
+    # (CONCEPT:AU-KG.backend.schedule-on-control-graph); in these tests the control plane is the same fake query
     # source, so delegate to query_cypher.
     def _control_cypher(self, query: str, params: dict | None = None):
         return self.query_cypher(query, params)

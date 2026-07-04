@@ -1,7 +1,7 @@
 # Latent-Native Memory
 
-**Concepts:** KG-2.73b (persistent latent rollout memory) · KG-2.44b
-(ontology-prior retrieval ranking) · AHE-3.48 (latent-native efficiency benchmark).
+**Concepts:** KG-2.73b (persistent latent rollout memory) · AU-KG.ontology.optional-populated-from
+(ontology-prior retrieval ranking) · AU-AHE.harness.empirical-evidence-that-latent (latent-native efficiency benchmark).
 
 **Provenance:** distilled from arXiv:2606.09828 — *"Latent Spatial Memory for Video
 World Models"* (Mirage). Mirage keeps a persistent cache **directly in the model's
@@ -24,7 +24,7 @@ trajectory stays on-manifold. Default-on; `latent_memory=False` reproduces the l
 memoryless rollout exactly. Per-step `latent_norm`/`drift` are recorded on each
 `Transition` and persisted in the `WorldModelRollout` node.
 
-### KG-2.44b — Ontology-prior retrieval ranking
+### AU-KG.ontology.optional-populated-from — Ontology-prior retrieval ranking
 `CapabilityIndex.designate()` ranked by flat cosine (+ a reward EMA). It now
 re-projects the cosine neighbourhood through the **ontology type structure**: the
 dominant ontology type among the strongest cosine hits is boosted, so a type-coherent
@@ -34,9 +34,9 @@ flow in from the live nodes via `add(node_type=…)` / `build_from_edges` / the 
 `upsert`. A richer (e.g. subsumption-aware) prior can be injected via `ontology_prior`;
 `prior_weight=0` restores pure cosine (parity).
 
-### AHE-3.48 — Latent-native efficiency benchmark
+### AU-AHE.harness.empirical-evidence-that-latent — Latent-native efficiency benchmark
 A deterministic, CPU-only benchmark that measures each mechanism against the
-round-tripped/flat baseline it replaces (mirroring the AHE-3.47 assimilation-parity
+round-tripped/flat baseline it replaces (mirroring the AU-AHE.assimilation.empirical-parity-evidence-assimilation assimilation-parity
 suite): rollout latent memory lowers trajectory drift, and the ontology prior raises
 top-k type coherence.
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Monte-Carlo Graph Search for self-evolving code/solution discovery.
 
-CONCEPT:KG-2.92 — Progressive Monte-Carlo Graph Search (MCGS) with cross-branch
+CONCEPT:AU-KG.retrieval.monte-carlo-graph-search — Progressive Monte-Carlo Graph Search (MCGS) with cross-branch
 fusion edges, retrospective memory, and decoupled hierarchical planning/coding.
 
 Assimilated from MLEvolve (arXiv:2606.06473, "MLEvolve: A Self-Evolving Framework

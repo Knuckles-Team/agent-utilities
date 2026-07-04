@@ -1,6 +1,6 @@
 """The canonical env-var set for an MCP-server ``mcp_config.json`` example.
 
-CONCEPT:OS-5.72 — Env-var single source of truth.
+CONCEPT:AU-OS.config.env-var-single-source — Env-var single source of truth.
 
 Three surfaces must agree 1:1:1 for every MCP-server package: the ``mcp_config*.json``
 ``env`` blocks, the README env-var table, and the README ``mcp_config.json`` examples.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """AHE (Agentic Harness Engineering) mixin for IntelligenceGraphEngine.
 
-CONCEPT:AHE-3.0
+CONCEPT:AU-AHE.harness.harness-evolution
 
 Extracted from engine.py. Contains self-improvement cycle methods:
 outcome recording, self-evaluation, experiments, critique, and prompt optimization.

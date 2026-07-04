@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the governance-derived Claude Code permission fence.
 
-CONCEPT:OS-5.40 — Governance-derived Claude Code permission-fence generator
+CONCEPT:AU-OS.deployment.governance-derived-claude-code — Governance-derived Claude Code permission-fence generator
 """
 
 from __future__ import annotations

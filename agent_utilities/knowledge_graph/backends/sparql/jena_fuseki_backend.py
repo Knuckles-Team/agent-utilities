@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Apache Fuseki SPARQL Backend.
 
-CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction
 
 Remote SPARQL backend for Apache Fuseki via HTTP. Suitable for
 production multi-agent deployments where a shared, persistent

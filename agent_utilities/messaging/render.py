@@ -1,6 +1,6 @@
 """Render the universal agent's Markdown reply for a specific messaging medium.
 
-CONCEPT:ECO-4.0 / Universal-capability — the orchestrator emits ONE Markdown answer; each
+CONCEPT:AU-ECO.messaging.native-backend-abstraction / Universal-capability — the orchestrator emits ONE Markdown answer; each
 messaging entrypoint only adapts how it *renders* that answer for its medium (it adds no
 capability). Telegram renders a small HTML subset (``<b> <i> <u> <s> <code> <pre> <a>``) — NOT
 generic Markdown — so a reply sent verbatim with ``parse_mode=HTML`` shows raw ``**bold**`` /

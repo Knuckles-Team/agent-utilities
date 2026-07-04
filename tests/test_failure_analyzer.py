@@ -1,4 +1,4 @@
-"""Failure-driven evolution analyzer (CONCEPT:AHE-3.18).
+"""Failure-driven evolution analyzer (CONCEPT:AU-AHE.harness.failure-evolution).
 
 Covers: deterministic signature clustering, materialization of the dormant
 telemetry schema (ExecutionSummary / PerformanceAnomaly) + synthetic
@@ -6,7 +6,7 @@ telemetry schema (ExecutionSummary / PerformanceAnomaly) + synthetic
 work — that a materialized gap is selected by the golden loop's
 ``unresolved_topics`` intake with NO golden-loop change.
 
-@pytest.mark.concept("AHE-3.18")
+@pytest.mark.concept("AU-AHE.harness.failure-evolution")
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
 )
 from agent_utilities.knowledge_graph.adaptation.topic_resolver import unresolved_topics
 
-pytestmark = pytest.mark.concept("AHE-3.18")
+pytestmark = pytest.mark.concept("AU-AHE.harness.failure-evolution")
 
 
 class _FakeEngine:

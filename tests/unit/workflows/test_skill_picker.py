@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.2 (extension) — Scenario taxonomy + eval-scored skill picker tests."""
+"""CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (extension) — Scenario taxonomy + eval-scored skill picker tests."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from agent_utilities.workflows.skill_picker import (
     infer_scenario,
 )
 
-pytestmark = pytest.mark.concept(id="ORCH-1.2")
+pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.hot-cache-invalidation")
 
 
 def test_infer_scenario():

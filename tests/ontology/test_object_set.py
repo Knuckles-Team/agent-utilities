@@ -1,4 +1,4 @@
-"""Unit tests for the Object Set Service (CONCEPT:KG-2.45).
+"""Unit tests for the Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot).
 
 These exercise :mod:`agent_utilities.knowledge_graph.ontology.object_set`
 against a small, self-contained in-memory graph implementing the duck-typed read

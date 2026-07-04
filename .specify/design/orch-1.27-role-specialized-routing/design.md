@@ -27,9 +27,9 @@ model is absent — impossible with Quarq's hardcoded clients.
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
 | ORCH-1.2 | Specialist Routing & Discovery | 0.83 | ORCH-1 |
-| ORCH-1.13 | RLM Specialist Selection | 0.71 | ORCH-1 |
+| AU-ORCH.optimization.optimize-skill-prompt-gepa | RLM Specialist Selection | 0.71 | ORCH-1 |
 | OS-5.2 | Cognitive Scheduler / Budget Routing | 0.68 | OS-5 |
-| KG-2.3 | Unified Retrieval | 0.41 | KG-2 |
+| KG-2.3 | Unified Retrieval | 0.41 | EG-KG.compute.backend |
 | AHE-3.2 | Agentic Evolution | 0.38 | AHE-3 |
 
 ### Extension Analysis
@@ -40,7 +40,7 @@ model is absent — impossible with Quarq's hardcoded clients.
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:ORCH-1.27`
+- **Proposed ID**: `CONCEPT:AU-ORCH.routing.conductor-per-step-model`
 - **Augments Pillar**: ORCH
 - **15-Phase Pipeline Integration**: Phase 2 (Structure/routing) — role resolution at agent-spawn time.
 - **Justification**: ORCH-1.2 covers *which specialist agent* handles a task; ORCH-1.27 adds the orthogonal axis of *which model tier a functional role* (planner/generator/learner/judge) binds to. Distinct enough to tag, small enough to be a pure augmentation of `pick_for_task`.

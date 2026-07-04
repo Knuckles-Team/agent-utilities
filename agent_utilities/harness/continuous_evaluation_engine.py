@@ -26,7 +26,7 @@ from .trace_backend import TraceBackend
 
 """Automated Trace Distillation Pipeline.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Experience Observability)
 
 Transforms raw traces from a pluggable TraceBackend into a structured
 EvidenceCorpus suitable for the Evolve Agent. This is the critical
@@ -90,18 +90,18 @@ class TraceDistiller:
         self.backend = backend
         self.config = config or DistillationConfig()
         self.knowledge_engine = knowledge_engine
-        # CONCEPT:AHE-3.36 — disconfirming-evidence research log, fed each round
+        # CONCEPT:AU-AHE.evaluation.disconfirming-evidence-log — disconfirming-evidence research log, fed each round
         # from the distilled corpus so failures become recorded belief updates.
         from .forecasting import ForecastBoard
         from .research_log import ResearchLog
 
         self.research_log = ResearchLog()
-        # CONCEPT:AHE-3.34 — predict-before-resolve calibration over rounds; the
+        # CONCEPT:AU-AHE.evaluation.predict-before-resolve-calibration — predict-before-resolve calibration over rounds; the
         # distiller forecasts each round's score (naively, ≈ last round) then resolves
         # it, so the harness measures its own taste over time.
         self.forecasts = ForecastBoard()
         self._last_round_score: float | None = None
-        # CONCEPT:ORCH-1.55 — the compounding eval set: each round's failures are
+        # CONCEPT:AU-ORCH.execution.eval-set-optimization-compounding — the compounding eval set: each round's failures are
         # harvested as new eval cases, so the org's eval suite (its real IP) grows
         # with every production failure (GEPA enterprise learning loop).
         from agent_utilities.rlm.eval_set_optimizer import EvalSet
@@ -164,7 +164,7 @@ class TraceDistiller:
             f"Pass rate: {corpus.pass_rate:.1%}, Score: {corpus.benchmark_score:.2f}"
         )
 
-        # Stage 6b — research-craft triage (CONCEPT:AHE-3.36): cluster the failures
+        # Stage 6b — research-craft triage (CONCEPT:AU-AHE.evaluation.disconfirming-evidence-log): cluster the failures
         # into piles and surface the BIGGEST one to attack first (Ng's "pull the
         # failures, sort into piles, attack the biggest"), and log the failure
         # root-causes as disconfirming evidence (Darwin's rule).
@@ -284,7 +284,7 @@ class TraceDistiller:
         """Stage 3: Group failures by root cause.
 
         Uses RLM for deep semantic clustering when trace count exceeds
-        the configured ``ahe_trace_threshold`` (CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1).
+        the configured ``ahe_trace_threshold`` (CONCEPT:AU-ORCH.execution.rlm-experience-observability × CONCEPT:AU-ORCH.execution.rlm-experience-observability).
         Falls back to keyword-based grouping otherwise.
 
         Args:
@@ -322,7 +322,7 @@ class TraceDistiller:
     ) -> list[FailureCluster]:
         """RLM-powered failure clustering for large trace sets.
 
-        CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1 — RLM for AHE Experience Observability
+        CONCEPT:AU-ORCH.execution.rlm-experience-observability × CONCEPT:AU-ORCH.execution.rlm-experience-observability — RLM for AHE Experience Observability
 
         Delegates to an RLM sub-agent that programmatically loops over
         all failure entries, applies semantic grouping using the KG,
@@ -570,7 +570,7 @@ _DEFAULT_DB_PATH = _get_default_db_path()
 
 
 class BacktestMetric(BaseModel):
-    """A single metric from a backtest run. CONCEPT:AHE-3.4"""
+    """A single metric from a backtest run. CONCEPT:AU-AHE.evaluation.backtest-harness"""
 
     metric_name: str
     value: float
@@ -580,7 +580,7 @@ class BacktestMetric(BaseModel):
 
 
 class BacktestRunRecord(BaseModel):
-    """Complete record of a backtest run. CONCEPT:AHE-3.4"""
+    """Complete record of a backtest run. CONCEPT:AU-AHE.evaluation.backtest-harness"""
 
     run_id: str
     strategy_id: str = ""
@@ -599,7 +599,7 @@ class BacktestRunRecord(BaseModel):
 
 
 class BacktestComparison(BaseModel):
-    """Comparison result between a run and a benchmark. CONCEPT:AHE-3.4"""
+    """Comparison result between a run and a benchmark. CONCEPT:AU-AHE.evaluation.backtest-harness"""
 
     run_id: str
     benchmark_id: str
@@ -613,7 +613,7 @@ class BacktestComparison(BaseModel):
 class BacktestHarness:
     """Domain-agnostic backtesting and evaluation harness.
 
-    CONCEPT:AHE-3.4 — Backtest Evaluation Harness
+    CONCEPT:AU-AHE.evaluation.backtest-harness — Backtest Evaluation Harness
 
     Records evaluation runs to a separate SQLite database to prevent
     KG contamination (same pattern as KGEvalCapture).
@@ -679,7 +679,7 @@ class BacktestHarness:
     ) -> str:
         """Create a new backtest run.
 
-        CONCEPT:AHE-3.4
+        CONCEPT:AU-AHE.evaluation.backtest-harness
 
         Args:
             strategy_id: Reference to the strategy being evaluated.
@@ -751,7 +751,7 @@ class BacktestHarness:
     ) -> None:
         """Record a metric for a backtest run.
 
-        CONCEPT:AHE-3.4
+        CONCEPT:AU-AHE.evaluation.backtest-harness
 
         Args:
             run_id: The run to record the metric for.
@@ -801,7 +801,7 @@ class BacktestHarness:
     ) -> BacktestRunRecord | None:
         """Complete a backtest run and finalize results.
 
-        CONCEPT:AHE-3.4
+        CONCEPT:AU-AHE.evaluation.backtest-harness
 
         Args:
             run_id: The run to complete.
@@ -861,7 +861,7 @@ class BacktestHarness:
     ) -> list[BacktestComparison]:
         """Compare a run's metrics against benchmark values.
 
-        CONCEPT:AHE-3.4
+        CONCEPT:AU-AHE.evaluation.backtest-harness
 
         Args:
             run_id: The run to compare.
@@ -1210,7 +1210,7 @@ class EvaluationMonitor:
 
 
 # ---------------------------------------------------------------------------
-# EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.1)
+# EvalRunner — Multi-Strategy Scoring (CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation)
 # ---------------------------------------------------------------------------
 # Ported from MATE's eval_runner.py. Provides three concrete scoring
 # strategies that execute automatically against test cases:
@@ -1227,7 +1227,7 @@ class EvaluationMonitor:
 class EvalStrategy(StrEnum):
     """Evaluation strategy for scoring agent responses.
 
-    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
+    CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation — Multi-Strategy Evaluation
 
     Ported from MATE's eval_runner.py pattern with three concrete
     strategies plus a composite mode that combines all three.
@@ -1237,14 +1237,14 @@ class EvalStrategy(StrEnum):
     SEMANTIC_SIMILARITY = "semantic_similarity"
     LLM_JUDGE = "llm_judge"
     COMPOSITE = "composite"
-    #: CONCEPT:AHE-3.25 — judge a plain-English assertion (Opik "Test Suite" style).
+    #: CONCEPT:AU-AHE.evaluation.plain-english-regression-assertions — judge a plain-English assertion (Opik "Test Suite" style).
     ASSERTION = "assertion"
 
 
 class TestCase(BaseModel):
     """A single evaluation test case with expected output.
 
-    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
+    CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation — Multi-Strategy Evaluation
 
     Mirrors MATE's test case schema but adds KG provenance fields
     for integration with the agent-utilities knowledge graph.
@@ -1260,7 +1260,7 @@ class TestCase(BaseModel):
     assertion: str = Field(
         default="",
         description=(
-            "CONCEPT:AHE-3.25 — Plain-English regression assertions with verified-remediation auto-lock (Opik Test Suite style). "
+            "CONCEPT:AU-AHE.evaluation.plain-english-regression-assertions — Plain-English regression assertions with verified-remediation auto-lock (Opik Test Suite style). "
             "Optional pass/fail assertion judged by LLM-as-judge; when set, it takes "
             "precedence over expected-output scoring."
         ),
@@ -1270,7 +1270,7 @@ class TestCase(BaseModel):
 class EvalResult(BaseModel):
     """Result of evaluating a single test case.
 
-    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
+    CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation — Multi-Strategy Evaluation
 
     Contains per-strategy scores and a final composite score.
     """
@@ -1294,7 +1294,7 @@ class EvalResult(BaseModel):
 class EvalRunner:
     """Multi-strategy evaluation runner.
 
-    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
+    CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation — Multi-Strategy Evaluation
 
     Ported from MATE's ``EvalRunner`` with three scoring strategies:
 
@@ -1397,7 +1397,7 @@ class EvalRunner:
         )
 
         # A plain-English assertion is the test (Opik Test Suite semantics):
-        # it takes precedence over expected-output scoring. CONCEPT:AHE-3.25.
+        # it takes precedence over expected-output scoring. CONCEPT:AU-AHE.evaluation.plain-english-regression-assertions.
         if test_case.assertion or effective_strategy == EvalStrategy.ASSERTION:
             score, reasoning = self._assertion_judge(
                 test_case.assertion or test_case.expected_output,
@@ -1665,7 +1665,7 @@ class EvalRunner:
     def _assertion_judge(assertion: str, query: str, actual: str) -> tuple[float, str]:
         """Judge a plain-English assertion, returning (1.0|0.0, reasoning).
 
-        CONCEPT:AHE-3.25 — the Opik "Test Suite" check: a human-readable assertion
+        CONCEPT:AU-AHE.evaluation.plain-english-regression-assertions — the Opik "Test Suite" check: a human-readable assertion
         is converted to an LLM-as-judge pass/fail. Falls back to a substring check
         when no model is available, so the seam works offline.
         """
@@ -1739,9 +1739,9 @@ class InterpretabilityTestCase:
 class InterpretabilityGrader:
     """LLM-based grading for interpretability test responses.
 
-    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — LLM-Graded Interpretability Tests
 
-    Uses the EvalRunner (CONCEPT:AHE-3.1) infrastructure for
+    Uses the EvalRunner (CONCEPT:AU-AHE.evaluation.multi-strategy-evaluation) infrastructure for
     LLM-as-Judge scoring with numerical tolerance. Detects
     reward hacking when the model's ``__str__()`` directly
     contains the answer.
@@ -1840,7 +1840,7 @@ class InterpretabilityGrader:
 class InterpretabilityTestSuite:
     """Manages the full interpretability test protocol.
 
-    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — LLM-Graded Interpretability Tests
 
     Implements the 6-category, 200-test protocol from arXiv:2605.03808:
         1. Feature Attribution (32 tests)
@@ -2220,7 +2220,7 @@ class InterpretabilityTestSuite:
                     tolerance=r.get("tolerance", 0.05),
                     evaluator_model=self._grader.evaluator_model,
                     imodel_node_id=imodel_node_id,
-                    metadata={"concept": "AHE-3.16", "paper": "arXiv:2605.03808"},
+                    metadata={"concept": "AU-AHE.harness.width-diverse-best-k", "paper": "arXiv:2605.03808"},
                 )
                 ogm.upsert(node)
                 ogm.upsert_edge(

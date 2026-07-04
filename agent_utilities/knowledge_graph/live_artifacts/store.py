@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Live Artifact store (in-memory index + optional KG persistence).
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Artifact store (in-memory index + optional KG persistence).
 
 ``create`` validates the bounded-JSON contract, renders once, and persists. Persistence is via an
 injectable ``writer`` callable so the store is unit-testable without a live KG; in production the

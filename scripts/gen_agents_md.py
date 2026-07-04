@@ -115,13 +115,23 @@ def concepts_section() -> str:
         "_Auto-generated from `docs/concepts.yaml` (single source of truth). "
         f"{total} concepts across {len(pillars)} pillars._",
         "",
-        "| Pillar | Count | Concept IDs |",
+        "| Pillar | Count | Domains |",
         "|:------|:---:|:------|",
     ]
     for pillar in pillars:
-        members = sorted(by_pillar[pillar], key=lambda c: _id_sort_key(c["id"]))
-        ids = ", ".join(m["id"] for m in members)
-        lines.append(f"| **{pillar}** | {len(members)} | {ids} |")
+        members = by_pillar[pillar]
+        # OKF-CIS ids are <SLUG>-<PILLAR>.<domain>.<concept>; summarize by the
+        # closed domain set (compact + surfaces the taxonomy) rather than listing
+        # every id (908 long ids would bloat AGENTS.md far past its size gate).
+        doms = sorted({
+            c["id"].split(".")[1]
+            for c in members
+            if "." in c["id"] and "-" in c["id"].split(".")[0]
+        })
+        summary = ", ".join(doms) if doms else f"{len(members)} concept(s)"
+        lines.append(f"| **{pillar}** | {len(members)} | {summary} |")
+    lines.append("")
+    lines.append("_Full id list + code paths: `docs/concepts.yaml`._")
     lines.append("")
     return "\n".join(lines)
 

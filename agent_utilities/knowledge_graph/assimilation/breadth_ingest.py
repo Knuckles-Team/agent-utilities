@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Breadth-ingest orchestration (CONCEPT:KG-2.7).
+"""Breadth-ingest orchestration (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Brings the *whole* comparison corpus into the assimilation graph: the OSS library
 categories, our ~62 ecosystem repos, and a documents batch. Classification +
@@ -193,7 +193,7 @@ def discover_concepts(roots: list[str], *, max_depth: int = 3) -> list[dict[str,
 
     Authoritative source is each repo's ``docs/concepts.yaml`` registry (id + name +
     pillar + status); repos that ship none fall back to a bounded ``CONCEPT:<ID>``
-    marker scan (id only). Registry entries win on id collisions. (CONCEPT:KG-2.7)
+    marker scan (id only). Registry entries win on id collisions. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     """
     import yaml
 
@@ -254,7 +254,7 @@ def run_breadth_ingest(
     the real ``IngestionEngine`` codebase path; ``doc_ingest`` /  ``concept_ingest``
     default to :func:`assimilation.ingest.ingest_documents` / ``ingest_concepts``.
     All injectable for testing. The concept pass is what gives the golden-loop gap
-    matcher its "already-built" comparison surface (CONCEPT:KG-2.7).
+    matcher its "already-built" comparison surface (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
     """
     cb = codebase_ingest or _default_codebase_ingest
     di = doc_ingest or _default_doc_ingest
@@ -313,7 +313,7 @@ def _is_self_repo(path: str | Path) -> bool:
 
     The self-repo is the one box that is routinely DIRTY (active development),
     so it is the case worth scoping to git-status-modified files. Detected by the
-    presence of the ``agent_utilities`` package at the root. (CONCEPT:KG-2.150)
+    presence of the ``agent_utilities`` package at the root. (CONCEPT:AU-KG.ingest.agent-utilities-checkout)
     """
     p = Path(path)
     return (p / "agent_utilities" / "__init__.py").is_file()
@@ -326,7 +326,7 @@ def _git_modified_source_files(path: str | Path) -> list[str]:
     ``git status --porcelain`` and keeps only added/modified/untracked files whose
     extension is engine-supported and outside vendored/build dirs. Renames keep the
     new name; deletions are dropped. Returns absolute paths; ``[]`` if git can't
-    answer or nothing source-relevant changed. (CONCEPT:KG-2.150)
+    answer or nothing source-relevant changed. (CONCEPT:AU-KG.ingest.agent-utilities-checkout)
     """
     import subprocess
 
@@ -366,16 +366,16 @@ def _git_modified_source_files(path: str | Path) -> list[str]:
 def _default_codebase_ingest(engine: Any, manifest: ProjectManifest) -> bool:
     """Submit a codebase ingest via the live engine (content-addressed skip).
 
-    Git-SHA pre-skip (CONCEPT:KG-2.8): an always-on breadth loop re-runs every few
+    Git-SHA pre-skip (CONCEPT:EG-KG.storage.nonblocking-checkpoint): an always-on breadth loop re-runs every few
     minutes, but a clean git work-tree still at the HEAD we last ingested has nothing
     new. Mirror the engine's ``codebase_git`` delta watermark *exactly* (same
     ``_git_head_sha`` / ``_git_worktree_clean`` helpers + manifest key) so we skip the
     task enqueue — and the whole-tree stat-walk the engine's seen-check would do —
-    only when the engine would have skipped anyway. (CONCEPT:KG-2.150 extends this so
+    only when the engine would have skipped anyway. (CONCEPT:AU-KG.ingest.agent-utilities-checkout extends this so
     the pre-skip is the authoritative gate: a clean tree at the ingested HEAD never
     enqueues a task at all — saving the parse/chunk, not just the write.)
 
-    Dirty-tree self-ingest scoping (CONCEPT:KG-2.150): the agent-utilities checkout
+    Dirty-tree self-ingest scoping (CONCEPT:AU-KG.ingest.agent-utilities-checkout): the agent-utilities checkout
     is routinely dirty, which disables the engine's clean-tree git-diff and forces a
     FULL re-walk every tick. For that one repo, scope the submitted task to just the
     git-status-modified source files (``only_files``) so the engine parses only those.

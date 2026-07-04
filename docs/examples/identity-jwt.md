@@ -1,6 +1,6 @@
 # Worked Example: Minting and Validating a JWT for KG_AUTH_REQUIRED Mode
 
-**What this demonstrates.** CONCEPT:OS-5.14, authenticated identity
+**What this demonstrates.** CONCEPT:AU-OS.identity.authenticated-identity-enforcement, authenticated identity
 enforcement: with `KG_AUTH_REQUIRED=1` the gateway mints the request's
 `ActorContext` (actor / roles / tenant) **server-side** from a validated JWT —
 caller-supplied `_actor`/`_roles`/`_tenant` kwargs are ignored — and requests
@@ -147,7 +147,7 @@ All captured by driving `ActorIdentityMiddleware` directly in the smoke run
 All 401 responses carry a `WWW-Authenticate: Bearer` header. Note that this
 identity layer answers in `401` terms (who are you); resource-level **denials**
 for an authenticated actor surface from the ontology permissioning gate as
-`PermissionError` inside the tool/endpoint result (e.g. the ORCH-1.42 workflow
+`PermissionError` inside the tool/endpoint result (e.g. the AU-ORCH.execution.ontology-validation-execution-path workflow
 permission gate — see the
 [ontology-to-workflow example](ontology-to-workflow.md)), not as an HTTP 403
 from this middleware.

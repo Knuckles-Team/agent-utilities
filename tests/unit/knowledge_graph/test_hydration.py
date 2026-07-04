@@ -162,7 +162,7 @@ def test_hydrate_servicenow(mock_engine):
 
 # ``jira``/``plane`` are no longer generic ``HydrationManager`` sources: they
 # were re-homed to first-class delta connectors (``source_sync._sync_jira`` /
-# ``_sync_plane``, CONCEPT:KG-2.123/2.124/2.125), so ``CAPABILITY_REGISTRY`` no
+# ``_sync_plane``, CONCEPT:AU-KG.compute.confluence-first-class-delta/2.124/2.125), so ``CAPABILITY_REGISTRY`` no
 # longer carries them and ``hydrate_source(..., "jira"|"plane")`` correctly
 # raises ``Unknown hydration source``. The stale ``test_hydrate_jira`` /
 # ``test_hydrate_plane`` cases that exercised the removed generic path were

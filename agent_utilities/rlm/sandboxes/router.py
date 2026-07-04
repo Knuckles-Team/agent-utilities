@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Deterministic sandbox router.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Deterministic sandbox router.
 
 Given a snippet, pick the cheapest backend that can run it and return an *escalation chain*:
 the executor tries each in order, advancing on :class:`SandboxRejected` (and stopping on
@@ -24,7 +24,7 @@ from .base import Sandbox
 
 logger = logging.getLogger(__name__)
 
-# CONCEPT:ORCH-1.91 — how far a rung's reward-EMA may shift its effective rank. Rungs are spaced
+# CONCEPT:AU-ORCH.sandbox.rung-escalation — how far a rung's reward-EMA may shift its effective rank. Rungs are spaced
 # ~5 apart (monty 0, wasm 10, forkserver 15, container_fork 18, docker 20, local 30); a weight of
 # 10 maps reward∈[0,1] (centered 0.5) to a ±5 shift — so a *fully broken* rung drops by ~one tier
 # and a *fully healthy* one rises by ~one, while steady-state (~0.5) preserves the rank order.
@@ -45,7 +45,7 @@ class SandboxRouter:
             raise ValueError("SandboxRouter needs at least one backend")
         self._backends = backends
         self._analyzer = analyzer or AstAnalyzer()
-        # Optional reward-EMA per backend name (CONCEPT:ORCH-1.91): when supplied, a persistently
+        # Optional reward-EMA per backend name (CONCEPT:AU-ORCH.sandbox.rung-escalation): when supplied, a persistently
         # failing rung is routed around. Default None => pure deterministic rank order (unchanged).
         self._reward_fn = reward_fn
         # The floor: lowest-preference (highest rank) backend that runs anything.

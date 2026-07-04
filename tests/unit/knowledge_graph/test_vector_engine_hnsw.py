@@ -1,6 +1,6 @@
 """Vector search/index goes through the engine HNSW, not a per-process dict.
 
-CONCEPT:KG-2.0 — `add_embedding` must register vectors in the engine's HNSW (so
+CONCEPT:AU-KG.query.object-graph-mapper — `add_embedding` must register vectors in the engine's HNSW (so
 they survive restarts and `semantic_search` is O(log N)); `semantic_search` must
 prefer the engine and only fall back to the local cosine cache. A one-time
 `hydrate_engine_embeddings` indexes legacy `embedding` node properties.

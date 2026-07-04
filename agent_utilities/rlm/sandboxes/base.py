@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Sandbox contract, capabilities, and the data passed across it.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Sandbox contract, capabilities, and the data passed across it.
 
 Every RLM execution backend implements :class:`Sandbox`. The router (``router.py``) reasons
 purely over :class:`SandboxCapabilities`, so adding a backend is: implement ``execute`` +
@@ -69,13 +69,13 @@ class SandboxCapabilities:
     contract. The snippet router never selects a workspace backend; this flag exists so the two
     runtimes share one capability vocabulary without the router conflating them."""
     warm_fork: bool = False
-    """Implements the warm-fork lifecycle (CONCEPT:ORCH-1.86): a warmed parent is paid for
+    """Implements the warm-fork lifecycle (CONCEPT:AU-ORCH.sandbox.shared-host-helper-bridge): a warmed parent is paid for
     once, then children are spawned from copy-on-write state instead of cold-booting each.
     Backends advertising this also implement :class:`ForkableSandbox`. It is a *property of how
     the backend spawns*, orthogonal to the routing filters above — the router does not gate on
     it; ``execute`` still works (warm-or-reuse a parent, fork one child, run). It exists so the
     capability layer and the warm-parent registry can reason about which rungs amortise startup
-    across a fan-out cohort (CONCEPT:ORCH-1.83 :WarmForkFanoutCapability)."""
+    across a fan-out cohort (CONCEPT:AU-ORCH.sandbox.warmforkfanoutcapability :WarmForkFanoutCapability)."""
 
 
 @dataclass
@@ -154,12 +154,12 @@ class Sandbox(abc.ABC):
 
 @dataclass
 class WarmSpec:
-    """The content-addressable description of a warm parent (CONCEPT:ORCH-1.86).
+    """The content-addressable description of a warm parent (CONCEPT:AU-ORCH.sandbox.shared-host-helper-bridge).
 
     Two parents with the same ``key`` are interchangeable, so the registry can reuse one
     instead of paying warm-up again. ``preload`` names the heavy imports the parent loads
     before snapshotting (the cost we amortise across the fork cohort); ``base_key`` lets a
-    spec declare it derives from another (the diff-snapshot-chain edge, CONCEPT:ORCH-1.83 —
+    spec declare it derives from another (the diff-snapshot-chain edge, CONCEPT:AU-ORCH.sandbox.warmforkfanoutcapability —
     "is there a warm parent that is a superset of what I need?").
     """
 
@@ -197,14 +197,14 @@ class ParentHandle:
 
 
 class ForkableSandbox(Sandbox):
-    """A :class:`Sandbox` that spawns via warm-fork (CONCEPT:ORCH-1.86) instead of cold-boot.
+    """A :class:`Sandbox` that spawns via warm-fork (CONCEPT:AU-ORCH.sandbox.shared-host-helper-bridge) instead of cold-boot.
 
     A rung implements just two atoms — :meth:`warm` (pay start-up once for a :class:`WarmSpec`)
     and :meth:`run_forked` (fork ONE copy-on-write child off a warm parent, run the snippet,
     return its :class:`SandboxResult`) — plus :meth:`warm_spec` describing its parent. It then
     gets a working :meth:`Sandbox.execute` *for free* from this base: execute warms-or-reuses a
     parent through the host :class:`~agent_utilities.runtime.warm_registry.WarmParentRegistry`
-    (CONCEPT:OS-5.58) and forks one child. Fan-out is simply many concurrent ``execute`` /
+    (CONCEPT:AU-OS.host.so-they-are-idle) and forks one child. Fan-out is simply many concurrent ``execute`` /
     ``run_forked`` calls — each forks its own child off the *one* warm parent, which is the
     copy-on-write amortisation (imports/deps/weights resident once, shared across the cohort).
 

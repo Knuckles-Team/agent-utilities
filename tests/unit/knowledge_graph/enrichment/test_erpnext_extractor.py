@@ -1,4 +1,4 @@
-"""ERPNext/Frappe source extractor tests (CONCEPT:KG-2.9)."""
+"""ERPNext/Frappe source extractor tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

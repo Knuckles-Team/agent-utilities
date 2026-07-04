@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Eval-corpus gate (CONCEPT:AHE-3.1 / KG-2.8).
+"""Eval-corpus gate (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort / KG-2.8).
 
 Proves the feedback→eval pipeline is functional and has teeth: builds a small
 synthetic corpus (the shape produced by human ``eval`` corrections), runs it

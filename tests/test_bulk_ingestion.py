@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 """Tests for the Enterprise Hub-and-Spoke ingestion and batch writing capabilities."""
 
@@ -80,7 +80,7 @@ def test_ingest_external_batch():
 
     rel_query, rel_params = mock_backend.batches[1]
     assert "UNWIND $batch AS row" in rel_query
-    # And the REAL rel type, not a generic :EXTERNAL_LINK (CONCEPT:KG-2.74).
+    # And the REAL rel type, not a generic :EXTERNAL_LINK (CONCEPT:AU-KG.backend.mirror-health-repair).
     assert "MERGE (s)-[r:WORKS_WITH]->(t)" in rel_query
     assert len(rel_params) == 1
     assert rel_params[0]["source"] == "user:1"

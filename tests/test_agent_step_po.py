@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Agent-Step Policy Optimization (ARPO) — CONCEPT:AHE-3.15.
+"""Agent-Step Policy Optimization (ARPO) — CONCEPT:AU-AHE.reward.this-is-read-back.
 
 Covers the entropy signal, the branch gate, the capability reward-EMA step-credit
 write-back, and the live router path (SubagentLifecyclePolicy branches on a
@@ -18,7 +18,7 @@ from agent_utilities.graph.routing.strategies.policy import SubagentLifecyclePol
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
 from agent_utilities.numeric import xp as np
 
-pytestmark = pytest.mark.concept("AHE-3.15")
+pytestmark = pytest.mark.concept("AU-AHE.reward.this-is-read-back")
 
 
 def test_step_entropy_low_when_decisive_high_when_uncertain():

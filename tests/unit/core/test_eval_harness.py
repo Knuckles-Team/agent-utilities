@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1"""
+"""CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort"""
 
 """Tests for the Evaluation Harness.
 

@@ -1,4 +1,4 @@
-"""Harness-foundry benchmark — parity-and-surpass vs HarnessX (CONCEPT:AHE-3.53).
+"""Harness-foundry benchmark — parity-and-surpass vs HarnessX (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard).
 
 Deterministic, CPU, offline (mirror of `assimilation_benchmark`, AHE-3.47). Each
 case contrasts the HarnessX baseline mechanism with ours on the same scenario and
@@ -95,7 +95,7 @@ def _bench_cross_harness() -> BenchResult:
 
 
 def _bench_variant_isolation() -> BenchResult:
-    """Heterogeneous tasks (CONCEPT:AHE-3.59): a mixed edit fixes one cluster but
+    """Heterogeneous tasks (CONCEPT:AU-AHE.harness.variant-pool): a mixed edit fixes one cluster but
     regresses another. HarnessX's single-harness seesaw rejects it → stagnation;
     our variant isolation forks a variant scoped to the improved cluster → the
     out-of-scope regression routes elsewhere and the edit ships."""
@@ -133,7 +133,7 @@ def _bench_variant_isolation() -> BenchResult:
 
 
 def _bench_attribution() -> BenchResult:
-    """Reward-hacking at proposal time (CONCEPT:AHE-3.58): an edit claims a fix via a
+    """Reward-hacking at proposal time (CONCEPT:AU-AHE.evaluation.edit-claims-fix): an edit claims a fix via a
     tool that never fires in the next trace. HarnessX credits the coincidental pass;
     our signature-attribution check refuses to credit an unattributed edit."""
     from agent_utilities.harness.evidence_corpus import EvidenceCorpus, EvidenceEntry

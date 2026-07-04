@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Score-discontinuity autocut for retrieval result sets.
 
-CONCEPT:KG-2.22 — Pack-Driven Retrieval Signals
+CONCEPT:AU-KG.retrieval.pack-retrieval-signals — Pack-Driven Retrieval Signals
 
 Mirrors gbrain's ``autocut.ts``: instead of forcing the caller to pick a ``top_k``,
 trim the ranked result list at the largest *relative* score drop ("knee"). This

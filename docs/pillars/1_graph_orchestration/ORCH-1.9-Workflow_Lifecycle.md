@@ -1,7 +1,7 @@
 # ORCH-1.24: Workflow Lifecycle Management
 
 ## Concept ID
-`CONCEPT:ORCH-1.24`
+`CONCEPT:AU-ORCH.execution.workflow-lifecycle-management`
 
 ## Status
 **Implemented** — v1.0

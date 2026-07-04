@@ -1,11 +1,11 @@
-"""Workflow → BusinessProcess lineage close-out (CONCEPT:ORCH-1.43).
+"""Workflow → BusinessProcess lineage close-out (CONCEPT:AU-ORCH.execution.best-effort-provenance).
 
 When an executed workflow REALIZES a harvested BusinessProcess (ORCH-1.41),
 completion writes a (:RunTrace)-[:EXECUTED_PROCESS]->(:BusinessProcess)
 provenance edge and feeds the optional injected lineage_sink a normalized
 record (the egeria-mcp assert_lineage seam).
 
-@pytest.mark.concept("ORCH-1.43")
+@pytest.mark.concept("AU-ORCH.execution.best-effort-provenance")
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 
 from agent_utilities.workflows.runner import StepResult, WorkflowResult, WorkflowRunner
 
-pytestmark = pytest.mark.concept("ORCH-1.43")
+pytestmark = pytest.mark.concept("AU-ORCH.execution.best-effort-provenance")
 
 
 class FakeGraph:

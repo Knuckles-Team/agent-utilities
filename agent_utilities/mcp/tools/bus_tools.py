@@ -1,4 +1,4 @@
-"""graph_bus MCP tool — the agent-to-agent communication bus surface (CONCEPT:ECO-4.85).
+"""graph_bus MCP tool — the agent-to-agent communication bus surface (CONCEPT:AU-ECO.bus.agent-to-agent-bus).
 
 Thin wrapper over :class:`agent_utilities.messaging.bus.AgentBus` (the one core). This is the
 surface any session — a Claude Code session, another LLM, a session from any provider, on any
@@ -6,7 +6,7 @@ host — uses to register on the shared hub, discover peers, exchange messages, 
 the fleet. The REST twin is ``/graph/bus`` (``gateway/graph_api.py`` via the generic adapter);
 both dispatch into the same :class:`AgentBus` so they never drift.
 
-CONCEPT:ECO-4.85 — graph_bus MCP tool and REST twin for agent-to-agent messaging
+CONCEPT:AU-ECO.bus.agent-to-agent-bus — graph_bus MCP tool and REST twin for agent-to-agent messaging
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from agent_utilities.mcp import kg_server
 
 
 def _bus_actor_scope(action: str) -> contextlib.AbstractContextManager:
-    """Scope a ``graph_bus`` call to the request's server-minted identity (CONCEPT:ECO-4.98).
+    """Scope a ``graph_bus`` call to the request's server-minted identity (CONCEPT:AU-ECO.bus.bus-register-under-served).
 
     ``graph_bus`` is a standalone FastMCP tool, so — unlike every action routed
     through :func:`kg_server._execute_tool` — it does NOT otherwise apply the
@@ -62,13 +62,13 @@ def _bus_actor_scope(action: str) -> contextlib.AbstractContextManager:
             f"KG_AUTH_REQUIRED=1: graph_bus action {action!r} needs an authenticated "
             "identity (an OIDC client-credentials Bearer token on the MCP connection, "
             "or KG_AUTH_TOKEN for stdio). Read-only presence actions "
-            f"({sorted(_READ_ONLY)}) are exempt. (CONCEPT:OS-5.14 / ECO-4.98)"
+            f"({sorted(_READ_ONLY)}) are exempt. (CONCEPT:AU-OS.identity.authenticated-identity-enforcement / ECO-4.98)"
         )
     return contextlib.nullcontext()
 
 
 def _session_identity(ctx: Context | None) -> str:
-    """Derive a stable per-session id from the served FastMCP request (CONCEPT:ECO-4.92).
+    """Derive a stable per-session id from the served FastMCP request (CONCEPT:AU-ECO.bus.auto-register-online-presence).
 
     A session that calls ``graph_bus`` without passing ``agent_id`` can still be
     auto-registered + presence-tracked: FastMCP injects a ``Context`` on served requests whose
@@ -90,12 +90,12 @@ def _session_identity(ctx: Context | None) -> str:
 
 
 def register_bus_tools(mcp):
-    """Register the ``graph_bus`` tool onto the MCP server. CONCEPT:ECO-4.85"""
+    """Register the ``graph_bus`` tool onto the MCP server. CONCEPT:AU-ECO.bus.agent-to-agent-bus"""
 
     @mcp.tool(
         name="graph_bus",
         description=(
-            "CONCEPT:ECO-4.85 — the agent-to-agent communication bus: let this session talk "
+            "CONCEPT:AU-ECO.bus.agent-to-agent-bus — the agent-to-agent communication bus: let this session talk "
             "to other Claude/LLM sessions (any provider, any host) through the shared graph-os "
             "hub. Actions: 'register' (agent_id [+provider,host,capabilities,session_id] → join "
             "the bus), 'heartbeat' (agent_id → stay online), 'roster' ([provider|capability|"
@@ -185,7 +185,7 @@ def register_bus_tools(mcp):
         # Scope the whole call to the request's server-minted identity so the bus
         # writes/reads as the authenticated caller under the served profile, and an
         # unauthenticated caller is cleanly rejected for mutating actions rather than
-        # silently writing as the ambient SYSTEM actor (CONCEPT:ECO-4.98 / OS-5.14).
+        # silently writing as the ambient SYSTEM actor (CONCEPT:AU-ECO.bus.bus-register-under-served / OS-5.14).
         try:
             _scope = _bus_actor_scope(action)
         except PermissionError as exc:
@@ -247,7 +247,7 @@ def register_bus_tools(mcp):
         replay_recent: bool,
         ctx: Context | None,
     ) -> str:
-        # CONCEPT:ECO-4.92 — auto-register + presence: a session that has this tool appears
+        # CONCEPT:AU-ECO.bus.auto-register-online-presence — auto-register + presence: a session that has this tool appears
         # online to peers without an explicit ``register`` call. Resolve the acting id (the
         # explicit agent_id/sender, else the stable served-session identity) and TOUCH the bus
         # so any action keeps the caller rosterable + bumps last_seen. ``touch`` auto-creates the
@@ -330,7 +330,7 @@ def register_bus_tools(mcp):
             )
         if action == "status":
             return json.dumps(bus.status(), default=str)
-        # ── Federation / mesh (CONCEPT:ECO-4.86) ──
+        # ── Federation / mesh (CONCEPT:AU-ECO.bus.federation-relay) ──
         if action in ("register_hub", "list_hubs", "federate", "federate_in"):
             from agent_utilities.messaging.federation import BusFederationRelay
 

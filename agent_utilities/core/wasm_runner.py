@@ -1,5 +1,5 @@
-# CONCEPT:OS-5.4 - WASM Micro-Agent Sandbox & Runner
-# CONCEPT:ORCH-1.11 - Compiled Orchestration Kernel
+# CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox - WASM Micro-Agent Sandbox & Runner
+# CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel - Compiled Orchestration Kernel
 
 import json
 import logging

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Ontology Publisher — Export & Push to External Triplestores.
 
-CONCEPT:KG-2.6 — Ontology Distribution
+CONCEPT:AU-KG.ontology.enterprise-ontology-distribution — Ontology Distribution
 
 Exports the materialized RDF ontology and pushes it to external
 triplestores (Stardog, Apache Jena Fuseki) for enterprise-wide
@@ -13,7 +13,7 @@ Supports:
 - Apache Jena Fuseki push via REST API
 - Versioned publishing with timestamps
 
-CONCEPT:KG-2.52 — Fuseki publish daemon tick: :func:`publish_ontology_to_fuseki`
+CONCEPT:AU-KG.ontology.authoritative-tbox — Fuseki publish daemon tick: :func:`publish_ontology_to_fuseki`
 collects every bundled ``ontology*.ttl`` module into one rdflib graph and pushes
 it through :meth:`OntologyPublisher.push_to_jena_fuseki`, so the engine's
 maintenance scheduler (``fuseki_publish`` tick, gated by ``KG_FUSEKI_PUBLISH``)
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class OntologyPublisher:
     """Export and distribute ontologies to enterprise triplestores.
 
-    CONCEPT:KG-2.6 — Enterprise Ontology Distribution
+    CONCEPT:AU-KG.ontology.enterprise-ontology-distribution — Enterprise Ontology Distribution
 
     This class enables agent-utilities to serve as both the authoritative
     ontology source and a consumer — pushing evolved ontologies back to
@@ -266,7 +266,7 @@ class OntologyPublisher:
 def collect_bundled_ontology_graph() -> Any:
     """Parse every bundled ``ontology*.ttl`` module into one rdflib graph.
 
-    CONCEPT:KG-2.52 — the authoritative TBox the platform ships (core
+    CONCEPT:AU-KG.ontology.authoritative-tbox — the authoritative TBox the platform ships (core
     ``ontology.ttl`` plus all domain modules under ``knowledge_graph/``) merged
     into a single graph for distribution. Unparseable modules are skipped with
     a warning so one bad file never blocks the publish of the rest.
@@ -284,7 +284,7 @@ def collect_bundled_ontology_graph() -> Any:
             graph.parse(str(ttl_path), format="turtle")
         except Exception as exc:  # noqa: BLE001 — one bad module never blocks the rest
             logger.warning("Skipping unparseable ontology module %s: %s", ttl_path, exc)
-    # CONCEPT:KG-2.320 — federation: contributed ontology modules from installed
+    # CONCEPT:AU-KG.ontology.federation-provider-leg — federation: contributed ontology modules from installed
     # fleet packages (declared via the ``agent_utilities.ontology_providers``
     # entry-point) are parsed into the SAME published TBox as the bundled modules,
     # so a moved module (e.g. servicenow now living in the servicenow-api wheel) is
@@ -315,7 +315,7 @@ def publish_ontology_to_fuseki(
 ) -> dict[str, Any]:
     """Push the bundled ontology modules to Apache Jena Fuseki.
 
-    CONCEPT:KG-2.52 — the callable the ``fuseki_publish`` daemon tick runs
+    CONCEPT:AU-KG.ontology.authoritative-tbox — the callable the ``fuseki_publish`` daemon tick runs
     (and tests exercise with an injected ``publisher``). Resolution of a
     ``None`` ``endpoint`` is delegated to
     :meth:`OntologyPublisher.push_to_jena_fuseki` (``FUSEKI_ENDPOINT`` env,

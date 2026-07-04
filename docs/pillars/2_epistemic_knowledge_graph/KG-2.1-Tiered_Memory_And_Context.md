@@ -1,4 +1,4 @@
-# Token-Aware Context Compaction (CONCEPT:KG-2.1)
+# Token-Aware Context Compaction (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Overview
 Intelligent context window management with three strategies (summarize_tools, drop_middle, progressive). Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall. Adapted from Goose's context_mgmt.
@@ -9,7 +9,7 @@ Intelligent context window management with three strategies (summarize_tools, dr
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Cross-Session Chat Recall (CONCEPT:KG-2.1)
+# Cross-Session Chat Recall (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Overview
 Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose.
@@ -20,7 +20,7 @@ Keyword-based search across stored chat sessions using the KG Cypher backend. Ad
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Project-Aware Context (CONCEPT:KG-2.1)
+# Project-Aware Context (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Overview
 Native support for Claude-style project rules. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
@@ -31,7 +31,7 @@ Native support for Claude-style project rules. Backend automatically loads and i
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Elastic Context Operators (CONCEPT:KG-2.2)
+# Elastic Context Operators (CONCEPT:AU-KG.ingest.engineering-rules)
 
 ## Overview
 5 atomic operators for elastic context orchestration: Skip, Compress, Rollback, Snippet, Delete (`ContextOperator`). Compress is expressively complete while specialized operators reduce hallucination risk. Includes checkpoint/rollback support for speculative context operations. Derived from LongSeeker (arXiv:2605.05191v1).
@@ -42,7 +42,7 @@ Native support for Claude-style project rules. Backend automatically loads and i
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Multi-Timescale Memory Dynamics (CONCEPT:KG-2.2)
+# Multi-Timescale Memory Dynamics (CONCEPT:AU-KG.ingest.engineering-rules)
 
 ## Overview
 Three-tier memory with timescale-aware exponential decay: Working (5min half-life), Episodic (4hr), Semantic (30-day). High-activation memories consolidate from Working→Episodic→Semantic via access-count thresholds. Relevance-weighted retrieval with keyword scoring. Derived from Continual Knowledge Updating (arXiv:2605.05097v1).

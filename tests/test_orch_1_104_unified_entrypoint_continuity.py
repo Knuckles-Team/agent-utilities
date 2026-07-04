@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:ORCH-1.104 — Unified Agent Entrypoint: the streaming AG-UI surface joins the
+"""CONCEPT:AU-ORCH.session.session-continuity-entrypoint — Unified Agent Entrypoint: the streaming AG-UI surface joins the
 SAME KG-backed continuity seam as ``run_agent`` (shared memory + provenance).
 
 Two proofs:

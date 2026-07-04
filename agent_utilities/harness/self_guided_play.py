@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.37 — Self-Guided Self-Play (SGS).
+"""CONCEPT:AU-AHE.harness.when-task-is-scope — Self-Guided Self-Play (SGS).
 
 Assimilated from "Scaling Self-Play with Self-Guidance" (SGS), arXiv:2604.20209
 (Bailey, Wen, Dong, Hashimoto, Ma). The paper observes that asymmetric self-play
@@ -27,8 +27,8 @@ rejected conjectures advance nothing (this is exactly what denies the Conjecture
 its reward hack), and a stalled rolling solve-rate trips a plateau breaker that
 perturbs the difficulty downward to escape the plateau.
 
-Style mirrors CONCEPT:AHE-3.13 (``quality_gates.py``) dataclass/pluggable-scorer
-gates and CONCEPT:AHE-3.2 (``variant_pool.py``) population-collapse signalling.
+Style mirrors CONCEPT:AU-AHE.harness.pre-emit-quality-gate (``quality_gates.py``) dataclass/pluggable-scorer
+gates and CONCEPT:AU-AHE.harness.evolutionary-aggregation (``variant_pool.py``) population-collapse signalling.
 It is opt-in (off the hot path until wired) and intended to be driven by the
 evolution engine as a verifier-free task-quality gate on generated subproblems.
 """
@@ -90,7 +90,7 @@ def _tokens(text: str) -> list[str]:
 
 @dataclass(slots=True)
 class GuideScore:
-    """The Guide's three-dimensional verdict on one generated task (CONCEPT:AHE-3.37).
+    """The Guide's three-dimensional verdict on one generated task (CONCEPT:AU-AHE.harness.when-task-is-scope).
 
     Each dimension is in ``0..1``. A *low* score on **any** dimension should tank
     the conjecture — a problem that is superficially relevant but messy or gamed
@@ -113,7 +113,7 @@ class GuideScore:
 
 
 def _heuristic_guide_score(target_task: str, generated_task: str) -> GuideScore:
-    """Deterministic, LLM-free Guide rubric mirroring the SGS paper (CONCEPT:AHE-3.37).
+    """Deterministic, LLM-free Guide rubric mirroring the SGS paper (CONCEPT:AU-AHE.harness.when-task-is-scope).
 
     - **relevance**: Jaccard lexical overlap between target and generated tokens —
       how on-target the generated problem is.
@@ -161,7 +161,7 @@ def _heuristic_guide_score(target_task: str, generated_task: str) -> GuideScore:
 
 
 class Guide:
-    """SGS quality gatekeeper — rejects gamed/illogical conjectures (CONCEPT:AHE-3.37).
+    """SGS quality gatekeeper — rejects gamed/illogical conjectures (CONCEPT:AU-AHE.harness.when-task-is-scope).
 
     The Guide is the paper's third role: it scores a generated task against its
     target on relevance / conciseness / naturalness and rejects low-quality
@@ -216,7 +216,7 @@ class PlayReport:
 
 
 class SelfGuidedSelfPlay:
-    """Conjecturer -> Guide -> Solver loop with plateau breaking (CONCEPT:AHE-3.37).
+    """Conjecturer -> Guide -> Solver loop with plateau breaking (CONCEPT:AU-AHE.harness.when-task-is-scope).
 
     Each round, the Conjecturer proposes a task at the current difficulty, the
     Guide gates it, and only **accepted** tasks are handed to the Solver. An

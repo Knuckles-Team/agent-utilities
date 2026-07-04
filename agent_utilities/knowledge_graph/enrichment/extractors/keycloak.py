@@ -1,4 +1,4 @@
-"""Keycloak source extractor — realm users / groups / clients (CONCEPT:KG-2.9).
+"""Keycloak source extractor — realm users / groups / clients (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps a Keycloak realm into the uniform ExtractionBatch: users → :IdentityUser,
 groups → :IdentityGroup, clients → :Application, stamped ``externalToolId`` +

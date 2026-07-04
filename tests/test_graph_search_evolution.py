@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the MLEvolve graph-search evolution module.
 
-CONCEPT:KG-2.92 — Progressive Monte-Carlo Graph Search (MLEvolve, arXiv:2606.06473).
+CONCEPT:AU-KG.retrieval.monte-carlo-graph-search — Progressive Monte-Carlo Graph Search (MLEvolve, arXiv:2606.06473).
 
 Uses deterministic stub coder/evaluator callables — no LLM, no network.
 """
@@ -21,7 +21,7 @@ from agent_utilities.harness.graph_search_evolution import (
     select_coding_mode,
 )
 
-pytestmark = pytest.mark.concept("KG-2.92")
+pytestmark = pytest.mark.concept("AU-KG.retrieval.monte-carlo-graph-search")
 
 
 # ── deterministic fake generation / evaluation ──────────────────────────────

@@ -1,4 +1,4 @@
-"""PerformanceAnomaly consumer (CONCEPT:AHE-3.19).
+"""PerformanceAnomaly consumer (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer).
 
 PerformanceAnomaly nodes were written (kg-report-persister skill,
 ExecutionSummary flows, the failure analyzer) but had no consumer. The
@@ -6,7 +6,7 @@ consumer pass scans unconsumed anomalies, clusters by (target, type), files
 failure_gap topics via the failure analyzer's shared gap-topic path, and
 stamps them consumed; a daemon tick runs it (KG_ANOMALY_CONSUMER, default ON).
 
-@pytest.mark.concept("AHE-3.19")
+@pytest.mark.concept("AU-AHE.optimization.performance-anomaly-consumer")
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.adaptation.anomaly_consumer import (
     consume_anomalies,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.19")
+pytestmark = pytest.mark.concept("AU-AHE.optimization.performance-anomaly-consumer")
 
 
 class _Backend:

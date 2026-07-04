@@ -1,4 +1,4 @@
-"""graph_query scope='sparql' — native SPARQL-on-the-KG over MCP (CONCEPT:KG-2.266).
+"""graph_query scope='sparql' — native SPARQL-on-the-KG over MCP (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 The `sparql` scope routes the `cypher` arg (the SPARQL text) to ``engine.sparql()``,
 which bridges to the epistemic-graph engine's native RDF surface
@@ -15,7 +15,7 @@ import pytest
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.mcp import kg_server
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 
 def _register_graph_query():
@@ -86,7 +86,7 @@ def test_sparql_scope_fans_out(monkeypatch):
     assert out["targets"] == {"k1": [{"x": "a"}], "k2": [{"x": "b"}]}
 
 
-# ── engine.sparql() bridge (CONCEPT:KG-2.266) ─────────────────────────────────
+# ── engine.sparql() bridge (CONCEPT:AU-KG.ingest.mirror-inbound) ─────────────────────────────────
 
 
 class _GraphCompute:

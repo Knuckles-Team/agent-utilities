@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:OS-5.0 — Agent Registry (Package-Manager-Style Specialist Installation).
+"""CONCEPT:AU-OS.config.agent-registry — Agent Registry (Package-Manager-Style Specialist Installation).
 
 Provides a CLI and programmatic API for installing, removing, and managing
 specialist capabilities at runtime — the ``apt-get`` for agents.
@@ -19,12 +19,12 @@ Architecture:
       and graph steps.
 
 Integrates with:
-    - CONCEPT:ECO-4.0 (Agent Tool System): MCP config merging
-    - CONCEPT:KG-2.0 (KG OGM): Specialist node hydration
-    - CONCEPT:ORCH-1.2 (Registry Cache): Cache invalidation on install/uninstall
+    - CONCEPT:AU-ECO.messaging.native-backend-abstraction (Agent Tool System): MCP config merging
+    - CONCEPT:AU-KG.query.object-graph-mapper (KG OGM): Specialist node hydration
+    - CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (Registry Cache): Cache invalidation on install/uninstall
     - ``systems-manager``: Privileged install operations
 
-See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 """
 
 
@@ -104,7 +104,7 @@ class SpecialistPackage(BaseModel):
 class AgentRegistry:
     """Package-manager-style specialist registry.
 
-    CONCEPT:OS-5.0 — Agent Registry
+    CONCEPT:AU-OS.config.agent-registry — Agent Registry
 
     Manages the lifecycle of specialist packages: discovery, installation,
     uninstallation, and listing.  Packages are stored as JSON definitions

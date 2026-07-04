@@ -59,14 +59,14 @@ C4Container
 
     System_Boundary(au, "agent-utilities") {
         Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring; queue-driven turn dispatch (ORCH-1.45)")
-        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets / TCP)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval; HRW shard routing (KG-2.58)")
+        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets / TCP)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval; HRW shard routing (AU-KG.sharding.tenant-partitioned-sharding-hrw)")
         Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation; governed branch publication (AHE-3.21)")
-        Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management; hardened multiplexer (ECO-4.34)")
-        Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "JWT-minted identity (OS-5.14), guardrails, lifecycle, telemetry, Prometheus /metrics, rate limiting, GATEWAY_WORKERS (OS-5.23)")
-        Container(autonomy, "OS: Fleet Autonomy Plane", "Python", "ActionPolicy gate (OS-5.24), fleet reconciler (OS-5.25), remediation playbooks (OS-5.26), deploy watch (OS-5.27), autoscaler (OS-5.29)")
-        Container(workers, "Worker Fleets", "Python console scripts", "kg-ingest-worker (KG-2.57) + agent-dispatch-worker (ORCH-1.45) — stateless, any host")
+        Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management; hardened multiplexer (AU-ECO.mcp.profile-differences-from-client)")
+        Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "JWT-minted identity (OS-5.14), guardrails, lifecycle, telemetry, Prometheus /metrics, rate limiting, GATEWAY_WORKERS (AU-OS.observability.no-op-without-metrics)")
+        Container(autonomy, "OS: Fleet Autonomy Plane", "Python", "ActionPolicy gate (OS-5.24), fleet reconciler (AU-OS.config.desired-state-fleet-reconciler), remediation playbooks (AU-OS.host.remediation-playbooks), deploy watch (AU-OS.config.health-gated-deploy-rollback), autoscaler (OS-5.29)")
+        Container(workers, "Worker Fleets", "Python console scripts", "kg-ingest-worker (AU-KG.ingest.decoupled-kg-ingest-consumer) + agent-dispatch-worker (ORCH-1.45) — stateless, any host")
         ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph engine — THE authority (compute+cache+semantic+durable); optional Postgres/Neo4j/FalkorDB mirrors", "1..N shards behind GRAPH_SERVICE_ENDPOINTS")
-        ContainerDb(statedb, "Shared State Store", "PostgreSQL via STATE_DB_URI (OS-5.16); per-host SQLite default", "Checkpoints, sessions/goals, task + dispatch queues (SKIP LOCKED, advisory-lock leadership)")
+        ContainerDb(statedb, "Shared State Store", "PostgreSQL via STATE_DB_URI (AU-OS.state.unified-durable-state-externalization); per-host SQLite default", "Checkpoints, sessions/goals, task + dispatch queues (SKIP LOCKED, advisory-lock leadership)")
         ContainerQueue(queues, "Work Queues", "Kafka kg_tasks + agent_turns topics (or Postgres/SQLite)", "Keyed partitions: tenant/repo (KG-2.56), session (ORCH-1.45)")
     }
 
@@ -103,14 +103,14 @@ C4Component
         Component(wiring, "Capability Wiring Engine", "Python", "Dynamic capability discovery")
         Component(orchestrator, "Agent Orchestrator", "Python", "Unified harness for multi-agent execution")
         Component(coord, "🔬 Coordination Layer", "Python", "ORCH-1.0: Pluggable coordination protocols. Research: 2605.03310v1")
-        Component(kgfactory, "KG Graph Factory", "Python", "ORCH-1.20: Materializes pydantic-graph topologies from KG AgentTemplates")
+        Component(kgfactory, "KG Graph Factory", "Python", "AU-ORCH.execution.service-registry-initialization: Materializes pydantic-graph topologies from KG AgentTemplates")
         Component(agentrunner, "Agent Runner", "Python", "ORCH-1.21: KG-to-LLM execution bridge — resolves agents, binds tools, tracks provenance")
         Component(workflowstore, "Workflow Store", "Python", "ORCH-1.22: Persists GraphPlan workflows as KG subgraphs with versioning")
         Component(workflowcompiler, "Workflow Compiler", "Python", "ORCH-1.23: NL → GraphPlan DAG compiler with KG agent matching")
         Component(workflowcatalog, "Workflow Catalog", "Python + YAML", "ORCH-1.24: Externally-consumable workflow definitions with KG persistence")
         Component(workflowrunner, "Workflow Runner", "Python", "ORCH-1.24: Executes stored workflows via wave-based parallel dispatch")
-        Component(pll, "🔬 Prediction Linkage Layer", "Python", "ORCH-1.6: Fuses confidence matrices for ensemble modeling")
-        Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "ORCH-1.7: Continuous latent loop or simulated semantic collaboration")
+        Component(pll, "🔬 Prediction Linkage Layer", "Python", "AU-ORCH.planning.spec-driven-pipeline: Fuses confidence matrices for ensemble modeling")
+        Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "AU-ORCH.planning.journey-milestone: Continuous latent loop or simulated semantic collaboration")
         Component(gwt, "Global Workspace Attention", "Python", "ORCH-1.2: Scores/selects/broadcasts specialist proposals; get_attention_score read-back + engine-mismatch telemetry")
         Component(massys, "Multi-Agent Social System", "Python", "ORCH-1.32: Swarm as S=(f,g,G) — archetypes, local observability, co-evolution, P1–P4 swarm health")
         Component(rlm, "Recursive Language Model", "Python", "ORCH-1.1/1.12: Persistent REPL over massive context; recursive schema-constrained subagent fan-out with validate-on-FINAL")
@@ -189,13 +189,13 @@ C4Component
         Component(budget, "Retrieval Budget", "Python", "KG-2.1: token-budgeted, task-scoped retrieval (no context bloat)")
         Component(streams, "Stream Adapters", "Python", "KG-2.6: real Kafka/NATS ingestion (optional deps)")
         Component(intel, "Intelligence Extractors", "Python", "KG-2.8: distil calls/docs → Insight/Fact/Framework/Playbook")
-        Component(reasoner_router, "🔬 Reasoner Router", "Python", "KG-2.68: outcome-learning paradigm router — selects a reasoning paradigm via CapabilityIndex reward-EMA and feeds the scored result back. Entry: KnowledgeGraph.reason()")
-        Component(world_model, "🔬 World Model", "Python", "KG-2.67: action-conditioned state×action→next_state+reward over the Markov kernel; rollout + graph-native trajectory persistence")
-        Component(prog_synth, "🔬 Program Synthesis", "Python", "KG-2.69: inductive DSL search with an MDL/Occam (Solomonoff) selection prior")
-        Component(bounded_read, "Bounded Reads", "Python", "KG-2.261: iter_nodes_by_types — per-label fetch, O(#type) not O(graph); never dumps the 166K-node __commons__")
-        Component(engine_breaker, "Engine Breaker + Adaptive Retry", "Python", "KG-2.262: a transient ConnectionReset/BrokenPipe is retried (rides client reconnect) and NOT counted against the circuit breaker")
-        Component(ingest_profiler, "Ingest Profiler", "Python", "OS-5.69/70/71: contextvar IngestProfile — per-stage ms + token/cost, off-queue :ProfileSpan; profile_report(group_by) parallelism_factor")
-        Component(resp_guard, "Engine Response Guard", "Rust (epistemic-graph)", "KG-2.264: GetNodes capped at EPISTEMIC_GRAPH_MAX_RESPONSE_NODES (50000) → RESULT_TOO_LARGE; EG-011 write-lock wait/hold histograms")
+        Component(reasoner_router, "🔬 Reasoner Router", "Python", "AU-KG.compute.first-class-reasoner-paradigm: outcome-learning paradigm router — selects a reasoning paradigm via CapabilityIndex reward-EMA and feeds the scored result back. Entry: KnowledgeGraph.reason()")
+        Component(world_model, "🔬 World Model", "Python", "AU-KG.compute.first-class-action-conditioned: action-conditioned state×action→next_state+reward over the Markov kernel; rollout + graph-native trajectory persistence")
+        Component(prog_synth, "🔬 Program Synthesis", "Python", "AU-KG.coordination.inductive-program-synthesis-search: inductive DSL search with an MDL/Occam (Solomonoff) selection prior")
+        Component(bounded_read, "Bounded Reads", "Python", "AU-KG.ingest.never-scan-whole-graph: iter_nodes_by_types — per-label fetch, O(#type) not O(graph); never dumps the 166K-node __commons__")
+        Component(engine_breaker, "Engine Breaker + Adaptive Retry", "Python", "AU-KG.compute.single-dropped-connection: a transient ConnectionReset/BrokenPipe is retried (rides client reconnect) and NOT counted against the circuit breaker")
+        Component(ingest_profiler, "Ingest Profiler", "Python", "AU-OS.observability.ingestion-profile-report/70/71: contextvar IngestProfile — per-stage ms + token/cost, off-queue :ProfileSpan; profile_report(group_by) parallelism_factor")
+        Component(resp_guard, "Engine Response Guard", "Rust (epistemic-graph)", "EG-KG.ingest.resets-socket-so-assimilation: GetNodes capped at EPISTEMIC_GRAPH_MAX_RESPONSE_NODES (50000) → RESULT_TOO_LARGE; EG-011 write-lock wait/hold histograms")
     }
 
     Rel(engine, backend, "Cypher reads/writes via the engine authority")
@@ -233,7 +233,7 @@ C4Component
     Rel(budget, retrieval, "Caps retrieved context to a token budget")
     Rel(streams, pipeline, "Feeds live events into ingestion")
     Rel(intel, pipeline, "Distils documents/calls into operating-intelligence nodes")
-    Rel(reasoner_router, retrieval, "KG-2.68: routes paradigms via CapabilityIndex designate/record_outcome (reward-EMA)")
+    Rel(reasoner_router, retrieval, "AU-KG.compute.first-class-reasoner-paradigm: routes paradigms via CapabilityIndex designate/record_outcome (reward-EMA)")
     Rel(reasoner_router, world_model, "Model-based planning paradigm")
     Rel(reasoner_router, prog_synth, "Inductive synthesis paradigm")
     Rel(bounded_read, backend, "Type-scoped reads via get_nodes_by_label (KG-2.51)")
@@ -244,8 +244,8 @@ C4Component
 
 ### Self-Improving Reasoning Substrate (cross-pillar)
 
-The reasoning router (KG-2.68), world model (KG-2.67) and program synthesizer (KG-2.69)
-above are the REASON stage of a single closed loop that spans KG-2, AHE-3, SAFE-1 and OS-5:
+The reasoning router (AU-KG.compute.first-class-reasoner-paradigm), world model (AU-KG.compute.first-class-action-conditioned) and program synthesizer (AU-KG.coordination.inductive-program-synthesis-search)
+above are the REASON stage of a single closed loop that spans EG-KG.compute.backend, AHE-3, SAFE-1 and OS-5:
 **route → reason → measure → learn**, cost-bounded and corrigible, with winning traces
 distilled back into training data at scale. The router *learns which paradigm works for
 which task class* by reusing the reward-aware `CapabilityIndex` — paradigm selection
@@ -254,13 +254,13 @@ for the full component + dynamic diagrams and the concept→role map.
 
 ```mermaid
 flowchart LR
-    task([Task]) --> ROUTE["ROUTE · KG-2.68 router"]
-    ROUTE --> REASON["REASON · KG-2.69 / KG-2.67 / deductive / generative"]
-    REASON --> MEASURE["MEASURE · SAFE-1.1 + AHE-3.24"]
+    task([Task]) --> ROUTE["ROUTE · AU-KG.compute.first-class-reasoner-paradigm router"]
+    ROUTE --> REASON["REASON · AU-KG.coordination.inductive-program-synthesis-search / AU-KG.compute.first-class-action-conditioned / deductive / generative"]
+    REASON --> MEASURE["MEASURE · SAFE-1.1 + AU-AHE.evaluation.capability-benchmark-regression-ratchet"]
     MEASURE --> LEARN["LEARN · record_outcome → reward EMA"]
     LEARN -- routing reward --> ROUTE
-    LEARN --> LEDGER["AHE-3.26 / SAFE-1.3 RSI ledger"]
-    MEASURE -. winning traces .-> DISTIL["OS-5.34 distil → SAFE-1.4 guard"]
+    LEARN --> LEDGER["AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / AU-OS.audit.recursive-improvement-velocity-tracker RSI ledger"]
+    MEASURE -. winning traces .-> DISTIL["AU-OS.scaling.kg-provenance-panel-data distil → AU-OS.safety.model-collapse-guard-self guard"]
     REASON -. at scale .-> MARKET["ORCH-1.46/47/48 collective"]
 ```
 
@@ -276,18 +276,18 @@ C4Component
         Component(selfmodel, "Self-Model", "Python", "Dynamic capability self-assessment")
         Component(team, "TeamConfig Composer", "Python", "Coalition formation & promotion")
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
-        Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AHE-3.7: Optimistic locking with optional Redis support")
+        Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AU-AHE.harness.concept-2: Optimistic locking with optional Redis support")
         Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.8: Auto-promotes successful patterns to Workflow Skills")
         Component(dspy, "DSPy Compiler", "Python", "AHE-3.1: Mathematical prompt optimization")
         Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-3.9: Distills evolved prompts/tools to physical git-tracked files")
         Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-3.10: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
-        Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AHE-3.11: Enforces git boundaries and registers evolutionary changes in KG")
+        Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AU-AHE.optimization.gitops-commit-automation: Enforces git boundaries and registers evolutionary changes in KG")
         Component(rewardspine, "Training Reward Spine", "Python", "AHE-3.1: graph/training_signals.py — advantage / failure-point / composite-reward / difficulty-floor")
         Component(replay, "Prioritized Replay Buffer", "Python", "AHE-3.0: harness/replay_buffer.py — inverse-frequency replay of decisive states (b4-03)")
         Component(trainsub, "In-House Training Substrate", "Python+torch+Rust", "AHE-3.1/KG-2.22: data-science-mcp trainers (SFT/DPO/GRPO) + epistemic-graph Rust kernels — see architecture/in_house_training_substrate.md")
-        Component(arpo, "🔬 Agent-Step PO (ARPO)", "Python", "AHE-3.15: graph/agent_step_po.py — entropy-gated branching + per-step credit into the capability reward-EMA (arXiv:2507.19849)")
-        Component(vpo, "🔬 Test-Time Diversity (VPO)", "Python", "AHE-3.16: graph/test_time_diversity.py — effort-derived diverse best-of-k fan-out (arXiv:2605.22817)")
-        Component(prefcorpus, "🔬 Preference-Corpus Reliability", "Python", "AHE-3.17: harness/preference_pairs.py — DPO-ready pair export + RAPPO/TI-DPO/InSPO refinements")
+        Component(arpo, "🔬 Agent-Step PO (ARPO)", "Python", "AU-AHE.reward.this-is-read-back: graph/agent_step_po.py — entropy-gated branching + per-step credit into the capability reward-EMA (arXiv:2507.19849)")
+        Component(vpo, "🔬 Test-Time Diversity (VPO)", "Python", "AU-AHE.harness.width-diverse-best-k: graph/test_time_diversity.py — effort-derived diverse best-of-k fan-out (arXiv:2605.22817)")
+        Component(prefcorpus, "🔬 Preference-Corpus Reliability", "Python", "AU-AHE.harness.preference-corpus-reliability: harness/preference_pairs.py — DPO-ready pair export + RAPPO/TI-DPO/InSPO refinements")
         Component(memdata, "MemoryData Bake-off", "Python", "AHE-3.71/72/73/74: harness/memorydata/ — 6 graph-os retrieval configs scored EM/ROUGE-L vs 22 baselines; family-aware GraphOSRouterMethod + scoreboard")
     }
 
@@ -329,13 +329,13 @@ C4Component
         Component(coord_a2a, "🔬 Coordinated A2A Skill", "Python", "ECO-4.1: A2A with coordination negotiation. Research: 2605.03310v1")
         Component(skill_mgr, "Skill Manager", "Python", "Dynamic tool loading and skill evolution")
         Component(bridge, "Ecosystem Bridge", "Python", "Cross-package integration")
-        Component(quantapi, "🔬 Quant Agent API (SAAPI)", "Python", "ECO-4.7: Base QuantAgentTemplate")
-        Component(dataflows, "🔬 Market Dataflows", "Python", "ECO-4.8: Temporal ticker stream connector")
-        Component(quant_mcp, "Unified Quant MCP Tool", "Python", "ECO-4.9: Single 'quant' tool routing to orchestrate, data, execute, portfolio")
-        Component(toolkit_ingest, "Agent Toolkit Ingestor", "Python", "ECO-4.6: Unified MCP/Skill/A2A ingestion with auto-detection")
-        Component(mcp_discover, "MCP Live Discovery", "Python", "ECO-4.6: Live list_tools() + KG cache + freshness verification")
-        Component(quant_micro, "🔬 Microstructure Engine", "Python", "ECO-4.6: High-Frequency OBI & Micro-Price")
-        Component(quant_arb, "🔬 Stat Arb Engine", "Python", "ECO-4.7: Cross-Market Cointegration & OU Modeling")
+        Component(quantapi, "🔬 Quant Agent API (SAAPI)", "Python", "AU-OS.deployment.infra-orchestration: Base QuantAgentTemplate")
+        Component(dataflows, "🔬 Market Dataflows", "Python", "AU-OS.deployment.blueprint-library: Temporal ticker stream connector")
+        Component(quant_mcp, "Unified Quant MCP Tool", "Python", "AU-ECO.bus.pluggable-queue-backend: Single 'quant' tool routing to orchestrate, data, execute, portfolio")
+        Component(toolkit_ingest, "Agent Toolkit Ingestor", "Python", "AU-ECO.mcp.toolkit-live-discovery: Unified MCP/Skill/A2A ingestion with auto-detection")
+        Component(mcp_discover, "MCP Live Discovery", "Python", "AU-ECO.mcp.toolkit-live-discovery: Live list_tools() + KG cache + freshness verification")
+        Component(quant_micro, "🔬 Microstructure Engine", "Python", "AU-ECO.mcp.toolkit-live-discovery: High-Frequency OBI & Micro-Price")
+        Component(quant_arb, "🔬 Stat Arb Engine", "Python", "AU-OS.deployment.infra-orchestration: Cross-Market Cointegration & OU Modeling")
     }
 
     Rel(mcp_factory, kg_mcp, "Creates KG MCP instance")
@@ -368,14 +368,14 @@ C4Component
         Component(scheduler, "Cognitive Scheduler", "Python", "Priority queue, preemption, context paging")
         Component(budget, "🔬 Inference Budget Controller", "Python", "OS-5.2: Cost-aware tier fallback. Research: 2605.05701v1")
         Component(telemetry, "Telemetry Pipeline", "Python", "OTEL, token tracking, audit logging")
-        Component(metrics, "Gateway Metrics + Rate Limit", "Python ASGI", "OS-5.23: Prometheus /metrics (agent_utilities_* series), per-tenant token buckets, engine circuit breaker, GATEWAY_WORKERS")
+        Component(metrics, "Gateway Metrics + Rate Limit", "Python ASGI", "AU-OS.observability.no-op-without-metrics: Prometheus /metrics (agent_utilities_* series), per-tenant token buckets, engine circuit breaker, GATEWAY_WORKERS")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
-        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "OS-5.9: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery; daemon/shards topology view (OS-5.28)")
-        Component(statestore, "State Store Seam", "Python", "OS-5.16: STATE_DB_URI — shared Postgres for checkpoints/sessions/queues; OS-5.17 advisory-lock leadership")
-        Component(fleetapi, "Fleet Supervisory Plane", "Python", "OS-5.15/OS-5.18: /api/fleet/* — health, topology, events ingress, pause/kill, approvals")
+        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "AU-OS.config.gateway-service-dashboard: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery; daemon/shards topology view (AU-OS.scaling.shard-topology-visibility-per)")
+        Component(statestore, "State Store Seam", "Python", "AU-OS.state.unified-durable-state-externalization: STATE_DB_URI — shared Postgres for checkpoints/sessions/queues; AU-OS.state.cross-host-daemon-leadership advisory-lock leadership")
+        Component(fleetapi, "Fleet Supervisory Plane", "Python", "AU-OS.config.fleet-event-ingress/AU-OS.state.fleet-supervisory-plane-at: /api/fleet/* — health, topology, events ingress, pause/kill, approvals")
         Component(actionpolicy, "ActionPolicy Decision Point", "Python", "OS-5.24: per-action autonomy tiers, durable rate limits, blast-radius caps; fail-closed; ActionDecision audit")
-        Component(reconciler, "Fleet Reconciler + Autoscaler", "Python", "OS-5.25/OS-5.29: desired-state convergence + target-tracking scaling, leader-only, dry-run actuator default")
-        Component(deploywatch, "Deploy Watch", "Python", "OS-5.27: durable post-deploy health watch; policy-gated rollback on sustained failure")
+        Component(reconciler, "Fleet Reconciler + Autoscaler", "Python", "AU-OS.config.desired-state-fleet-reconciler/OS-5.29: desired-state convergence + target-tracking scaling, leader-only, dry-run actuator default")
+        Component(deploywatch, "Deploy Watch", "Python", "AU-OS.config.health-gated-deploy-rollback: durable post-deploy health watch; policy-gated rollback on sustained failure")
     }
 
     Rel(auth, threat, "Validates before routing")
@@ -505,38 +505,38 @@ flowchart LR
             RZ_WB -->|"add_element / postbusinesscapability"| RZ_EA["Archi / LeanIX"]
         end
 
-        subgraph MATERIALIZE ["KG Graph Materialization Flow (ORCH-1.20)"]
+        subgraph MATERIALIZE ["KG Graph Materialization Flow (AU-ORCH.execution.service-registry-initialization)"]
             direction LR
             QUERY_IN["ORCH-1.0: User Query"] -->|"router_step"| KG_SEARCH["KG-2.3: Hybrid Search"]
-            KG_SEARCH -->|"AgentTemplate nodes"| TOPO_SORT["ORCH-1.20: Factory: Topological Sort"]
-            TOPO_SORT -->|"DEPENDS_ON edges"| PROMPT_RESOLVE["ORCH-1.20: Factory: Prompt Resolution"]
-            PROMPT_RESOLVE -->|"USES_PROMPT edges"| TOOL_BIND["ORCH-1.20: Factory: Tool Binding"]
-            TOOL_BIND -->|"REQUIRES_TOOLSET edges"| GRAPH_BUILD["ORCH-1.20: Factory: Graph Build"]
+            KG_SEARCH -->|"AgentTemplate nodes"| TOPO_SORT["AU-ORCH.execution.service-registry-initialization: Factory: Topological Sort"]
+            TOPO_SORT -->|"DEPENDS_ON edges"| PROMPT_RESOLVE["AU-ORCH.execution.service-registry-initialization: Factory: Prompt Resolution"]
+            PROMPT_RESOLVE -->|"USES_PROMPT edges"| TOOL_BIND["AU-ORCH.execution.service-registry-initialization: Factory: Tool Binding"]
+            TOOL_BIND -->|"REQUIRES_TOOLSET edges"| GRAPH_BUILD["AU-ORCH.execution.service-registry-initialization: Factory: Graph Build"]
             GRAPH_BUILD -->|"KGGraphResult"| DISPATCH_OUT["ORCH-1.0: Dispatcher"]
         end
 
-        subgraph TOOLKIT ["Agent Toolkit Ingestion Flow (ECO-4.6 / ECO-4.6)"]
+        subgraph TOOLKIT ["Agent Toolkit Ingestion Flow (AU-ECO.mcp.toolkit-live-discovery / AU-ECO.mcp.toolkit-live-discovery)"]
             direction LR
-            TK_SRC["ECO-4.1: Sources: mcp_config.json / skill dirs / A2A URLs"] -->|"auto-detect"| TK_DETECT["ECO-4.6: Type Detector"]
-            TK_DETECT -->|"JSON + mcpServers"| TK_MCP["ECO-4.6: MCP Config Parser"]
-            TK_DETECT -->|"directory + SKILL.md"| TK_SKILL["ECO-4.6: Skill Parser"]
+            TK_SRC["ECO-4.1: Sources: mcp_config.json / skill dirs / A2A URLs"] -->|"auto-detect"| TK_DETECT["AU-ECO.mcp.toolkit-live-discovery: Type Detector"]
+            TK_DETECT -->|"JSON + mcpServers"| TK_MCP["AU-ECO.mcp.toolkit-live-discovery: MCP Config Parser"]
+            TK_DETECT -->|"directory + SKILL.md"| TK_SKILL["AU-ECO.mcp.toolkit-live-discovery: Skill Parser"]
             TK_DETECT -->|"http:// URL"| TK_A2A["ECO-4.1: A2A Card Fetcher"]
-            TK_MCP -->|"live connect"| TK_LIVE["ECO-4.6: Live list_tools()"]
-            TK_LIVE -->|"tool metadata"| TK_KG["ECO-4.6: KG: Server + CallableResource nodes"]
-            TK_MCP -->|"fallback"| TK_FLAGS["ECO-4.6: Tool Flag Parser"]
+            TK_MCP -->|"live connect"| TK_LIVE["AU-ECO.mcp.toolkit-live-discovery: Live list_tools()"]
+            TK_LIVE -->|"tool metadata"| TK_KG["AU-ECO.mcp.toolkit-live-discovery: KG: Server + CallableResource nodes"]
+            TK_MCP -->|"fallback"| TK_FLAGS["AU-ECO.mcp.toolkit-live-discovery: Tool Flag Parser"]
             TK_FLAGS --> TK_KG
             TK_SKILL --> TK_KG
             TK_A2A -->|"/.well-known/agent.json"| TK_KG
-            TK_KG -->|"config hash"| TK_FRESH["ECO-4.6: Freshness Check"]
+            TK_KG -->|"config hash"| TK_FRESH["AU-ECO.mcp.toolkit-live-discovery: Freshness Check"]
         end
 
         subgraph AGENT_EXEC ["Agent Execution Flow (ORCH-1.21)"]
             direction LR
-            AE_CMD["ORCH-1.21: graph_orchestrate: execute_agent"] -->|"agent_name"| AE_RESOLVE["ORCH-1.20: Agent Resolution"]
+            AE_CMD["ORCH-1.21: graph_orchestrate: execute_agent"] -->|"agent_name"| AE_RESOLVE["AU-ORCH.execution.service-registry-initialization: Agent Resolution"]
             AE_RESOLVE -->|"Server/Skill/A2A nodes"| AE_CONFIG["ORCH-1.21: Config Builder"]
-            AE_CONFIG -->|"tag_prompts + mcp_toolsets"| AE_GRAPH["ORCH-1.20: create_graph_agent()"]
+            AE_CONFIG -->|"tag_prompts + mcp_toolsets"| AE_GRAPH["AU-ORCH.execution.service-registry-initialization: create_graph_agent()"]
             AE_GRAPH -->|"materialized graph"| AE_RUN["ORCH-1.21: run_graph() → LM Studio"]
-            AE_RUN -->|"GraphResponse"| AE_TRACE["OS-5.4: KG: RunTrace provenance"]
+            AE_RUN -->|"GraphResponse"| AE_TRACE["AU-OS.governance.wasm-micro-agent-sandbox: KG: RunTrace provenance"]
         end
 
         subgraph WORKFLOW ["Workflow Lifecycle Flow (ORCH-1.22 / 1.23 / 1.24)"]
@@ -572,60 +572,60 @@ flowchart LR
             QD_ENV -->|"key = session:&lt;id&gt;"| QD_TOPIC["KG-2.55: agent_turns queue (Kafka / Postgres / SQLite)"]
             QD_TOPIC -->|"claim under session lock"| QD_WORKER["ORCH-1.45: agent-dispatch-worker"]
             QD_WORKER -->|"rehydrate + execute existing body"| QD_RUN["ORCH-1.21: run_goal_loop / orchestration manager"]
-            QD_RUN -->|"durable write-back, then ack"| QD_STATE["OS-5.16: shared state store"]
-            QD_WORKER -->|"heartbeat"| QD_TOPO["OS-5.18: /api/fleet/topology"]
+            QD_RUN -->|"durable write-back, then ack"| QD_STATE["AU-OS.state.unified-durable-state-externalization: shared state store"]
+            QD_WORKER -->|"heartbeat"| QD_TOPO["AU-OS.state.fleet-supervisory-plane-at: /api/fleet/topology"]
         end
 
         subgraph INGEST_SCALE ["Ingest Scale-Out Flow (KG-2.55 / 2.56 / 2.57)"]
             direction LR
             IS_SUBMIT["KG-2.0: graph_ingest submit"] -->|"TASK_QUEUE_BACKEND (fail-loud)"| IS_TOPIC["KG-2.56: kg_tasks topic (key: tenant → repo → type)"]
-            IS_TOPIC -->|"kg-ingest consumer group"| IS_WORKER["KG-2.57: kg-ingest-worker (engine client, HMAC)"]
+            IS_TOPIC -->|"kg-ingest consumer group"| IS_WORKER["AU-KG.ingest.decoupled-kg-ingest-consumer: kg-ingest-worker (engine client, HMAC)"]
             IS_TOPIC -->|"same group"| IS_HOST["KG-2.0: host engine worker pool"]
             IS_WORKER -->|"idempotent job_id claims"| IS_ENGINE["KG-2.7: epistemic-graph engine"]
-            IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["OS-5.23: /metrics"]
-            IS_WORKER -->|"contextvar IngestProfile: stages_ms + tokens/cost"| IS_PROFILE["OS-5.69/70/71: graph_ingest action=profile → profile_report (p50/p95, parallelism_factor, dead_letter)"]
-            IS_ENGINE -.->|"GetNodes count > 50000"| IS_GUARD["KG-2.264: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
-            IS_ENGINE -->|"per-graph write lock contention"| IS_COAL["KG-2.182: write-coalescer (N writes → 1 txn) + __control__ split"]
+            IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["AU-OS.observability.no-op-without-metrics: /metrics"]
+            IS_WORKER -->|"contextvar IngestProfile: stages_ms + tokens/cost"| IS_PROFILE["AU-OS.observability.ingestion-profile-report/70/71: graph_ingest action=profile → profile_report (p50/p95, parallelism_factor, dead_letter)"]
+            IS_ENGINE -.->|"GetNodes count > 50000"| IS_GUARD["EG-KG.ingest.resets-socket-so-assimilation: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
+            IS_ENGINE -->|"per-graph write lock contention"| IS_COAL["EG-KG.sharding.per-graph-write-coalescer: write-coalescer (N writes → 1 txn) + __control__ split"]
         end
 
-        subgraph SHARDING ["Engine Sharding Flow (KG-2.58 / OS-5.28)"]
+        subgraph SHARDING ["Engine Sharding Flow (AU-KG.sharding.tenant-partitioned-sharding-hrw / AU-OS.scaling.shard-topology-visibility-per)"]
             direction LR
-            SH_REQ["KG-2.0: graph operation"] -->|"graph name / tenant"| SH_ROUTE["KG-2.58: HRW ShardRouter"]
+            SH_REQ["KG-2.0: graph operation"] -->|"graph name / tenant"| SH_ROUTE["AU-KG.sharding.tenant-partitioned-sharding-hrw: HRW ShardRouter"]
             SH_ROUTE -->|"owning shard"| SH_ENG["KG-2.7: engine shard 1..N (GRAPH_SERVICE_ENDPOINTS)"]
-            SH_ENG -.->|"reachability + breaker state"| SH_TOPO["OS-5.28: daemon status + dashboard daemon/shards"]
+            SH_ENG -.->|"reachability + breaker state"| SH_TOPO["AU-OS.scaling.shard-topology-visibility-per: daemon status + dashboard daemon/shards"]
         end
 
-        subgraph AUTONOMY ["Fleet Autonomy Flow (OS-5.15 / 5.24 — 5.27 / 5.29)"]
+        subgraph AUTONOMY ["Fleet Autonomy Flow (AU-OS.config.fleet-event-ingress / 5.24 — 5.27 / 5.29)"]
             direction LR
-            AU_ALERT["Alertmanager / Uptime Kuma"] -->|"POST /api/fleet/events"| AU_EVENT["OS-5.15: FleetEvent nodes"]
-            AU_EVENT -->|"triage"| AU_PLAY["OS-5.26: remediation playbooks"]
-            AU_REG["deploy/mcp-fleet.registry.yml"] --> AU_RECON["OS-5.25: fleet reconciler"]
+            AU_ALERT["Alertmanager / Uptime Kuma"] -->|"POST /api/fleet/events"| AU_EVENT["AU-OS.config.fleet-event-ingress: FleetEvent nodes"]
+            AU_EVENT -->|"triage"| AU_PLAY["AU-OS.host.remediation-playbooks: remediation playbooks"]
+            AU_REG["deploy/mcp-fleet.registry.yml"] --> AU_RECON["AU-OS.config.desired-state-fleet-reconciler: fleet reconciler"]
             AU_REG -->|"scaling bounds"| AU_SCALE["OS-5.29: autoscaler"]
             AU_PLAY --> AU_POLICY{"OS-5.24: ActionPolicy"}
             AU_RECON --> AU_POLICY
             AU_SCALE --> AU_POLICY
-            AU_POLICY -->|"allow"| AU_ACT["OS-5.25: FleetActuator (dry-run default)"]
-            AU_POLICY -->|"queue approval"| AU_APPR["OS-5.18: /api/fleet/approvals"]
-            AU_ACT -->|"deploy/restart"| AU_WATCH["OS-5.27: deploy watch"]
+            AU_POLICY -->|"allow"| AU_ACT["AU-OS.config.desired-state-fleet-reconciler: FleetActuator (dry-run default)"]
+            AU_POLICY -->|"queue approval"| AU_APPR["AU-OS.state.fleet-supervisory-plane-at: /api/fleet/approvals"]
+            AU_ACT -->|"deploy/restart"| AU_WATCH["AU-OS.config.health-gated-deploy-rollback: deploy watch"]
             AU_WATCH -->|"sustained failure → policy-gated rollback"| AU_POLICY
         end
 
-        subgraph EVOLVE_PUBLISH ["Evolution Publication Flow (AHE-3.18 — 3.21)"]
+        subgraph EVOLVE_PUBLISH ["Evolution Publication Flow (AU-AHE.harness.failure-evolution — 3.21)"]
             direction LR
-            EP_FAIL["AHE-3.18: Langfuse failures / AHE-3.19: anomalies"] -->|"failure_gap topics"| EP_LOOP["KG-2.7: golden loop"]
-            EP_LOOP -->|"promoted proposal"| EP_GOV["AHE-3.20: promotion governance validator"]
+            EP_FAIL["AU-AHE.harness.failure-evolution: Langfuse failures / AU-AHE.optimization.performance-anomaly-consumer: anomalies"] -->|"failure_gap topics"| EP_LOOP["KG-2.7: golden loop"]
+            EP_LOOP -->|"promoted proposal"| EP_GOV["AU-AHE.harness.promotion-governance-validator: promotion governance validator"]
             EP_GOV -->|"regression-gated"| EP_SYNTH["AHE-3.21: change synthesis + RLM sandbox"]
             EP_SYNTH -->|"publish_proposal via ActionPolicy"| EP_BRANCH["AHE-3.21: reviewable local git branch (never pushed)"]
         end
 
-        subgraph GATEWAY ["Gateway Service Dashboard Flow (OS-5.9)"]
+        subgraph GATEWAY ["Gateway Service Dashboard Flow (AU-OS.config.gateway-service-dashboard)"]
             direction LR
-            GW_MCP["OS-5.9: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["OS-5.9: ConfigManager"]
-            GW_CONFIG -->|"ServiceConfig[]"| GW_REG["OS-5.9: Widget Registry"]
-            GW_REG -->|"lazy-import"| GW_WIDGET["OS-5.9: 50 Widget Modules"]
-            GW_WIDGET -->|"fetch_data()"| GW_AGG["OS-5.9: Aggregator"]
-            GW_AGG -->|"WidgetData{}"| GW_API["OS-5.9: REST /api/dashboard"]
-            GW_AGG -->|"stream"| GW_WS["OS-5.9: WebSocket /ws/dashboard"]
+            GW_MCP["AU-OS.config.gateway-service-dashboard: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["AU-OS.config.gateway-service-dashboard: ConfigManager"]
+            GW_CONFIG -->|"ServiceConfig[]"| GW_REG["AU-OS.config.gateway-service-dashboard: Widget Registry"]
+            GW_REG -->|"lazy-import"| GW_WIDGET["AU-OS.config.gateway-service-dashboard: 50 Widget Modules"]
+            GW_WIDGET -->|"fetch_data()"| GW_AGG["AU-OS.config.gateway-service-dashboard: Aggregator"]
+            GW_AGG -->|"WidgetData{}"| GW_API["AU-OS.config.gateway-service-dashboard: REST /api/dashboard"]
+            GW_AGG -->|"stream"| GW_WS["AU-OS.config.gateway-service-dashboard: WebSocket /ws/dashboard"]
             GW_API -->|"JSON"| GW_WEBUI["agent-webui"]
             GW_WS -->|"real-time"| GW_WEBUI
             GW_AGG -->|"direct Python"| GW_TUI["agent-terminal-ui"]
@@ -705,7 +705,7 @@ graph TD
         PAISkills[pydantic-ai-skills]
         FastMCP[ECO-4.0: fastmcp]
         FastAPI[fastapi]
-        Logfire[OS-5.4: logfire]
+        Logfire[AU-OS.governance.wasm-micro-agent-sandbox: logfire]
     end
 
     subgraph External_Terminal ["agent-terminal-ui Dependencies"]
@@ -768,13 +768,13 @@ C4Container
         Container(orchestrator, "Graph Orchestrator", "Pydantic-Graph", "Routes queries, executes parallel domains, validates results")
         Container(subagent, "Domain Sub-Agents", "Pydantic-AI", "Specialized agents for Git, Web, Cloud, etc.")
         Container(dispatchworkers, "agent-dispatch-worker fleet", "Python", "Claims session-keyed agent turns; durable write-back (ORCH-1.45)")
-        Container(ingestworkers, "kg-ingest-worker fleet", "Python", "kg-ingest consumer group; engine clients (KG-2.57)")
+        Container(ingestworkers, "kg-ingest-worker fleet", "Python", "kg-ingest consumer group; engine clients (AU-KG.ingest.decoupled-kg-ingest-consumer)")
         ContainerQueue(topics, "Kafka topics", "kg_tasks + agent_turns", "Keyed partitions; Postgres/SQLite fallbacks")
-        ContainerDb(shards, "epistemic-graph engine shards", "Rust", "1..N tenant-partitioned shards, HRW-routed (KG-2.58)")
+        ContainerDb(shards, "epistemic-graph engine shards", "Rust", "1..N tenant-partitioned shards, HRW-routed (AU-KG.sharding.tenant-partitioned-sharding-hrw)")
         ContainerDb(state, "Shared state store", "PostgreSQL (STATE_DB_URI)", "Sessions, goals, checkpoints, queues")
     }
 
-    System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.) behind the hardened multiplexer (ECO-4.34)")
+    System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.) behind the hardened multiplexer (AU-ECO.mcp.profile-differences-from-client)")
     System_Ext(otel, "OpenTelemetry Collector", "Tracing and monitoring")
     System_Ext(prom, "Prometheus", "Scrapes gateway /metrics + per-shard engine metrics listeners")
 

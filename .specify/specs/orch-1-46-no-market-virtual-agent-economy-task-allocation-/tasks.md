@@ -4,10 +4,10 @@ Wire-first; compose existing primitives behind the dispatch seam.
 
 1. **Read the seams.** `orchestration/agent_dispatch.py` + `agent_dispatch_worker.py` (ORCH-1.45
    queue-pull, `AgentTurnEnvelope`), `orchestration/adaptive_agent_router.py` (capability match),
-   `knowledge_graph/retrieval/capability_index.py` + KG-2.27 calibration, `orchestration/action_policy.py`
+   `knowledge_graph/retrieval/capability_index.py` + AU-KG.domains.agent-calibration-reputation-tracking calibration, `orchestration/action_policy.py`
    (OS-5.24 spend gate), `orchestration/fleet_autoscaler.py` + `scaling_signals.py` (OS-5.29).
 2. **Allocator.** Add `orchestration/agent_market.py::MarketAllocator` — sealed-bid second-price auction
-   over capability-matched bidders; bid = token-budget cost × KG-2.27 confidence.
+   over capability-matched bidders; bid = token-budget cost × AU-KG.domains.agent-calibration-reputation-tracking confidence.
 3. **Clearing nodes.** Persist a clearing-price graph node per task (winner, price, losing bids).
 4. **Spend gate.** Enforce the OS-5.24 ActionPolicy cap and per-agent budget in bid eligibility.
 5. **Wire the seam.** Add a `market` dispatch-backend mode selecting `MarketAllocator` instead of uniform

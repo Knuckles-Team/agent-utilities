@@ -1,4 +1,4 @@
-"""ERPNext/Frappe source extractor (CONCEPT:KG-2.9).
+"""ERPNext/Frappe source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering source extractor that turns Frappe doctypes (Employee,
 Customer, Sales Order, Item) into the uniform :class:`ExtractionBatch` of typed

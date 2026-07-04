@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.86 — Shared host-helper bridge for isolated sandbox backends.
+"""CONCEPT:AU-ORCH.sandbox.shared-host-helper-bridge — Shared host-helper bridge for isolated sandbox backends.
 
 An isolated backend (a ``--network none`` container, a forked process, a microVM guest) runs
 the snippet in a *separate* address space, but the RLM host helpers (``rlm_query``,

@@ -1,4 +1,4 @@
-"""Tests for the office-document modality readers (CONCEPT:KG-2.66).
+"""Tests for the office-document modality readers (CONCEPT:AU-KG.enrichment.multimodal-readers).
 
 Covers the always-available stdlib readers (email ``.eml``, ``.csv``/``.tsv``)
 with real extraction, the optional-dep readers (``.msg``/``.pptx``/``.xlsx``)

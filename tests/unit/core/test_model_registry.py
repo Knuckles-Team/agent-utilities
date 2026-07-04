@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.2"""
+"""CONCEPT:AU-ORCH.adapter.hot-cache-invalidation"""
 
 """Unit tests for the multi-model registry (models/model_registry.py).
 

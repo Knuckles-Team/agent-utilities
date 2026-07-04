@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.28 — Composable Skills + Generic Environment Adapter."""
+"""CONCEPT:AU-ORCH.adapter.composable-skills-environment — Composable Skills + Generic Environment Adapter."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from agent_utilities.rlm.skills import (
 )
 
 
-@pytest.mark.concept(id="ORCH-1.28")
+@pytest.mark.concept(id="AU-ORCH.adapter.composable-skills-environment")
 def test_merge_skills_dedups_packages_and_headers_instructions():
     a = Skill(name="a", instructions="do A", packages=["httpx", "numpy"])
     b = Skill(name="b", instructions="do B", packages=["numpy", "pandas"])
@@ -21,7 +21,7 @@ def test_merge_skills_dedups_packages_and_headers_instructions():
     assert "do A" in m.instructions and "do B" in m.instructions
 
 
-@pytest.mark.concept(id="ORCH-1.28")
+@pytest.mark.concept(id="AU-ORCH.adapter.composable-skills-environment")
 def test_merge_skills_raises_on_module_and_tool_conflict():
     a = Skill(name="a", modules={"util": "x=1"})
     b = Skill(name="b", modules={"util": "y=2"})
@@ -33,7 +33,7 @@ def test_merge_skills_raises_on_module_and_tool_conflict():
         merge_skills([c, d])
 
 
-@pytest.mark.concept(id="ORCH-1.28")
+@pytest.mark.concept(id="AU-ORCH.adapter.composable-skills-environment")
 def test_generic_adapter_small_surface_and_preserved_evaluator():
     calls = {"login": lambda **k: "ok", "search": lambda q: [q.upper()]}
     seen = {}
@@ -56,14 +56,14 @@ def test_generic_adapter_small_surface_and_preserved_evaluator():
     assert seen["answer"] == "DONE"  # host evaluator received the answer
 
 
-@pytest.mark.concept(id="ORCH-1.28")
+@pytest.mark.concept(id="AU-ORCH.adapter.composable-skills-environment")
 def test_generic_adapter_unknown_item_raises():
     env = RegistryEnvironmentAdapter({"a": lambda: 1})
     with pytest.raises(KeyError):
         env.call("missing")
 
 
-@pytest.mark.concept(id="ORCH-1.28")
+@pytest.mark.concept(id="AU-ORCH.adapter.composable-skills-environment")
 def test_predict_rlm_mount_skill_unit():
     import os
 

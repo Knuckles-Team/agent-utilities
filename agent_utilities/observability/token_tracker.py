@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Token Usage Tracker — 4-Bucket Granular Analytics (CONCEPT:OS-5.1).
+"""Token Usage Tracker — 4-Bucket Granular Analytics (CONCEPT:AU-OS.observability.granular-token-analytics).
 
 Provides granular token usage tracking with four distinct buckets:
 prompt, response, thoughts, and tool_use. Ported from MATE's
@@ -66,7 +66,7 @@ def _bucket_points(
     return out
 
 
-#: The per-agent telemetry series-id prefix in the engine tsdb (CONCEPT:KG-2.252).
+#: The per-agent telemetry series-id prefix in the engine tsdb (CONCEPT:AU-KG.temporal.token-event-tsdb).
 _TELEMETRY_SERIES_PREFIX = "telemetry:tokens:"
 
 #: The ordered field vector telemetry points carry (shared by the writer + readers).
@@ -88,7 +88,7 @@ def query_token_series(
     window_s: float | None = None,
     agg: str = "sum",
 ) -> list[tuple[float, float]]:
-    """Per-agent token usage over time from the engine tsdb (CONCEPT:KG-2.252).
+    """Per-agent token usage over time from the engine tsdb (CONCEPT:AU-KG.temporal.token-event-tsdb).
 
     Instance-free reader for the durable telemetry series (any tracker instance's
     writes land in the same engine-keyed series). Returns ``[(epoch_seconds,
@@ -102,7 +102,7 @@ def query_token_series(
 
         backend = get_timeseries_backend("engine")
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:KG-2.252] telemetry tsdb unavailable: %s", e)
+        logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s", e)
         return []
     client = getattr(backend, "_client", None)
     if client is None:
@@ -129,14 +129,14 @@ def query_token_series(
             (ts / 1e9, vals[field_idx]) for ts, vals in pts if field_idx < len(vals)
         ]
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:KG-2.252] query_token_series failed: %s", e)
+        logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] query_token_series failed: %s", e)
         return []
 
 
 class TokenBucket(StrEnum):
     """Token usage bucket categories.
 
-    CONCEPT:OS-5.1 — Granular Token Analytics
+    CONCEPT:AU-OS.observability.granular-token-analytics — Granular Token Analytics
 
     Ported from MATE's 4-bucket tracking in ``token_usage_callback.py``:
     prompt_tokens, response_tokens, thoughts_tokens, tool_use_tokens.
@@ -151,7 +151,7 @@ class TokenBucket(StrEnum):
 class TokenUsageRecord(BaseModel):
     """A single token usage record with per-bucket counts.
 
-    CONCEPT:OS-5.1 — Granular Token Analytics
+    CONCEPT:AU-OS.observability.granular-token-analytics — Granular Token Analytics
 
     Mirrors MATE's ``token_data`` dict structure but expressed as a
     Pydantic model for KG persistence and type safety.
@@ -187,7 +187,7 @@ class TokenUsageRecord(BaseModel):
 class TokenUsageSummary(BaseModel):
     """Aggregated token usage summary.
 
-    CONCEPT:OS-5.1 — Granular Token Analytics
+    CONCEPT:AU-OS.observability.granular-token-analytics — Granular Token Analytics
     """
 
     total_prompt_tokens: int = 0
@@ -213,7 +213,7 @@ class TokenUsageSummary(BaseModel):
 class TokenBudgetAlert(BaseModel):
     """Alert triggered when a token bucket exceeds its threshold.
 
-    CONCEPT:OS-5.1 — Granular Token Analytics
+    CONCEPT:AU-OS.observability.granular-token-analytics — Granular Token Analytics
     """
 
     bucket: TokenBucket
@@ -229,7 +229,7 @@ class TokenBudgetAlert(BaseModel):
 class TokenUsageTracker:
     """Granular token usage tracker with 4-bucket analytics.
 
-    CONCEPT:OS-5.1 — Granular Token Analytics
+    CONCEPT:AU-OS.observability.granular-token-analytics — Granular Token Analytics
 
     Ported from MATE's ``token_usage_service.py`` and
     ``token_usage_callback.py``. Provides:
@@ -253,7 +253,7 @@ class TokenUsageTracker:
 
     #: The ordered field vector each telemetry point appends to the engine tsdb.
     #: Fixed so a ``range``/``window`` read decodes back to the same bucket names
-    #: (CONCEPT:KG-2.252) — shared with the instance-free :func:`query_token_series`.
+    #: (CONCEPT:AU-KG.temporal.token-event-tsdb) — shared with the instance-free :func:`query_token_series`.
     _TS_FIELDS = TELEMETRY_TS_FIELDS
 
     def __init__(self, kg_engine: Any = None) -> None:
@@ -261,7 +261,7 @@ class TokenUsageTracker:
         self._records: list[TokenUsageRecord] = []
         self._by_session: dict[str, list[TokenUsageRecord]] = defaultdict(list)
         self._by_agent: dict[str, list[TokenUsageRecord]] = defaultdict(list)
-        # Lazily-bound engine time-series backend (CONCEPT:KG-2.252). Telemetry is
+        # Lazily-bound engine time-series backend (CONCEPT:AU-KG.temporal.token-event-tsdb). Telemetry is
         # naturally a time-series — per-agent token counts over time — so it is
         # appended to the engine tsdb and read back via native range/window
         # (in-engine time-bucketing) instead of re-scanning Python lists.
@@ -288,7 +288,7 @@ class TokenUsageTracker:
 
             self._ts_backend = get_timeseries_backend("engine")
         except Exception as e:  # noqa: BLE001 — engine absent ⇒ disable, don't crash
-            logger.debug("[CONCEPT:KG-2.252] telemetry tsdb unavailable: %s", e)
+            logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s", e)
             self._ts_disabled = True
             self._ts_backend = None
         return self._ts_backend
@@ -328,7 +328,7 @@ class TokenUsageTracker:
         if record.agent_name:
             self._by_agent[record.agent_name].append(record)
 
-        # CONCEPT:KG-2.252 — ALSO append this event to the engine tsdb as a per-agent
+        # CONCEPT:AU-KG.temporal.token-event-tsdb — ALSO append this event to the engine tsdb as a per-agent
         # telemetry point, so cross-session token trends are a native time-bucketed
         # range/window query in-engine, not a Python re-scan. Best-effort + off the
         # critical path (a missing engine just skips it).
@@ -367,7 +367,7 @@ class TokenUsageTracker:
             )
             backend.insert([point])
         except Exception as e:  # noqa: BLE001 — telemetry write must never break a run
-            logger.debug("[CONCEPT:KG-2.252] telemetry tsdb append skipped: %s", e)
+            logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb append skipped: %s", e)
 
     def usage_series(
         self,
@@ -379,7 +379,7 @@ class TokenUsageTracker:
         window_s: float | None = None,
         agg: str = "sum",
     ) -> list[tuple[float, float]]:
-        """Per-agent token usage over time, computed IN-ENGINE (CONCEPT:KG-2.252).
+        """Per-agent token usage over time, computed IN-ENGINE (CONCEPT:AU-KG.temporal.token-event-tsdb).
 
         Queries the engine tsdb for ``agent_name`` over ``[start_ts, end_ts]``
         (epoch seconds). With ``window_s`` set, returns native time-bucketed

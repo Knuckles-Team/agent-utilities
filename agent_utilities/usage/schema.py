@@ -1,4 +1,4 @@
-"""DDL for the usage analytics store (CONCEPT:ECO-4.39).
+"""DDL for the usage analytics store (CONCEPT:AU-OS.observability.usage-analytics-store).
 
 SQLite (default) uses an FTS5 virtual table for message search; Postgres uses a
 ``tsvector`` GIN column. The base tables are identical so analytics/aggregation

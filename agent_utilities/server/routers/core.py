@@ -22,7 +22,7 @@ router = APIRouter(tags=["Core"])
 async def list_configured_models(request: Request) -> dict[str, Any]:
     """Return the configured model registry.
 
-    CONCEPT:ECO-4.0
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Consumers: web-UI model picker + cost table, terminal-UI
         ``/model list``, graph orchestrator's specialist spawner.

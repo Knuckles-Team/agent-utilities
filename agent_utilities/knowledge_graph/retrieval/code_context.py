@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Synthesized, cited codebase Q&A over the KG (CONCEPT:KG-2.134 / KG-2.135).
+"""Synthesized, cited codebase Q&A over the KG (CONCEPT:AU-KG.retrieval.synthesized-cited-answer / KG-2.135).
 
 ``code_context(query, intent)`` composes the already-built code-intelligence
 primitives — the typed/scope-resolved call graph (KG-2.100), embedder-free
@@ -28,7 +28,7 @@ Design choices that make it *native* (default-on, fast, robust):
   not cite twice.
 
 The capability id every answer carries feeds the reads-avoided reward loop
-(CONCEPT:AHE-3.61) via :class:`FeedbackService`.
+(CONCEPT:AU-AHE.evaluation.reads-avoided-feedback) via :class:`FeedbackService`.
 """
 
 import re
@@ -312,7 +312,7 @@ def _docs(engine: Any, query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _gotchas(engine: Any, file_path: str, limit: int) -> list[dict[str, Any]]:
-    """Pinned :Gotcha notes for the anchor's file (CONCEPT:KG-2.140)."""
+    """Pinned :Gotcha notes for the anchor's file (CONCEPT:AU-KG.ingest.gotcha-feedback-capture)."""
     if not file_path:
         return []
     rows = _rows(
@@ -329,7 +329,7 @@ def _gotchas(engine: Any, file_path: str, limit: int) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Cross-repo usage (CONCEPT:KG-2.135)
+# Cross-repo usage (CONCEPT:AU-KG.retrieval.every-usage-published-symbol)
 # ---------------------------------------------------------------------------
 def cross_repo_usages(engine: Any, symbol: str, limit: int = 200) -> dict[str, Any]:
     """Every usage of a published ``symbol`` across the whole fleet, in one query.
@@ -480,7 +480,7 @@ def build_code_context(
             sections["routes"] = routes
             used.append("routes")
         # "Where is it used" is inherently a fleet-wide question — surface the
-        # cross-repo usage view by default for usage intent (CONCEPT:KG-2.135).
+        # cross-repo usage view by default for usage intent (CONCEPT:AU-KG.retrieval.every-usage-published-symbol).
         sections["cross_repo"] = [cross_repo_usages(engine, name, limit)]
         used.append("cross_repo")
         cross_repo = True

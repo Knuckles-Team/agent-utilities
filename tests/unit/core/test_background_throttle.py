@@ -1,4 +1,4 @@
-"""Background throttle + foreground pause (CONCEPT:KG-2.7)."""
+"""Background throttle + foreground pause (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def test_wait_while_busy_gives_up_after_max_wait():
     t.set_foreground(False)
 
 
-# ── enrichment-lane fairness (CONCEPT:KG-2.153, MUST-FIX) ────────────────────
+# ── enrichment-lane fairness (CONCEPT:AU-KG.ontology.capability-card-backfill-lane, MUST-FIX) ────────────────────
 #
 # Regression guards for the dedicated OWL card-enrichment lane. The bug: the
 # enrichment_backfill task was wrapped in an OUTER ``background_slot()`` at the

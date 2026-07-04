@@ -1,6 +1,6 @@
 """Comprehensive Multi-Backend Integration Tests.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Verifies sequential container lifecycle, schema creation, high-fidelity CRUD,
 embedding/vector search, and pipeline syncing across Neo4j, FalkorDB, and pgGraph/PostgreSQL.
@@ -355,7 +355,7 @@ class TestMultiBackendIntegration:
             print(f"Teardown for {backend_type} completed.")
 
 
-# CONCEPT:KG-2.63 — three live backends side by side through the named
+# CONCEPT:AU-KG.backend.multi-connection-registry — three live backends side by side through the named
 # multi-connection registry: the SAME tool runs against any one (target=<name>)
 # or fans out to all (target="all"), with partial success when one is down.
 _MULTICONN_BACKENDS = [

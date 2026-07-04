@@ -1,6 +1,6 @@
 """FastAPI router for the service dashboard.
 
-CONCEPT:OS-5.9 — Gateway Service Dashboard
+CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
 Mountable by agent-webui (and any other FastAPI backend)::
 
@@ -27,7 +27,7 @@ dashboard_router = APIRouter(tags=["dashboard"])
 
 # Singletons — initialized lazily on first request, PER PROCESS.
 #
-# Multi-worker audit (CONCEPT:OS-5.23):
+# Multi-worker audit (CONCEPT:AU-OS.observability.no-op-without-metrics):
 # nothing here is mutated post-startup
 # except through ``save_layout``, which persists straight to the shared YAML
 # file (XDG config dir) — reads always go back to disk, so workers/replicas
@@ -136,7 +136,7 @@ async def discover_services() -> DashboardLayout:
 
 @dashboard_router.get("/daemon/status")
 async def daemon_status() -> dict[str, Any]:
-    """Status of the single consolidated KG background daemon (CONCEPT:KG-2.8).
+    """Status of the single consolidated KG background daemon (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
     The gateway is the daemon host; this surfaces the one daemon's role, live
     threads, registered maintenance jobs, and queue depth.
@@ -148,7 +148,7 @@ async def daemon_status() -> dict[str, Any]:
 
 @dashboard_router.get("/daemon/shards")
 async def daemon_shards() -> dict[str, Any]:
-    """Engine shard topology + per-shard reachability (CONCEPT:OS-5.28).
+    """Engine shard topology + per-shard reachability (CONCEPT:AU-OS.scaling.shard-topology-visibility-per).
 
     Reports the configured ``GRAPH_SERVICE_ENDPOINTS`` topology (single vs
     sharded), a transport-level reachability probe per shard, and each shard's

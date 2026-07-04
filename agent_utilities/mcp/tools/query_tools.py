@@ -17,7 +17,7 @@ from agent_utilities.mcp import kg_server
 #: Cypher aggregate functions. A query that calls one of these in a projection
 #: collapses many rows into per-group rows, so it CANNOT be fanned across graphs
 #: and id-deduped — each graph returns its own ``count(*)``/``sum(...)`` row and
-#: naive concatenation repeats every group once per graph (CONCEPT:KG-2.277).
+#: naive concatenation repeats every group once per graph (CONCEPT:AU-KG.query.query-aggregation).
 _AGG_FUNCS = (
     "count",
     "sum",
@@ -35,7 +35,7 @@ _AGG_CALL_RE = _re.compile(r"\b(?:" + "|".join(_AGG_FUNCS) + r")\s*\(", _re.IGNO
 
 
 def is_aggregation_cypher(cypher: str) -> bool:
-    """True when ``cypher`` projects an aggregate (CONCEPT:KG-2.277).
+    """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
 
     Strips quoted string literals first so a literal like ``'count(*)'`` or a
     property named ``max_depth`` is not misread as an aggregate call. Used by the
@@ -48,12 +48,12 @@ def is_aggregation_cypher(cypher: str) -> bool:
     return bool(_AGG_CALL_RE.search(no_literals))
 
 
-#: Code-symbol nav actions over the resolved graph (CONCEPT:KG-2.9g).
+#: Code-symbol nav actions over the resolved graph (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 CODE_NAV_ACTIONS = frozenset(
     {"find_definition", "find_references", "trace_call_graph", "impact_of_change"}
 )
 
-#: Symbol→symbol path action (CONCEPT:KG-2.211) — handled outside the single-anchor
+#: Symbol→symbol path action (CONCEPT:EG-KG.compute.handled-outside-single-anchor) — handled outside the single-anchor
 #: Cypher template because it resolves TWO endpoints and runs a native path search.
 PATH_ACTIONS = frozenset({"connects"})
 
@@ -159,7 +159,7 @@ def code_connects(
     target_symbol: str = "",
     target_node_id: str = "",
 ) -> dict[str, Any]:
-    """CONCEPT:KG-2.211 — "what connects A to B": the shortest path between two
+    """CONCEPT:EG-KG.compute.handled-outside-single-anchor — "what connects A to B": the shortest path between two
     :Code symbols, rendered hop-by-hop with the relation + confidence of each edge.
 
     Resolves both endpoints, runs the engine's native path search (BFS over the
@@ -235,9 +235,9 @@ def register_query_tools(mcp):
             description=(
                 "'local' for the internal KG (Cypher), 'sql' to run read-only SQL over the "
                 "KG + user tables via the engine's DataFusion surface (e.g. SELECT ... FROM "
-                "nodes — CONCEPT:KG-2.243, same path as the pg-wire listener), 'sparql' to "
+                "nodes — CONCEPT:AU-KG.query.read-only-sql-over, same path as the pg-wire listener), 'sparql' to "
                 "run a SPARQL 1.1 SELECT/ASK over the engine's RDF projection of the graph "
-                "(CONCEPT:KG-2.266), or 'federated' to query an external graph endpoint. For "
+                "(CONCEPT:AU-KG.ingest.mirror-inbound), or 'federated' to query an external graph endpoint. For "
                 "'sql'/'sparql' the `cypher` arg carries the SQL/SPARQL string."
             ),
         ),
@@ -248,7 +248,7 @@ def register_query_tools(mcp):
         as_of: str = Field(
             default="",
             description=(
-                "CONCEPT:KG-2.11 — optional ISO-8601 instant. When set, rows are filtered to "
+                "CONCEPT:AU-KG.query.as-of-instant-filter — optional ISO-8601 instant. When set, rows are filtered to "
                 "those whose bi-temporal validity (valid_from <= as_of < valid_to) holds, "
                 "answering 'what was true as of date T'."
             ),
@@ -256,7 +256,7 @@ def register_query_tools(mcp):
         target: str = Field(
             default="",
             description=(
-                "CONCEPT:KG-2.63 — named graph connection to query (default = primary). "
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to query (default = primary). "
                 "Use a registered connection name (e.g. 'prod-neo4j'), or 'all' (or a "
                 "comma-separated list) to fan out the same query to several backends and "
                 "get per-connection labeled results."
@@ -267,7 +267,7 @@ def register_query_tools(mcp):
         parsed_params = json.loads(params) if params else {}
 
         if scope == "sql":
-            # CONCEPT:KG-2.243 — read-only SQL over the KG via the engine's
+            # CONCEPT:AU-KG.query.read-only-sql-over — read-only SQL over the KG via the engine's
             # DataFusion surface (the same path the pg-wire listener uses). The
             # `cypher` arg carries the SQL string. RLS-governed + read-path-first
             # (engine.sql refuses non-SELECT). Honors `target` fan-out like Cypher.
@@ -290,7 +290,7 @@ def register_query_tools(mcp):
             )
 
         if scope == "sparql":
-            # CONCEPT:KG-2.266 — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
+            # CONCEPT:AU-KG.ingest.mirror-inbound — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
             # engine's RDF projection of the live graph. The `cypher` arg carries the
             # SPARQL string. RLS-governed (engine.sparql visibility-filters rows) and
             # honors `target` fan-out like Cypher/SQL.
@@ -329,7 +329,7 @@ def register_query_tools(mcp):
         # Local query — block writes. Match write keywords only as whole Cypher
         # clause keywords (word boundaries) and ignore quoted string literals, so
         # identifiers like ``created_at``/``offset`` or a literal ``'CREATE …'`` are
-        # not misread as a mutation. (CONCEPT:KG-2.63)
+        # not misread as a mutation. (CONCEPT:AU-KG.backend.multi-connection-registry)
         import re
 
         _cypher_no_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher)
@@ -345,7 +345,7 @@ def register_query_tools(mcp):
                 }
             )
 
-        # CONCEPT:KG-2.63 — resolve the target connection(s). CONCEPT:KG-2.269 —
+        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing —
         # with ingestion graph routing on, an implicit-default read fans across the
         # active content-graph set so split content is still queryable as one KG.
         try:
@@ -361,7 +361,7 @@ def register_query_tools(mcp):
             or (isinstance(target, str) and target.strip().lower() in ("", "default"))
         )
 
-        # CONCEPT:KG-2.277 — an aggregation (count/sum/group-by) under the implicit
+        # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
         # content-graph union CANNOT be fanned: aggregate rows carry no node id to
         # dedup on, so the legacy id-dedup leaves one copy of every group row PER
         # graph (the bug: a Task count repeated ~24×). Summing them generically is
@@ -416,12 +416,12 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_query"] = graph_query
 
     # ══════════════════════════════════════════════════════════════════
-    # 1a-bis. graph_ask — CONCEPT:KG-2.266 natural-language → query
+    # 1a-bis. graph_ask — CONCEPT:AU-KG.ingest.mirror-inbound natural-language → query
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_ask",
         description=(
-            "CONCEPT:KG-2.266 — ask the Knowledge Graph in plain English. An LLM "
+            "CONCEPT:AU-KG.ingest.mirror-inbound — ask the Knowledge Graph in plain English. An LLM "
             "translates your question (grounded in the live node-label + SQL-table "
             "schema) into a single read-only query in the best dialect — Cypher over "
             "the property graph, SQL over the KG + user tables, or SPARQL over the RDF "
@@ -469,12 +469,12 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_ask"] = graph_ask
 
     # ══════════════════════════════════════════════════════════════════
-    # 1a-quater. nl_query — CONCEPT:KG-2.305 AU-fleet-LLM as the engine's NL planner
+    # 1a-quater. nl_query — CONCEPT:AU-KG.query.ask-gateway-rest-twin AU-fleet-LLM as the engine's NL planner
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="nl_query",
         description=(
-            "CONCEPT:KG-2.305 — ask the Knowledge Graph in plain English, planned by "
+            "CONCEPT:AU-KG.query.ask-gateway-rest-twin — ask the Knowledge Graph in plain English, planned by "
             "agent-utilities' OWN configured fleet LLM (the local vLLM / provider the rest "
             "of AU uses) acting as the engine's NL planner. The fleet model translates your "
             "request (grounded in the live node-label + SQL-table schema) into a single "
@@ -527,16 +527,16 @@ def register_query_tools(mcp):
             return json.dumps({"error": str(e)})
 
     kg_server.REGISTERED_TOOLS["nl_query"] = nl_query
-    # CONCEPT:KG-2.305 — gateway REST twin (W1 exposure; MCP⇄REST parity)
+    # CONCEPT:AU-KG.query.ask-gateway-rest-twin — gateway REST twin (W1 exposure; MCP⇄REST parity)
     kg_server.ACTION_TOOL_ROUTES["nl_query"] = "/graph/nl-query"
 
     # ══════════════════════════════════════════════════════════════════
-    # 1a-quinquies. ask_data — CONCEPT:KG-2.308 DB-GPT-style data-analysis agent loop
+    # 1a-quinquies. ask_data — CONCEPT:AU-KG.query.data-gateway-rest-twin DB-GPT-style data-analysis agent loop
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="ask_data",
         description=(
-            "CONCEPT:KG-2.308 — answer a DATA question over the Knowledge Graph with a "
+            "CONCEPT:AU-KG.query.data-gateway-rest-twin — answer a DATA question over the Knowledge Graph with a "
             "DB-GPT-style, multi-step data-analysis agent (distinct from the single-shot "
             "nl_query). The agent runs a bounded ReAct loop: schema-link the question to the "
             "most relevant tables/labels, generate a read-only query via the AU fleet-LLM "
@@ -584,16 +584,16 @@ def register_query_tools(mcp):
             return json.dumps({"error": str(e)})
 
     kg_server.REGISTERED_TOOLS["ask_data"] = ask_data
-    # CONCEPT:KG-2.308 — gateway REST twin (W1 exposure; MCP⇄REST parity)
+    # CONCEPT:AU-KG.query.data-gateway-rest-twin — gateway REST twin (W1 exposure; MCP⇄REST parity)
     kg_server.ACTION_TOOL_ROUTES["ask_data"] = "/graph/ask-data"
 
     # ══════════════════════════════════════════════════════════════════
-    # 1a-ter. graph_table — CONCEPT:KG-2.266 connector/ETL → native engine SQL tables
+    # 1a-ter. graph_table — CONCEPT:AU-KG.ingest.mirror-inbound connector/ETL → native engine SQL tables
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_table",
         description=(
-            "CONCEPT:KG-2.266 — mirror data into native engine SQL tables (DataFusion + "
+            "CONCEPT:AU-KG.ingest.mirror-inbound — mirror data into native engine SQL tables (DataFusion + "
             "pg-wire) and manage them. Actions: 'ingest' (mirror a registered source "
             "connector's documents into a table via CREATE TABLE + bulk INSERT — "
             "source=<connector> e.g. rest/database/web/rss/filesystem/reader, "
@@ -696,12 +696,12 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_table"] = graph_table
 
     # ══════════════════════════════════════════════════════════════════
-    # 1b. graph_context — CONCEPT:ORCH-1.39 cross-process curated-context store
+    # 1b. graph_context — CONCEPT:AU-ORCH.session.invoker-agent-handoff cross-process curated-context store
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_context",
         description=(
-            "CONCEPT:ORCH-1.39 — store/fetch curated context for invoker→spawned-agent "
+            "CONCEPT:AU-ORCH.session.invoker-agent-handoff — store/fetch curated context for invoker→spawned-agent "
             "handoff, persisted in the epistemic-graph so a SEPARATELY-spawned agent can read "
             "it by id. Actions: 'put' (store content, returns context_id), 'get' (fetch by "
             "context_id), 'list' (by session_id). Pass the returned context_id to "
@@ -748,7 +748,7 @@ def register_query_tools(mcp):
                     "producer": kg_server._SESSION_ID,
                 },
             )
-            # CONCEPT:ORCH-1.40 — session-anchored collection: upsert the id-addressable
+            # CONCEPT:AU-ORCH.session.session-anchored-collections-native — session-anchored collection: upsert the id-addressable
             # Session node and link it, so "list by session" is a reliable id-anchored
             # traversal (the engine has no property index; property scans are unreliable).
             snode = f"session:{sid}"
@@ -780,7 +780,7 @@ def register_query_tools(mcp):
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": str(exc)})
         if action == "prune":
-            # Delete expired ContextBlobs (CONCEPT:ORCH-1.39 lifecycle).
+            # Delete expired ContextBlobs (CONCEPT:AU-ORCH.session.invoker-agent-handoff lifecycle).
             try:
                 rows = engine.query_cypher(
                     "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
@@ -801,7 +801,7 @@ def register_query_tools(mcp):
                 return json.dumps({"error": str(exc)})
         if action == "list":
             try:
-                # CONCEPT:ORCH-1.40 — id-anchored traversal from the Session node (the engine's
+                # CONCEPT:AU-ORCH.session.session-anchored-collections-native — id-anchored traversal from the Session node (the engine's
                 # reliable, fast O(degree) path; the index-less backend can't serve property
                 # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
                 # sort + limit client-side.
@@ -829,12 +829,12 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_context"] = graph_context
 
     # ══════════════════════════════════════════════════════════════════
-    # 1c. graph_message — CONCEPT:ORCH-1.40 invoker↔spawned-agent message channel
+    # 1c. graph_message — CONCEPT:AU-ORCH.session.session-anchored-collections-native invoker↔spawned-agent message channel
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_message",
         description=(
-            "CONCEPT:ORCH-1.40 — bidirectional, cross-process, ordered message channel between "
+            "CONCEPT:AU-ORCH.session.session-anchored-collections-native — bidirectional, cross-process, ordered message channel between "
             "an invoking agent and a spawned agent, over the epistemic-graph native channels. "
             "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload "
             "[+durable]), 'receive' (channel_id [+since cursor] → new messages + cursor), "
@@ -905,21 +905,21 @@ def register_query_tools(mcp):
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:KG-2.3).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:KG-2.3).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:KG-2.88/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:KG-2.86).",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:AU-KG.retrieval.self-correcting-second-pass).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'AU-KG.query.vendor-agnostic-traversal', 'AU-ORCH.execution.inject-signal-board-observations').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:AU-KG.query.adore-concept-expansion/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
         self_correct: bool = Field(
             default=False,
-            description="CONCEPT:KG-2.12 — run a self-correcting second retrieval pass at the deep threshold when the quality gate fails.",
+            description="CONCEPT:AU-KG.retrieval.self-correcting-second-pass — run a self-correcting second retrieval pass at the deep threshold when the quality gate fails.",
         ),
         as_of: str = Field(
             default="",
-            description="Optional ISO-8601 instant. Pack-driven recency decay is measured relative to this time, enabling knowledge-state-as-of-date-D retrieval such as an academic literature state. Defaults to now (CONCEPT:KG-2.22).",
+            description="Optional ISO-8601 instant. Pack-driven recency decay is measured relative to this time, enabling knowledge-state-as-of-date-D retrieval such as an academic literature state. Defaults to now (CONCEPT:EG-KG.compute.rust-native-training-loss).",
         ),
         target: str = Field(
             default="",
             description=(
-                "CONCEPT:KG-2.63 — named graph connection to search (default = primary). "
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to search (default = primary). "
                 "Use a registered connection name, or 'all' (or a comma-separated list) to "
                 "fan out and get per-connection labeled results."
             ),
@@ -1047,7 +1047,7 @@ def register_query_tools(mcp):
                 )
             return "\n---\n".join(formatted_results)
 
-        # CONCEPT:KG-2.63 — resolve target connection(s). CONCEPT:KG-2.269 — an
+        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
         # implicit-default search fans across the active content-graph set so content
         # routed to ``code:*``/``src:*`` graphs stays findable as one KG.
         try:
@@ -1076,7 +1076,7 @@ def register_query_tools(mcp):
         description=(
             "Synthesize a shortcut-resistant deep-search task from the evidence graph, "
             "or diagnose realized search difficulty of solver trajectories "
-            "(CONCEPT:KG-2.70/2.71/2.72, AHE-3.30; distills arXiv:2606.12087)."
+            "(CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72, AHE-3.30; distills arXiv:2606.12087)."
         ),
         tags=["graph-os", "search", "synthesis", "training-data"],
     )
@@ -1171,7 +1171,7 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_search_synthesis"] = graph_search_synthesis
 
     # ══════════════════════════════════════════════════════════════════
-    # graph_code_nav — CONCEPT:KG-2.9g code-symbol navigation over the
+    # graph_code_nav — CONCEPT:AU-KG.backend.declared-columns-so-schema code-symbol navigation over the
     # RESOLVED graph (`:Code` + `calls`/`depends_on`/`IMPLEMENTS`). Templated
     # so agents (and Duo-style flows) get gkg's find-def / find-refs / trace /
     # impact as first-class tools instead of hand-written Cypher.
@@ -1179,13 +1179,13 @@ def register_query_tools(mcp):
     @mcp.tool(
         name="graph_code_nav",
         description=(
-            "Navigate the resolved code graph (CONCEPT:KG-2.9g). action: "
+            "Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-schema). action: "
             "'find_definition' (locate a symbol's :Code node), 'find_references' "
             "(callers of a symbol), 'trace_call_graph' (transitive callees), "
             "'impact_of_change' (transitive callers = blast radius), 'connects' "
             "(shortest path between TWO symbols — set symbol/node_id AND "
             "target_symbol/target_node_id — rendered hop-by-hop with each edge's "
-            "relation + confidence, CONCEPT:KG-2.211). Start from a symbol name or "
+            "relation + confidence, CONCEPT:EG-KG.compute.handled-outside-single-anchor). Start from a symbol name or "
             "an exact node_id; optionally scope to a source_system "
             "(e.g. 'gitlab:gitlab.com')."
         ),

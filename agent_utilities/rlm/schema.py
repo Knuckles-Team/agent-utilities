@@ -1,6 +1,6 @@
 """Structured-output contracts for RLM subagent calls.
 
-CONCEPT:ORCH-1.12 — Structured Predict-RLM Runtime (subagent extension)
+CONCEPT:AU-ORCH.execution.predict-rlm-runtime — Structured Predict-RLM Runtime (subagent extension)
 
 A Recursive Language Model degrades when subagents return free-form prose: the
 parent has to re-read and re-classify dozens of unstructured blurbs, losing the

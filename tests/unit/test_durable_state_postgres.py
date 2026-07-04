@@ -1,7 +1,7 @@
 """Postgres-backed durable state — semantics without a live server (OS-5.16).
 
 Exercises :class:`PostgresCheckpointStore` (durable execution) and
-:class:`PostgresTaskQueue` (cross-host KG queue, CONCEPT:KG-2.54) against a
+:class:`PostgresTaskQueue` (cross-host KG queue, CONCEPT:AU-KG.ingest.cross-host-safe-kg) against a
 small in-memory emulation of exactly the SQL each backend issues, so the
 at-least-once / exactly-once / SKIP-LOCKED-claim semantics are verified in CI
 with no infrastructure. A live end-to-end pass runs in
@@ -178,7 +178,7 @@ def test_sqlite_store_reuses_one_connection(tmp_path):
     assert a._conn is b._conn
 
 
-# ── Cross-host task queue (CONCEPT:KG-2.54) ───────────────────────────────
+# ── Cross-host task queue (CONCEPT:AU-KG.ingest.cross-host-safe-kg) ───────────────────────────────
 
 
 class FakeQueueConn:

@@ -1,4 +1,4 @@
-"""Tests for LeanIX backfeed via the unified write-back core (CONCEPT:KG-2.8/2.9)."""
+"""Tests for LeanIX backfeed via the unified write-back core (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9)."""
 
 from __future__ import annotations
 

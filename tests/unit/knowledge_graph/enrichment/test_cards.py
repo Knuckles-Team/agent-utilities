@@ -1,4 +1,4 @@
-"""Capability cards: LLM summaries cached by ast_hash (CONCEPT:KG-2.8 Phase 2)."""
+"""Capability cards: LLM summaries cached by ast_hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 2)."""
 
 from __future__ import annotations
 

@@ -1,14 +1,14 @@
 #!/usr/bin/python
-"""Comprehensive tests for GeniusBot Desktop Cockpit and High-Performance Visual Finance Cockpit (CONCEPT:GBOT-6.0 through GBOT-6.6).
+"""Comprehensive tests for GeniusBot Desktop Cockpit and High-Performance Visual Finance Cockpit (CONCEPT:AU-GBOT.cockpit.through-gbot through GBOT-6.6).
 
 Tests cover all 7 cockpit integration layers:
-  1. Desktop Cockpit Orchestrator (CONCEPT:GBOT-6.0)
-  2. Ecosystem Dynamic Tab Matrix (CONCEPT:GBOT-6.1)
-  3. Embedded Terminal Sandbox (CONCEPT:GBOT-6.2)
-  4. Universal Tool Approval Gate (CONCEPT:GBOT-6.3)
-  5. Topological Cockpit Memory (CONCEPT:GBOT-6.4)
-  6. Multi-Tenant Daemon & Tray (CONCEPT:GBOT-6.5)
-  7. High-Performance Visual Finance Cockpit & Position Sizing (CONCEPT:GBOT-6.6)
+  1. Desktop Cockpit Orchestrator (CONCEPT:AU-GBOT.cockpit.through-gbot)
+  2. Ecosystem Dynamic Tab Matrix (CONCEPT:AU-GBOT.cockpit.pillar-overview)
+  3. Embedded Terminal Sandbox (CONCEPT:AU-GBOT.cockpit.concept-2)
+  4. Universal Tool Approval Gate (CONCEPT:AU-GBOT.cockpit.concept-3)
+  5. Topological Cockpit Memory (CONCEPT:AU-GBOT.cockpit.concept-4)
+  6. Multi-Tenant Daemon & Tray (CONCEPT:AU-GBOT.cockpit.concept-5)
+  7. High-Performance Visual Finance Cockpit & Position Sizing (CONCEPT:AU-GBOT.cockpit.concept-6)
 """
 
 import pytest
@@ -29,7 +29,7 @@ class MockQObject:
 
 
 class MockGeniusBotOrchestrator(MockQObject):
-    """Mock for Desktop Cockpit Orchestrator (CONCEPT:GBOT-6.0)."""
+    """Mock for Desktop Cockpit Orchestrator (CONCEPT:AU-GBOT.cockpit.through-gbot)."""
 
     def __init__(self):
         super().__init__()
@@ -44,7 +44,7 @@ class MockGeniusBotOrchestrator(MockQObject):
 
 
 class MockTabMatrix:
-    """Mock for Ecosystem Dynamic Tab Matrix (CONCEPT:GBOT-6.1)."""
+    """Mock for Ecosystem Dynamic Tab Matrix (CONCEPT:AU-GBOT.cockpit.pillar-overview)."""
 
     def __init__(self):
         self.tabs = {}
@@ -60,7 +60,7 @@ class MockTabMatrix:
 
 
 class MockTerminalSandbox:
-    """Mock for Embedded Terminal Sandbox (CONCEPT:GBOT-6.2)."""
+    """Mock for Embedded Terminal Sandbox (CONCEPT:AU-GBOT.cockpit.concept-2)."""
 
     def __init__(self):
         self.history = []
@@ -80,7 +80,7 @@ class MockTerminalSandbox:
 
 
 class MockApprovalGate:
-    """Mock for Universal Tool Approval Gate (CONCEPT:GBOT-6.3)."""
+    """Mock for Universal Tool Approval Gate (CONCEPT:AU-GBOT.cockpit.concept-3)."""
 
     def __init__(self):
         self.pending_approvals = {}
@@ -104,7 +104,7 @@ class MockApprovalGate:
 
 
 class MockTopologicalMemory:
-    """Mock for Topological Cockpit Memory and Virtual Context Blocks (CONCEPT:GBOT-6.4)."""
+    """Mock for Topological Cockpit Memory and Virtual Context Blocks (CONCEPT:AU-GBOT.cockpit.concept-4)."""
 
     def __init__(self):
         self.nodes = {}
@@ -123,7 +123,7 @@ class MockTopologicalMemory:
 
 
 class MockTrayDaemon:
-    """Mock for Multi-Tenant Daemon & Tray (CONCEPT:GBOT-6.5)."""
+    """Mock for Multi-Tenant Daemon & Tray (CONCEPT:AU-GBOT.cockpit.concept-5)."""
 
     def __init__(self):
         self.notifications = []
@@ -139,7 +139,7 @@ class MockTrayDaemon:
 
 
 class MockFinanceCockpit:
-    """Mock for High-Performance Visual Finance Cockpit (CONCEPT:GBOT-6.6)."""
+    """Mock for High-Performance Visual Finance Cockpit (CONCEPT:AU-GBOT.cockpit.concept-6)."""
 
     def __init__(self):
         self.tick_buffer = []
@@ -166,7 +166,7 @@ class TestGeniusBotSubsystems:
     """Standardized test suite validating the premium GeniusBot desktop subsystems."""
 
     def test_gbot_60_orchestrator(self):
-        """Validate Desktop Cockpit Orchestrator interface setup and threading (CONCEPT:GBOT-6.0)."""
+        """Validate Desktop Cockpit Orchestrator interface setup and threading (CONCEPT:AU-GBOT.cockpit.through-gbot)."""
         orchestrator = MockGeniusBotOrchestrator()
         assert orchestrator.dark_mode_active is True
         assert orchestrator.stylesheet_theme == "glassmorphic-slate"
@@ -182,7 +182,7 @@ class TestGeniusBotSubsystems:
         assert "agent:emerald_trader" in notified
 
     def test_gbot_61_tab_matrix(self):
-        """Validate Ecosystem Dynamic Tab Matrix composition and configurations (CONCEPT:GBOT-6.1)."""
+        """Validate Ecosystem Dynamic Tab Matrix composition and configurations (CONCEPT:AU-GBOT.cockpit.pillar-overview)."""
         matrix = MockTabMatrix()
         spec = {
             "name": "Emerald Exchange Cockpit",
@@ -202,7 +202,7 @@ class TestGeniusBotSubsystems:
         assert matrix.layouts["left"] == "emerald_finance"
 
     def test_gbot_62_terminal_sandbox(self):
-        """Validate Embedded Terminal Sandbox input validation and command safeguards (CONCEPT:GBOT-6.2)."""
+        """Validate Embedded Terminal Sandbox input validation and command safeguards (CONCEPT:AU-GBOT.cockpit.concept-2)."""
         sandbox = MockTerminalSandbox()
         assert sandbox.injection_scanner_active is True
 
@@ -215,7 +215,7 @@ class TestGeniusBotSubsystems:
             sandbox.execute_command("cat config.json && rm -rf /")
 
     def test_gbot_63_approval_gate(self):
-        """Validate Universal Tool Approval Gate suspension & resume loops (CONCEPT:GBOT-6.3)."""
+        """Validate Universal Tool Approval Gate suspension & resume loops (CONCEPT:AU-GBOT.cockpit.concept-3)."""
         gate = MockApprovalGate()
         diff = "+import os\n-import sys"
         task_id = gate.request_tool_approval("task-123", "replace_file_content", diff)
@@ -236,7 +236,7 @@ class TestGeniusBotSubsystems:
         assert gate.pending_approvals[task_id]["comment"] == "Code change looks safe"
 
     def test_gbot_64_topological_memory(self):
-        """Validate Topological Cockpit Memory context rendering and decay algorithms (CONCEPT:GBOT-6.4)."""
+        """Validate Topological Cockpit Memory context rendering and decay algorithms (CONCEPT:AU-GBOT.cockpit.concept-4)."""
         memory = MockTopologicalMemory()
         vcb = {
             "nodes": {
@@ -257,7 +257,7 @@ class TestGeniusBotSubsystems:
         assert decayed["node_2"] == pytest.approx(0.95 * 0.95)
 
     def test_gbot_65_tray_daemon(self):
-        """Validate Multi-Tenant Background Daemon tray and notifications (CONCEPT:GBOT-6.5)."""
+        """Validate Multi-Tenant Background Daemon tray and notifications (CONCEPT:AU-GBOT.cockpit.concept-5)."""
         daemon = MockTrayDaemon()
         assert daemon.daemon_status == "inactive"
         assert daemon.start_daemon() is True
@@ -273,7 +273,7 @@ class TestGeniusBotSubsystems:
         assert daemon.notifications[0]["title"] == "Quant Trade Filled"
 
     def test_gbot_66_finance_cockpit(self):
-        """Validate High-Performance Visual Finance Cockpit buffering and Kelly position sizing (CONCEPT:GBOT-6.6)."""
+        """Validate High-Performance Visual Finance Cockpit buffering and Kelly position sizing (CONCEPT:AU-GBOT.cockpit.concept-6)."""
         cockpit = MockFinanceCockpit()
         assert cockpit.max_buffer_size == 1000
 

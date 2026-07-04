@@ -1,4 +1,4 @@
-"""Tests for post-conversation KG enrichment (CONCEPT:ECO-4.65)."""
+"""Tests for post-conversation KG enrichment (CONCEPT:AU-ECO.messaging.post-conversation-enrichment)."""
 
 from __future__ import annotations
 

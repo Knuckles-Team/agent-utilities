@@ -1,4 +1,4 @@
-# Graph-Native Durable Execution (CONCEPT:ECO-4.0)
+# Graph-Native Durable Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 Agent Utilities implements a sophisticated **Graph-Native Durable Execution Engine** designed specifically for high-assurance, fault-tolerant algorithmic trading and complex multi-leg workflows.
 

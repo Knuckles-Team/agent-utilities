@@ -1,6 +1,6 @@
 # System Integration Architecture
 
-> **CONCEPT:ORCH-1.4** — Unified Service Discovery & Integration
+> **CONCEPT:AU-ORCH.adapter.kg-graph-materialization** — Unified Service Discovery & Integration
 
 ## Problem: 75% of Modules Were Orphaned
 
@@ -59,9 +59,9 @@ Wired security modules as pre/post-execution hooks in the query lifecycle. (The
 `DoomLoopDetector` lives in `security/execution_stability_engine.py`.)
 
 ```
-Query → PromptInjectionScanner (OS-5.4) → [router_step]
+Query → PromptInjectionScanner (AU-OS.governance.wasm-micro-agent-sandbox) → [router_step]
                                               ↓
-      DoomLoopDetector (OS-5.18) ← [dispatcher_step] → StateCheckpointer (ORCH-1.16)
+      DoomLoopDetector (AU-OS.state.fleet-supervisory-plane-at) ← [dispatcher_step] → StateCheckpointer (ORCH-1.16)
 ```
 
 - **Pre-flight**: `PromptInjectionScanner` runs before graph.run(), blocking malicious queries
@@ -107,7 +107,7 @@ Fixed 21 stale file paths in `docs/overview.md` where files had been relocated t
 
 ```mermaid
 flowchart TD
-    Q[ORCH-1.0: User Query] --> SR[ECO-4.6: ServiceRegistry.initialize]
+    Q[ORCH-1.0: User Query] --> SR[AU-ECO.mcp.toolkit-live-discovery: ServiceRegistry.initialize]
     SR --> PS[OS-5.1: PromptInjectionScanner]
     PS -->|blocked| BLOCK[OS-5.1: Return Security Error]
     PS -->|clean| ROUTER[ORCH-1.2: router_step]

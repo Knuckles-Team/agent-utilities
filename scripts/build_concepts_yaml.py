@@ -38,7 +38,9 @@ from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
 )
 
 # Pillar is the leading "<LETTERS>-<digits>" segment of the id.
-PILLAR_RE = re.compile(r"^([A-Z]+-\d+)")
+# OKF-CIS (CONCEPT:AU-OS.governance.concept-2): the pillar group of an id is its SLUG-PILLAR prefix
+# (e.g. AU-KG, EG-KG), so concepts.yaml groups by owning-repo + global pillar.
+PILLAR_RE = re.compile(r"^([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT))")
 
 
 def _clean_doc(rest: str) -> str:
@@ -94,7 +96,7 @@ def collect() -> dict[str, dict]:
             if len(doc) > len(entry["doc"]):
                 entry["doc"] = doc
     # Finalize: derive name from doc (or id), sort code_paths, and project the
-    # 3-level hierarchy (CONCEPT:OS-5.76 / B5). The dotted/alias/canonical_pillar
+    # 3-level hierarchy (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5). The dotted/alias/canonical_pillar
     # keys are ADDITIVE — existing consumers that read only ``id`` are unaffected.
     observed = observed_project_namespaces(list(concepts))
     for cid, entry in concepts.items():

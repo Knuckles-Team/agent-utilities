@@ -1,4 +1,4 @@
-"""Code → business-capability resolution (CONCEPT:KG-2.8).
+"""Code → business-capability resolution (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Bridges code features (clusters of symbols discovered by the epistemic-graph
 engine, enriched with LLM capability cards) to ArchiMate ``BusinessCapability``

@@ -109,7 +109,7 @@ async def execute_slash_command(payload: dict, request: Request):
         sub = sub_parts[0].lower() if sub_parts else "stats"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
 
-        # Route to the live engine (CONCEPT:KG-2.8). Never fabricate counts,
+        # Route to the live engine (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Never fabricate counts,
         # search hits, or impact percentages — if the engine is cold, say so.
         from agent_utilities.knowledge_graph.core.engine import (
             IntelligenceGraphEngine,
@@ -403,7 +403,7 @@ async def execute_slash_command(payload: dict, request: Request):
 
     elif cmd_name == "cron":
         sub = args.strip().lower() or "calendar"
-        # Real registry (CONCEPT:OS-5.44) — durable :Schedule nodes (seeded from
+        # Real registry (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent) — durable :Schedule nodes (seeded from
         # deploy/schedules.yml) + live last-run state, NOT placeholder text.
         try:
             from agent_utilities.core.schedule_engine import calendar

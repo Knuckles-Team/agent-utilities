@@ -69,7 +69,7 @@ EVENTS_PER_ACTIVE_AGENT_PER_SEC = 2.0
 MIN_KAFKA_PARTITIONS = 3
 
 # --------------------------------------------------------------------------- #
-# Agent communication bus (CONCEPT:ECO-4.84/ECO-4.87) — MODELED.
+# Agent communication bus (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent/ECO-4.87) — MODELED.
 # The AgentBus is durable-store-first: one send writes one :BusMessage node + one
 # :HAS_BUS_MESSAGE edge per recipient (~2 engine ops/recipient), so its throughput
 # is bounded by the same single-connection anchor as everything else. A receive is

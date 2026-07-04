@@ -1,6 +1,6 @@
 """Cross-backend conformance suite — one body, every supported backend.
 
-CONCEPT:KG-2.0 / KG-2.7 — Vendor-agnostic Graph Backend parity.
+CONCEPT:AU-KG.query.object-graph-mapper / KG-2.7 — Vendor-agnostic Graph Backend parity.
 
 The same assertions run against **every** backend via the ``backend_under_test``
 parametrized fixture (see ``conftest.py``): the zero-dep epistemic-graph L1 and

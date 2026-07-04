@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Positional Interaction Encodings (EncPI) for Inductive Knowledge Hypergraphs.
 
-CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs
+CONCEPT:AU-KG.compute.inductive-knowledge-hypergraphs: Inductive Knowledge Hypergraphs
 Implements the EncPI algorithm from "HYPER: A Foundation Model for Inductive
 Knowledge Hypergraphs" to allow zero-shot inductive generalization across
 novel edge intersections based purely on their structural positional interactions.

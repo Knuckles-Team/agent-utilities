@@ -1,4 +1,4 @@
-# Spec: Hierarchical Federated Coordination (ORCH-1.48)
+# Spec: Hierarchical Federated Coordination (AU-ORCH.planning.repo-map-skeleton)
 
 > Status: **proposed**. **Wire-First:** EXTENDS `graph/coordination.py`
 > (`ProtocolRegistry.apply_protocol`, ORCH-1.3) and is invoked from
@@ -11,7 +11,7 @@
 - [x] Extension target identified: `ProtocolRegistry.apply_protocol`
   (`coordination.py`) is the existing global-aggregation seam; `parallel_engine.py:276`
   is its only live caller.
-- [x] New CONCEPT:ORCH-1.48 justified: a *federated* coordination strategy is a
+- [x] New CONCEPT:AU-ORCH.planning.repo-map-skeleton justified: a *federated* coordination strategy is a
   distinct capability from the small-N `BUILTIN_PROTOCOLS` (pair_consensus min 2,
   team_voting min 3) — it bounds interaction density as N grows; not a config knob.
 - [x] Wire-First confirmed: `parallel_engine.py:276` routes to the federated path
@@ -48,13 +48,13 @@ behavior, **so that** federation is purely additive (Wire-First, No-Legacy defau
 ### US-3 — Bounded interaction density
 - **AC6**: per-level cluster size is bounded by the protocol's `max_participants`;
   total cross-agent messages scale ~O(N·log N), not O(N²), recorded for the
-  ORCH-1.49 scaling-law harness to consume.
+  AU-ORCH.execution.robust-multi-format-edit scaling-law harness to consume.
 
 ## Non-Functional Requirements
 - `tests/unit/graph/test_orch_1_48_federated_coordination.py`
-  (`@pytest.mark.concept(id="ORCH-1.48")`), ≤60s, no live engine/LLM (synthetic
+  (`@pytest.mark.concept(id="AU-ORCH.planning.repo-map-skeleton")`), ≤60s, no live engine/LLM (synthetic
   `SocialSystem` graph + `BUILTIN_PROTOCOLS`), asserting AC1–AC6 incl. the
   small-N identity case (AC4).
 - `pre-commit run --all-files` green; `scripts/build_concepts_yaml.py` regenerated
-  (ORCH-1.48) and `scripts/check_concepts.py` passes.
+  (AU-ORCH.planning.repo-map-skeleton) and `scripts/check_concepts.py` passes.
 - Per-concept doc authored (note in `docs/architecture/multi_agent_social_system.md`).

@@ -1,4 +1,4 @@
-"""OOLONG: semantic labeling + linear aggregation (CONCEPT:AHE-3.32).
+"""OOLONG: semantic labeling + linear aggregation (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Linear-complexity long-context reasoning — every record must be read and classified, then
 aggregated. The synthetic generator scatters labeled transaction records through the context and

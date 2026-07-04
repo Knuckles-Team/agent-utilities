@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.13 — Layered Pre-Emit Gate Pipeline.
+"""CONCEPT:AU-AHE.harness.pre-emit-quality-gate — Layered Pre-Emit Gate Pipeline.
 
 Assimilated from open-design's quality culture (prompts/discovery.ts): a blocking pre-emit pipeline of
 **preflight checklist (P0/P1/P2)** → **multi-dimensional self-critique (score 1-5, fix any <3)** that
@@ -210,7 +210,7 @@ class GateResult:
 
 
 class PreEmitGate:
-    """Compose preflight + critique into one pre-emit decision (CONCEPT:AHE-3.13)."""
+    """Compose preflight + critique into one pre-emit decision (CONCEPT:AU-AHE.harness.pre-emit-quality-gate)."""
 
     def __init__(
         self,

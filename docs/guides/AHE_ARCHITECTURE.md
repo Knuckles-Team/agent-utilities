@@ -1,6 +1,6 @@
 # Agentic Harness Engineering (AHE) — Architecture
 
-> CONCEPT:AHE-3.0 — Agentic Harness Engineering
+> CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering
 
 ## Overview
 
@@ -21,13 +21,13 @@ structured observability.
 
 ```mermaid
 graph LR
-    A[OS-5.4: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
+    A[AU-OS.governance.wasm-micro-agent-sandbox: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
     B --> C["KG-2.6: Summaries & Clusters"]
     C --> D[ORCH-1.21: Failure Taxonomies]
     D --> E[KG-2.6: Layered Evidence Corpus]
     E --> F[ORCH-1.1: Evolve Agent Decisions]
 
-    B -.-> G[OS-5.4: langfuse-agent API]
+    B -.-> G[AU-OS.governance.wasm-micro-agent-sandbox: langfuse-agent API]
     C -.-> H[KG-2.6: RLM Summarizer]
     D -.-> I[KG-2.0: KG Semantic Clustering]
     E -.-> J[KG-2.0: Versioned Files + KG Nodes]
@@ -43,16 +43,16 @@ graph TD
         SP["System Prompt<br>prompting/builder.py<br>prompting/structured.py"]
         TD["Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter"]
         TI["Tool Implementation<br>tools/*.py<br>mcp_server.py"]
-        MW["OS-5.3: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py"]
+        MW["AU-OS.governance.reactive-multi-axis-budget: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py"]
         SK["Skills<br>universal-skills/"]
         SA["Sub-Agents<br>graph/steps/<br>HSM specialist nodes"]
         LM["Long-Term Memory<br>knowledge_graph/<br>MemoryNode"]
     end
 
-    subgraph "OS-5.4: Observability Pillars"
-        CO["OS-5.4: Component Observability<br>File-level diffs + git"]
-        EO["OS-5.4: Experience Observability<br>TraceDistiller → EvidenceCorpus"]
-        DO["OS-5.4: Decision Observability<br>ChangeManifest + VerificationResult"]
+    subgraph "AU-OS.governance.wasm-micro-agent-sandbox: Observability Pillars"
+        CO["AU-OS.governance.wasm-micro-agent-sandbox: Component Observability<br>File-level diffs + git"]
+        EO["AU-OS.governance.wasm-micro-agent-sandbox: Experience Observability<br>TraceDistiller → EvidenceCorpus"]
+        DO["AU-OS.governance.wasm-micro-agent-sandbox: Decision Observability<br>ChangeManifest + VerificationResult"]
     end
 
     SP --> CO
@@ -89,7 +89,7 @@ important constraints.
 
 ```
 agent_utilities/harness/
-├── __init__.py              # Package exports (CONCEPT:AHE-3.0)
+├── __init__.py              # Package exports (CONCEPT:AU-AHE.harness.harness-evolution)
 ├── manifest.py              # ComponentType, ComponentEdit, ChangeManifest
 ├── evidence_corpus.py       # EvidenceLayer, EvidenceEntry, EvidenceCorpus
 ├── component_registry.py    # HarnessComponentRegistry

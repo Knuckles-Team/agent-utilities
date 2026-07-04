@@ -11,7 +11,7 @@ durable, append-only **JSONL sink keyed by object type** (one ``<type>.jsonl``
 file per object type), and a :class:`WriteBackRouter` that fans committed edits
 out to the registered sinks.
 
-CONCEPT:KG-2.43
+CONCEPT:AU-KG.ontology.edit-ledger-writeback
 """
 
 import json
@@ -67,7 +67,7 @@ class EditSink(Protocol):
 
 
 class JsonlEditSink:
-    """Durable append-only JSONL sink, one file per object type. CONCEPT:KG-2.43.
+    """Durable append-only JSONL sink, one file per object type. CONCEPT:AU-KG.ontology.edit-ledger-writeback.
 
     Each committed edit is serialized as a single JSON line appended to
     ``<root>/<object_type>.jsonl``. Append-only + per-type partitioning mirrors
@@ -119,7 +119,7 @@ class JsonlEditSink:
 class WriteBackRouter:
     """Fans committed edits out to one or more registered :class:`EditSink`.
 
-    CONCEPT:KG-2.43 — the write-back leg of the edit ledger. Sinks are registered
+    CONCEPT:AU-KG.ontology.edit-ledger-writeback — the write-back leg of the edit ledger. Sinks are registered
     by name; :meth:`write_back` pushes an edit (or a batch) to every registered
     sink and returns a per-sink success map.
     """

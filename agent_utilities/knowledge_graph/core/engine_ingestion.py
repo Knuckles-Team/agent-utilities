@@ -354,7 +354,7 @@ class IngestionMixin(_Base):
             logger.warning(f"Failed to re-embed node {node_id}: {e}")
             return False
 
-    # --- Engineering Rules Ingestion (CONCEPT:KG-2.2) ---
+    # --- Engineering Rules Ingestion (CONCEPT:AU-KG.ingest.engineering-rules) ---
 
     def ingest_engineering_rules(
         self,
@@ -364,7 +364,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest engineering rules into the Knowledge Graph.
 
-        CONCEPT:KG-2.2 — Engineering Rules Engine
+        CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine
 
         Parses structured markdown rule files and creates versioned KG
         nodes for context-sensitive retrieval, OWL reasoning, and AHE
@@ -391,7 +391,7 @@ class IngestionMixin(_Base):
             version=version,
         )
 
-    # --- Constitution & Policy Ingestion (CONCEPT:KG-2.2 Extension) ---
+    # --- Constitution & Policy Ingestion (CONCEPT:AU-KG.ingest.engineering-rules Extension) ---
 
     def ingest_constitution(
         self,
@@ -400,7 +400,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest a project constitution into the KG as PolicyNodes.
 
-        CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
+        CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine (Constitution Extension)
 
         Searches for constitution files in standard SDD locations
         (``.specify/memory/constitution.md``, ``CONSTITUTION.md``, etc.)
@@ -430,7 +430,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest all policy sources into the KG in one call.
 
-        CONCEPT:KG-2.2 — Unified Policy Ingestion
+        CONCEPT:AU-KG.ingest.engineering-rules — Unified Policy Ingestion
 
         Combines:
             1. Constitution policies (from workspace SDD governance)
@@ -513,7 +513,7 @@ class IngestionMixin(_Base):
 
     # --- Discovery & Retrieval Tools ---
 
-    # --- Knowledge Distillation (CONCEPT:KG-2.2) ---
+    # --- Knowledge Distillation (CONCEPT:AU-KG.ingest.engineering-rules) ---
 
     def ingest_ideablock(
         self,
@@ -528,7 +528,7 @@ class IngestionMixin(_Base):
     ) -> str:
         """Ingest a single structured IdeaBlock into the Knowledge Graph.
 
-        CONCEPT:KG-2.2 — Knowledge Distillation Engine
+        CONCEPT:AU-KG.ingest.engineering-rules — Knowledge Distillation Engine
 
         Creates an atomic knowledge unit as a question-answer pair with
         governance metadata, persists it to the KG, and returns its ID.
@@ -572,7 +572,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Run iterative knowledge distillation on IdeaBlocks in the KG.
 
-        CONCEPT:KG-2.2 — Knowledge Distillation Engine
+        CONCEPT:AU-KG.ingest.engineering-rules — Knowledge Distillation Engine
 
         Performs semantic deduplication via LSH + cosine similarity,
         community clustering, and LLM-powered merging of redundant
@@ -632,7 +632,7 @@ class IngestionMixin(_Base):
         return engine.distill(iterations=iterations, base_threshold=threshold)
 
     # ------------------------------------------------------------------
-    # CONCEPT:ECO-4.0 — Unified Agent Toolkit Ingestion
+    # CONCEPT:AU-ECO.mcp.unified-mcp-skill-a2a-ingest — Unified Agent Toolkit Ingestion
     # ------------------------------------------------------------------
 
     async def ingest_agent_toolkit(
@@ -642,7 +642,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest MCP server configs, agent skill directories, and A2A agent cards.
 
-        CONCEPT:ECO-4.0 — Unified MCP/Skill/A2A ingestion pipeline with live
+        CONCEPT:AU-ECO.mcp.unified-mcp-skill-a2a-ingest — Unified MCP/Skill/A2A ingestion pipeline with live
         tool discovery.
 
         Accepts a list of mixed sources and auto-detects the type of each:

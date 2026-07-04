@@ -1,4 +1,4 @@
-"""Design-pattern + implementation-style detection (CONCEPT:KG-2.8 Phase 2).
+"""Design-pattern + implementation-style detection (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 2).
 
 Deterministic detection over the structural facts the Rust parser extracts
 (bases, methods, decorators, abstractness). Pure functions — fast, no LLM. The

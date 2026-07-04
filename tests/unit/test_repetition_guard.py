@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for Tool Repetition Guard (CONCEPT:OS-5.1)."""
+"""Tests for Tool Repetition Guard (CONCEPT:AU-OS.config.secrets-authentication)."""
 
 
 import pytest

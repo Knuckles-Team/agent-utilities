@@ -1,6 +1,6 @@
 """ARD registry REST surface — the gateway twin of the graph-os custom routes.
 
-CONCEPT:ECO-4.95 / ECO-4.97. Serves the two ARD artifacts at the bare domain root so
+CONCEPT:AU-ECO.mcp.eco-serves-two-ard / ECO-4.97. Serves the two ARD artifacts at the bare domain root so
 external agents (and the ``hf discover`` CLI) discover our fleet:
 
 * ``GET  /.well-known/ai-catalog.json`` — the static signed manifest.

@@ -3,18 +3,18 @@ from __future__ import annotations
 
 """Durable Session & Autonomous Goal persistence.
 
-CONCEPT:ORCH-5.0 — Durable session and autonomous goal persistence with iterative background goal loops
-CONCEPT:ORCH-1.44 — Durable goal registry — goals persist across restarts and stranded runs rehydrate as orphaned instead of silently vanishing
+CONCEPT:AU-ORCH.session.durable-session-autonomous-goal — Durable session and autonomous goal persistence with iterative background goal loops
+CONCEPT:AU-ORCH.session.durable-goal-registry-goals — Durable goal registry — goals persist across restarts and stranded runs rehydrate as orphaned instead of silently vanishing
 
 This module houses the schema initialization, memory maps, background runner thread,
 and Starlette REST handlers for durable agent sessions and iterative goals.
 
-State backends (CONCEPT:OS-5.16): by default sessions/turns/goals live in the
+State backends (CONCEPT:AU-OS.state.unified-durable-state-externalization): by default sessions/turns/goals live in the
 per-host SQLite file; with ``state_db_uri`` set they live on the shared
 Postgres state store, so the gateway is stateless and any host can see the
 whole fleet's sessions.
 
-Goal durability (CONCEPT:ORCH-1.44): ``active_goals``/``background_goal_runs``
+Goal durability (CONCEPT:AU-ORCH.session.durable-goal-registry-goals): ``active_goals``/``background_goal_runs``
 are an in-memory *cache* over the durable ``goals`` table. Every status change
 is persisted; on restart, this host's non-terminal goals are rehydrated as
 ``orphaned`` (visible + resumable-by-hand) instead of silently vanishing.
@@ -58,17 +58,17 @@ def _owner_token() -> str:
     """Stable owner identity for goal runs: ``hostname:pid``.
 
     A restart changes the pid, so a goal row carrying this host's name with a
-    dead pid is provably orphaned (CONCEPT:ORCH-1.44)."""
+    dead pid is provably orphaned (CONCEPT:AU-ORCH.session.durable-goal-registry-goals)."""
     return f"{_HOSTNAME}:{os.getpid()}"
 
 
 def _identity_metadata() -> dict:
     """Ambient ``{tenant_id, actor_id}`` for stamping into session metadata.
 
-    The tenant-scoped fleet plane (CONCEPT:OS-5.10) aggregates sessions by
+    The tenant-scoped fleet plane (CONCEPT:AU-OS.safety.ontological-guardrail) aggregates sessions by
     ``metadata.tenant``; stamping the server-minted identity here is what makes
     "show me org X's sessions / which agents client Y spawned" a tenant-scoped
-    query (CONCEPT:OS-5.11 + OS-5.14). Best-effort: no actor → ``{}``.
+    query (CONCEPT:AU-OS.observability.run-wide-correlation-id + OS-5.14). Best-effort: no actor → ``{}``.
     """
     try:
         from agent_utilities.security.brain_context import current_actor
@@ -134,11 +134,11 @@ _SQLITE_DDL = """
     );
 """
 # NOTE: goal state is NOT a SQLite table — it lives on the KG Loop node (a develop
-# ``Concept``, CONCEPT:KG-2.78). The ``goals`` table was collapsed onto the one Loop
+# ``Concept``, CONCEPT:AU-KG.research.these-properties-carry). The ``goals`` table was collapsed onto the one Loop
 # model so there is a single durable source of truth; see ``_persist_goal`` /
 # ``_list_goal_entries`` below.
 
-# Same logical schema on Postgres (CONCEPT:OS-5.16). REAL epoch timestamps
+# Same logical schema on Postgres (CONCEPT:AU-OS.state.unified-durable-state-externalization). REAL epoch timestamps
 # become DOUBLE PRECISION; everything else maps 1:1 so the handlers' SQL works
 # on both backends through the state-store placeholder adapter.
 _PG_DDL = """
@@ -209,7 +209,7 @@ def _get_db_path() -> Path:
 
 
 def _connect_db():
-    """Open a connection to the selected sessions backend (CONCEPT:OS-5.16).
+    """Open a connection to the selected sessions backend (CONCEPT:AU-OS.state.unified-durable-state-externalization).
 
     SQLite default → the per-host ``agent_terminal_ui.db`` (path resolved late
     so tests can monkeypatch :func:`_get_db_path`); ``state_db_uri`` set → the
@@ -221,7 +221,7 @@ def _connect_db():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Durable goal registry (CONCEPT:ORCH-1.44)
+# Durable goal registry (CONCEPT:AU-ORCH.session.durable-goal-registry-goals)
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -230,7 +230,7 @@ def _status_value(status: Any) -> str:
 
 
 # Goal state lives on the KG Loop node (a develop ``Concept``) — there is one durable
-# source of truth, the unified Loop model (CONCEPT:KG-2.78). These properties carry the
+# source of truth, the unified Loop model (CONCEPT:AU-KG.research.these-properties-carry). These properties carry the
 # goal record; ``session_id`` distinguishes a goal-originated develop Loop from one
 # submitted bare via ``graph_loops``.
 _GOAL_RETURN = (
@@ -258,7 +258,7 @@ def _goal_engine() -> Any:
 
 
 def _persist_goal(goal_id: str) -> None:
-    """Persist the goal entry onto its KG Loop node (CONCEPT:KG-2.78).
+    """Persist the goal entry onto its KG Loop node (CONCEPT:AU-KG.research.these-properties-carry).
 
     The goal is a develop ``Concept`` Loop; its full record (status, totals,
     iterations, owner) is upserted as node properties. Best-effort: with no active
@@ -289,7 +289,7 @@ def _persist_goal(goal_id: str) -> None:
         "created_at": float(entry.get("created_at", now)),
         "updated_at": now,
     }
-    # CONCEPT:ORCH-1.78 — goals-as-contracts: carry the SLA + escalation target so
+    # CONCEPT:AU-ORCH.session.escalate-breached-goals — goals-as-contracts: carry the SLA + escalation target so
     # the goal_sla maintenance tick can enforce a deadline. Sourced from the goal's
     # constraints (e.g. constraints={"sla_seconds": 3600, "escalate_to": "user"}).
     _constraints = entry.get("constraints") or {}
@@ -370,7 +370,7 @@ _rehydrate_lock = threading.Lock()
 
 
 def rehydrate_goals() -> int:
-    """Surface goals stranded by a process restart (CONCEPT:ORCH-1.44).
+    """Surface goals stranded by a process restart (CONCEPT:AU-ORCH.session.durable-goal-registry-goals).
 
     Scans the durable ``goals`` table for non-terminal goals that belong to
     this host (same hostname) but have no live run in this process — i.e. a
@@ -726,7 +726,7 @@ async def run_goal_loop(
     """Durable goal execution — a thin adapter onto the unified LoopController.
 
     The generalized durable run-loop (resume / per-iteration checkpoint / corrigible
-    interruption, CONCEPT:OS-5.16 + SAFE-1.5) lives ONCE in
+    interruption, CONCEPT:AU-OS.state.unified-durable-state-externalization + SAFE-1.5) lives ONCE in
     :meth:`LoopController.run_loop` and is shared by every Loop kind
     (research/develop/skill) — durability is cross-cutting, not goal-specific. This
     adapter registers the goal as a ``develop`` Loop, wires the goal's observability
@@ -759,7 +759,7 @@ async def run_goal_loop(
 
         engine = _goal_engine() or IntelligenceGraphEngine()
         # Register the goal as a first-class develop Loop so it is visible to and
-        # advanced by the one controller (CONCEPT:KG-2.78).
+        # advanced by the one controller (CONCEPT:AU-KG.research.these-properties-carry).
         submit_loop(
             engine,
             objective,
@@ -862,7 +862,7 @@ async def create_goal(request: Request) -> JSONResponse:
     if consts:
         spec.constraints = consts
 
-    # CONCEPT:ORCH-1.45 — queue-backed goal dispatch: with
+    # CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — queue-backed goal dispatch: with
     # AGENT_DISPATCH_BACKEND=queue this gateway does NOT run the goal loop
     # in-process. The full spec is persisted into the session's metadata (the
     # queue carries only references), a session-keyed envelope is published,
@@ -880,7 +880,7 @@ async def create_goal(request: Request) -> JSONResponse:
 
     # Stamp the originating identity into session metadata so the audit trail
     # and the tenant-scoped fleet plane can attribute this goal to a tenant/actor
-    # (CONCEPT:OS-5.14 + OS-5.11). Best-effort: no actor in scope → empty.
+    # (CONCEPT:AU-OS.identity.authenticated-identity-enforcement + OS-5.11). Best-effort: no actor in scope → empty.
     meta: dict = _identity_metadata()
     if queue_mode:
         meta["goal_spec"] = {

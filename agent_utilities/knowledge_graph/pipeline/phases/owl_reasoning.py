@@ -30,7 +30,7 @@ except ImportError:
 def bootstrap_ontology_path(ctx: PipelineContext) -> str | None:
     """Derive an ontology from the graph's own records and write it to a temp .ttl.
 
-    CONCEPT:KG-2.2 — the self-bootstrapping ontology agent applied to ingest:
+    CONCEPT:AU-KG.ingest.ontology-bootstrap-ingest — the self-bootstrapping ontology agent applied to ingest:
     instead of the fixed ``ontology.ttl``, sample the graph's nodes (capped by
     ``ontology_bootstrap_sample_limit``), let :class:`OntologyBootstrapper` derive
     classes + typed properties (plateau-stopped), and emit Turtle for the OWL
@@ -84,7 +84,7 @@ async def execute_owl_reasoning(
         }
 
     # Resolve ontology path. With ontology-bootstrap on and no explicit ontology,
-    # derive the schema from the graph's own records (CONCEPT:KG-2.2); fall back to
+    # derive the schema from the graph's own records (CONCEPT:AU-KG.ingest.ontology-bootstrap-ingest); fall back to
     # the bundled ontology if nothing could be derived.
     ontology_path = ctx.config.owl_ontology_path
     if not ontology_path and ctx.config.enable_ontology_bootstrap:

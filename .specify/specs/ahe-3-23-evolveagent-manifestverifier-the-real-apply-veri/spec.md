@@ -14,7 +14,7 @@
 - [x] Extension target identified: `failure_analyzer.make_regression_check` is the
       coarse occurrence-count spike monitor (`current > base`, no re-measurement, no
       revert) currently gating the golden loop's auto-merge; it is the seam to replace.
-- [x] New CONCEPT:AHE-3.23 justified: this closes the falsifiable
+- [x] New CONCEPT:AU-AHE.harness.capability-ratchet justified: this closes the falsifiable
       measure→modify→re-measure→keep-or-revert contract on a **live path** — today
       `ManifestVerifier`/`EvolveAgent` are instantiated only in tests (dead-on-live-path
       per AU's own Wire-First rule); `concepts.yaml` AHE-3.0 listing them as live is the

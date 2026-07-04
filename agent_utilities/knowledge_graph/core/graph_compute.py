@@ -1,7 +1,7 @@
-# CONCEPT:KG-2.2 - High-Performance Graph Compute Engine
-# CONCEPT:ORCH-1.11 - Compiled Orchestration Kernel
-# CONCEPT:KG-2.7 - Tokio Service Layer (Tokio-first)
-# CONCEPT:KG-2.58 - Tenant-Partitioned Engine Sharding (HRW over GRAPH_SERVICE_ENDPOINTS)
+# CONCEPT:AU-KG.compute.graph-compute-engine - High-Performance Graph Compute Engine
+# CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel - Compiled Orchestration Kernel
+# CONCEPT:AU-KG.compute.tokio-service-layer - Tokio Service Layer (Tokio-first)
+# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Tenant-Partitioned Engine Sharding (HRW over GRAPH_SERVICE_ENDPOINTS)
 
 import json
 import logging
@@ -36,14 +36,14 @@ _coupled_handlers_installed = False
 _idle_shutdown_support: dict[str, bool] = {}
 
 # Sentinel for "the connection pool has not been built yet" — distinct from a
-# built-but-unavailable pool (which caches as ``None``). (CONCEPT:KG-2.274)
+# built-but-unavailable pool (which caches as ``None``). (CONCEPT:AU-KG.compute.when-exposes)
 _POOL_UNSET: Any = object()
 
 
 def _engine_supports_idle_shutdown(server_path: str) -> bool:
     """Whether the installed engine binary advertises ``--idle-shutdown-secs``.
 
-    CONCEPT:OS-5.63 — engine-flag graceful degradation. A sibling agent is adding
+    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — engine-flag graceful degradation. A sibling agent is adding
     this flag to the engine; against an OLDER engine binary that doesn't know it,
     passing the flag would make the spawn fail. So we probe ``--help``
     once per binary path and only pass the flag when it appears. The probe is
@@ -144,7 +144,7 @@ def _install_coupled_handlers() -> None:
 def _load_or_create_engine_secret() -> str:
     """Load (or generate once) the per-install engine HMAC secret.
 
-    CONCEPT:OS-5.14 — Authenticated Identity Enforcement. The secret lives at
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — Authenticated Identity Enforcement. The secret lives at
     ``data_dir()/engine_secret`` with mode 0600 so every local process — and
     every engine this launcher spawns — shares it. Creation is race-safe
     (``O_EXCL``; the loser re-reads the winner's secret). If the data dir is
@@ -182,7 +182,7 @@ def _load_or_create_engine_secret() -> str:
 def resolve_engine_auth(config: Any) -> tuple[str | None, bool]:
     """Resolve the engine HMAC auth material as ``(secret, insecure)``.
 
-    CONCEPT:OS-5.14 — secure by default:
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — secure by default:
 
     * ``KG_ENGINE_INSECURE=1`` → ``(None, True)``: no client auth token, and a
       spawned engine gets ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that
@@ -205,13 +205,13 @@ def resolve_engine_auth(config: Any) -> tuple[str | None, bool]:
 def ensure_local_engine() -> Any | None:
     """Scan-or-spawn a coupled embedded engine for an embedded/tiny deployment.
 
-    CONCEPT:OS-5.61 — embedded auto-provision. For a server that has no remote
+    CONCEPT:AU-OS.deployment.embedded-auto-provision — embedded auto-provision. For a server that has no remote
     engine configured (the resolved endpoint is local per
     :func:`shard_topology.is_local_endpoint`) this provisions the ONE engine
     authority as a lifecycle-COUPLED child via the EXISTING scan-or-spawn
     machinery — instantiating a :class:`GraphComputeEngine` with ``coupled=True``,
     whose ``__init__`` runs the lock-guarded (``engine_lock.engine_spawn_guard``)
-    scan-or-spawn (the resolver's autostart leg, CONCEPT:OS-5.63). The explicit
+    scan-or-spawn (the resolver's autostart leg, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision). The explicit
     ``coupled=True`` is the true single-process embedded case: the engine dies
     with this process (vs the resolver's DEFAULT detached+supervised engine that
     other entrypoints share). Host-reuse via ``host_lock``/``engine_lock`` means
@@ -280,7 +280,7 @@ class GraphComputeEngine:
         self.graph: dict[str, Any] = {}
         # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
         # — attribute-transparent; raw client at
-        # ``self._client.__wrapped__``. (CONCEPT:OS-5.23)
+        # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         self._client: Any
         self._mode: str = "service"
 
@@ -288,14 +288,14 @@ class GraphComputeEngine:
         endpoints = resolve_endpoints(config)
         sharded = len(endpoints) > 1
         if sharded:
-            # Tenant-partitioned sharding (CONCEPT:KG-2.58): tenant → named
+            # Tenant-partitioned sharding (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw): tenant → named
             # graph → HRW → shard. An explicit non-default graph routes by its
             # own name; the default graph maps to the ambient ActorContext
             # tenant's graph (tenant__<t>__<base>) when one is in scope.
             graph_name = resolve_routing_graph(graph_name, config)
         elif graph_name is None:
             # Per-tenant named-graph isolation must NOT require multiple shards
-            # (CONCEPT:KG-2.60): with enforcement on, route the ambient tenant to
+            # (CONCEPT:AU-KG.compute.data-is-private-its): with enforcement on, route the ambient tenant to
             # its own named graph even on a single endpoint (HRW over one
             # endpoint is the identity). With enforcement off this is byte-for-byte
             # the legacy default-graph behaviour.
@@ -306,20 +306,20 @@ class GraphComputeEngine:
             else:
                 graph_name = config.kg_default_graph
         # Retained so downstream consumers (e.g. the delta-ingestion manifest)
-        # can key state by tenant graph. (CONCEPT:KG-2.8)
+        # can key state by tenant graph. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
         self.graph_name = graph_name
 
         # Note: Since GraphComputeEngine is synchronous and often used as a long-lived
         # wrapper, we still use the standard SyncEpistemicGraphClient but point it at
         # the graph's HRW-owning shard (identity with one endpoint). True async
         # connection pooling callers should use epistemic_graph.pool.ShardRouter,
-        # which shares this exact placement function. (CONCEPT:KG-2.58)
-        # ONE engine resolver (CONCEPT:OS-5.63): remote → share-running-local →
+        # which shares this exact placement function. (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw)
+        # ONE engine resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): remote → share-running-local →
         # autostart-shared-supervised. The resolver owns endpoint placement (HRW),
         # the local-vs-remote classification, the share-probe, the auth secret,
         # and whether autostart is permitted — so this chokepoint carries no
         # inline autostart sequence. ``endpoint`` here is the dedicated-engine
-        # override for the ingest path (CONCEPT:KG-2.58 / Phase D): it pins parse +
+        # override for the ingest path (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw / Phase D): it pins parse +
         # community-scratch work to a SEPARATE engine, bypassing HRW (the caller
         # health-gates it and falls back to the query engine).
         endpoint_override = kwargs.get("endpoint")
@@ -332,7 +332,7 @@ class GraphComputeEngine:
         idle_shutdown_secs = resolved.idle_shutdown_secs
         # Export the shared secret so sibling clients (the epistemic_graph pool and
         # any direct SyncEpistemicGraphClient user falling back to this env var) and
-        # spawned engines agree on it (CONCEPT:OS-5.14).
+        # spawned engines agree on it (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
         if auth_secret:
             os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         connect_kwargs = {
@@ -346,7 +346,7 @@ class GraphComputeEngine:
         else:
             connect_kwargs["socket_path"] = endpoint
 
-        # Circuit breaker — ONE shared breaker per endpoint (CONCEPT:OS-5.23).
+        # Circuit breaker — ONE shared breaker per endpoint (CONCEPT:AU-OS.observability.no-op-without-metrics).
         # When the engine is down, N consecutive connect/timeout failures open
         # the circuit and every caller fails fast with the typed
         # EngineCircuitOpenError (a ConnectionError) instead of hammering a
@@ -378,7 +378,7 @@ class GraphComputeEngine:
 
                 sock = connect_kwargs.get("socket_path")
                 try:
-                    # Single-instance spawn (CONCEPT:KG-2.8 / OS-5.9): serialize all
+                    # Single-instance spawn (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): serialize all
                     # autostart spawners for this socket behind a flock and
                     # double-check connectivity before spawning. Without this, two
                     # connects racing — or a client spawning while a displaced engine
@@ -394,7 +394,7 @@ class GraphComputeEngine:
                                 **connect_kwargs
                             )
                         except Exception:  # noqa: BLE001 - still down; we spawn
-                            # Detached + supervised (CONCEPT:OS-5.63): the engine
+                            # Detached + supervised (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): the engine
                             # survives this spawner so OTHER entrypoints on the
                             # host share it (NOT coupled=pdeathsig), and it
                             # self-terminates ``idle_shutdown_secs`` after its last
@@ -423,7 +423,7 @@ class GraphComputeEngine:
                         "Ensure the epistemic-graph-server daemon is running."
                     ) from retry_e
             elif sharded:
-                # Fail-loud per-shard contract (CONCEPT:KG-2.58, KG-2.55-style):
+                # Fail-loud per-shard contract (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, CONCEPT:AU-KG.backend.selectable-queue-backend-style):
                 # name the shard so the operator fixes the topology instead of
                 # half the keyspace quietly degrading.
                 record_shard_connect(endpoint, False)
@@ -446,7 +446,7 @@ class GraphComputeEngine:
 
         # Connected: close/reset the breaker and guard every subsequent call
         # with it. The proxy is attribute-transparent, and the raw client
-        # stays reachable via ``self._client.__wrapped__``. (CONCEPT:OS-5.23)
+        # stays reachable via ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         breaker.record_success()
         record_shard_connect(endpoint, True)
         self._client = wrap_client_with_breaker(self._client, breaker)
@@ -495,19 +495,19 @@ class GraphComputeEngine:
         :func:`engine_lock.engine_spawn_guard`) and only after a double-checked
         connect confirmed the engine is still down — so this is the sole spawner
         for ``sock``. Mirrors the prior inline autostart: durable ``--persist-dir``
-        + checkpoint, the same auth secret the client uses (CONCEPT:OS-5.14).
+        + checkpoint, the same auth secret the client uses (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
-        ``coupled`` (CONCEPT:OS-5.61 — embedded auto-provision) selects the child
+        ``coupled`` (CONCEPT:AU-OS.deployment.embedded-auto-provision — embedded auto-provision) selects the child
         lifecycle. ``coupled=True`` (the ``ensure_local_engine`` / true
         single-process case) lifecycle-couples the engine to its spawner — it
         gets a parent-death signal (Linux ``prctl``) plus an atexit/SIGTERM/SIGINT
         teardown so it dies with the process that needs it. ``coupled=False`` (the
-        resolver's autostart leg, CONCEPT:OS-5.63, and the graph-os-host /
+        resolver's autostart leg, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision, and the graph-os-host /
         enterprise shard) detaches the child into its own session so it OUTLIVES
         the launcher and OTHER entrypoints on the host share it.
         ``KG_ENGINE_DETACHED=1`` forces detached for the autostart path too.
 
-        ``idle_shutdown_secs`` (CONCEPT:OS-5.63 — supervised, reference-counted)
+        ``idle_shutdown_secs`` (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — supervised, reference-counted)
         is passed to a detached engine as ``--idle-shutdown-secs <secs>`` so it
         self-terminates that many seconds after its LAST client disconnects
         (robust to client crashes). ``0`` = persistent: NO flag passed, the engine
@@ -533,7 +533,7 @@ class GraphComputeEngine:
         cmd = [server_path]
         if sock:
             cmd += ["--socket-path", str(sock)]
-        # Durable by default (CONCEPT:KG-2.8 / OS-5.9): snapshot the graphs to disk
+        # Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): snapshot the graphs to disk
         # so an auto-spawned engine warm-restarts from the last checkpoint instead
         # of starting empty. pggraph stays the durable system-of-record; this is
         # the fast local cache.
@@ -552,7 +552,7 @@ class GraphComputeEngine:
                 "--checkpoint-interval",
                 str(_CHECKPOINT_INTERVAL_S),
             ]
-        # Reference-counted supervision (CONCEPT:OS-5.63): a DETACHED engine that
+        # Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): a DETACHED engine that
         # outlives its spawner needs a self-shutdown so a crashed/exited fleet of
         # clients doesn't leave it running forever. >0 → arm idle shutdown;
         # 0 → persistent (omit the flag, engine runs forever like a service). A
@@ -563,7 +563,7 @@ class GraphComputeEngine:
             and _engine_supports_idle_shutdown(server_path)
         ):
             cmd += ["--idle-shutdown-secs", str(idle_shutdown_secs)]
-        # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the SAME secret
+        # Engine auth (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): the spawned engine gets the SAME secret
         # this client authenticates with (the engine reads GRAPH_SERVICE_AUTH_SECRET).
         # With KG_ENGINE_INSECURE the explicit allow flag keeps refuse-insecure
         # binaries bootable for dev.
@@ -769,7 +769,7 @@ class GraphComputeEngine:
         The engine is a separate process behind a MessagePack/UDS socket, so each
         call is a round-trip — N per-element ``has_node`` calls = N round-trips.
         This surfaces the engine client's existing one-round-trip existence op
-        (CONCEPT:KG-2.16) through the facade so orchestration code (ingestion dedup)
+        (CONCEPT:EG-KG.compute.graph-compute-engine) through the facade so orchestration code (ingestion dedup)
         can check a whole batch natively instead of looping. (Bulk writes already
         flow through :meth:`batch_update`.)
         """
@@ -796,7 +796,7 @@ class GraphComputeEngine:
         ``(field, value)`` in ``updates`` into the node and return ``True``;
         otherwise return ``False`` with no mutation. This is the authoritative,
         backend-agnostic primitive behind cross-host :Task claiming
-        (CONCEPT:KG-2.141). Mirrors ``add_node``: the call goes straight to
+        (CONCEPT:AU-KG.compute.user-override-prompt-library). Mirrors ``add_node``: the call goes straight to
         ``self._client.nodes.*``; the SyncEpistemicGraphClient wrapper handles
         the run-in-loop dispatch.
         """
@@ -828,7 +828,7 @@ class GraphComputeEngine:
         return self._client.graph.find_cycle()
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        """Index an embedding in the engine's native HNSW (CONCEPT:KG-2.0).
+        """Index an embedding in the engine's native HNSW (CONCEPT:AU-KG.query.object-graph-mapper).
 
         Distinct from storing an ``embedding`` node property: this registers the
         vector in the engine's SemanticStore so ``semantic_search`` is O(log N),
@@ -848,7 +848,7 @@ class GraphComputeEngine:
         *,
         reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:KG-2.250).
+        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -857,7 +857,7 @@ class GraphComputeEngine:
         traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
         This is the engine doing filter+traverse+vector+rerank itself instead of
         the old hand-orchestrated Python pipeline of siloed round-trips
-        (CONCEPT:KG-2.208/214/215). Returns ``[{"id": str, "score": float|None}]``
+        (CONCEPT:AU-KG.compute.vector/214/215). Returns ``[{"id": str, "score": float|None}]``
         in the plan's final (post-``Rank``) order.
 
         Requires an engine built with the ``query`` feature; on a build without it
@@ -871,7 +871,7 @@ class GraphComputeEngine:
         )
 
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
-        """Embedding-free lexical capability gate via the engine (CONCEPT:EG-010).
+        """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 
         Returns the capability-node terms (Tool/Skill/MCPServer names+synonyms)
         that appear as whole words in ``query``, each ``{term, node_type, label,
@@ -883,7 +883,7 @@ class GraphComputeEngine:
     def get_nodes_by_label(
         self, label: str, limit: int = 0
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Engine-side labeled fetch (CONCEPT:KG-2.51) — at most ``limit`` nodes of
+        """Engine-side labeled fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation) — at most ``limit`` nodes of
         ``label`` (``limit=0`` ⇒ no cap), bounding the wire payload so a
         ``MATCH (n:Label) … LIMIT k`` never materializes the whole graph."""
         return self._client.nodes.list_by_label(label, limit) or []
@@ -947,7 +947,7 @@ class GraphComputeEngine:
         return self._client.graph.parse_file(file_path, source)
 
     def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
-        """Batch-parse many files in ONE engine round-trip (CONCEPT:KG-2.16).
+        """Batch-parse many files in ONE engine round-trip (CONCEPT:EG-KG.compute.graph-compute-engine).
 
         Returns one ``ParseFile``-shaped result per input file, in input order.
         Collapses a per-file parse storm into a single RPC. Requires an engine
@@ -972,7 +972,7 @@ class GraphComputeEngine:
         return cached
 
     def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
-        """Parse a batch AND resolve cross-file edges in ONE round-trip (CONCEPT:KG-2.8r).
+        """Parse a batch AND resolve cross-file edges in ONE round-trip (CONCEPT:EG-KG.compute.turn-each-project).
 
         Treats ``files`` as one resolution scope (a repository, or a delta set):
         unlike :meth:`parse_files` (one raw result per file), this returns a SINGLE
@@ -995,7 +995,7 @@ class GraphComputeEngine:
         elements: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Materialise a captured desktop frame as durable graph entities in ONE
-        round-trip (CONCEPT:KG-2.185).
+        round-trip (CONCEPT:AU-KG.ontology.owl-screen-bridge).
 
         Turns the screenshot ``png`` (only its dimensions + content hash persist) plus
         the AT-SPI ``elements`` (``[{role,name,x,y,w,h}, ...]``) into a
@@ -1050,7 +1050,7 @@ class GraphComputeEngine:
         from agent_utilities.knowledge_graph.core.engine_breaker import unwrap_client
 
         # The wire call needs the RAW client of the pattern engine, not its
-        # breaker proxy (CONCEPT:OS-5.23).
+        # breaker proxy (CONCEPT:AU-OS.observability.no-op-without-metrics).
         return self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
 
     # ── Ledger Operations ────────────────────────────────────────────────
@@ -1252,7 +1252,7 @@ class GraphComputeEngine:
         a full-graph scan must consume them here rather than issuing one
         ``_get_node_properties`` round-trip per node (an N+1 that cost ~45s on a
         40K-node graph and held the GIL, starving foreground ingestion).
-        (CONCEPT:KG-2.8 ingestion throughput)
+        (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
         """
         out: list[tuple[str, dict[str, Any]]] = []
         for nid, props in self._client.nodes.list():
@@ -1293,7 +1293,7 @@ class GraphComputeEngine:
         than issuing one ``_get_edge_properties`` round-trip per edge — the same
         N+1 the bulk node scan avoids. On a 67K-edge graph the per-edge path cost
         ~100s/scan and was re-run once per assimilation stage.
-        (CONCEPT:KG-2.8 throughput)
+        (CONCEPT:EG-KG.storage.nonblocking-checkpoint throughput)
         """
         import msgpack
 
@@ -1374,7 +1374,7 @@ class GraphComputeEngine:
     ) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
 
-        CONCEPT:KG-2.242 — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
+        CONCEPT:AU-KG.compute.native-sparql-owl-shacl — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
         (rdflib/owlready2/pyshacl) is demoted to the engine's native RDF surface. This
         routes to the engine's native ``client.rdf.sparql`` so the
         query executes against the engine's RDF projection of the live property graph
@@ -1401,7 +1401,7 @@ class GraphComputeEngine:
     ) -> dict[str, Any]:
         """Run the engine's native OWL 2 (EL+/RL) reasoner over the live graph.
 
-        CONCEPT:KG-2.242 — routes to ``client.rdf.owl_reason``: classifies the OWL
+        CONCEPT:AU-KG.compute.native-sparql-owl-shacl — routes to ``client.rdf.owl_reason``: classifies the OWL
         axioms in the graph (plus any extra ``ontology`` Turtle) and materializes
         entailments, returning ``{"subclasses", "instances", "consistent",
         "unsatisfiable"}`` (confidence/decay-weighted, read-only -- does NOT mutate the
@@ -1418,7 +1418,7 @@ class GraphComputeEngine:
     ) -> dict[str, int]:
         """Load Turtle or N-Triples into the engine's RDF dataset (one round-trip).
 
-        CONCEPT:KG-2.242 — routes to ``client.rdf.add_triples``. Used to seed OWL
+        CONCEPT:AU-KG.compute.native-sparql-owl-shacl — routes to ``client.rdf.add_triples``. Used to seed OWL
         axioms / RDF facts the native reasoner and SPARQL surface operate over. Raises
         if the engine/op is unavailable.
         """
@@ -1520,14 +1520,14 @@ class GraphComputeEngine:
     def strongly_connected_components(self) -> list[list[str]]:
         """Return strongly connected components via Tarjan's algorithm.
 
-        CONCEPT:KG-2.7 — Tarjan's SCC via Tokio service (GIL-free).
+        CONCEPT:AU-KG.compute.tokio-service-layer — Tarjan's SCC via Tokio service (GIL-free).
         """
         return self._client.graph.strongly_connected_components()
 
     def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
         """Return the minimum spanning tree as (source, target, weight) edges.
 
-        CONCEPT:KG-2.7 — Kruskal's MST via Tokio service (GIL-free).
+        CONCEPT:AU-KG.compute.tokio-service-layer — Kruskal's MST via Tokio service (GIL-free).
         """
         return self._client.graph.minimum_spanning_tree()
 
@@ -1571,7 +1571,7 @@ class GraphComputeEngine:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Native entity-resolution candidate generation (CONCEPT:KG-2.260).
+        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
 
         Returns merge proposals (``{canonical, members, score, kind}``;
         ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
@@ -1646,9 +1646,9 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Multiplexed engine connection pool (CONCEPT:KG-2.274) ─────────────
+    # ── Multiplexed engine connection pool (CONCEPT:AU-KG.compute.when-exposes) ─────────────
     # Consumer-side adoption of the epistemic_graph ShardRouter / ConnectionPool
-    # (CONCEPT:EG-037). This engine's own ``SyncEpistemicGraphClient`` is ONE
+    # (CONCEPT:EG-KG.backend.multiplexed-connections). This engine's own ``SyncEpistemicGraphClient`` is ONE
     # connection — M concurrent callers serialize on it (and on the engine's
     # serial per-connection read loop). For INDEPENDENT ops we instead fan out
     # across an auto-sized pool: each op rides its OWN pooled connection, which the
@@ -1721,7 +1721,7 @@ class GraphComputeEngine:
         graph: str | None = None,
     ) -> list[dict[str, Any]]:
         """Apply INDEPENDENT op-batches concurrently, each on its OWN pooled
-        connection (CONCEPT:KG-2.274).
+        connection (CONCEPT:AU-KG.compute.when-exposes).
 
         Each entry of ``batches`` is a ``batch_update`` op-list (same shape as
         :meth:`batch_update`). The batches must be independent of one another; ops
@@ -1776,7 +1776,7 @@ class GraphComputeEngine:
         ops: list[Any],
         graph: str | None = None,
     ) -> list[Any]:
-        """Run INDEPENDENT engine ops concurrently across the pool (CONCEPT:KG-2.274).
+        """Run INDEPENDENT engine ops concurrently across the pool (CONCEPT:AU-KG.compute.when-exposes).
 
         ``ops`` is a list of ``async (client) -> result`` callables; each runs on its
         OWN pooled connection so the engine services them as parallel per-connection
@@ -2014,7 +2014,7 @@ class _NodeView:
         """Support ``graph.nodes(data=True)`` iteration."""
         if data:
             # One bulk round-trip (props ship with the node list) instead of an
-            # ``_get_node_properties`` round-trip per node. (CONCEPT:KG-2.8)
+            # ``_get_node_properties`` round-trip per node. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
             return [
                 (nid, _NodePropertiesProxy(self._engine, nid, props))
                 for nid, props in self._engine._get_all_nodes_with_properties()

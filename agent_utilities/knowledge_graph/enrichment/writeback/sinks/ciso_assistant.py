@@ -1,4 +1,4 @@
-"""CISO Assistant write-back sink (CONCEPT:KG-2.111 / CISO-003).
+"""CISO Assistant write-back sink (CONCEPT:AU-KG.enrichment.ciso-2 / CISO-003).
 
 Pushes KG-derived governance entities back into the intuitem **CISO Assistant**
 GRC estate — the first-class write-back twin of the CISO Assistant harvest, on the

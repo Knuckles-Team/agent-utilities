@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.25 — Ontology Action System.
+"""CONCEPT:AU-KG.ontology.ontology-action-system — Ontology Action System.
 
 First-class, governed *verbs* for the ontology — the layer that closes the one
 true gap versus Palantir AIP, whose ontology unifies data + logic + ACTIONS +
@@ -73,7 +73,7 @@ from .models import (
 )
 from .registry import ActionHandler, ActionRegistry
 
-# CONCEPT:KG-2.25 — the default registry is populated at import, not an empty
+# CONCEPT:AU-KG.ontology.ontology-action-system — the default registry is populated at import, not an empty
 # shell. A value stored but never invoked is a bug per AGENTS.md, so the
 # DEFAULT_EXECUTOR below binds these registered actions to a live governed path.
 DEFAULT_REGISTRY = ActionRegistry()

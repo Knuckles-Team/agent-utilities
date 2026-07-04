@@ -1,4 +1,4 @@
-"""Grafana / observability source extractor (CONCEPT:KG-2.9).
+"""Grafana / observability source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering extractor that maps Grafana observability objects —
 dashboards, panels, alert rules, and datasources — into the uniform

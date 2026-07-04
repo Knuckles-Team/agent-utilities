@@ -1,4 +1,4 @@
-"""Corrigibility + irreversibility-aversion + knowledge-seeking (CONCEPT:SAFE-1.5).
+"""Corrigibility + irreversibility-aversion + knowledge-seeking (CONCEPT:AU-OS.safety.irreversibility-aversion).
 
 Objective-level safety primitives for rising autonomy: yield-without-resisting on a
 shutdown signal, route irreversible actions to a human, and an info-gain reward.
@@ -26,7 +26,7 @@ from agent_utilities.orchestration.action_policy import (  # noqa: E402
     ActionRequest,
 )
 
-pytestmark = pytest.mark.concept("SAFE-1.5")
+pytestmark = pytest.mark.concept("AU-OS.safety.irreversibility-aversion")
 
 
 class TestCorrigibility:

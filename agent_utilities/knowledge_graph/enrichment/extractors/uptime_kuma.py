@@ -1,4 +1,4 @@
-"""Uptime Kuma source extractor (CONCEPT:KG-2.9).
+"""Uptime Kuma source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Monitors → :Service (with current up/down status). Stamped externalToolId +
 domain="uptime_kuma". Client injected; tolerant of dict/list monitor shapes.

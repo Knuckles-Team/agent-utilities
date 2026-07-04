@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.8 — capability writeback is now wired into the enrichment pipeline.
+"""CONCEPT:EG-KG.storage.nonblocking-checkpoint — capability writeback is now wired into the enrichment pipeline.
 
 Previously orphaned (nothing built/injected the writeback callable). These tests cover the resolver
 gating, idempotent push, and that the EnrichmentPipeline actually invokes an injected writeback_fn.
@@ -23,13 +23,13 @@ def _cap(name: str) -> GraphNode:
     )
 
 
-@pytest.mark.concept(id="KG-2.8")
+@pytest.mark.concept(id="EG-KG.storage.nonblocking-checkpoint")
 def test_resolver_disabled_by_default(monkeypatch):
     monkeypatch.delenv("KG_EA_WRITEBACK", raising=False)
     assert resolve_writeback_fn(backend=None) is None  # off → no-op, no regression
 
 
-@pytest.mark.concept(id="KG-2.8")
+@pytest.mark.concept(id="EG-KG.storage.nonblocking-checkpoint")
 def test_resolver_enabled_with_client_returns_callable(monkeypatch):
     monkeypatch.setenv("KG_EA_WRITEBACK", "1")
 
@@ -44,7 +44,7 @@ def test_resolver_enabled_with_client_returns_callable(monkeypatch):
     assert fn is not None and callable(fn)
 
 
-@pytest.mark.concept(id="KG-2.8")
+@pytest.mark.concept(id="EG-KG.storage.nonblocking-checkpoint")
 def test_push_capabilities_idempotent_and_pushes_provisional():
     class _Archi:
         def __init__(self):
@@ -63,7 +63,7 @@ def test_push_capabilities_idempotent_and_pushes_provisional():
     assert result.skipped >= 1
 
 
-@pytest.mark.concept(id="KG-2.8")
+@pytest.mark.concept(id="EG-KG.storage.nonblocking-checkpoint")
 def test_pipeline_invokes_injected_writeback_fn():
     """The EnrichmentPipeline contract: a provided writeback_fn is actually called on minted caps."""
     from agent_utilities.knowledge_graph.enrichment.pipeline import EnrichmentPipeline

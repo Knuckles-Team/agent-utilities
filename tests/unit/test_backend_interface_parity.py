@@ -1,4 +1,4 @@
-"""Static backend-interface parity surrogate (CONCEPT:KG-2.7).
+"""Static backend-interface parity surrogate (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The engine-free *contract* portion of the cross-backend parity matrix. The live
 ``backend-parity-nightly`` matrix asserted backend BEHAVIOR, but it needed a running

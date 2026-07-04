@@ -13,7 +13,7 @@ class CodemapRequest(BaseModel):
 
     prompt: str
     mode: Literal["fast", "smart"] = "smart"
-    # CONCEPT:ORCH-1.48 — when set, return only a token-budgeted ranked-symbol
+    # CONCEPT:AU-ORCH.planning.repo-map-skeleton — when set, return only a token-budgeted ranked-symbol
     # skeleton (no LLM hierarchy pass), sized to ``max_tokens``.
     skeleton: bool = False
     max_tokens: int = 1024

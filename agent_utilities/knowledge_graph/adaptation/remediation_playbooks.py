@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Remediation playbooks on the fleet-event triage seam.
 
-CONCEPT:OS-5.26 — Remediation playbooks with stepwise verification and policy-gated actuation plugged into the fleet-event triage seam, recording every step on the originating FleetEvent node
+CONCEPT:AU-OS.host.remediation-playbooks — Remediation playbooks with stepwise verification and policy-gated actuation plugged into the fleet-event triage seam, recording every step on the originating FleetEvent node
 
 OS-5.15 shipped the dispatch seam ("full remediation playbooks are a later
 task"); this module is that task. Three playbooks, each a small explicit step
@@ -13,7 +13,7 @@ every step outcome recorded on the originating ``FleetEvent`` node
 
 * **service_down** — confirm via the FleetObserver (an already-recovered
   service ends the playbook), then a ``restart_service`` proposal through the
-  ActionPolicy gate (CONCEPT:OS-5.24). Allowed ⇒ actuate + schedule an
+  ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). Allowed ⇒ actuate + schedule an
   OS-5.27 health watch (which itself escalates/rolls back on failure);
   queued/denied ⇒ escalate to the approvals flow + operator notification.
 * **service_flapping** — ≥ ``FLAP_THRESHOLD`` down-events inside the observer

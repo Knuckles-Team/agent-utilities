@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Profit Attribution Engine."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Profit Attribution Engine."""
 
 import pytest
 

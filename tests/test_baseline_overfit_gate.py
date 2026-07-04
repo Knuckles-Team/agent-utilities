@@ -1,4 +1,4 @@
-"""Tests for the pre-run baseline/overfit go/no-go gates (CONCEPT:AHE-3.35)."""
+"""Tests for the pre-run baseline/overfit go/no-go gates (CONCEPT:AU-AHE.assimilation.baseline-overfit-gate)."""
 
 from __future__ import annotations
 

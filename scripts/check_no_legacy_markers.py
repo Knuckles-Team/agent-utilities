@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Gate: zero legacy ``CONCEPT:<PREFIX>-<digit>`` markers survive (CONCEPT:OS-5.77).
+"""Gate: zero legacy ``CONCEPT:<PREFIX>-<digit>`` markers survive (CONCEPT:AU-OS.governance.concept-2).
 
 The big-bang completion invariant: after the OKF-CIS cutover, every marker must be
 the new ``<SLUG>-<PILLAR>.<domain>.<concept>`` form. Any surviving numeric-pillar
-marker (``CONCEPT:KG-2.7``) is a missed rewrite. Exit non-zero listing them.
+marker (``CONCEPT:AU-KG.query.vendor-agnostic-traversal``) is a missed rewrite. Exit non-zero listing them.
 
 Usage: python scripts/check_no_legacy_markers.py [ROOT ...]  (default: cwd)
 """
@@ -26,8 +26,12 @@ def scan(root: Path) -> list[str]:
     for p in root.rglob("*"):
         if p.suffix not in _EXT or any(s in p.parts for s in _SKIP):
             continue
-        # this gate file documents the legacy pattern in prose — don't self-flag
-        if p.name == "check_no_legacy_markers.py":
+        # skip files that legitimately record legacy ids: this gate (documents the
+        # pattern), CHANGELOG/concept_map (history), and the generated registries.
+        if p.name in {
+            "check_no_legacy_markers.py", "CHANGELOG.md", "concept_map.md",
+            "concepts.yaml", "concept_reservations.yaml",
+        }:
             continue
         try:
             text = p.read_text(encoding="utf-8")

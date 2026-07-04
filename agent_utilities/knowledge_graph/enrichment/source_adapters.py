@@ -1,4 +1,4 @@
-"""In-process source-client adapters (CONCEPT:KG-2.9).
+"""In-process source-client adapters (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Bridge a connector package's raw API to the duck-typed surface each extractor
 consumes, so ServiceNow and ERPNext flow through the same materialize/source_sync
@@ -174,7 +174,7 @@ def _graph_rows(resp: Any) -> list[dict]:
 
 class MicrosoftGraphSourceClient:
     """Adapts the async ``microsoft-agent`` ``MicrosoftGraphApi`` to the M365
-    extractor surface (CONCEPT:KG-2.9).
+    extractor surface (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
     The Graph client is fully ``async``; this wrapper bridges each call to sync
     via :func:`run_sync`, so M365 flows through the same synchronous

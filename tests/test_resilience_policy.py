@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ORCH-1.36 — Declarative Resilience Policy.
+"""Tests for CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy.
 
 Covers the policy primitive in isolation (unit tests) and a live-path
 integration test proving it is actually invoked from the specialist execution
@@ -315,7 +315,7 @@ async def test_resilience_wired_into_execute_specialist_live_path(monkeypatch):
     """LIVE-PATH: exercise ``_execute_dynamic_mcp_agent`` (the real per-specialist
     execution path that ``execute_specialist_node`` / ``agent_package_step``
     funnel into) with a primary that fails transiently once then succeeds, and
-    assert it retried and ultimately succeeded — proving CONCEPT:ORCH-1.36 is
+    assert it retried and ultimately succeeded — proving CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating is
     invoked in production, not just unit-tested in isolation.
     """
     from types import SimpleNamespace

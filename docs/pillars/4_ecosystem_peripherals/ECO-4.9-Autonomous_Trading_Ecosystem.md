@@ -1,4 +1,4 @@
-# Autonomous Trading Ecosystem (CONCEPT:ECO-4.05)
+# Autonomous Trading Ecosystem (CONCEPT:AU-ECO.bus.pluggable-event-queue)
 
 ## Overview
 The Autonomous Trading Ecosystem provides a full suite of infrastructure, configurations, and AI-native patterns for executing quantitative and algorithmic trading via the `emerald-exchange` MCP server and the `agent-utilities` ontology framework.
@@ -18,7 +18,7 @@ Automated provisioning of trading nodes is handled via the `skill-graphs/infrast
 - **`trading-grafana.yaml`**: Observability stack deploying Grafana + Redis TimeSeries for portfolio visualization.
 - **`gpu-compute-node.yaml`**: Dedicated GPU node routing to `data-science-mcp` for QLib backtesting and model training.
 
-## 3. Skill-Graph Decomposition (CONCEPT:EE-013)
+## 3. Skill-Graph Decomposition (CONCEPT:AU-AHE.assimilation.trading-ecosystem-spec)
 To enable multi-agent specialization, trading knowledge is broken down into four discrete `skill-graphs` subdirectories:
 - **`strategies/`**: Documentation of momentum, mean reversion, multi-factor, and ML trading archetypes.
 - **`data-sources/`**: Market data ingestion patterns (AKShare, Yahoo Finance, CCXT) and on-chain analytics.
@@ -40,4 +40,4 @@ The `emerald-exchange` MCP server exposes 9 discrete tool domains:
 ## Implementation Details
 - **Source Code**: `agent-packages/agents/emerald-exchange`
 - **Pillar**: Ecosystem Peripherals
-- **Bridge**: CONCEPT:EE-001 through EE-020
+- **Bridge**: CONCEPT:AU-AHE.assimilation.autonomous-trading-ecosystem through EE-020

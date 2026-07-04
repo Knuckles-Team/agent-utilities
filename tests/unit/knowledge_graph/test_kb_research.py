@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.6"""
+"""CONCEPT:AU-KG.research.research-pipeline-runner"""
 
 from unittest.mock import MagicMock, patch
 

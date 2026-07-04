@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for CONCEPT:OS-5.1 — Permissions Kernel."""
+"""Tests for CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel."""
 
 
 import time

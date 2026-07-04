@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Recursive web-crawler document-source connector.
 
-CONCEPT:ECO-4.25 — reference ``Load`` + ``Poll`` connector.
-CONCEPT:ECO-4.26 — incremental poll keyed on a crawl-time watermark + seen ids.
+CONCEPT:AU-ECO.connector.document-source-framework — reference ``Load`` + ``Poll`` connector.
+CONCEPT:AU-ECO.connector.incremental-poll-watermark — incremental poll keyed on a crawl-time watermark + seen ids.
 
 A same-domain breadth-first crawler. Pages are fetched (lazy ``httpx``; the caller
 may inject a ``fetch_fn`` for offline tests), converted HTML→text via the
@@ -70,7 +70,7 @@ def _default_fetch(url: str) -> str:
 class WebCrawlerConnector(LoadConnector, PollConnector):
     """Recursively crawl a website, same-domain, into documents.
 
-    CONCEPT:ECO-4.25.
+    CONCEPT:AU-ECO.connector.document-source-framework.
 
     Config:
         base_url: Seed URL (required).
@@ -164,7 +164,7 @@ class WebCrawlerConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Crawl, skipping URLs already emitted in a prior poll (by ``seen_ids``).
 
-        CONCEPT:ECO-4.26 — a re-poll re-walks the site but only emits pages not in
+        CONCEPT:AU-ECO.connector.incremental-poll-watermark — a re-poll re-walks the site but only emits pages not in
         the prior ``seen_ids`` set, and records the union so the next poll skips
         them too.
         """

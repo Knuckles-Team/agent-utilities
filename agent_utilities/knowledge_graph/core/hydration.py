@@ -3,7 +3,7 @@
 Handles dynamic discovery, instantiation, ontological translation, and batch
 ingestion from domain-specific APIs into OWL-promotable LPG nodes and edges.
 
-Architecture (CONCEPT:KG-2.7 — Capability Abstraction Layer):
+Architecture (CONCEPT:AU-KG.compute.capability-abstraction — Capability Abstraction Layer):
   The CAPABILITY_REGISTRY decouples concrete connectors from abstract
   capability categories.  Each entry maps a source identifier to its
   capability category and the private method that implements the connector.
@@ -55,7 +55,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
     "erpnext": {"category": "erp", "method": "_hydrate_erpnext"},
     # ``jira``/``plane``/``confluence`` are first-class delta connectors now
-    # (``source_sync._DELTA_HANDLERS``, CONCEPT:KG-2.123/2.124/2.125); the generic
+    # (``source_sync._DELTA_HANDLERS``, CONCEPT:AU-KG.compute.confluence-first-class-delta/2.124/2.125); the generic
     # ``issue_tracking`` capability remains for the zero-infra local-markdown checklist.
     "issue_tracking": {
         "category": "issue_tracking",
@@ -506,7 +506,7 @@ class HydrationManager:
         }
 
     def _hydrate_leanix(self, engine: Any) -> dict[str, Any]:
-        """Mirror the LeanIX fact-sheet graph natively into the KG (CONCEPT:KG-2.9).
+        """Mirror the LeanIX fact-sheet graph natively into the KG (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
         Delegates to the one delta-aware sync path (:func:`leanix_sync.sync_leanix`),
         which injects a live LeanIX client into the typed extractor, batch-ingests
@@ -704,7 +704,7 @@ class HydrationManager:
         """Hydrate a zero-infra local-markdown task checklist into the KG.
 
         Jira and Plane are first-class delta connectors (``source_sync._sync_jira`` /
-        ``_sync_plane``, CONCEPT:KG-2.124/2.125); this generic capability is now only
+        ``_sync_plane``, CONCEPT:AU-KG.compute.jira-first-class-delta/2.125); this generic capability is now only
         the local-markdown checklist fallback (no external tracker configured).
         """
         entities = []

@@ -1,4 +1,4 @@
-"""Token→USD cost estimation for the RLM benchmark (CONCEPT:AHE-3.32).
+"""Token→USD cost estimation for the RLM benchmark (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 A small, explicit price table (USD per 1K tokens, blended input+output) keyed by a normalized
 model id, so the scoreboard can report a cost column comparable to the paper's. Unknown models

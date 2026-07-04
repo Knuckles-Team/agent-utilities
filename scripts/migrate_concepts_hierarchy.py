@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Migrate flat concept ids → the 3-level ``NS-<pillar>.<concept>.<segment>`` grammar.
 
-CONCEPT:OS-5.76 — concept-hierarchy standardization (B5).
+CONCEPT:AU-OS.governance.concept-hierarchy-standardization — concept-hierarchy standardization (B5).
 
 Scans ALL of ``agent-packages/**`` for ``CONCEPT:<id>`` markers (and any
 ``docs/concepts.yaml``), computes the canonical dotted id + permanent flat alias

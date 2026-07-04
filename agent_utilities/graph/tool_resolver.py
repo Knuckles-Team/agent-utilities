@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tool gap-fill resolver for workflow materialization (CONCEPT:ECO-4.0 / ORCH-1.8).
+"""Tool gap-fill resolver for workflow materialization (CONCEPT:AU-ECO.messaging.native-backend-abstraction / ORCH-1.8).
 
 A skill-workflow template declares the tools each step needs (``AgentSpec.tools``).
 When `graph_orchestrate` materializes the template into a live agent graph, a needed

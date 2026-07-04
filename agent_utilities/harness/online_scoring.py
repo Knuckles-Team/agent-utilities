@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Online-scoring pipeline over live traces (CONCEPT:AHE-3.64).
+"""Online-scoring pipeline over live traces (CONCEPT:AU-AHE.harness.receives-trace-id-must).
 
 Opik's keystone, KG-native: production **automation rules** AND regression **assertions**
 run through ONE judge path. When a root trace completes, the
@@ -49,7 +49,7 @@ class AutomationRule:
 
 @dataclass
 class Metric:
-    """A user-defined Python metric (CONCEPT:AHE-3.67) run on every (sampled) trace inside
+    """A user-defined Python metric (CONCEPT:AU-AHE.harness.onlinescorenode) run on every (sampled) trace inside
     a resource-bounded sandbox. ``source`` defines ``def metric(trace) -> float`` (0..1);
     ``trace`` is a dict view {input, output, status, spans, generations}."""
 
@@ -70,7 +70,7 @@ def _run_metric_source(source: str, trace: dict[str, Any]) -> float:
 
 @dataclass
 class OnlineScoringSampler:
-    """Scores live traces through the shared LLM-judge path (CONCEPT:AHE-3.64)."""
+    """Scores live traces through the shared LLM-judge path (CONCEPT:AU-AHE.harness.receives-trace-id-must)."""
 
     backend: (
         Any  # KGTraceBackend (provides get_trace + add_node/link_nodes via .backend)
@@ -126,7 +126,7 @@ class OnlineScoringSampler:
         written: list[Any] = []
 
         # Pick the judge ONCE per trace: a large trace navigates its span subgraph with
-        # the tool-judge (CONCEPT:AHE-3.66) instead of context-stuffing; small traces use
+        # the tool-judge (CONCEPT:AU-AHE.harness.instead-context-stuffing-small) instead of context-stuffing; small traces use
         # the cheap inline judge. Both return (score, reasoning).
         from agent_utilities.harness.tool_judge import ToolEnabledJudge, should_use
 
@@ -153,7 +153,7 @@ class OnlineScoringSampler:
             self._persist(node, trace_id)
             written.append(node)
 
-        # 1b) Sandboxed user-defined Python metrics (CONCEPT:AHE-3.67) → OnlineScoreNode.
+        # 1b) Sandboxed user-defined Python metrics (CONCEPT:AU-AHE.harness.onlinescorenode) → OnlineScoreNode.
         for metric in self.metrics:
             score, reasoning = self._run_metric(metric, entry)
             node = OnlineScoreNode(
@@ -190,7 +190,7 @@ class OnlineScoringSampler:
             written.append(ar_node)
             if not passed and self.eval_corpus is not None:
                 # The failing (prod) trace becomes/refreshes a regression case so the same
-                # break is caught from now on (CONCEPT:AHE-3.64 closes with AHE-3.61).
+                # break is caught from now on (CONCEPT:AU-AHE.harness.receives-trace-id-must closes with AHE-3.61).
                 try:
                     self.eval_corpus.add_case(
                         query=query or trace_id,

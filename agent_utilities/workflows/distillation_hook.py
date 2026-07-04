@@ -1,6 +1,6 @@
 """Workflow Distillation Hook — Automated Execution→Template Promotion.
 
-CONCEPT:ORCH-1.8 × CONCEPT:AHE-3.2 — Workflow Distillation Pipeline
+CONCEPT:AU-ORCH.execution.parallel-engine-visualizer × CONCEPT:AU-AHE.optimization.workflow-distillation — Workflow Distillation Pipeline
 
 Closes the evolution feedback loop by automatically distilling successful
 workflow executions into reusable Workflow+TeamConfig pairs in the KG.
@@ -34,7 +34,7 @@ DEFAULT_QUALITY_MINIMUM = 0.6
 class WorkflowDistillationHook:
     """Automated promotion of execution patterns to reusable templates.
 
-    CONCEPT:ORCH-1.8 — Distillation Hook
+    CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Distillation Hook
 
     Args:
         engine: The IntelligenceGraphEngine instance.
@@ -69,7 +69,7 @@ class WorkflowDistillationHook:
     ) -> dict[str, Any]:
         """Process a completed execution for potential distillation.
 
-        CONCEPT:ORCH-1.8 — Distillation Entry Point
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Distillation Entry Point
         """
         outcome: dict[str, Any] = {
             "promoted": False,
@@ -151,7 +151,7 @@ class WorkflowDistillationHook:
     ) -> dict[str, Any]:
         """Perform paired Workflow + TeamConfig promotion.
 
-        CONCEPT:ORCH-1.8 × CONCEPT:AHE-3.3
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer × CONCEPT:AU-AHE.evaluation.interpretability-tests
         """
         outcome: dict[str, Any] = {
             "promoted": False,

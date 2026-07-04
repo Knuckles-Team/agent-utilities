@@ -1,4 +1,4 @@
-# KG-2.34 — Relational-Intent Retrieval
+# AU-KG.retrieval.relational-intent-retrieval — Relational-Intent Retrieval
 
 **Pillar:** 2 — Epistemic Knowledge Graph · **Status:** live
 

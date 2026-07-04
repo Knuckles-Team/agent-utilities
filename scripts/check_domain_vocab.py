@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate: every OKF-CIS marker's domain is in the closed vocabulary (CONCEPT:OS-5.77).
+"""Gate: every OKF-CIS marker's domain is in the closed vocabulary (CONCEPT:AU-OS.governance.concept-2).
 
 The anti-sprawl guarantee: breadth is governed. A marker whose ``<domain>`` is not
 listed in ``governance/domain_vocab.yaml`` for its pillar fails the build — so the

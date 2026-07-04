@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Structured Prompt models for JSON-as-Code prompting.
 
-CONCEPT:ORCH-1.0 — Structured Prompting
+CONCEPT:AU-ORCH.optimization.structured-prompting — Structured Prompting
     Provides Pydantic models for defining agent system prompts as structured
     JSON documents with decomposed ``metadata``, ``identity``, and
     ``instructions`` sections for machine-parseable prompt engineering.
@@ -160,7 +160,7 @@ class NestedStructure(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Engineering Rules Engine (CONCEPT:KG-2.2)
+# Engineering Rules Engine (CONCEPT:AU-KG.ingest.engineering-rules)
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +180,7 @@ class TriggerRule(BaseModel):
 class EngineeringRulesSection(BaseModel):
     """Task-scoped engineering rules from agent-rules-books.
 
-    CONCEPT:KG-2.2 — Engineering Rules Engine
+    CONCEPT:AU-KG.ingest.engineering-rules — Engineering Rules Engine
 
     Defines which engineering rules are injected into the agent's prompt
     based on task context. Supports three loading patterns:
@@ -304,7 +304,7 @@ class StructuredPrompt(BaseModel):
     tools: list[str] | None = Field(
         default=None, description="List of tool/skill names"
     )
-    # Engineering Rules Engine (CONCEPT:KG-2.2)
+    # Engineering Rules Engine (CONCEPT:AU-KG.ingest.engineering-rules)
     engineering_rules: EngineeringRulesSection | None = Field(
         default=None,
         description="Task-scoped engineering rules from agent-rules-books",
@@ -314,7 +314,7 @@ class StructuredPrompt(BaseModel):
         description="KG-ingestible engineering rules. Supports simple list or categorized dict.",
     )
 
-    # Canonical contract fields (CONCEPT:ORCH-1.80) — provenance, versioning,
+    # Canonical contract fields (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical) — provenance, versioning,
     # skill/tool wiring, and base-prompt composition. ``extra="allow"`` already
     # accepted these informally; promoting them to typed fields makes them
     # validated, documented, and emitted into the generated JSON Schema.
@@ -406,7 +406,7 @@ class StructuredPrompt(BaseModel):
         return self.model_dump_json(indent=2, exclude_unset=True, exclude_none=True)
 
     def version_hash(self) -> str:
-        """Content hash of the rendered prompt (CONCEPT:AHE-3.68) — addresses a version."""
+        """Content hash of the rendered prompt (CONCEPT:AU-AHE.evaluation.generationnode-records) — addresses a version."""
         import hashlib
 
         return hashlib.sha256(self.render().encode("utf-8")).hexdigest()[:16]
@@ -522,7 +522,7 @@ class StructuredPrompt(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Canonical body resolution + validation (CONCEPT:ORCH-1.80)
+# Canonical body resolution + validation (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)
 # ---------------------------------------------------------------------------
 
 # Legacy flat body keys, retained transitionally for the one-time migration of
@@ -538,7 +538,7 @@ CANONICAL_SCHEMA_VERSION = "1.0"
 def resolve_body(data: dict[str, Any]) -> str:
     """Single source of truth for a prompt blueprint's body text.
 
-    CONCEPT:ORCH-1.80. Replaces three divergent ad-hoc readers
+    CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. Replaces three divergent ad-hoc readers
     (``builder._extract_prompt_content``, ``builder.extract_agent_metadata``,
     ``registry_builder._resolve_fields``) that each read a different subset and
     silently missed ``instructions.core_directive`` — the bug that left

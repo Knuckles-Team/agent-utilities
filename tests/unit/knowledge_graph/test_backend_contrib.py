@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the demoted (contrib) graph backends and default selection.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Verifies the Plan-03 Step-11 backend reorganization:
     - Neo4j / FalkorDB / LadybugDB are demoted to ``backends.contrib`` and

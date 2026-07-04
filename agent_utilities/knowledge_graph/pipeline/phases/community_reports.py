@@ -1,4 +1,4 @@
-"""GraphRAG-style community summarization (CONCEPT:KG-2.258).
+"""GraphRAG-style community summarization (CONCEPT:AU-KG.enrichment.community-reports).
 
 The ``communities`` phase detects communities (native Rust Louvain) and tags each
 node with a ``community`` index, but nothing *summarizes* them. This phase closes

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Optimal Execution Engine."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Optimal Execution Engine."""
 
 import pytest
 

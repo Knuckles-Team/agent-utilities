@@ -1,6 +1,6 @@
 # The `agent-utilities-expert` agent — the native, KG-bound delegate
 
-> CONCEPT:ORCH-1.100 (native, KG-bound, dispatchable expert persona) ·
+> CONCEPT:AU-ORCH.dispatch.builtin-agent-templates (native, KG-bound, dispatchable expert persona) ·
 > ORCH-1.101 (bind the template's `toolset_ids` into LIVE MCP toolsets)
 > A resident expert persona for ecosystem work — the **default delegate target** named
 > in `AGENTS.md`'s *"Delegate to the KG + graph-os"* section. It lets Claude/the harness
@@ -14,10 +14,10 @@ prompt into a *dispatchable, KG-bound agent*. It understands the whole agent-uti
 ecosystem — the 5 pillars (KG / ORCH / AHE / ECO / OS), the one-engine ontology-driven
 Knowledge Graph, the dev discipline (worktree workflow, Native / Wire-First /
 Two-surfaces / No-Legacy, anti-sprawl, the Quality Bar, concept-ID coordination), SDD
-(`.specify/specs` + the `:SpecProposal` / OS-5.73 review gate), graph-os + the
+(`.specify/specs` + the `:SpecProposal` / AU-OS.config.autonomous-spec-develop-off review gate), graph-os + the
 multiplexer + the full `engine_<domain>` MCP surface, connectors / ingestion (KG-2.9
-`source_sync`, KG-2.59 `mcp_tool` presets, `code_context` self-understanding), and the
-evolution loop (`graph_loops`, `EvolutionState` / saturation, the AHE-3.x hardening
+`source_sync`, AU-KG.ingest.mcp-tool-connector `mcp_tool` presets, `code_context` self-understanding), and the
+evolution loop (`graph_loops`, `EvolutionState` / saturation, the AU-AHE.optimization.telemetry-optimization hardening
 cycle) — and it **manages and evolves the platform as code**.
 
 It is the persona you reach for whenever the work is *"about agent-utilities itself"*: a
@@ -53,7 +53,7 @@ Three pieces wire the persona into a runnable, grounded agent.
 surface first, the 5-pillar / one-engine model, the *query-the-KG-before-grep* loop, its
 native tools (graph-os `go__*`, the multiplexer meta-tools, the full `engine_<domain>`
 surface), the cardinal dev rules, SDD, connectors/ingestion, the Loop engine, and
-(sections 10–11, added with KG-2.297) **how it is deployed** and **how it troubleshoots
+(sections 10–11, added with AU-KG.retrieval.kg-4) **how it is deployed** and **how it troubleshoots
 itself across every layer**. It is ingested as a base prompt node `prompt:agent-utilities-expert`.
 
 ### 2. Registration as a dispatchable `AgentTemplate` (ORCH-1.100)
@@ -136,7 +136,7 @@ flowchart TD
     DISP -- yes --> LOOP["DIRECT grounding loop<br/>_execute_single_server on local qwen"]
     DISP -- no/fail --> GRAPH["fall through to planning graph"]
     LOOP --> TOOLS["REAL graph-os / fleet tool calls<br/>(code_context, graph_query, source_sync…)"]
-    TOOLS --> PROV["RunTrace + :ToolCall provenance (KG-2.296)<br/>+ run_id handle (ORCH-1.97)"]
+    TOOLS --> PROV["RunTrace + :ToolCall provenance (KG-2.296)<br/>+ run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
 ```
 
 ## How to dispatch it
@@ -147,7 +147,7 @@ Over MCP / graph-os:
 graph_orchestrate action=execute_agent agent=agent-utilities-expert task="<the ecosystem task or question>"
 ```
 
-The return carries a `run_id` (ORCH-1.97) — query its `RunTrace` / `:ToolCall` chain to
+The return carries a `run_id` (AU-ORCH.execution.rich-result-wrapper) — query its `RunTrace` / `:ToolCall` chain to
 see exactly which tools it called and what they returned (see
 [`orchestration-execution-seam.md`](orchestration-execution-seam.md)). The expert's own
 prompt also drives it to query the code KG (`graph_analyze action=code_context`) before
@@ -184,5 +184,5 @@ docs, the `agent-utilities` skill-graph) first.
 - **Either way, you stay the orchestrator + exception-resolver.** Read the run's
   `RunTrace` / `:ToolCall` provenance; if the expert (or a skill) ran ungrounded or
   failed, find why, fix the gap (a missing skill, an unbound tool, a prompt, missing
-  ingestion), and re-delegate — hardening the system via the AHE-3.x loop so it
+  ingestion), and re-delegate — hardening the system via the AU-AHE.optimization.telemetry-optimization loop so it
   self-handles next time.

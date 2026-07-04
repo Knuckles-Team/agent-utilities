@@ -30,7 +30,7 @@ Grouped into 6 SDD features extending existing concepts (build order respects de
 
 | # | SDD feature | Concept | Bundles (verified ledger rows) | Wiring (≤3 hops) |
 |---|---|---|---|---|
-| **A** | **Ground-Truth Context Authority** | **NEW KG-2.14** (extends KG-2.1) | ground-truth-hierarchy, multi-source-surgical-injection | ⚠️ `startup_context.py` not statically reachable — needs explicit wiring path |
+| **A** | **Ground-Truth Context Authority** | **NEW AU-KG.memory.ground-truth-preamble-declaring** (extends KG-2.1) | ground-truth-hierarchy, multi-source-surgical-injection | ⚠️ `startup_context.py` not statically reachable — needs explicit wiring path |
 | **B** | Resilient Retrieval | extends KG-2.12 | four-level-fallback-cascade, social-closer-filter | ✅ `hybrid_retriever.py` (2) |
 | **C** | Memory Hygiene | extends KG-2.1 / KG-2.3 | decay-scanner-importance-halflife, semantic-dedup-merge | ✅ `memory_engine.py` (2), `hybrid_retriever.py` (2) |
 | **D** | Evidence-Weighted Memory | extends KG-2.6 | trust-scoring-feedback-loop, recall-usage-telemetry, generation-lineage-provenance | ✅ `retrieval_quality.py` (3) |

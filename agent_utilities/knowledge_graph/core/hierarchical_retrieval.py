@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Hierarchical (global→local) community retrieval over the KG.
 
-CONCEPT:KG-2.5 — Topological Analysis (hierarchical GraphRAG retrieval)
+CONCEPT:AU-KG.retrieval.hierarchical-topological-analysis — Topological Analysis (hierarchical GraphRAG retrieval)
 
 Distilled from Deep GraphRAG (`.specify/specs/research-evolution-20260606/` plan
 b2-04): instead of flat per-node similarity, retrieve in stages —

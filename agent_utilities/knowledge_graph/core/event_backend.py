@@ -3,9 +3,9 @@ from __future__ import annotations
 
 """Abstracted Event Backbone.
 
-CONCEPT:ECO-4.05 — Pluggable Event Queue Backend
-CONCEPT:ORCH-1.10 — Reactive Event Sourcing
-CONCEPT:KG-2.7 — Vendor-Agnostic Event Backbone
+CONCEPT:AU-ECO.bus.pluggable-event-queue — Pluggable Event Queue Backend
+CONCEPT:AU-ORCH.reactive.event-sourcing-ledger — Reactive Event Sourcing
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Event Backbone
 
 Provides a protocol-based event backbone abstraction with:
     - **MemoryEventBackend** (default): Zero-dependency, in-process pub/sub

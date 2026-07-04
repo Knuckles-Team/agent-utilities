@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """LadybugDB Graph Backend.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 This module provides the LadybugDB implementation of the GraphBackend interface,
 supporting strict schema-bound Cypher queries.
@@ -236,13 +236,13 @@ class LadybugBackend(GraphBackend):
         self.db: typing.Any = None
         self.conn = None
         self._schema_created = False
-        # Auto-schema caches (CONCEPT:KG-2.74): tables/rel-pairs known to exist, so
+        # Auto-schema caches (CONCEPT:AU-KG.backend.mirror-health-repair): tables/rel-pairs known to exist, so
         # an arbitrary KG label/rel only triggers DDL on first sight. Seeded from
         # the declared SCHEMA on first write.
         self._known_node_tables: set[str] = set()
         self._known_rel_pairs: set[tuple[str, str, str]] = set()
         self._schema_cache_seeded = False
-        # id → node-table label, learned on node writes (CONCEPT:KG-2.74). Kuzu rel
+        # id → node-table label, learned on node writes (CONCEPT:AU-KG.backend.mirror-health-repair). Kuzu rel
         # creation must bind to specific node tables, but edge writes arrive
         # label-less (``MATCH (s {id:$x})…MERGE (s)-[:REL]->(t)``); this lets us
         # resolve each endpoint's table so the rel-pair table + bound MERGE work.
@@ -755,7 +755,7 @@ class LadybugBackend(GraphBackend):
                     )
                 return []
 
-        # Lock-contention backoff: (2**n)*0.1 + jitter, capped (CONCEPT:ORCH-1.36).
+        # Lock-contention backoff: (2**n)*0.1 + jitter, capped (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating).
         policy = ResiliencePolicy(
             max_attempts=max_retries,
             backoff_base_s=0.1,
@@ -780,7 +780,7 @@ class LadybugBackend(GraphBackend):
         """Strip an ``UNWIND $batch AS row`` header and rewrite ``row.<k>`` /
         ``row.`<k>``` references to ``$<k>`` so each row runs as a normal
         parameterized statement (Kuzu has no UNWIND-over-param-list here). A
-        non-UNWIND query is returned unchanged. (CONCEPT:KG-2.9g)"""
+        non-UNWIND query is returned unchanged. (CONCEPT:AU-KG.backend.declared-columns-so-schema)"""
         import re
 
         q = (query or "").strip()
@@ -810,7 +810,7 @@ class LadybugBackend(GraphBackend):
         # not found"), so the whole batch no-op'd. Translate to the per-row
         # ``$param`` shape and run it per row — and ensure the node/rel tables for
         # the labels exist first (the raw ``conn.execute`` path skipped the schema
-        # auto-create that ``execute`` does). (CONCEPT:KG-2.9g)
+        # auto-create that ``execute`` does). (CONCEPT:AU-KG.backend.declared-columns-so-schema)
         query = self._unwind_to_per_row(query)
 
         results: list[dict[str, Any]] = []
@@ -916,7 +916,7 @@ class LadybugBackend(GraphBackend):
         self._schema_cache_seeded = True
 
     def _ensure_node_table_unlocked(self, label: str) -> None:
-        """Create a generic node table for an unknown label (CONCEPT:KG-2.74).
+        """Create a generic node table for an unknown label (CONCEPT:AU-KG.backend.mirror-health-repair).
 
         Kuzu has fixed typed tables, so an undeclared label has no table and its
         MERGE fails. Create one with the canonical ``GENERIC_NODE_COLUMNS`` (the
@@ -1021,7 +1021,7 @@ class LadybugBackend(GraphBackend):
         return None
 
     def _bind_edge_query(self, query: str, params: dict[str, Any] | None) -> str:
-        """Bind a label-less edge write to typed Kuzu endpoints (CONCEPT:KG-2.74).
+        """Bind a label-less edge write to typed Kuzu endpoints (CONCEPT:AU-KG.backend.mirror-health-repair).
 
         Ingest emits ``MATCH (s {id:$source}) MATCH (t {id:$target}) MERGE
         (s)-[r:REL]->(t)`` — but Kuzu cannot create a rel without knowing the
@@ -1099,7 +1099,7 @@ class LadybugBackend(GraphBackend):
         # 2. Create Rel Tables. Every rel table carries a single JSON ``properties``
         # column so edges persist their properties (confidence/source/bitemporal
         # stamps/inferred flags) — Kuzu REL tables otherwise drop edge props, which
-        # was a data-loss gap vs the schemaless backends (CONCEPT:KG-2.7 parity).
+        # was a data-loss gap vs the schemaless backends (CONCEPT:AU-KG.query.vendor-agnostic-traversal parity).
         for rel in SCHEMA.edges:
             conns = ", ".join(
                 [f"FROM {c['from']} TO {c['to']}" for c in rel.connections]

@@ -1,4 +1,4 @@
-# Spec: Memory Consolidation Loop (CONCEPT:KG-2.1)
+# Spec: Memory Consolidation Loop (CONCEPT:AU-KG.memory.tiered-memory-caching)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
@@ -68,4 +68,4 @@
 - [x] Pre-commit hooks pass cleanly
 - [x] Documentation updated in `docs/pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md`
 - [x] New functionality wired into kg_memory MCP tool
-- [x] CONCEPT:KG-2.1 tags in all new code and tests
+- [x] CONCEPT:AU-KG.memory.tiered-memory-caching tags in all new code and tests

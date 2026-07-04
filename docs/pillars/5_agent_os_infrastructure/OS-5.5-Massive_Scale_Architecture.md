@@ -1,4 +1,4 @@
-# CONCEPT:OS-5.4 — Massive Scale Architecture & Sandbox
+# CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox — Massive Scale Architecture & Sandbox
 
 ## Overview
 
@@ -11,9 +11,9 @@ At such extreme volumes, typical thread-per-agent, process-per-agent, or even co
 
 This concept resolves these limitations by introducing a unified **Compiled Micro-Kernel & Pluggable Distributed Event Fabric** consisting of three synergistic capabilities:
 
-1. **Pluggable Event Queue Backend (`ECO-4.05`)**: A lightweight event/message log abstraction supporting in-memory queuing (1 to 100 agents), NATS JetStream (100 to 1,000,000 agents), and Apache Kafka (1,000,000 to 100,000,000+ agents).
+1. **Pluggable Event Queue Backend (`AU-ECO.bus.pluggable-event-queue`)**: A lightweight event/message log abstraction supporting in-memory queuing (1 to 100 agents), NATS JetStream (100 to 1,000,000 agents), and Apache Kafka (1,000,000 to 100,000,000+ agents).
 2. **High-Performance Rust Graph Compute & Epistemic Traversal Engine (`KG-2.7`)**: Replaces standard Python graph engines with a compiled Rust `epistemic-graph` engine — reached **out-of-process** over a MessagePack/UDS (or TCP) client, **not** in-process PyO3 — for fast topological sorting, cycle detection, AST parsing, and subgraph matching.
-3. **WASM Micro-Agent Execution Sandbox (`ORCH-1.11`)**: Executes lightweight compiled agents (e.g., Rust compiled to WebAssembly) in sub-millisecond, sandboxed, isolated micro-containers via `wasmtime` with graceful Python emulation fallbacks.
+3. **WASM Micro-Agent Execution Sandbox (`AU-ORCH.sandbox.compiled-orchestration-kernel`)**: Executes lightweight compiled agents (e.g., Rust compiled to WebAssembly) in sub-millisecond, sandboxed, isolated micro-containers via `wasmtime` with graceful Python emulation fallbacks.
 
 ---
 
@@ -40,7 +40,7 @@ graph TD
 
 ## Technical Details & Component Integration
 
-### 1. Pluggable Distributed Event Fabric (`ECO-4.05`)
+### 1. Pluggable Distributed Event Fabric (`AU-ECO.bus.pluggable-event-queue`)
 
 The `QueueBackend` class abstracts the underlying messaging provider, isolating business logic from infrastructure.
 - **`MemoryQueueBackend`**: Pure Python `asyncio.Queue` utilizing local variables. Zero external dependencies. Ideal for unit testing, local debuggers, and small single-node agent systems.
@@ -56,7 +56,7 @@ engine over an out-of-process client (`epistemic_graph.client`):
 - **Transport**: Python talks to the engine **only** through the out-of-process MessagePack/UDS (or TCP) client — there is **no PyO3 binding** in the primary path. An in-process embedded mode exists solely as a fallback when the service is unavailable and `GRAPH_COMPUTE_FALLBACK=embedded` is set.
 These native backends achieve large traversal speedups and a much smaller memory footprint than pure Python implementations, ensuring seamless scale under heavy concurrent load.
 
-### 3. WASM Micro-Agent Sandbox (`ORCH-1.11`)
+### 3. WASM Micro-Agent Sandbox (`AU-ORCH.sandbox.compiled-orchestration-kernel`)
 
 Instead of spawning heavy full-Python processes or holding millions of active greenlets:
 - Agent behaviors are compiled into highly optimized WebAssembly (`.wasm`) bytecode.

@@ -3,7 +3,7 @@
 
 Builds the panels programmatically so the JSON is always valid and consistent,
 then writes one file per dashboard into the LGTM Grafana provisioning dir
-(CONCEPT:OS-5.23). Re-run to update; pairs with
+(CONCEPT:AU-OS.observability.no-op-without-metrics). Re-run to update; pairs with
 ``services/lgtm/grafana/provisioning/dashboards/dashboards.yml``.
 
 Dashboards:
@@ -561,7 +561,7 @@ def container_resources() -> dict:
 
 
 def agent_bus() -> dict:
-    """Agent-to-agent bus dashboard (CONCEPT:ECO-4.87) — presence, traffic, latency."""
+    """Agent-to-agent bus dashboard (CONCEPT:AU-ECO.bus.operator-view-agentbus) — presence, traffic, latency."""
     panels = [
         _panel(
             1,

@@ -1,4 +1,4 @@
-"""Unit tests for the messaging reach service + planner handler (CONCEPT:ECO-4.48–4.52).
+"""Unit tests for the messaging reach service + planner handler (CONCEPT:AU-ECO.messaging.messaging-reach-service-governed–4.52).
 
 Covers governed sends, last-active channel routing + default fallback, the awaited-reply
 bridge, and that the inbound planner handler is no longer the canned-acknowledgment stub.

@@ -79,7 +79,7 @@ async def test_enrich_text_persists_facts_as_edges(monkeypatch):
     assert (src, tgt, props["rel_type"]) == ("acme corp", "beta inc", "acquired")
     assert props["confidence"] == pytest.approx(0.9)
     # Tags are the DETERMINISTIC sorted union across merged mentions of the same
-    # triple (CONCEPT:KG-2.257 — persist_facts dedups+sorts so the order is stable
+    # triple (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot — persist_facts dedups+sorts so the order is stable
     # regardless of mention order), then flattened so any backend persists them.
     assert props["tags"] == "corporate,m&a"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """First Run Tests Orchestrator.
 
-CONCEPT:AHE-3.2 — Agentic Engineering Patterns
+CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Engineering Patterns
 
 This module provides tools to run existing tests in a workspace and feed the
 results back to the agent (Planner/Verifier).

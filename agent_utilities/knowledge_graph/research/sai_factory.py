@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """SAI factory — the closed specialization loop that produces superhuman specialists.
 
-CONCEPT:AHE-3.29 — the controller that operationalizes Superhuman Adaptable
+CONCEPT:AU-AHE.harness.sai-controller — the controller that operationalizes Superhuman Adaptable
 Intelligence (arXiv:2602.23643): given an important task and a machine-verifiable
 reward, it produces a *certified-better specialist* by running two improvement
 arms against the same verifier and keeping whichever advances capability —

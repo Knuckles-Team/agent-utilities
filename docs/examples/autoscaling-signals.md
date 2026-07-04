@@ -2,7 +2,7 @@
 
 ## What this demonstrates
 
-How the reactive replica autoscaler (CONCEPT:OS-5.29,
+How the reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling,
 `agent_utilities/orchestration/fleet_autoscaler.py`) turns a declared
 `scaling:` block plus a live load signal into a policy-gated
 `scale_service` proposal — with the exact target-tracking math, the
@@ -165,14 +165,14 @@ ActionRequest(kind="scale_service", target="kg-ingest-worker",
               reason="target tracking: queue_depth=900 vs target 200/replica → 2→4 (bounds 1-6)")
 ```
 
-and goes through the ActionPolicy gate (CONCEPT:OS-5.24). Under the shipped
+and goes through the ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). Under the shipped
 default policy `scale_service` is `approval_required` — the autoscaler then
 *files an approval* instead of scaling; the
 [scoped-autonomous posture](action-policy-postures.md) shows the
 `auto_notify` rule (with rate/blast caps) that lets it act. Allowed
 proposals execute through the FleetActuator seam (`FLEET_ACTUATOR=dryrun`
 default records intent only; `docker` uses the docker CLI), and successful
-scale-**ups** schedule an OS-5.27 deploy watch — scale-downs too when the
+scale-**ups** schedule an AU-OS.config.health-gated-deploy-rollback deploy watch — scale-downs too when the
 policy file sets `options: {watch_scale_down: true}`. The watch probes
 service health for `DEPLOY_WATCH_WINDOW` seconds and escalates
 (policy-gated rollback + notification) on failure.

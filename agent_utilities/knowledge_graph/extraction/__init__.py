@@ -1,4 +1,4 @@
-"""Document → atomic-triple fact extraction (CONCEPT:KG-2.64).
+"""Document → atomic-triple fact extraction (CONCEPT:AU-KG.enrichment.atomic-triple-extraction).
 
 A *fact* is one graph edge — ``(subject) --[predicate]--> (object)`` — plus a
 title, description, verbatim ``evidence_span``, ``confidence``, and ``tags``.

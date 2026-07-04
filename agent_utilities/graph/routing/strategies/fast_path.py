@@ -1,4 +1,4 @@
-"""R1 — Fast-path / adaptive model routing (CONCEPT:KG-2.1, widened CONCEPT:ORCH-1.63).
+"""R1 — Fast-path / adaptive model routing (CONCEPT:AU-KG.memory.tiered-memory-caching, widened CONCEPT:AU-ORCH.routing.original-rule-was-far).
 
 Simple conversational/Q&A turns short-circuit the full multi-agent planning pipeline and
 get a single lightweight-model round instead of router → planner → expert → verifier →
@@ -7,7 +7,7 @@ the response execution still lives in the router implementation (it needs the ag
 factory + graph deps), but both call :func:`is_trivial_query` so the rule is defined once.
 It is universal — used by every entrypoint through the router, not a messaging-only patch.
 
-CONCEPT:ORCH-1.63 — the original rule was far too narrow: ≤6 words AND starting with a
+CONCEPT:AU-ORCH.routing.original-rule-was-far — the original rule was far too narrow: ≤6 words AND starting with a
 fixed greeting prefix. So a normal simple question ("what's the status of X?", "can you
 summarise this?") did NOT qualify and paid for the full graph. The widened classifier is
 **rules-first**: a turn is simple unless it shows a concrete STRUCTURAL signal that it needs
@@ -15,7 +15,7 @@ tools, specialists, or multi-step planning (an explicit ``/``-command, multiple 
 sheer length). Greetings remain trivial; normal short questions now also take the one-round
 fast path.
 
-CONCEPT:EG-010, ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded
+CONCEPT:EG-ORCH.routing.lexical-capability-escalation, CONCEPT:AU-ORCH.execution.execution-profile — this module is now PURELY STRUCTURAL. The old hardcoded
 ``_ESCALATION_KEYWORDS`` list was deleted: domain/capability vocabulary lives in the KG, and a
 turn that names a real fleet capability escalates via the engine's ``match_ontology_terms``
 lexical gate (in ``orchestration.execution_profile``), not a frozen word list here.
@@ -44,7 +44,7 @@ MAX_TRIVIAL_WORDS = 6
 MAX_SIMPLE_WORDS = 40
 
 # NOTE: domain/action vocabulary used to live here as a hardcoded ``_ESCALATION_KEYWORDS``
-# list (deploy/restart/list/…). It was deleted (CONCEPT:EG-010, ORCH-1.73): an unbounded word
+# list (deploy/restart/list/…). It was deleted (CONCEPT:EG-ORCH.routing.lexical-capability-escalation, CONCEPT:AU-ORCH.execution.execution-profile): an unbounded word
 # list is the wrong gate — it both missed real capabilities (no read verbs) and could not name
 # the fleet ("portainer"). The domain vocabulary now lives in the KG as capability nodes, and a
 # turn that names one escalates via the engine's ``match_ontology_terms`` lexical gate
@@ -63,7 +63,7 @@ def _looks_multi_clause(query_lower: str) -> bool:
 def needs_full_orchestration(query: str) -> bool:
     """True when a turn shows a STRUCTURAL signal that it needs the full graph.
 
-    Purely structural (CONCEPT:EG-010, ORCH-1.73): slash-command, over-length, or multiple
+    Purely structural (CONCEPT:EG-ORCH.routing.lexical-capability-escalation, CONCEPT:AU-ORCH.execution.execution-profile): slash-command, over-length, or multiple
     clauses. Domain/capability escalation (a turn that names a real fleet tool) is no longer
     decided here from a hardcoded word list — it is decided by the engine's ontology lexical
     gate in ``orchestration.execution_profile`` against the live KG. This is the escalation
@@ -90,7 +90,7 @@ def needs_full_orchestration(query: str) -> bool:
 
 
 def orchestration_signal_strength(query: str) -> int:
-    """Graded STRUCTURAL signal that a turn needs full orchestration (CONCEPT:ORCH-1.69/1.73).
+    """Graded STRUCTURAL signal that a turn needs full orchestration (CONCEPT:AU-ORCH.execution.residual-ambiguous/1.73).
 
     Built from the same structural signals as :func:`needs_full_orchestration` so the rule
     stays single-sourced, but graded:
@@ -118,7 +118,7 @@ def orchestration_signal_strength(query: str) -> int:
 
 
 def is_trivial_query(query: str) -> bool:
-    """Return True if ``query`` should take the single-round fast path (CONCEPT:ORCH-1.63).
+    """Return True if ``query`` should take the single-round fast path (CONCEPT:AU-ORCH.routing.original-rule-was-far).
 
     Rules-first: a turn is fast-path eligible when it does NOT show a concrete signal that
     it needs tools, specialists, or multi-step planning (see :func:`needs_full_orchestration`).
@@ -150,7 +150,7 @@ class FastPathStrategy:
     """
 
     name = "fast_path"
-    concept = "KG-2.1"
+    concept = "AU-KG.memory.tiered-memory-caching"
 
     async def decide(self, ctx) -> str | None:
         query = getattr(getattr(ctx, "state", None), "query", "") or ""

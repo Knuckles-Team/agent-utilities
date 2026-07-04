@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — executor (CONCEPT:KG-2.25).
+"""Ontology Action System — executor (CONCEPT:AU-KG.ontology.ontology-action-system).
 
 The :class:`ActionExecutor` is the single governed entry point for invoking a
 verb over the ontology. For every invocation it:
@@ -102,7 +102,7 @@ def _actor_fields(actor: ActorContext | AgentIdentity) -> tuple[str, list[str]]:
 
 
 class ActionExecutor:
-    """Governed executor for ontology actions. CONCEPT:KG-2.25.
+    """Governed executor for ontology actions. CONCEPT:AU-KG.ontology.ontology-action-system.
 
     Args:
         registry: The :class:`ActionRegistry` to resolve actions from.
@@ -112,13 +112,13 @@ class ActionExecutor:
             omitted.
         persist: When ``True`` (default), invocations are persisted to the KG if
             a backend is reachable. Set ``False`` to disable persistence.
-        escalation_gate: The HITL :class:`EscalationGate` (CONCEPT:OS-5.12)
+        escalation_gate: The HITL :class:`EscalationGate` (CONCEPT:AU-OS.observability.empty-derive-from-effect)
             consulted after authorization to decide whether the verb requires
             human approval before its handler runs. Defaults to a gate built on
             the conservative default :class:`EscalationMatrix`.
         ledger: The C1 :class:`~agent_utilities.knowledge_graph.ontology.edits.EditLedger`
             through which an action's typed side-effects are applied + journaled
-            (CONCEPT:KG-2.42). A fresh ledger (sharing this executor's audit log)
+            (CONCEPT:AU-KG.ontology.batch-actions-executor). A fresh ledger (sharing this executor's audit log)
             is created when omitted so actions are revertible out of the box.
         notifier: A registerable
             :class:`~agent_utilities.knowledge_graph.actions.dispatch.Notifier`
@@ -196,7 +196,7 @@ class ActionExecutor:
 
         ``value`` is an optional value/business-impact hint (ValueTier, int, or
         "low".."critical") that — together with the action's risk tier — drives
-        the HITL :class:`EscalationGate` (CONCEPT:OS-5.12). When the matrix says
+        the HITL :class:`EscalationGate` (CONCEPT:AU-OS.observability.empty-derive-from-effect). When the matrix says
         a human must approve, ``decision_provider`` (a callable returning the
         approval payload) is consulted; without one, the rule's safe fallback
         (auto-deny by default) applies so a high-risk verb never silently runs.
@@ -234,7 +234,7 @@ class ActionExecutor:
             self._persist(inv, action)
             return inv
 
-        # (b2) HITL escalation — consult the matrix (CONCEPT:OS-5.12). A
+        # (b2) HITL escalation — consult the matrix (CONCEPT:AU-OS.observability.empty-derive-from-effect). A
         # high-risk/high-value verb pauses for a human (via the gate's
         # decision_provider / ApprovalManager) before its handler runs; a
         # low-tier verb is NOT_REQUIRED and proceeds on the fast path.
@@ -319,7 +319,7 @@ class ActionExecutor:
 
         Runs the handler (or the function-backed ref), applies each declared
         side-effect through the C1 EditLedger (recording one Edit per effect),
-        fires notifications/webhooks, then audits + persists. CONCEPT:KG-2.42.
+        fires notifications/webhooks, then audits + persists. CONCEPT:AU-KG.ontology.batch-actions-executor.
         """
         action_name = action.name
         # (d) Run the handler — a function_ref backs the action when declared,
@@ -391,7 +391,7 @@ class ActionExecutor:
         edits + dispatches); the returned envelope aggregates their ids/statuses.
         ``params`` for each target is the action params with ``target`` bound to
         the per-item id (so templated side-effects resolve per target).
-        CONCEPT:KG-2.42 — Palantir batch actions.
+        CONCEPT:AU-KG.ontology.batch-actions-executor — Palantir batch actions.
         """
         targets = params.get("targets") or []
         if not isinstance(targets, list | tuple):
@@ -434,7 +434,7 @@ class ActionExecutor:
 
         Soft import: a function-backed action only hard-depends on the functions
         runtime at *call* time, so authoring such an action never requires the
-        runtime to be importable. CONCEPT:KG-2.42.
+        runtime to be importable. CONCEPT:AU-KG.ontology.batch-actions-executor.
         """
         from agent_utilities.knowledge_graph.ontology.functions import FunctionRuntime
 
@@ -494,7 +494,7 @@ class ActionExecutor:
         Reverts the invocation's recorded ``edit_ids`` newest-first through the
         EditLedger, recording compensating edits so the action's effects are
         cleanly undone and the trail stays append-only. Returns the compensating
-        edits. CONCEPT:KG-2.42 (Palantir action undo/revert).
+        edits. CONCEPT:AU-KG.ontology.batch-actions-executor (Palantir action undo/revert).
         """
         from agent_utilities.knowledge_graph.ontology.edits import revert_edits
 

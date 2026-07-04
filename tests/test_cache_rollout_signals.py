@@ -1,4 +1,4 @@
-"""Cached-rollout reward-shaping tests — CONCEPT:AHE-3.49 (CacheRL arXiv:2606.14179)."""
+"""Cached-rollout reward-shaping tests — CONCEPT:AU-AHE.reward.cache-rollout-signals (CacheRL arXiv:2606.14179)."""
 
 from agent_utilities.graph.training_signals import (
     CACHE_TIER_RELIABILITY,

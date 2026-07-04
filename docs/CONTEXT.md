@@ -3,15 +3,15 @@
 > Domain glossary (ubiquitous language) for agent-utilities, complementing the machine-generated
 > concept registry (`docs/concepts.yaml`). Records domain language only — single source of truth per
 > term, with `Avoid:` guidance to prevent terminology drift across code, PRs, and docs.
-> CONCEPT:ECO-4.12 — self-documenting. Assimilated from open-design's `CONTEXT.md` discipline.
+> CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle — self-documenting. Assimilated from open-design's `CONTEXT.md` discipline.
 
 ## Language
 
-**Adapter** — A declarative description (`AdapterDefinition`, CONCEPT:ORCH-1.33) of an external
+**Adapter** — A declarative description (`AdapterDefinition`, CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch) of an external
 agent-CLI or local-LLM runtime backend that the execution engine can spawn.
 _Avoid_: driver, plugin, connector.
 
-**Provider Proxy** — The BYOK normalizing layer (CONCEPT:ORCH-1.34) that turns any LLM provider's
+**Provider Proxy** — The BYOK normalizing layer (CONCEPT:AU-ORCH.adapter.byok-provider-proxy) that turns any LLM provider's
 stream into the canonical event union behind a DNS-resolved SSRF guard.
 _Avoid_: gateway, relay, passthrough.
 
@@ -19,19 +19,19 @@ _Avoid_: gateway, relay, passthrough.
 error/end) every adapter and proxy normalizes to.
 _Avoid_: chunk, token, message.
 
-**Held Turn** — A run paused mid-turn awaiting a tool result (CONCEPT:ORCH-1.35), resumed via
+**Held Turn** — A run paused mid-turn awaiting a tool result (CONCEPT:AU-ORCH.execution.held-turn-registry-mid), resumed via
 `/api/runs/{id}/tool-result`.
 _Avoid_: blocked run, suspended task, pending approval.
 
-**Run-Scoped Token** — A short-lived, HMAC-signed capability token (CONCEPT:OS-5.11) bound to a run,
+**Run-Scoped Token** — A short-lived, HMAC-signed capability token (CONCEPT:AU-OS.observability.run-wide-correlation-id) bound to a run,
 project, endpoint allowlist, and expiry; minted by the CLI `run` command.
 _Avoid_: API key, session token, bearer (unqualified).
 
-**Pre-Emit Gate** — The layered quality pipeline (CONCEPT:AHE-3.13): preflight checklist →
+**Pre-Emit Gate** — The layered quality pipeline (CONCEPT:AU-AHE.harness.pre-emit-quality-gate): preflight checklist →
 multi-dimensional critique, run before output is emitted.
 _Avoid_: validator, linter, post-check.
 
-**Live Artifact** — A refreshable output (CONCEPT:KG-2.24) = template + bounded data + provenance that
+**Live Artifact** — A refreshable output (CONCEPT:AU-KG.memory.live-refreshable-artifact-models) = template + bounded data + provenance that
 re-derives its data from the KG on refresh, preserving the prior render on failure.
 _Avoid_: report, document, static artifact.
 

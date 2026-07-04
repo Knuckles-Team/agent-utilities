@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Queue-driven agent dispatch — the enqueue side.
 
-CONCEPT:ORCH-1.45 — Queue-driven agent dispatch with session-keyed partitions
+CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — Queue-driven agent dispatch with session-keyed partitions
 consumed by a stateless dispatch-worker fleet
 
 The in-process asyncio scheduler (``core/cognitive_scheduler.py``) caps agent
@@ -11,7 +11,7 @@ concurrency at one process on one host: sessions are pinned to the host that
 created them, and a busy gateway cannot hand work to an idle peer. This module
 externalizes the *dispatch* of an agent turn (a goal-loop run or an
 orchestrator job) onto the SAME durable task-queue stack the KG ingest plane
-already scales on (CONCEPT:KG-2.55/2.56/2.57):
+already scales on (CONCEPT:AU-KG.backend.selectable-queue-backend/2.56/2.57):
 
 * the queue carries a small typed :class:`AgentTurnEnvelope` — REFERENCES only
   (``payload_ref`` points at the goal/Task record in the shared state store or
@@ -71,7 +71,7 @@ KIND_ORCHESTRATOR_TASK = "orchestrator_task"
 class AgentTurnEnvelope(BaseModel):
     """One dispatched agent turn on the ``agent_turns`` queue.
 
-    CONCEPT:ORCH-1.45 — the queue carries references, not bodies: the durable
+    CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the queue carries references, not bodies: the durable
     record (the ``goals``/``sessions`` rows for a goal run, the ``:Task`` graph
     node for an orchestrator job) is the payload's source of truth, addressed
     by ``payload_ref``. ``job_id`` doubles as the idempotency key — redelivery
@@ -86,7 +86,7 @@ class AgentTurnEnvelope(BaseModel):
     agent_name: str = ""
     tenant: str = ""
     #: Claim priority as the ONE discrete bucket (0=critical .. 3=background),
-    #: identical to a ``:Task``'s ``prio_bucket`` (CONCEPT:KG-2.113). Replaces
+    #: identical to a ``:Task``'s ``prio_bucket`` (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task). Replaces
     #: the former bespoke ``priority: str = "normal"``; the validator coerces an
     #: int, a numeric string, or the legacy ``critical``/``high``/``normal``/
     #: ``background``/``low`` strings through the single shared normalizer, so a
@@ -139,7 +139,7 @@ def resolve_dispatch_backend(config: Any = None) -> str:
 
 
 def dispatch_queue_enabled(config: Any = None) -> bool:
-    """True when agent dispatch is queue-backed (CONCEPT:ORCH-1.45)."""
+    """True when agent dispatch is queue-backed (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch)."""
     return resolve_dispatch_backend(config) == "queue"
 
 
@@ -294,7 +294,7 @@ def _session_lock(session_id: str) -> threading.Lock:
 
 @contextmanager
 def session_execution_guard(session_id: str) -> Iterator[None]:
-    """One executing worker per session at a time (CONCEPT:ORCH-1.45).
+    """One executing worker per session at a time (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch).
 
     At-least-once delivery means two workers can briefly hold the same
     session's turns (e.g. a redelivery racing the original consumer). Turn
@@ -304,7 +304,7 @@ def session_execution_guard(session_id: str) -> Iterator[None]:
       process (covers the SQLite/single-host transports);
     * ``state_claim_guard`` extends the critical section fleet-wide via a
       Postgres advisory lock when durable state is externalized
-      (CONCEPT:OS-5.16) — two hosts can never execute one session at once.
+      (CONCEPT:AU-OS.state.unified-durable-state-externalization) — two hosts can never execute one session at once.
 
     A crashed holder releases both automatically (process death drops the
     advisory lock server-side), so crash recovery is redelivery + re-claim,
@@ -334,7 +334,7 @@ def record_dispatch_worker_heartbeat(
 ) -> None:
     """Upsert this worker's liveness row in the fleet registry.
 
-    CONCEPT:ORCH-1.45 — the registry lives in the SAME sessions store the
+    CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the registry lives in the SAME sessions store the
     OS-5.18 supervisory plane already reads (per-host SQLite, or the shared
     Postgres under ``STATE_DB_URI`` — where every gateway sees every host's
     workers). ``/api/fleet/topology`` surfaces these rows.

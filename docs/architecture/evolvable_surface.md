@@ -1,4 +1,4 @@
-# The Evolvable Surface — DSPy and the Self-Optimization Substrate (CONCEPT:AHE-3.1)
+# The Evolvable Surface — DSPy and the Self-Optimization Substrate (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
 
 > DSPy optimizes anything you can express as a **Signature** (typed inputs→outputs)
 > + a **metric** + a **trainset** of demonstrations. This page maps the *full* surface
@@ -6,12 +6,12 @@
 > sampling profiles, MCP tool descriptions, agent skills, knowledge-graph extraction,
 > concept matching, and routing policies.
 >
-> **Status (CONCEPT:AHE-3.39–3.46): all six opportunities are wired** as one unified
+> **Status (CONCEPT:AU-AHE.optimization.real-optimization-metric–3.46): all six opportunities are wired** as one unified
 > optimization subsystem — a real graded metric (no longer exact-match), a pluggable
 > optimizable-target registry, a shared compile+demo-refine driver, generalized KG
 > persistence, two self-supervised optimizers, a single
 > `graph_orchestrate action=optimize_component` surface (+ REST twin), and a **scheduled,
-> propose-only daemon tick** (AHE-3.46) that closes the loop. See
+> propose-only daemon tick** (AU-AHE.optimization.candidate-replaces-incumbent-only) that closes the loop. See
 > [The unified optimization subsystem](#the-unified-optimization-subsystem-now-wired) and
 > [Closing the loop — the scheduled sweep](#closing-the-loop--the-scheduled-sweep-ahe-346).
 
@@ -57,7 +57,7 @@ flowchart LR
   artifact or try a fresh candidate.
 - **Metric** answers "better?": the `EvalCorpus`/`continuous_evaluation_engine`,
   the `TraceDistiller`'s `EvidenceCorpus`, the `CapabilityIndex` reward EMA, and the
-  consolidated `PreferencePairs` (AHE-3.17). **This is the load-bearing piece** — see
+  consolidated `PreferencePairs` (AU-AHE.harness.preference-corpus-reliability). **This is the load-bearing piece** — see
   [The metric problem](#the-metric-problem).
 
 ## What is wired today
@@ -80,7 +80,7 @@ failure cluster's `component_attribution` is `system_prompt`. It compiles the ta
 JSON prompt blueprint to a `dspy.Signature` (`prompting/dspy_compiler.py`), draws a
 trainset of passing traces from the `EvidenceCorpus`, runs `BootstrapFewShot` (or
 `MIPROv2`/`BootstrapFewShotWithRandomSearch`), and persists the compiled state +
-few-shot demos back to the blueprint and to the KG via `DSPyKGBridge` (CONCEPT:ORCH-1.8:
+few-shot demos back to the blueprint and to the KG via `DSPyKGBridge` (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer:
 `EvolvedPromptNode`, `OptimizationTrajectoryNode`). Sampling-profile evolution
 (AHE-3.38) is wired in parallel via the `VariantPool` (see
 [Sampling Profiles](sampling_profiles.md)).
@@ -92,7 +92,7 @@ few-shot demos back to the blueprint and to the KG via `DSPyKGBridge` (CONCEPT:O
 > not DSPy's metric-driven bootstrap. The **apply side is fully built** for them too:
 > `PhysicalDistillationEngine` (AHE-3.9, `knowledge_graph/distillation/physical_distiller.py`)
 > has `distill_skill`, `distill_mcp_tool` (docstrings + input schemas) and
-> `distill_system_prompt`, committing changes to files via GitOps (AHE-3.11). So the
+> `distill_system_prompt`, committing changes to files via GitOps (AU-AHE.optimization.gitops-commit-automation). So the
 > surface below is **"swap the LLM-heuristic editor for DSPy optimization"**, not
 > greenfield — the persistence, attribution, and apply spine already exist.
 
@@ -100,14 +100,14 @@ few-shot demos back to the blueprint and to the KG via `DSPyKGBridge` (CONCEPT:O
 
 | Surface | Representation (file:symbol) | Optimizer fit | Metric source | Status |
 |---|---|---|---|---|
-| **System prompts** | `SystemPromptNode`; JSON blueprints; `system_prompt` target | DSPy Signature (instruction prefix + demos) | **graded** EvalCorpus score (AHE-3.39) | **Wired** (registry target) |
+| **System prompts** | `SystemPromptNode`; JSON blueprints; `system_prompt` target | DSPy Signature (instruction prefix + demos) | **graded** EvalCorpus score (AU-AHE.optimization.real-optimization-metric) | **Wired** (registry target) |
 | **Sampling profiles** | `SamplingProfile` (`agent/sampling_profile.py`) | parametric mutation (not DSPy) | `CapabilityIndex` reward EMA | **Wired** (AHE-3.38 `evolve_profile`) |
-| **Few-shot example sets** | compiled `demos`; `refine_demos` | DSPy bootstrap + drop-one ablation | held-out graded score | **Wired** (AHE-3.43) |
-| **MCP tool descriptions** | `tool_description` target; `distill_mcp_tool` apply side | DSPy Signature (description → selectability) | graded score / `record_outcome` | **Wired** (AHE-3.41) |
-| **Agent skills (SOP / trigger)** | `skill` target; SOP via `mount_skill_unit` (ORCH-1.28); `distill_skill` | DSPy for SOP/trigger text | graded score | **Wired** (AHE-3.42) |
-| **KG fact extraction** | `extraction_optimizer.py` over `FACT_EXTRACTION_PROMPT` | DSPy module wrapping extraction | **self-supervised** dedup + canonical consistency | **Wired** (AHE-3.44) |
-| **Concept matching** | `policy_optimization.optimize_concept_matcher` | DSPy classifier (article × concept → relevant?) | classification accuracy vs `ADDRESSES` edges | **Wired** (AHE-3.45) |
-| **Routing / role policy** | `policy_optimization.optimize_routing_policy` | DSPy policy (task → primitive) | realized `ExecutionTrace` success | **Wired** (AHE-3.45) |
+| **Few-shot example sets** | compiled `demos`; `refine_demos` | DSPy bootstrap + drop-one ablation | held-out graded score | **Wired** (AU-AHE.optimization.few-shot-demo-set) |
+| **MCP tool descriptions** | `tool_description` target; `distill_mcp_tool` apply side | DSPy Signature (description → selectability) | graded score / `record_outcome` | **Wired** (AU-AHE.optimization.optimizable-tool-descriptions) |
+| **Agent skills (SOP / trigger)** | `skill` target; SOP via `mount_skill_unit` (ORCH-1.28); `distill_skill` | DSPy for SOP/trigger text | graded score | **Wired** (AU-AHE.optimization.agent-skill-sop-description) |
+| **KG fact extraction** | `extraction_optimizer.py` over `FACT_EXTRACTION_PROMPT` | DSPy module wrapping extraction | **self-supervised** dedup + canonical consistency | **Wired** (AU-AHE.optimization.dspy-optimization-kg-extraction) |
+| **Concept matching** | `policy_optimization.optimize_concept_matcher` | DSPy classifier (article × concept → relevant?) | classification accuracy vs `ADDRESSES` edges | **Wired** (AU-AHE.optimization.concept-matching-routing-policy) |
+| **Routing / role policy** | `policy_optimization.optimize_routing_policy` | DSPy policy (task → primitive) | realized `ExecutionTrace` success | **Wired** (AU-AHE.optimization.concept-matching-routing-policy) |
 
 ## The unified optimization subsystem (now wired)
 
@@ -118,22 +118,22 @@ targets.
 ```mermaid
 flowchart TD
     subgraph Core["harness/dspy_optimization.py"]
-        MET["make_optimization_metric<br/>AHE-3.39 graded, not exact-match"]
+        MET["make_optimization_metric<br/>AU-AHE.optimization.real-optimization-metric graded, not exact-match"]
         REG["OPTIMIZABLE_TARGETS registry<br/>AHE-3.40 system_prompt · tool_description · skill"]
-        DRV["run_dspy_optimization<br/>compile + refine_demos AHE-3.43"]
+        DRV["run_dspy_optimization<br/>compile + refine_demos AU-AHE.optimization.few-shot-demo-set"]
         DISP["run_component_optimization<br/>one dispatch for all targets"]
     end
     EV["EvolveAgent._dspy_optimize_cluster<br/>dispatches by component_attribution"] --> REG
     REG --> DRV
     DRV --> MET
     DRV --> KGB["DSPyKGBridge.ingest_evolved_component<br/>AHE-3.40 generalized persist"]
-    SS1["extraction_optimizer<br/>AHE-3.44 self-supervised"] --> DISP
-    SS2["policy_optimization<br/>AHE-3.45 concept-match + routing"] --> DISP
+    SS1["extraction_optimizer<br/>AU-AHE.optimization.dspy-optimization-kg-extraction self-supervised"] --> DISP
+    SS2["policy_optimization<br/>AU-AHE.optimization.concept-matching-routing-policy concept-match + routing"] --> DISP
     EVSURF["graph_orchestrate action=optimize_component<br/>+ REST twin"] --> DISP
     DISP --> REG
 ```
 
-- **Real metric (AHE-3.39).** `make_optimization_metric` grades `prediction.response`
+- **Real metric (AU-AHE.optimization.real-optimization-metric).** `make_optimization_metric` grades `prediction.response`
   against `example.response` via the existing `EvalRunner` semantic scorer (token-overlap
   fallback offline), optionally blending a reward EMA. This **replaces the exact-match
   placeholder** — the upgrade every text target inherits.
@@ -143,11 +143,11 @@ flowchart TD
   generalized to **dispatch by attribution** through the registry (the hardcoded
   system-prompt-only path is gone) and now persists *every* target via the bridge —
   closing a prior Wire-First gap where `DSPyKGBridge.ingest_evolved_*` had no caller.
-- **Demo refinement (AHE-3.43).** `refine_demos` runs a drop-one ablation on the
+- **Demo refinement (AU-AHE.optimization.few-shot-demo-set).** `refine_demos` runs a drop-one ablation on the
   bootstrapped demos against a held-out slice, so a noisy demo can't survive into the
   blueprint.
-- **Self-supervised optimizers.** `extraction_optimizer` (AHE-3.44) scores extractions by
-  dedup rate + canonical consistency — no labels needed; `policy_optimization` (AHE-3.45)
+- **Self-supervised optimizers.** `extraction_optimizer` (AU-AHE.optimization.dspy-optimization-kg-extraction) scores extractions by
+  dedup rate + canonical consistency — no labels needed; `policy_optimization` (AU-AHE.optimization.concept-matching-routing-policy)
   optimizes the concept matcher against `ADDRESSES`-edge labels and the routing policy
   against realized `ExecutionTrace` success.
 - **One surface.** `graph_orchestrate action=optimize_component`
@@ -162,7 +162,7 @@ flowchart TD
 ## The metric problem
 
 Every optimization needs a metric, and **the metric is where this gets real**. The
-original `_dspy_optimize_cluster` used an exact-match placeholder; AHE-3.39 replaced it
+original `_dspy_optimize_cluster` used an exact-match placeholder; AU-AHE.optimization.real-optimization-metric replaced it
 with a graded scorer. The system owns three signals an optimizer can be steered by, in
 increasing strength:
 
@@ -181,7 +181,7 @@ flowchart LR
 
 - **`CapabilityIndex.record_outcome`** — an EMA reward in [0,1] per entity/profile; the
   fitness signal `VariantPool` and `evolve_profile` already consume.
-- **`PreferencePairs`** (AHE-3.17, `preference_pairs.py`) — consolidates eval-corpus
+- **`PreferencePairs`** (AU-AHE.harness.preference-corpus-reliability, `preference_pairs.py`) — consolidates eval-corpus
   regressions, distilled success/fail episodes, and human corrections into
   (chosen ≻ rejected) pairs with RAPPO margins / TI-DPO token weights — a ready-made
   reward model for any text optimizer.
@@ -194,11 +194,11 @@ flowchart LR
 |---|---|---|
 | Variant pool (AHE-3.2) | `harness/variant_pool.py` | holds competing candidates; tournament + `promote_winner` is generic over any optimizer's output |
 | Capability reward EMA (KG-2.6) | `retrieval/capability_index.py::record_outcome` | the feedback channel from execution back to optimization |
-| Preference pairs (AHE-3.17) | `harness/preference_pairs.py` | reward-model substrate (DPO-family) for text targets |
+| Preference pairs (AU-AHE.harness.preference-corpus-reliability) | `harness/preference_pairs.py` | reward-model substrate (DPO-family) for text targets |
 | Replay buffer (AHE-3.0) | `harness/replay_buffer.py` | decisive states (plateau-breakers) resurface for curriculum |
-| Explore/exploit bandit (KG-2.82) | `harness/{decentralized_memory,explore_exploit_router}.py` | per-agent UCB1/Thompson choice: reuse proven vs. try fresh candidate |
-| Self-guided self-play (AHE-3.37) | `harness/self_guided_play.py` | generates harder task variants (a curriculum DSPy can optimize against) |
-| GEPA (ORCH-1.13) | `rlm/gepa.py` | reflective Pareto prompt explorer — complements DSPy's local fine-tune |
+| Explore/exploit bandit (AU-KG.memory.ahe-record-this-base) | `harness/{decentralized_memory,explore_exploit_router}.py` | per-agent UCB1/Thompson choice: reuse proven vs. try fresh candidate |
+| Self-guided self-play (AU-AHE.harness.when-task-is-scope) | `harness/self_guided_play.py` | generates harder task variants (a curriculum DSPy can optimize against) |
+| GEPA (AU-ORCH.optimization.optimize-skill-prompt-gepa) | `rlm/gepa.py` | reflective Pareto prompt explorer — complements DSPy's local fine-tune |
 | Trace distiller | `harness/continuous_evaluation_engine.py` | turns raw traces into the EvidenceCorpus that seeds trainsets + attribution |
 
 ## Where a DSPy pass hooks into a live loop
@@ -222,22 +222,22 @@ and the `AgenticEvolutionEngine`/`EvolveAgent`. New optimization targets are add
 new `component_attribution` branches in `EvolveAgent` — each reusing the same
 distiller → optimizer → variant-pool → KG-bridge spine.
 
-## Status — all delivered (AHE-3.39–3.46)
+## Status — all delivered (AU-AHE.optimization.real-optimization-metric–3.46)
 
 | # | Opportunity | Concept | Where |
 |---|---|---|---|
-| 1 | Real metric (replaces exact-match) | AHE-3.39 | `dspy_optimization.make_optimization_metric` |
-| 2 | Few-shot demo-set refinement | AHE-3.43 | `dspy_optimization.refine_demos` |
-| 3 | MCP tool descriptions | AHE-3.41 | `tool_description` registry target |
-| 4 | KG extraction prompt | AHE-3.44 | `extraction_optimizer.optimize_extraction_prompt` |
-| 5 | Skill SOP/trigger | AHE-3.42 | `skill` registry target (SOP already reaches the model via ORCH-1.28) |
-| 6 | Concept-matching + routing | AHE-3.45 | `policy_optimization.optimize_concept_matcher` / `optimize_routing_policy` |
-| 7 | **Scheduled sweep + promotion gate** | AHE-3.46 | `run_optimization_sweep` · `should_promote` · daemon tick |
+| 1 | Real metric (replaces exact-match) | AU-AHE.optimization.real-optimization-metric | `dspy_optimization.make_optimization_metric` |
+| 2 | Few-shot demo-set refinement | AU-AHE.optimization.few-shot-demo-set | `dspy_optimization.refine_demos` |
+| 3 | MCP tool descriptions | AU-AHE.optimization.optimizable-tool-descriptions | `tool_description` registry target |
+| 4 | KG extraction prompt | AU-AHE.optimization.dspy-optimization-kg-extraction | `extraction_optimizer.optimize_extraction_prompt` |
+| 5 | Skill SOP/trigger | AU-AHE.optimization.agent-skill-sop-description | `skill` registry target (SOP already reaches the model via ORCH-1.28) |
+| 6 | Concept-matching + routing | AU-AHE.optimization.concept-matching-routing-policy | `policy_optimization.optimize_concept_matcher` / `optimize_routing_policy` |
+| 7 | **Scheduled sweep + promotion gate** | AU-AHE.optimization.candidate-replaces-incumbent-only | `run_optimization_sweep` · `should_promote` · daemon tick |
 
 Each was a registry target or a self-supervised optimizer reusing the one
 metric/driver/persist spine — not new infrastructure.
 
-## Closing the loop — the scheduled sweep (AHE-3.46)
+## Closing the loop — the scheduled sweep (AU-AHE.optimization.candidate-replaces-incumbent-only)
 
 The on-demand surface is now matched by a **scheduled, propose-only daemon tick** — the
 operational step that makes optimization continuous rather than manual.
@@ -271,15 +271,15 @@ populated graph data for the gatherers to draw on.
 ## Code paths
 
 - `agent_utilities/harness/dspy_optimization.py` — **the spine**: `make_optimization_metric`
-  (AHE-3.39), `OPTIMIZABLE_TARGETS`/`OptimizableTarget` (AHE-3.40), `refine_demos`
-  (AHE-3.43), `run_dspy_optimization`, `run_component_optimization`.
-- `agent_utilities/knowledge_graph/extraction/extraction_optimizer.py` — AHE-3.44:
+  (AU-AHE.optimization.real-optimization-metric), `OPTIMIZABLE_TARGETS`/`OptimizableTarget` (AHE-3.40), `refine_demos`
+  (AU-AHE.optimization.few-shot-demo-set), `run_dspy_optimization`, `run_component_optimization`.
+- `agent_utilities/knowledge_graph/extraction/extraction_optimizer.py` — AU-AHE.optimization.dspy-optimization-kg-extraction:
   `extraction_quality` (self-supervised metric), `optimize_extraction_prompt`.
-- `agent_utilities/harness/policy_optimization.py` — AHE-3.45: `classification_accuracy`,
+- `agent_utilities/harness/policy_optimization.py` — AU-AHE.optimization.concept-matching-routing-policy: `classification_accuracy`,
   `routing_success_rate`, `optimize_concept_matcher`, `optimize_routing_policy`.
 - `agent_utilities/mcp/tools/analysis_tools.py` — `graph_orchestrate action=optimize_component`
   (the two-surface entry point; `task=all` runs the sweep).
-- `agent_utilities/harness/dspy_optimization.py` — AHE-3.46: `run_optimization_sweep`,
+- `agent_utilities/harness/dspy_optimization.py` — AU-AHE.optimization.candidate-replaces-incumbent-only: `run_optimization_sweep`,
   `gather_optimization_data`, `should_promote`, `SCHEDULABLE_TARGETS`.
 - `agent_utilities/knowledge_graph/core/engine_tasks.py` — `_tick_optimize_components`
   (the `KG_DSPY_OPTIMIZATION` maintenance-scheduler tick).
@@ -300,7 +300,7 @@ populated graph data for the gatherers to draw on.
 ## Relationship to other concepts
 
 - **AHE-3.1** (mathematical prompt optimization) is the DSPy spine; **AHE-3.2** (variant
-  selection) the substrate; **AHE-3.17** (preference corpus) the reward model.
+  selection) the substrate; **AU-AHE.harness.preference-corpus-reliability** (preference corpus) the reward model.
 - Sampling-profile evolution (**AHE-3.38**) is the same loop applied to numeric configs —
   see [Sampling Profiles](sampling_profiles.md).
 - The KG persistence (**ORCH-1.8** `DSPyKGBridge`) makes every optimization a durable,

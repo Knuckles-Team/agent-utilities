@@ -1,4 +1,4 @@
-"""Deployment model registry extractor (CONCEPT:KG-2.10).
+"""Deployment model registry extractor (CONCEPT:AU-KG.enrichment.a2a-capability-extraction).
 
 Ingests the agent-utilities ``config.json`` model registry (``chat_models`` +
 ``embedding_models``) into the KG as ``Model`` nodes with their capabilities, so

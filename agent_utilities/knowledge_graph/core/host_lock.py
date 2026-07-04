@@ -1,6 +1,6 @@
 """Singleton lock + role resolution for the consolidated KG host daemon.
 
-CONCEPT:KG-2.8 / OS-5.9 — the KG runs exactly ONE consolidated background daemon
+CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9 — the KG runs exactly ONE consolidated background daemon
 (queue drain + graph writer + task workers + maintenance scheduler). Every other
 entry point (the ``graph-os`` MCP server, CLI, one-shot scripts) must run as a
 ``client`` that spawns NO daemon threads and lets the host drain the durable task

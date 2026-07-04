@@ -16,7 +16,7 @@ the source datasource. This package realises that primitive:
 * :mod:`writeback` — registerable :class:`EditSink` + append-only JSONL sink
   keyed by object type + :class:`WriteBackRouter`.
 
-CONCEPT:KG-2.43
+CONCEPT:AU-KG.ontology.edit-ledger-writeback
 """
 
 from .ledger import EDIT_NODE_TYPE, Edit, EditLedger, EditType

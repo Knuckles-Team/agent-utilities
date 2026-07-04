@@ -1,6 +1,6 @@
 """Tests for replaying engine SQL-DDL ParseResults into the registry graph.
 
-CONCEPT:KG-2.212 — the engine emits DatabaseTable/DatabaseColumn/DatabaseView nodes
+CONCEPT:AU-KG.ontology.emits-database-ontology-entities — the engine emits DatabaseTable/DatabaseColumn/DatabaseView nodes
 plus hasColumn / referencesTable / referencesColumn / references edges; the parse
 phase must map each node_type to its RegistryNodeType and pass every edge through.
 """

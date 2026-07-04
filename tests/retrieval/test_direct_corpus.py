@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for Direct Corpus Interaction (grep/read/search) and its wiring.
 
-CONCEPT:KG-2.12
+CONCEPT:AU-KG.retrieval.memory-first-retrieval
 """
 
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.retrieval.direct_corpus import (
     searcher_from_nodes,
 )
 
-pytestmark = pytest.mark.concept("KG-2.12")
+pytestmark = pytest.mark.concept("AU-KG.retrieval.memory-first-retrieval")
 
 _CORPUS = {
     "d1": "The HybridRetriever combines vector and graph search.\nIt also supports reranking.",

@@ -15,7 +15,7 @@ from agent_utilities.numeric import xp as np
 
 """Formal Graph Theory Primitives.
 
-CONCEPT:KG-2.6 — Formal Graph Theory Primitives
+CONCEPT:AU-KG.research.research-pipeline-runner — Formal Graph Theory Primitives
 
 Implements mathematically rigorous graph-theoretic operations derived from
 *Mathematics for Computer Science* (Lehman, Leighton, Meyer — MIT 6.042J).
@@ -72,7 +72,7 @@ def dag_critical_path(
 ) -> dict[str, Any]:
     """Compute the critical (longest) path in a weighted DAG.
 
-    CONCEPT:KG-2.6 — DAG Critical Path Analysis (MCS §10.5)
+    CONCEPT:AU-KG.research.research-pipeline-runner — DAG Critical Path Analysis (MCS §10.5)
 
     The critical path is the longest weighted path from any source to any
     sink.  Its length equals the minimum possible makespan.  Uses a single
@@ -159,7 +159,7 @@ def dag_critical_path(
 
 
 def vertex_connectivity(graph: rx.PyGraph) -> Any:
-    """Compute vertex connectivity κ(G). CONCEPT:KG-2.6 (MCS §12.10).
+    """Compute vertex connectivity κ(G). CONCEPT:AU-KG.research.research-pipeline-runner (MCS §12.10).
 
     Uses BFS-based approximation: iteratively removes vertices and checks
     connectivity until the graph disconnects.
@@ -178,7 +178,7 @@ def vertex_connectivity(graph: rx.PyGraph) -> Any:
 
 
 def edge_connectivity(graph: rx.PyGraph) -> Any:
-    """Compute edge connectivity λ(G). CONCEPT:KG-2.6 (MCS §12.10)."""
+    """Compute edge connectivity λ(G). CONCEPT:AU-KG.research.research-pipeline-runner (MCS §12.10)."""
     if graph.num_nodes() < 2 or not rx.is_connected(graph):
         return 0
     # Approximate via minimum degree (λ(G) ≤ δ(G))
@@ -187,7 +187,7 @@ def edge_connectivity(graph: rx.PyGraph) -> Any:
 
 
 def minimum_vertex_cut(graph: rx.PyGraph) -> set[str]:
-    """Find minimum vertex cut set — critical chokepoint nodes. CONCEPT:KG-2.6"""
+    """Find minimum vertex cut set — critical chokepoint nodes. CONCEPT:AU-KG.research.research-pipeline-runner"""
     if graph.num_nodes() < 2 or not rx.is_connected(graph):
         return set()
     # Brute-force single-node cuts for small graphs
@@ -202,7 +202,7 @@ def minimum_vertex_cut(graph: rx.PyGraph) -> set[str]:
 
 
 def euler_tour(graph: rx.PyGraph) -> list[Any]:
-    """Compute Euler tour of an undirected graph. CONCEPT:KG-2.6 (MCS §12.9).
+    """Compute Euler tour of an undirected graph. CONCEPT:AU-KG.research.research-pipeline-runner (MCS §12.9).
 
     An Euler tour traverses every edge exactly once.  Falls back to DFS
     traversal when the graph is not Eulerian.
@@ -248,7 +248,7 @@ def euler_tour(graph: rx.PyGraph) -> list[Any]:
 
 
 def chromatic_schedule(conflict_graph: rx.PyGraph) -> dict[str, int]:
-    """Assign colors (execution slots) via greedy graph coloring. CONCEPT:KG-2.6 (MCS §12.6).
+    """Assign colors (execution slots) via greedy graph coloring. CONCEPT:AU-KG.research.research-pipeline-runner (MCS §12.6).
 
     Args:
         conflict_graph: Edges represent conflicts between tasks/agents.
@@ -278,7 +278,7 @@ def chromatic_number_upper_bound(conflict_graph: rx.PyGraph) -> int:
 def count_paths_of_length(
     graph: rx.PyDiGraph, source: str, target: str, length: int
 ) -> int:
-    """Count directed walks of exact length k via adjacency matrix power. CONCEPT:KG-2.6 (MCS §10.3, Ch 16).
+    """Count directed walks of exact length k via adjacency matrix power. CONCEPT:AU-KG.research.research-pipeline-runner (MCS §10.3, Ch 16).
 
     Uses the theorem: (A^k)[i][j] = number of walks of length k from i to j.
 
@@ -314,7 +314,7 @@ def count_paths_of_length(
 def reachability_within_hops(
     graph: rx.PyDiGraph, source: str, max_hops: int
 ) -> dict[str, int]:
-    """BFS reachability within max_hops. CONCEPT:KG-2.6 (MCS §10.4 Walk Relations).
+    """BFS reachability within max_hops. CONCEPT:AU-KG.research.research-pipeline-runner (MCS §10.4 Walk Relations).
 
     Args:
         graph: A rustworkx directed graph.
@@ -345,7 +345,7 @@ def reachability_within_hops(
 
 
 def generate_math_foundation_seed() -> list[dict[str, Any]]:
-    """Generate curated MCS reference taxonomy for KG seeding. CONCEPT:KG-2.6
+    """Generate curated MCS reference taxonomy for KG seeding. CONCEPT:AU-KG.research.research-pipeline-runner
 
     Returns a list of mathematical concept definitions derived from MIT's
     *Mathematics for Computer Science*, structured as KG-persistable node dicts.
@@ -638,7 +638,7 @@ class CounterfactualQuery:
 class StructuralCausalModel:
     """A Structural Causal Model (SCM) built on a directed graph.
 
-    CONCEPT:KG-2.6 — SCM (MedCausalX §3.1, Eq. 2)
+    CONCEPT:AU-KG.research.research-pipeline-runner — SCM (MedCausalX §3.1, Eq. 2)
 
     An SCM M = ⟨V, U, F, P(U)⟩ where:
     - V: Endogenous (observed) variables
@@ -739,7 +739,7 @@ class StructuralCausalModel:
     def do_intervention(self, node_id: str, value: Any) -> rx.PyDiGraph:
         """Perform a do-calculus intervention: do(X = value).
 
-        CONCEPT:KG-2.6 — do-Calculus Intervention
+        CONCEPT:AU-KG.research.research-pipeline-runner — do-Calculus Intervention
 
         Implements Pearl's do-operator by removing all incoming edges to
         the intervened node and setting its value.  Returns the mutilated
@@ -779,7 +779,7 @@ class StructuralCausalModel:
     ) -> bool:
         """Test d-separation between X and Y given conditioning set Z.
 
-        CONCEPT:KG-2.6 — d-Separation (Conditional Independence)
+        CONCEPT:AU-KG.research.research-pipeline-runner — d-Separation (Conditional Independence)
 
         X and Y are d-separated given Z iff every path between X and Y
         is blocked by Z.  A path is blocked if it contains:
@@ -968,7 +968,7 @@ class StructuralCausalModel:
 class CausalVerifier:
     """Verifies causal consistency of reasoning trajectories.
 
-    CONCEPT:KG-2.6 — Causal Verification Protocol (MedCausalX §3.2)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Causal Verification Protocol (MedCausalX §3.2)
 
     Inspired by MedCausalX's <causal> and <verify> token mechanism.
     Checks whether a reasoning chain's intermediate steps maintain causal
@@ -1059,7 +1059,7 @@ class CausalVerifier:
 class SpuriousnessDetector:
     """Detects spurious correlations in the KG.
 
-    CONCEPT:KG-2.6 — Causal Spuriousness Detection
+    CONCEPT:AU-KG.research.research-pipeline-runner — Causal Spuriousness Detection
 
     Identifies edges that rely on co-occurrence without a causal mechanism,
     using the d-separation criterion from SCM theory.
@@ -1122,7 +1122,7 @@ class SpuriousnessDetector:
 class CounterfactualGenerator:
     """Generates counterfactual queries from an SCM.
 
-    CONCEPT:KG-2.6 — Counterfactual Generation (MedCausalX §3.1)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Counterfactual Generation (MedCausalX §3.1)
     """
 
     def __init__(self, scm: StructuralCausalModel) -> None:
@@ -1186,7 +1186,7 @@ def trajectory_causal_alignment_score(
 ) -> float:
     """Score a reasoning trajectory for global causal coherence.
 
-    CONCEPT:KG-2.6 — Trajectory-Level Causal Alignment (MedCausalX §3.3)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Trajectory-Level Causal Alignment (MedCausalX §3.3)
 
     Unlike per-step token likelihood, this scores the entire trajectory
     for consistency with the causal DAG.  Integrates with AHE-3.10
@@ -1285,7 +1285,7 @@ class CollisionEstimate:
 class BayesianBeliefPropagator:
     """Bayesian belief propagation over the KG topology.
 
-    CONCEPT:KG-2.6 — Bayesian Belief Propagation (MCS §18.4)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Bayesian Belief Propagation (MCS §18.4)
 
     Given prior beliefs about node states and observed evidence, computes
     posterior beliefs via Bayes' rule propagated through the KG edges.
@@ -1324,7 +1324,7 @@ class BayesianBeliefPropagator:
     ) -> BeliefState:
         """Update belief at a node given observed evidence via Bayes' rule.
 
-        CONCEPT:KG-2.6 — Bayes' Rule Update (MCS §18.4)
+        CONCEPT:AU-KG.research.research-pipeline-runner — Bayes' Rule Update (MCS §18.4)
 
         P(H|E) = P(E|H) × P(H) / P(E)
 
@@ -1367,7 +1367,7 @@ class BayesianBeliefPropagator:
     ) -> dict[str, BeliefState]:
         """Propagate belief updates from a source node through the graph.
 
-        CONCEPT:KG-2.6 — Belief Propagation
+        CONCEPT:AU-KG.research.research-pipeline-runner — Belief Propagation
 
         When a node's belief changes, propagates a dampened update to
         its neighbors (successors in the directed graph).  The update
@@ -1432,7 +1432,7 @@ class BayesianBeliefPropagator:
 class RandomWalkExplorer:
     """Stochastic KG exploration via random walks with restart.
 
-    CONCEPT:KG-2.6 — Random Walk Exploration (MCS Ch 21)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Random Walk Exploration (MCS Ch 21)
 
     Discovers unexpected connections that deterministic traversal misses.
     Uses random walks with restart (teleport probability) to balance
@@ -1579,7 +1579,7 @@ def total_probability_aggregation(
 ) -> float:
     """Combine retrieval scores from multiple sources using Law of Total Probability.
 
-    CONCEPT:KG-2.6 — Law of Total Probability (MCS §18.5)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Law of Total Probability (MCS §18.5)
 
     P(relevant) = Σ P(relevant|source_i) × P(source_i)
 
@@ -1608,7 +1608,7 @@ def total_probability_aggregation(
 def birthday_collision_probability(n_items: int, space_size: int) -> CollisionEstimate:
     """Estimate collision probability using the Birthday Paradox.
 
-    CONCEPT:KG-2.6 — Birthday Paradox Collision Detector (MCS §17.4)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Birthday Paradox Collision Detector (MCS §17.4)
 
     Among n items chosen from a space of size d, the probability of at
     least one collision (duplicate) is approximately:
@@ -1654,7 +1654,7 @@ def conditional_independence_test(
 ) -> dict[str, Any]:
     """Test conditional independence using d-separation on the KG.
 
-    CONCEPT:KG-2.6 — Conditional Independence (MCS §18.7)
+    CONCEPT:AU-KG.research.research-pipeline-runner — Conditional Independence (MCS §18.7)
 
     Two nodes X and Y are conditionally independent given Z if and only if
     they are d-separated by Z in the graph.
@@ -2193,7 +2193,7 @@ class MarkovTransitionModel:
     def multi_step_transition(self, n_steps: int) -> np.ndarray | None:
         """Compute n-step transition probabilities via Chapman-Kolmogorov.
 
-        CONCEPT:KG-2.6 — Chapman-Kolmogorov Equation
+        CONCEPT:AU-KG.research.research-pipeline-runner — Chapman-Kolmogorov Equation
 
         The n-step transition probability from state i to state j is the
         (i,j) entry of the matrix P raised to the nth power: P^(n) = P^n.

@@ -1,9 +1,9 @@
 #!/usr/bin/python
-"""Unit tests for the background OWL-RL + SHACL closure job (CONCEPT:KG-2.6).
+"""Unit tests for the background OWL-RL + SHACL closure job (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Covers:
   * The full reason → downfeed → SHACL path. Reasoning is engine-native first
-    (``client.rdf.owl_reason``, CONCEPT:KG-2.242) with a pure-Python RDFS+ closure
+    (``client.rdf.owl_reason``, CONCEPT:AU-KG.compute.native-sparql-owl-shacl) with a pure-Python RDFS+ closure
     last-resort, so the closure needs NO owlready2 backend (``owl_backend=None``);
     over a plain networkx graph the Python transitive closure runs. Asserts implied
     edges are materialized back into the graph and the summary shape is correct.
@@ -73,7 +73,7 @@ def test_run_closure_materializes_inferred_edges():
     summary = owl_closure.run_closure(_Engine(g), limit=2000)
 
     assert summary["status"] == "completed"
-    # CONCEPT:KG-2.242 — engine-native closure needs no owlready2 promotion, so
+    # CONCEPT:AU-KG.compute.native-sparql-owl-shacl — engine-native closure needs no owlready2 promotion, so
     # `promoted` is 0; over a plain networkx graph the Python RDFS+ transitive
     # closure runs and materializes the implied edge back into the graph.
     assert summary["promoted"] == 0
@@ -144,7 +144,7 @@ def test_run_closure_none_engine_is_noop():
 
 
 def test_run_closure_runs_without_owlready2(monkeypatch):
-    """CONCEPT:KG-2.242 — the closure reasons engine-native (or via the Python
+    """CONCEPT:AU-KG.compute.native-sparql-owl-shacl — the closure reasons engine-native (or via the Python
     last-resort) and must NOT require owlready2: even if create_owl_backend would
     raise, the closure never calls it and still completes."""
     import agent_utilities.knowledge_graph.backends.owl as owlmod

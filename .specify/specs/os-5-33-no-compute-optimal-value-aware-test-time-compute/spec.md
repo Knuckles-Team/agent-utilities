@@ -1,4 +1,4 @@
-# Spec: Compute-Optimal / Value-Aware Test-Time Compute Governor (OS-5.33)
+# Spec: Compute-Optimal / Value-Aware Test-Time Compute Governor (AU-OS.scaling.bridge-developer-workspace-mutating)
 
 > Status: **proposed**. Closes part of the AGI→ASI distance (paper "From AGI to ASI" §5.1:
 > brute-force search with more compute "fails in virtually all non-toy domains" — gains come
@@ -9,7 +9,7 @@
 > (`diverse_fan_out_width`, `mean_pairwise_distance`). It **reads existing telemetry**
 > (`rlm/telemetry.py` `RunTrace.usage` / `LMUsage`), **existing pricing** (`pricing/catalog.py`
 > `PricingCatalog.cost_for`, ECO-4.40), and **writes the existing ledger**
-> (`usage/recorder.py` `UsageRecorder.record_run`, OS-5.31). It does NOT add a new sampler,
+> (`usage/recorder.py` `UsageRecorder.record_run`, AU-OS.observability.persist-this-graph-run). It does NOT add a new sampler,
 > a new pricing path, or a new agent-facing knob.
 
 ## Pre-Flight Checklist
@@ -17,8 +17,8 @@
       `graph/test_time_diversity.py` (`diverse_fan_out_width`, fixed function of effort).
       Verified: effort→`diversity_width=round(1+4·effort)` and `max_search_calls`/subtasks are
       chosen up front and never re-read against observed return.
-- [x] New CONCEPT:OS-5.33 justified: it is a *controller* (returns-on-compute estimator +
-      adaptive stop), a capability that AHE-3.1 (open-loop budget), AHE-3.16 (open-loop width),
+- [x] New CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating justified: it is a *controller* (returns-on-compute estimator +
+      adaptive stop), a capability that AHE-3.1 (open-loop budget), AU-AHE.harness.width-diverse-best-k (open-loop width),
       and ORCH-1.2 (governs *model choice*, not compute *quantity*) each structurally lack.
 - [x] Wire-First confirmed: 1–2 hops — `get_budget`/`diverse_fan_out_width` consumers call the
       governor between samples; it consumes `RunTrace.usage` + `mean_pairwise_distance` it
@@ -35,7 +35,7 @@ quality gain per dollar drops below a threshold, **so that** compute lands where
 return is highest instead of running a fixed `diversity_width` every time.
 - **AC1**: `ComputeGovernor.should_continue(samples, *, effort)` returns `(continue: bool,
   reason: str)`; with ≥2 candidate scores+embeddings it estimates marginal gain as
-  `Δbest_quality` blended with the incremental `mean_pairwise_distance` (AHE-3.16), prices the
+  `Δbest_quality` blended with the incremental `mean_pairwise_distance` (AU-AHE.harness.width-diverse-best-k), prices the
   *next* sample via `PricingCatalog.cost_for`, and returns `False` when
   `Δquality / ΔUSD < min_return_per_usd`.
 - **AC2**: the governor **never exceeds** the open-loop ceiling — it caps at
@@ -46,7 +46,7 @@ return is highest instead of running a fixed `diversity_width` every time.
   per-sample `(cumulative_usd, best_quality, marginal_gain_per_usd)` points actually observed,
   so the allocation is *measured*, not heuristic.
 
-### US-2 — Spend ledger closes the loop (OS-5.31)
+### US-2 — Spend ledger closes the loop (AU-OS.observability.persist-this-graph-run)
 **As** the usage plane, **I want** each governed fan-out's realized vs. ceiling spend recorded,
 **so that** test-time scaling is auditable and the threshold is tunable from real data.
 - **AC4**: on stop, the governor calls `UsageRecorder.record_run(...)` with the aggregated
@@ -58,7 +58,7 @@ return is highest instead of running a fixed `diversity_width` every time.
 
 ## Non-Functional Requirements
 - `tests/unit/harness/test_os_5_33_compute_governor.py`, tagged
-  `@pytest.mark.concept(id="OS-5.33")`, ≤60s, no live engine/LLM: assert (a) early-convergence
+  `@pytest.mark.concept(id="AU-OS.scaling.bridge-developer-workspace-mutating")`, ≤60s, no live engine/LLM: assert (a) early-convergence
   stops before the ceiling, (b) a still-improving set keeps going to the ceiling, (c)
   `returns_curve()` is monotonic in `cumulative_usd`, (d) a `record_run` spy fires once with the
   summed `LMUsage`. Include a `*_live_path` case driving the existing
@@ -66,8 +66,8 @@ return is highest instead of running a fixed `diversity_width` every time.
 - `pre-commit run --all-files` green (incl. `check_no_env_sprawl.py`, `check_no_stub.py`,
   `check_concepts.py`).
 - Concept registry regenerated: `scripts/build_concepts_yaml.py` → `docs/concepts.yaml` carries
-  OS-5.33; `scripts/check_concepts.py` passes.
+  AU-OS.scaling.bridge-developer-workspace-mutating; `scripts/check_concepts.py` passes.
 - Per-concept doc authored under `docs/pillars/5_agent_os_infrastructure/` (returns-on-compute
   governor) and cross-linked from `docs/pillars/3_agentic_harness_engineering.md` (AHE-3.1/3.16).
-- Related concepts cited in the module docstring: AHE-3.1, AHE-3.16, ORCH-1.29, ORCH-1.2,
-  ECO-4.40, OS-5.31 (provenance "From AGI to ASI" §5.1 in docstring, never the identifier).
+- Related concepts cited in the module docstring: AHE-3.1, AU-AHE.harness.width-diverse-best-k, ORCH-1.29, ORCH-1.2,
+  ECO-4.40, AU-OS.observability.persist-this-graph-run (provenance "From AGI to ASI" §5.1 in docstring, never the identifier).

@@ -1,4 +1,4 @@
-"""Tests for relation-direction repair (CONCEPT:KG-2.256)."""
+"""Tests for relation-direction repair (CONCEPT:AU-KG.enrichment.direction-repair)."""
 
 from __future__ import annotations
 

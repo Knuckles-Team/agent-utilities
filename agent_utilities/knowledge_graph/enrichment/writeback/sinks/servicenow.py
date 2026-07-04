@@ -1,4 +1,4 @@
-"""ServiceNow CMDB write-back sink (CONCEPT:KG-2.9).
+"""ServiceNow CMDB write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Backfeeds the KG into ServiceNow — creates inventory CIs/products, enriches
 existing records, writes inferred CI relations, and retires decommissioned CIs —

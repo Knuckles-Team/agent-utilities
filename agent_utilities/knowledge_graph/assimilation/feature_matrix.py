@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Comparative feature / innovation matrix (CONCEPT:KG-2.173).
+"""Comparative feature / innovation matrix (CONCEPT:AU-KG.research.default-so-every-cycle).
 
 The assimilation pass already turns ingested research (papers + codebases) into a
 graph: every extracted feature is matched against our ecosystem ``Concept``
@@ -95,7 +95,7 @@ def build_feature_matrix(
     only READ here), and emits one row per feature.
 
     ``restrict_to`` scopes the WHOLE build to a feature set (e.g. one research
-    cohort's sources, CONCEPT:KG-2.193): collection is per-id, coverage is read
+    cohort's sources, CONCEPT:AU-KG.ingest.fetch-only-requested-ids): collection is per-id, coverage is read
     per-id, and leverage/synergy are scoped — so a per-cohort matrix is O(cohort),
     not the O(graph) whole-graph pull that doesn't scale to 10× corpora.
     """
@@ -314,7 +314,7 @@ def materialize(
                 ),
                 "generated_at": matrix.generated_at,
                 "markdown": markdown,
-                "concept": "KG-2.173",
+                "concept": "AU-KG.research.default-so-every-cycle",
             },
         )
         summary["persisted"] = True

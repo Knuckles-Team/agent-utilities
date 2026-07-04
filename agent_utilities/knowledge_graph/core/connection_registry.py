@@ -1,8 +1,8 @@
-# CONCEPT:KG-2.63 - Named multi-connection graph registry: register N live graph backends (neo4j/falkordb/postgres-AGE/…) by name and run the same MCP/REST tools against any one or fan out to all, with the backend choice fully abstracted behind a `target` parameter.
-# CONCEPT:KG-2.89 - Role-aware multi-database registry plus live config mutation: every external graph DB is labelled mirror, read (data source), or read_write, persisted durably in config.json, credentials given as literals or vault/env refs, with generic get/set/list of any config item live over both the MCP server and the API gateway, and a doctor health-check across all connections.
+# CONCEPT:AU-KG.backend.multi-connection-registry - Named multi-connection graph registry: register N live graph backends (neo4j/falkordb/postgres-AGE/…) by name and run the same MCP/REST tools against any one or fan out to all, with the backend choice fully abstracted behind a `target` parameter.
+# CONCEPT:AU-KG.backend.connection-registry - Role-aware multi-database registry plus live config mutation: every external graph DB is labelled mirror, read (data source), or read_write, persisted durably in config.json, credentials given as literals or vault/env refs, with generic get/set/list of any config item live over both the MCP server and the API gateway, and a doctor health-check across all connections.
 """Named multi-connection graph registry.
 
-CONCEPT:KG-2.63 — Multi-Connection Graph Registry. The engine has always been
+CONCEPT:AU-KG.backend.multi-connection-registry — Multi-Connection Graph Registry. The engine has always been
 vendor-agnostic (one ``GraphBackend`` interface, many implementations), but only
 ONE backend was ever live at a time: a module-global default chosen at startup
 from ``GRAPH_BACKEND``. This registry lets a deployment keep several live
@@ -27,7 +27,7 @@ Design (the sentences that matter):
   the legacy single-engine path unchanged.
 
 This mirrors the zero-infra-preserving shape of the shard topology
-(:mod:`agent_utilities.knowledge_graph.core.shard_topology`, CONCEPT:KG-2.58):
+(:mod:`agent_utilities.knowledge_graph.core.shard_topology`, CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw):
 config-list resolution, a default-preserving single-entry mode, and a
 ``status()`` health surface.
 """
@@ -47,7 +47,7 @@ DEFAULT_NAME = "default"
 #: Names that may not be used for a registered connection.
 _RESERVED = {DEFAULT_NAME, "all", ""}
 
-#: Connection roles (CONCEPT:KG-2.89). ``read`` = query-only data source;
+#: Connection roles (CONCEPT:AU-KG.backend.connection-registry). ``read`` = query-only data source;
 #: ``read_write`` = query + write; ``mirror`` = receives fan-out replication of OUR
 #: KG (never a direct ``target=`` write). The default/authority connection is always
 #: read_write. New connections default to ``read`` (opt into writes).
@@ -60,7 +60,7 @@ _SECRETS_CLIENT: Any = None
 def _resolve_secret(value: Any) -> Any:
     """Resolve a secret reference to its value; a plain literal passes through.
 
-    Supports ``vault://…`` / ``env://VAR`` / ``sqlite://…`` (CONCEPT:KG-2.89 — a
+    Supports ``vault://…`` / ``env://VAR`` / ``sqlite://…`` (CONCEPT:AU-KG.backend.connection-registry — a
     connection's password/user/uri may be a literal OR a secret reference, keeping
     secrets out of config.json). Fail-safe: an unresolvable ref returns the literal.
     """
@@ -133,7 +133,7 @@ class ConnectionRegistry:
         # Accept both "backend" and "backend_type" as the selector key.
         if "backend" in spec and "backend_type" not in spec:
             spec["backend_type"] = spec.pop("backend")
-        # CONCEPT:KG-2.89 — normalize the connection role (default: read).
+        # CONCEPT:AU-KG.backend.connection-registry — normalize the connection role (default: read).
         role = str(spec.get("role") or DEFAULT_ROLE).strip().lower()
         if role not in _ROLES:
             raise ValueError(
@@ -168,7 +168,7 @@ class ConnectionRegistry:
             return [DEFAULT_NAME, *sorted(self._specs)]
 
     def role(self, name: str | None) -> str:
-        """Role of a connection (CONCEPT:KG-2.89): ``read`` | ``read_write`` |
+        """Role of a connection (CONCEPT:AU-KG.backend.connection-registry): ``read`` | ``read_write`` |
         ``mirror``. The default/authority connection is always ``read_write``."""
         clean = (name or DEFAULT_NAME).strip() or DEFAULT_NAME
         if clean == DEFAULT_NAME:
@@ -190,7 +190,7 @@ class ConnectionRegistry:
 
         For durable persistence to ``config.json`` (``kg_connections``). Secrets are
         kept exactly as registered (literal or ``vault://``/``env://`` ref); resolution
-        happens only at connect, on a copy (CONCEPT:KG-2.89)."""
+        happens only at connect, on a copy (CONCEPT:AU-KG.backend.connection-registry)."""
         with self._lock:
             return [{"name": n, **s} for n, s in sorted(self._specs.items())]
 
@@ -251,7 +251,7 @@ class ConnectionRegistry:
         # default (auto-registration only fires when none exists).
         self._default_engine()
 
-        # CONCEPT:KG-2.89 — ``role`` is registry metadata (not a backend kwarg), and
+        # CONCEPT:AU-KG.backend.connection-registry — ``role`` is registry metadata (not a backend kwarg), and
         # a credential may be a secret reference resolved at connect (never stored
         # raw in config.json).
         build_spec = {k: v for k, v in spec.items() if k != "role"}
@@ -309,7 +309,7 @@ class ConnectionRegistry:
 
     # ── health / lifecycle ─────────────────────────────────────────────────
     def status(self) -> dict[str, Any]:
-        """Per-connection health surface (CONCEPT:KG-2.63 / OS-5.28 style)."""
+        """Per-connection health surface (CONCEPT:AU-KG.backend.multi-connection-registry / OS-5.28 style)."""
         conns: list[dict[str, Any]] = []
         # Default
         active = None

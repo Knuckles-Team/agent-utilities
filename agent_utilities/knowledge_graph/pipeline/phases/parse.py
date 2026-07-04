@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.0 / KG-2.106 — code AST parsing delegated to the epistemic-graph engine.
+"""CONCEPT:AU-KG.query.object-graph-mapper / KG-2.106 — code AST parsing delegated to the epistemic-graph engine.
 
 The Rust engine (``eg-compute``, native tree-sitter, 14 grammars) extracts the SAME
 registry-graph schema this phase used to build by hand with Python tree-sitter —
@@ -51,7 +51,7 @@ _CODE_EXTENSIONS = {
     ".hxx",
     ".hh",
     ".cs",
-    # SQL DDL → database ontology (CONCEPT:KG-2.212)
+    # SQL DDL → database ontology (CONCEPT:AU-KG.ontology.emits-database-ontology-entities)
     ".sql",
     ".ddl",
     ".rb",
@@ -162,7 +162,7 @@ def _replay_parse_result(
     ``file:<path>`` by IMPLEMENTS, plus calls_raw / depends_on_raw edges. The engine adds
     language/kind_detail/minhash (resolution inputs) which we carry through untouched.
     """
-    # SQL DDL extraction (CONCEPT:KG-2.212) emits database-ontology entities
+    # SQL DDL extraction (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) emits database-ontology entities
     # alongside the code SYMBOL path; map each engine node_type to its registry type.
     db_types = {
         "DatabaseTable": RegistryNodeType.DATABASE_TABLE,

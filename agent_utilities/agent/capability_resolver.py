@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.45 — Capability-bound tool/skill resolution (Layers 2 & 3).
+"""CONCEPT:AU-ECO.toolkit.tool-ref-integrity-gate — Capability-bound tool/skill resolution (Layers 2 & 3).
 
 The problem (see ``scripts/check_tool_refs.py``, Layer 1): agents referenced tools/skills by
 mutable display name, so renames and mcp-multiplexer prefixes silently broke them. The fix is to

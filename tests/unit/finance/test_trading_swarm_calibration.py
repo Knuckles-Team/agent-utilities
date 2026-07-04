@@ -1,4 +1,4 @@
-"""Calibration read-back in TradingSwarm aggregation (CONCEPT:KG-2.27).
+"""Calibration read-back in TradingSwarm aggregation (CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking).
 
 calibrated_role_weights existed but was never consulted by trading_swarm —
 reputation was tracked, then ignored. Aggregation now EMA-blends each role's
@@ -6,7 +6,7 @@ static weight toward its agents' tracked calibration, gated by
 SwarmConfig.calibration_weighting, and analyze()/record_market_outcome() close
 the call→outcome loop natively.
 
-@pytest.mark.concept("KG-2.27")
+@pytest.mark.concept("AU-KG.domains.agent-calibration-reputation-tracking")
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class _FixedAgent(SwarmAgent):
         return signal
 
 
-pytestmark = pytest.mark.concept("KG-2.27")
+pytestmark = pytest.mark.concept("AU-KG.domains.agent-calibration-reputation-tracking")
 
 BULLISH_DATA = {
     "symbol": "ACME",

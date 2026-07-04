@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """DSPy Compiler Module.
 
-CONCEPT:AHE-3.1 — Mathematical Prompt Optimization
-CONCEPT:KG-2.2 — DSPy Integration
+CONCEPT:AU-AHE.optimization.dspy-first-optimization — Mathematical Prompt Optimization
+CONCEPT:AU-KG.ontology.dspy-integration — DSPy Integration
 
 This module provides the logic to dynamically translate agent-utilities
 JSON prompt blueprints into `dspy.Signature` classes. This allows the AHE-3

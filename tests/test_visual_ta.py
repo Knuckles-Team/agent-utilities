@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Visual Technical Analysis Engine."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Visual Technical Analysis Engine."""
 
 import pytest
 

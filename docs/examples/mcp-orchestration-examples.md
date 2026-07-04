@@ -97,7 +97,7 @@ engine.submit_task(
 
 ## 3. Workflow Catalog — Defining Reusable Workflows
 
-Reusable orchestration scenarios (CONCEPT:ORCH-1.24) are defined in YAML
+Reusable orchestration scenarios (CONCEPT:AU-ORCH.execution.workflow-lifecycle-management) are defined in YAML
 (`docs/examples/workflows/catalog.yaml`) and persisted to the Knowledge Graph as
 `WorkflowDefinition` + `WorkflowStep` nodes via `WorkflowStore`. Discovery and
 execution then happen through the `graph_orchestrate` MCP tool (see §4).
@@ -208,7 +208,7 @@ async def dynamic_execution():
 
 ## 6. Compiling Workflows from Natural Language
 
-The `WorkflowCompiler` (CONCEPT:ORCH-1.23) parses natural language descriptions into executable `GraphPlan` DAGs.
+The `WorkflowCompiler` (CONCEPT:AU-ORCH.execution.nl-compilation-pipeline) parses natural language descriptions into executable `GraphPlan` DAGs.
 
 ```python
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler

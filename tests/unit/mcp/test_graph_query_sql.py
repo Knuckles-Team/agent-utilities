@@ -1,4 +1,4 @@
-"""graph_query scope='sql' — native SQL-on-the-KG over MCP (CONCEPT:KG-2.243).
+"""graph_query scope='sql' — native SQL-on-the-KG over MCP (CONCEPT:AU-KG.query.read-only-sql-over).
 
 The `sql` scope routes the `cypher` arg (the SQL text) to ``engine.sql()``, which
 bridges to the epistemic-graph engine's DataFusion SQL surface (the same path the
@@ -16,7 +16,7 @@ import pytest
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.mcp import kg_server
 
-pytestmark = pytest.mark.concept("KG-2.243")
+pytestmark = pytest.mark.concept("AU-KG.query.read-only-sql-over")
 
 
 def _register_graph_query():
@@ -92,7 +92,7 @@ def test_sql_scope_surfaces_engine_error(monkeypatch):
     assert "error" in out and "SELECT" in out["error"]
 
 
-# ── engine.sql() read-only guard + bridge (CONCEPT:KG-2.243) ──────────────────
+# ── engine.sql() read-only guard + bridge (CONCEPT:AU-KG.query.read-only-sql-over) ──────────────────
 
 
 class _SqlNamespace:

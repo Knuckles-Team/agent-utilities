@@ -1,9 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# CONCEPT:ORCH-1.0 — Swarm Orchestration & Specialist Factory
-# CONCEPT:AHE-3.1 — Task Prioritization
-# CONCEPT:ORCH-1.1 — Guardrails & Safety Patterns
-# CONCEPT:AHE-3.0 — Exception Handling & Recovery
+# CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Swarm Orchestration & Specialist Factory
+# CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort — Task Prioritization
+# CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Guardrails & Safety Patterns
+# CONCEPT:AU-AHE.harness.harness-evolution — Exception Handling & Recovery
 import pytest
 
 from agent_utilities.graph import steps
@@ -23,7 +23,7 @@ async def test_usage_guard_step():
 
 @pytest.mark.asyncio
 async def test_router_step_never_returns_end():
-    """CONCEPT:ORCH-1.68 — the router must NEVER terminate the graph with ``End``: a second
+    """CONCEPT:AU-ORCH.execution.direct-completion-shape — the router must NEVER terminate the graph with ``End``: a second
     router→end edge made pydantic-graph BROADCAST-FORK the router to {__end__, dispatcher},
     killing every full-graph turn at __end__. Trivial turns are now answered OUTSIDE the graph
     (``_run_direct_completion``), so they never reach router_step; when it does run it always

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Scheduler Tools Module.
 
-CONCEPT:OS-5.2
+CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 
 This module provides tools for managing periodic agent tasks, including
 scheduling new background jobs, auditing the cron registry, and

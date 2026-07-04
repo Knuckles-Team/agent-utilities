@@ -3,12 +3,12 @@
 
 Distills FORT-Searcher (arXiv:2606.12087) onto the agent-utilities evidence
 graph: build a bounded evidence workspace around an answer entity
-(:mod:`.evidence_subgraph`, CONCEPT:KG-2.70), detect the four shortcut risks
-(:mod:`.shortcut_risks`, CONCEPT:KG-2.71), and formulate + adversarially refine a
+(:mod:`.evidence_subgraph`, CONCEPT:AU-KG.retrieval.evidence-graph-workspace), detect the four shortcut risks
+(:mod:`.shortcut_risks`, CONCEPT:AU-KG.retrieval.formulate-adversarially-refine), and formulate + adversarially refine a
 verifiable question that forces genuine multi-hop search
-(:mod:`.question_formulation`, CONCEPT:KG-2.72). Realized-difficulty diagnostics
+(:mod:`.question_formulation`, CONCEPT:AU-KG.retrieval.question-formulation-adversarial-refinement). Realized-difficulty diagnostics
 (``solving_cost`` / ``answer_hit_time`` / ``prior_shortcut_rate``) live on the
-reward spine in :mod:`agent_utilities.graph.training_signals` (CONCEPT:AHE-3.30).
+reward spine in :mod:`agent_utilities.graph.training_signals` (CONCEPT:AU-AHE.reward.search-task-corpus).
 """
 
 from __future__ import annotations

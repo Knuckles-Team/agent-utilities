@@ -6,7 +6,7 @@ from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode
 class EvolutionSchemaPack(SchemaPack):
     """Schema pack enabling self-improvement, continuous learning, and evolutionary mechanics.
 
-    CONCEPT:AHE-3.0 — Agentic Harness Engineering / Evolution
+    CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering / Evolution
     """
 
     name: str = "evolution"

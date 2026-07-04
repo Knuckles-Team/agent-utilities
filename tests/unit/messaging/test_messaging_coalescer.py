@@ -1,4 +1,4 @@
-"""Tests for burst-mode message coalescing (CONCEPT:ECO-4.63)."""
+"""Tests for burst-mode message coalescing (CONCEPT:AU-ECO.messaging.burst-mode-coalescing)."""
 
 from __future__ import annotations
 

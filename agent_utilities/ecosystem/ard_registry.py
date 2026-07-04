@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.95 — Agentic Resource Discovery (ARD) registry (publish side).
+"""CONCEPT:AU-ECO.mcp.eco-serves-two-ard — Agentic Resource Discovery (ARD) registry (publish side).
 
 ARD (a draft open spec from Hugging Face, Microsoft, Google, GoDaddy and others)
 separates capability *discovery* from *execution*: instead of hardcoding an MCP URL,
@@ -222,7 +222,7 @@ def _sign_entry(entry: dict) -> dict:
 def build_ai_catalog(*, multiplexer: Any = None, engine: Any = None) -> dict:
     """Build the ARD ``ai-catalog.json`` manifest for ``/.well-known/ai-catalog.json``.
 
-    CONCEPT:ECO-4.95. Assembles fleet MCP servers + KG skills into ARD resources, signs
+    CONCEPT:AU-ECO.mcp.eco-serves-two-ard. Assembles fleet MCP servers + KG skills into ARD resources, signs
     each with our Ed25519 key, and stamps the publisher identity + public key so a
     consumer can verify. Degrades gracefully: an unreachable fleet or cold KG simply
     yields fewer resources, never an error.
@@ -252,7 +252,7 @@ def ard_search(
 ) -> dict:
     """Rank discoverable resources for an NL query (ARD ``POST /search`` core).
 
-    CONCEPT:ECO-4.95. Fleet tools are ranked by :meth:`MCPMultiplexer.discover_tools`
+    CONCEPT:AU-ECO.mcp.eco-serves-two-ard. Fleet tools are ranked by :meth:`MCPMultiplexer.discover_tools`
     (token overlap blended with KG semantic search — the same path ``find_tools`` uses)
     and surfaced as ``application/mcp-server+json``; KG skills are lexically matched and
     surfaced as ``application/ai-skill``. ``types`` filters by media type (ARD

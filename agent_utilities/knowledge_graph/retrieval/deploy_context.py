@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Deployment-status context provider (CONCEPT:KG-2.138).
+"""Deployment-status context provider (CONCEPT:AU-KG.retrieval.kg-2).
 
 The ``deploy`` domain of the context plane: answers the #1 build-loop papercut —
 *"where does this code run, and is my change live?"* — by synthesizing the
@@ -88,7 +88,7 @@ def deploy_status(
     tok = next(iter(_re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", query or "")), "")
     routes = _routes_for(engine, tok)
 
-    # The governed plan to make a merged change live (CONCEPT:OS-5.50).
+    # The governed plan to make a merged change live (CONCEPT:AU-OS.deployment.os-2).
     try:
         from agent_utilities.deployment.self_deploy import plan_redeploy
 

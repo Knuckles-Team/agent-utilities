@@ -1,6 +1,6 @@
 """Tests for tool filtering, skill matching, and tag-based discovery.
 
-CONCEPT:ECO-4.0 — Agent Tool System
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Agent Tool System
 """
 
 from unittest.mock import MagicMock

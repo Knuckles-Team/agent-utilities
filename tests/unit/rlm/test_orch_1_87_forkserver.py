@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.87 — forkserver warm-fork rung: live-path warm-reuse + isolation + bridge.
+"""CONCEPT:AU-ORCH.sandbox.native-warm-fork-os — forkserver warm-fork rung: live-path warm-reuse + isolation + bridge.
 
 These assert the *invocation*, not just the API (Wire-First): a real forkserver is booted, real
 children are forked, and the warm-parent registry (OS-5.58) is exercised end-to-end.

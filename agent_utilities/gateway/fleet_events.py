@@ -1,4 +1,4 @@
-"""Fleet events webhook ingress (CONCEPT:OS-5.15 — Fleet Event Ingress).
+"""Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress — Fleet Event Ingress).
 
 Until now nothing could wake the orchestrator except its own timers and
 file-mtime watchers — monitoring infrastructure had no way to hand the fleet an
@@ -216,7 +216,7 @@ def _get_engine() -> Any:
 
 
 def _correlation_stamp() -> dict[str, str]:
-    """Correlation + identity to stamp on persisted effect nodes (CONCEPT:OS-5.11).
+    """Correlation + identity to stamp on persisted effect nodes (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
     Stamping the originating ``correlation_id`` (+ actor/tenant) onto the durable
     node is what makes the swarm-wide ``/api/fleet/trace`` and ``/api/fleet/touched``

@@ -1,7 +1,7 @@
 """Automation module for autonomous agent operations.
 
 Provides:
-- CONCEPT:OS-5.0: FileWatcher — watchdog-triggered graph execution
-- CONCEPT:OS-5.2: MaintenanceCron — scheduled autonomous maintenance
-- CONCEPT:KG-2.6: ResearchPipelineRunner — automated research ingestion
+- CONCEPT:AU-OS.host.file-watcher-trigger: FileWatcher — watchdog-triggered graph execution
+- CONCEPT:AU-OS.host.maintenance-cron: MaintenanceCron — scheduled autonomous maintenance
+- CONCEPT:AU-KG.research.research-pipeline-runner: ResearchPipelineRunner — automated research ingestion
 """

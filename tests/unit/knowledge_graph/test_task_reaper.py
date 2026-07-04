@@ -1,4 +1,4 @@
-"""Zombie/stuck task reaper (CONCEPT:KG-2.8 ingestion durability).
+"""Zombie/stuck task reaper (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion durability).
 
 When a worker/host process dies mid-task, the Task is stranded in ``running``
 forever. ``TaskManagerMixin._tick_task_reaper`` requeues such orphans to

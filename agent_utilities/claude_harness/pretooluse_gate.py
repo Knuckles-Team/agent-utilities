@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Dynamic two-layer PreToolUse gate for the Claude Code CLI.
 
-CONCEPT:OS-5.41 — Dynamic two-layer fail-closed PreToolUse ActionPolicy permission gate
+CONCEPT:AU-OS.deployment.dynamic-two-fail-closed — Dynamic two-layer fail-closed PreToolUse ActionPolicy permission gate
 
 This is the hook body Claude Code invokes (via ``agent-utilities harness-gate``)
 before every gated tool call. It reads the PreToolUse event JSON from stdin and

@@ -1,6 +1,6 @@
 """
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 Document Ingestion Pipeline for Knowledge Graph.
 
 Tightly integrated pipeline that ingests documents through all storage layers

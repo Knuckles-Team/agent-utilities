@@ -1,4 +1,4 @@
-"""Tests for the shared-GPU concurrency budget (CONCEPT:KG-2.146).
+"""Tests for the shared-GPU concurrency budget (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
 No live GPU: a fake config (chat + embedding models sharing one ``gpu_group``) and
 the env-driven ``GPU_CONCURRENCY_BUDGETS`` are monkeypatched so the cap math, the

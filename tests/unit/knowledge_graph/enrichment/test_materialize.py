@@ -1,4 +1,4 @@
-"""Source-extractor materialization tests (CONCEPT:KG-2.9).
+"""Source-extractor materialization tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Asserts materialize_source runs a registered extractor over an injected client
 and persists via write_batch, that a None backend is a clean no-op, and that an

@@ -148,7 +148,7 @@ def register_state_tools(mcp):
     @mcp.tool(
         name="graph_loops",
         description=(
-            "The single entrypoint for long-running objectives (CONCEPT:KG-2.78). A "
+            "The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-properties-carry). A "
             "Loop is one objective of kind research|develop|skill; the LoopController "
             "advances every active Loop through ONE hot path. action in 'submit' "
             "(create a Loop: objective + kind [+ validation_cmd/end_state for develop, "
@@ -245,7 +245,7 @@ def register_state_tools(mcp):
                 return _json.dumps(rep, indent=2, default=str)
             if action == "drive":
                 # Drive ONE Loop to completion durably (resume/checkpoint/corrigible,
-                # CONCEPT:OS-5.16) — works for any kind (research/develop/skill).
+                # CONCEPT:AU-OS.state.unified-durable-state-externalization) — works for any kind (research/develop/skill).
                 if not loop_id:
                     return _json.dumps({"error": "drive needs a loop_id"})
                 target = next(
@@ -279,7 +279,7 @@ def register_state_tools(mcp):
                     }
                 )
             if action == "state":
-                # LIVE EvolutionState (CONCEPT:KG-2.290/2.291): current stage + why,
+                # LIVE EvolutionState (CONCEPT:AU-KG.research.evolutionstate-live-surface-per/2.291): current stage + why,
                 # saturation gauge, open_gaps trend, velocity, distilled-spec backlog.
                 from agent_utilities.knowledge_graph.research.evolution_state import (
                     read_evolution_state,
@@ -291,7 +291,7 @@ def register_state_tools(mcp):
                     default=str,
                 )
             if action == "specs":
-                # The distilled-spec backlog (CONCEPT:KG-2.292).
+                # The distilled-spec backlog (CONCEPT:AU-KG.research.close-distill-develop-seam).
                 from agent_utilities.knowledge_graph.research.spec_proposals import (
                     list_specs,
                 )
@@ -306,7 +306,7 @@ def register_state_tools(mcp):
                     default=str,
                 )
             if action == "review":
-                # Spec-level review/veto BEFORE develop (CONCEPT:OS-5.73).
+                # Spec-level review/veto BEFORE develop (CONCEPT:AU-OS.config.autonomous-spec-develop-off).
                 from agent_utilities.knowledge_graph.research.spec_proposals import (
                     review_spec,
                 )
@@ -334,7 +334,7 @@ def register_state_tools(mcp):
     @mcp.tool(
         name="graph_schedules",
         description=(
-            "Inspect and control the unified scheduler (CONCEPT:OS-5.44). Every "
+            "Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent). Every "
             "recurring job — the deploy/schedules.yml entries, the former "
             "fixed-interval maintenance ticks, the self-evolution loop, and the "
             "ScholarX RSS research feed — is a durable :Schedule node the one "
@@ -392,7 +392,7 @@ def register_state_tools(mcp):
     @mcp.tool(
         name="graph_sandbox",
         description=(
-            "Inspect and control the native warm-fork sandbox runtime (CONCEPT:ORCH-1.93). "
+            "Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface). "
             "The RLM code-execution tier boots a runtime warm once and forks children from "
             "copy-on-write state (forkserver/os.fork, Wizer-warmed wasm, warm container pool, "
             "firecracker microVM) instead of cold-booting per snippet. action in 'status' "
@@ -409,7 +409,7 @@ def register_state_tools(mcp):
             default="", description="Rung to warm (warm): forkserver|container_fork|..."
         ),
     ) -> str:
-        """Status / reap / warm the warm-fork sandbox rungs (CONCEPT:ORCH-1.93, OS-5.58)."""
+        """Status / reap / warm the warm-fork sandbox rungs (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface, CONCEPT:AU-OS.host.so-they-are-idle)."""
         import json as _json
 
         try:
@@ -489,7 +489,7 @@ def register_state_tools(mcp):
     @mcp.tool(
         name="graph_feeds",
         description=(
-            "Manage the unified RSS/Atom feed registry (CONCEPT:KG-2.121/2.122). "
+            "Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122). "
             "Native RSS feeds, the FreshRSS aggregator, and ScholarX arXiv are "
             "first-class :FeedSource nodes ingested through ONE world-model gate "
             "(research items → prioritized fetch, news → relevance+novelty). action "
@@ -604,7 +604,7 @@ def register_state_tools(mcp):
                     }
                 )
             if action == "sync":
-                # Run the sweep OFF the request path (CONCEPT:KG-2.121): enqueue a
+                # Run the sweep OFF the request path (CONCEPT:AU-KG.ingest.rss-feed-connector): enqueue a
                 # feed_sweep task and return immediately, so a many-feed sweep (which
                 # fetches + gates + enqueues per-article worldview/research tasks)
                 # never rides — or times out — the 300s MCP call. ``url`` may name a
@@ -648,13 +648,13 @@ def register_state_tools(mcp):
         name="research_artifact",
         description=(
             "Agent-Native Research Artifacts over the one ontology-driven KG "
-            "(CONCEPT:KG-2.79/2.80). action in 'reason' (run OWL/RDF reasoning over "
+            "(CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80). action in 'reason' (run OWL/RDF reasoning over "
             "the whole ecosystem and harvest extrapolated cross-domain relationships "
             "as research topics), 'compile' (paper -> ecosystem-grounded OWL-native "
             "4-layer ARA), 'review'/'seal' (L1/L2/L3 OWL/SHACL-grounded review + "
             "certificate), 'capture' (live research event w/ provenance), 'get', 'list', "
             "'inquire' (native multi-perspective STORM inquiry: expert lenses -> "
-            "contradiction/agreement/blind-spot map + self-critique, CONCEPT:KG-2.127)."
+            "contradiction/agreement/blind-spot map + self-critique, CONCEPT:AU-KG.research.perspectival-inquiry)."
         ),
         tags=["graph-os", "research", "ontology"],
     )
@@ -730,7 +730,7 @@ def register_state_tools(mcp):
         try:
             engine = kg_server._get_engine()
             # Delegate to the one unified core so there is no divergent hydration
-            # logic; 'all' fans out to the fleet sweep (CONCEPT:KG-2.9).
+            # logic; 'all' fans out to the fleet sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
             res = sync_source(engine, source, mode="full")
             return json.dumps(res, default=str)
         except Exception as e:
@@ -740,12 +740,12 @@ def register_state_tools(mcp):
 
     # ══════════════════════════════════════════════════════════════════
     # Ontology System — Palantir Foundry parity (type/link/function layer)
-    #   property types  (CONCEPT:KG-2.47)
-    #   value types     (CONCEPT:KG-2.39)
-    #   interfaces      (CONCEPT:KG-2.38)
-    #   links           (CONCEPT:KG-2.26)
-    #   functions       (CONCEPT:KG-2.41)
-    #   derived props   (CONCEPT:KG-2.40)
+    #   property types  (CONCEPT:AU-KG.ontology.ontology-property-types)
+    #   value types     (CONCEPT:AU-KG.ontology.value-type-shacl-load)
+    #   interfaces      (CONCEPT:AU-KG.ontology.conformance-check)
+    #   links           (CONCEPT:AU-KG.domains.trade-journal-bias-auditor)
+    #   functions       (CONCEPT:AU-KG.ontology.default-runtime-bound-import)
+    #   derived props   (CONCEPT:AU-KG.ontology.derived-property-registry)
     # All handlers are thin — they reach the live `KnowledgeGraph.ontology`
     # system (bound to the engine's backend) so Functions-on-Objects, derived
     # compute and interface targeting resolve against the real graph.

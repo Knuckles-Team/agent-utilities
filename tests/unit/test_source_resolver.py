@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — KG Source Resolver.
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — KG Source Resolver.
 
 Validates:
 - ResolvedSource model
@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.core.source_resolver import (
 )
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestResolvedSource:
     """Test ResolvedSource model."""
 
@@ -47,7 +47,7 @@ class TestResolvedSource:
         assert len(src.authors) == 2
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestKGSourceResolverNoEngine:
     """Test graceful behavior when no KG engine is available."""
 
@@ -71,7 +71,7 @@ class TestKGSourceResolverNoEngine:
         assert result == []
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestKGSourceResolverWithEngine:
     """Test resolution with a mocked KG engine."""
 
@@ -216,7 +216,7 @@ class TestKGSourceResolverWithEngine:
         assert len(results) == 0
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestDefaultResolveDir:
     """Test default resolve directory."""
 

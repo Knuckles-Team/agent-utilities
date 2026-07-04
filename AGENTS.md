@@ -112,13 +112,13 @@ near-free, grounded, cross-session-consistent answer with `file:line` citations;
 grep re-derives by hand what the KG already holds.
 
 The one tool is **`graph_analyze action=code_context`** (REST: `POST
-/graph/analyze/code-context`), CONCEPT:KG-2.134:
+/graph/analyze/code-context`), CONCEPT:AU-KG.retrieval.synthesized-cited-answer:
 
 - `query=<area / symbol / question>`, `target=` the **intent**:
   - **`how`** — "how does the messaging reply path work?" → definition + what it
     calls + owning CONCEPT + docs + routes.
   - **`usage`** — "where is `create_model` used?" → callers (`file:line`) +
-    near-clones + the **cross-repo** usage view across the whole fleet (KG-2.135).
+    near-clones + the **cross-repo** usage view across the whole fleet (AU-KG.retrieval.every-usage-published-symbol).
   - **`impact`** — "what breaks if I change `_conn`?" → transitive callers
     (blast radius) + git change-coupling.
 - It returns a synthesized `answer`, `citations` (`file:line`), and a
@@ -128,7 +128,7 @@ The one tool is **`graph_analyze action=code_context`** (REST: `POST
 After the task, close the loop: `graph_feedback correction_type=reads_avoided
 target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
 "correct":true,"query":"…"}` so the retriever learns which answers replace a read
-(CONCEPT:AHE-3.61). If `code_context` returns no anchor, the area may be uningested
+(CONCEPT:AU-AHE.evaluation.reads-avoided-feedback). If `code_context` returns no anchor, the area may be uningested
 — run `source_sync source=all mode=delta` (and see `agent-utilities-doctor`'s
 `ingestion_coverage` check) — then fall back to grep.
 
@@ -145,10 +145,10 @@ do yet.** The trajectory is to move more onto graph-os over time and orchestrate
 Before doing a task yourself, delegate it:
 
 - **Understanding code** → the KG, never grep first (the section above):
-  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:KG-2.134) +
+  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer) +
   `graph_query` / `graph_search` / `graph_code_nav`. If an area is uningested,
   `source_sync source=all mode=delta` first; close the loop with
-  `graph_feedback correction_type=reads_avoided` (AHE-3.61).
+  `graph_feedback correction_type=reads_avoided` (AU-AHE.evaluation.reads-avoided-feedback).
 - **Doing a task** an ingested skill / workflow / agent can already do →
   `graph_orchestrate action=execute_agent` / `action=execute_workflow` on the
   local LLM — the `agent-utilities-expert` agent for ecosystem work, or the right
@@ -156,7 +156,7 @@ Before doing a task yourself, delegate it:
   rest of the fleet through the full `engine_<domain>` MCP surface + the
   multiplexer meta-tools (`find_tools` / `load_tools`).
 - **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
-  `LoopController`), the evolution flywheel, and the AHE-3.x hardening loop;
+  `LoopController`), the evolution flywheel, and the AU-AHE.optimization.telemetry-optimization hardening loop;
   **REVIEW** their proposals through the spec / prompt review-veto gates
   (propose-and-hold is the default) rather than hand-doing what the flywheel
   produces.
@@ -165,7 +165,7 @@ Your role becomes two things:
 
 1. **Orchestrate.** Decompose a goal, dispatch it to graph-os / the local LLM, and
    **steer** it: query live `EvolutionState`, the `:ToolCall` / `RunTrace`
-   provenance (CONCEPT:KG-2.296), reprioritize, approve/veto.
+   provenance (CONCEPT:AU-KG.temporal.message-history-read), reprioritize, approve/veto.
 2. **Resolve exceptions.** When a delegated run fails, returns a wrong or
    ungrounded answer, or the system couldn't self-troubleshoot — **that** is your
    job. Query the `RunTrace` / `:ToolCall` to see exactly what the local LLM did
@@ -174,13 +174,13 @@ Your role becomes two things:
    **re-delegate**. You are the backstop the autonomous system escalates to.
 
 Full visibility + steerability is guaranteed by design: every delegated run writes
-`:ToolCall` / `RunTrace` to the epistemic-graph (CONCEPT:KG-2.296) — query it via
+`:ToolCall` / `RunTrace` to the epistemic-graph (CONCEPT:AU-KG.temporal.message-history-read) — query it via
 graph-os. The **resource-priority edict** (interactive / orchestration work
-outranks background ingestion, CONCEPT:ORCH-1.98/1.99) guarantees your
+outranks background ingestion, CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99) guarantees your
 orchestration is never starved by ingestion.
 
 Every exception you resolve should **harden** the system (a new skill, a fixed tool
-binding, a hardened prompt — via the AHE-3.x hardening loop) so it handles that
+binding, a hardened prompt — via the AU-AHE.optimization.telemetry-optimization hardening loop) so it handles that
 case itself next time. The goal is orchestrating completely off the harness.
 
 ## Architecture Reference (current)
@@ -212,8 +212,8 @@ case itself next time. The goal is orchestrating completely off the harness.
   *live* facade (store / `owl_bridge` / retrieval), so interface targeting, derived-property
   compute, Functions-on-Objects, and ACL enforcement resolve against the real graph. Modules:
   `interfaces` (KG-2.38), `value_types` (KG-2.39), `derived_properties` (KG-2.40),
-  `functions/` (KG-2.41), `edits/` (KG-2.43), `indexing/` (KG-2.44), `object_set` (KG-2.45),
-  `permissioning` (KG-2.46), `property_types` (KG-2.47), `document_processing` (KG-2.48), and
+  `functions/` (AU-KG.ontology.default-runtime-bound-import), `edits/` (KG-2.43), `indexing/` (AU-KG.ontology.batch-incremental-sync-live), `object_set` (KG-2.45),
+  `permissioning` (AU-KG.ontology.redact-object-materialize-restricted), `property_types` (KG-2.47), `document_processing` (KG-2.48), and
   `links` (KG-2.26); action types live in `knowledge_graph/actions/` (KG-2.42). Conventions:
   registries ship **real built-ins at import** (never an empty shell); cite the Foundry/AIP doc
   in the module docstring and name from purpose, not the vendor; surface new capability over the
@@ -225,9 +225,9 @@ case itself next time. The goal is orchestrating completely off the harness.
   (`security/request_identity.py`, `security/auth.py`, OS-5.14). State:
   `STATE_DB_URI` externalizes checkpoints/sessions/queues onto shared Postgres
   with SKIP LOCKED claims + advisory-lock daemon leadership
-  (`core/state_store.py`, `core/leadership.py`, OS-5.16–5.18). Engines shard
+  (`core/state_store.py`, `core/leadership.py`, AU-OS.state.unified-durable-state-externalization–5.18). Engines shard
   by tenant behind client-side HRW routing (`GRAPH_SERVICE_ENDPOINTS`,
-  `knowledge_graph/core/shard_topology.py`, KG-2.58). Work scales via
+  `knowledge_graph/core/shard_topology.py`, AU-KG.sharding.tenant-partitioned-sharding-hrw). Work scales via
   fail-loud queue backends (`TASK_QUEUE_BACKEND`, KG-2.55–2.57) and
   queue-driven dispatch (`AGENT_DISPATCH_BACKEND=queue`,
   `orchestration/agent_dispatch*.py`, ORCH-1.45) consumed by the
@@ -235,9 +235,9 @@ case itself next time. The goal is orchestrating completely off the harness.
   every mutating fleet action passes the fail-closed ActionPolicy gate
   (`orchestration/action_policy.py` + `deploy/action-policy.default.yml`,
   OS-5.24) feeding the reconciler/playbooks/deploy-watch/autoscaler
-  (OS-5.25–5.27, OS-5.29). Observability: Prometheus `/metrics`
-  (`observability/gateway_metrics.py`, OS-5.23); multiplexer children are
-  individually supervised (`mcp/child_resilience.py`, ECO-4.34). Docs:
+  (AU-OS.config.desired-state-fleet-reconciler–5.27, OS-5.29). Observability: Prometheus `/metrics`
+  (`observability/gateway_metrics.py`, AU-OS.observability.no-op-without-metrics); multiplexer children are
+  individually supervised (`mcp/child_resilience.py`, AU-ECO.mcp.profile-differences-from-client). Docs:
   `docs/architecture/{state_externalization,engine_sharding,agent_dispatch,fleet_autonomy,gateway_scaling}.md`.
 - **Single source of truth for concepts:** `docs/concepts.yaml` (regenerate via
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
@@ -297,7 +297,7 @@ discipline*.) Core (`agent-utilities`) is the lean serving plane; heavy work is 
 
 **Ontology — extend the canonical, never sprawl a new `.ttl`.** The ontology is ONE consolidated
 library (`core/ontology.ttl` + the domain `ontology_*.ttl`), validated by the valid/connected/SHACL
-gate (CONCEPT:KG-2.112). New classes/links/value-types go **into the existing ontology file for that
+gate (CONCEPT:AU-KG.maintenance.canonical-ontology-library). New classes/links/value-types go **into the existing ontology file for that
 domain** via `interfaces.to_owl`/`owl_bridge`. A new top-level ontology file is a **build break**
 unless it's a genuinely new domain registered into the ontology library + gate. Don't create a
 per-feature `.ttl`; don't redefine a class that already exists — extend it.
@@ -305,7 +305,7 @@ per-feature `.ttl`; don't redefine a class that already exists — extend it.
 **Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
 the graph-os MCP surface, the multiplexer, the ingest/dispatch workers, and ~62 `*-mcp` services. A
 new capability is almost always **a new action/tool on an existing service**, or a **connector
-preset** (CONCEPT:KG-2.59 `mcp_tool` — external sources are declarative presets, NEVER new connector
+preset** (CONCEPT:AU-KG.ingest.mcp-tool-connector `mcp_tool` — external sources are declarative presets, NEVER new connector
 modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
 responsibility that fits no existing process — and even then it is a thin transport over the core
 orchestrator (see *Universal capability*). "I'll spin up a service for this" is the wrong default.
@@ -416,7 +416,7 @@ They are **injected into each MCP server's `env`**, not committed:
   (e.g. `mcpServers.mcp-multiplexer.env`). The mint path is
   `mcp/client_credentials.py` (`bearer_header`/`get_token`); the multiplexer
   attaches it to children and spawned agents inherit it
-  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:ORCH-1.21/OS-5.32).
+  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap/AU-OS.identity.so-jwt-protected-children).
 
 **To run/debug an authenticated path** (e.g. `execute_agent` against a `*.arpa`
 server): the creds must be present in the debug process's env — export them from
@@ -435,10 +435,10 @@ access, so a human performs the one-time cred load (or pre-authorizes the
 specific command in their own `.claude/settings.local.json`). This boundary is
 intentional and is not something to engineer around.
 
-## Reward / preference / RL-method primitives (AHE-3.x) — conventions
+## Reward / preference / RL-method primitives (AU-AHE.optimization.telemetry-optimization) — conventions
 
 When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine and the
-AHE-3.15/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
+AU-AHE.reward.this-is-read-back/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
 work (`.specify/specs/reasoning-rl-2026/`):
 
 - **Opt-in, default-unchanged.** A new parameter on an existing reward primitive MUST default
@@ -455,7 +455,7 @@ work (`.specify/specs/reasoning-rl-2026/`):
   test-time fan-out — over re-implementing GRPO (already `training_signals.batch_normalized_advantage`).
 - **Cite the paper in the docstring, name from purpose.** Provenance (arXiv id) goes in the
   docstring/CHANGELOG, never the identifier (`agent_step_po.py`, not `arpo_v1.py`). New
-  `CONCEPT:AHE-3.x` tags are picked up by `scripts/build_concepts_yaml.py`; run
+  `CONCEPT:AU-AHE.optimization.telemetry-optimization` tags are picked up by `scripts/build_concepts_yaml.py`; run
   `scripts/check_concepts.py` (CI gate) after adding one.
 
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
@@ -588,7 +588,7 @@ wired, defaulted on, and exposed on both surfaces in the same change.
 
 agent-utilities is both the **hub** that discovers fleet-contributed skills/prompts
 (`core/providers.py` → `agent_utilities.skill_providers` / `agent_utilities.prompt_providers`)
-**and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:OS-5.52):
+**and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
 - Its unique skills live in **`agent_utilities/skills/`** (atomic skills at the top level,
   the genesis workflow under `skills/workflows/agent-os-genesis/`, and the `agent-utilities`
@@ -806,9 +806,9 @@ Pick the most specific accurate noun for the behavior/domain (a suite of groundi
 + safety + retrieval-quality checks → *reliability* scorers). Provenance (which
 plan/paper it came from) belongs in the docstring/CHANGELOG, not the identifier.
 
-### External data sources — one reuse path (KG-2.59)
+### External data sources — one reuse path (AU-KG.ingest.mcp-tool-connector)
 
-New external data sources are `mcp_tool` source presets (KG-2.59:
+New external data sources are `mcp_tool` source presets (AU-KG.ingest.mcp-tool-connector:
 `protocols/source_connectors/connectors/mcp_tool.py`, `MCP_TOOL_PRESETS`) —
 **never** new `UniversalConnector` dialects or bespoke connector modules. The
 fleet's ~58 MCP servers already wrap the external systems; a new source is a
@@ -970,7 +970,6 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 ```text
 ├── .github/
 │   └── workflows/
-│       ├── backend-parity-nightly.yml
 │       ├── concept-governance.yml
 │       ├── guardrails.yml
 │       ├── pages.yml
@@ -1090,7 +1089,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   ├── README.md
 │   └── requirements-multiplexer.txt
 ├── docs/
-│   ├── architecture/ (73 entries)
+│   ├── architecture/ (84 entries)
 │   ├── examples/
 │   │   ├── workflows/
 │   │   ├── action-policy-postures.md
@@ -1109,7 +1108,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── queue-dispatch-walkthrough.md
 │   │   ├── sharding-walkthrough.md
 │   │   └── workspace.yml
-│   ├── guides/ (72 entries)
+│   ├── guides/ (75 entries)
 │   ├── pillars/
 │   │   ├── 1_graph_orchestration/
 │   │   ├── 2_epistemic_knowledge_graph/
@@ -1181,12 +1180,13 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │       ├── memory_agent.py
 │       ├── protocol_agent.py
 │       └── README.md
-├── scripts/ (79 entries)
-├── tests/ (220 entries)
+├── reports/
+│   └── w4-concept-hierarchy-dryrun.md
+├── scripts/ (86 entries)
+├── tests/ (224 entries)
 ├── .bumpversion.cfg
 ├── .codespellignore
 ├── .dockerignore
-├── .env
 ├── .env.example
 ├── .gitattributes
 ├── .gitignore
@@ -1220,7 +1220,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
 
 ```bash
-agent-utilities --json concept reserve --ns KG-2   # or a package prefix, e.g. KEY
+agent-utilities --json concept reserve --ns EG-KG.compute.backend   # or a package prefix, e.g. KEY
 ```
 
 Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordination.md`](docs/concept_coordination.md).
@@ -1228,29 +1228,17 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 562 concepts across 22 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 908 concepts across 8 pillars._
 
-| Pillar | Count | Concept IDs |
+| Pillar | Count | Domains |
 |:------|:---:|:------|
-| **AHE-3** | 69 | AHE-3.x, AHE-3.0, AHE-3.1, AHE-3.2, AHE-3.3, AHE-3.4, AHE-3.9, AHE-3.11, AHE-3.12, AHE-3.13, AHE-3.14, AHE-3.15, AHE-3.16, AHE-3.17, AHE-3.18, AHE-3.19, AHE-3.20, AHE-3.21, AHE-3.22, AHE-3.23, AHE-3.24, AHE-3.25, AHE-3.26, AHE-3.27, AHE-3.28, AHE-3.29, AHE-3.30, AHE-3.31, AHE-3.32, AHE-3.33, AHE-3.34, AHE-3.35, AHE-3.36, AHE-3.37, AHE-3.38, AHE-3.39, AHE-3.40, AHE-3.41, AHE-3.42, AHE-3.43, AHE-3.44, AHE-3.45, AHE-3.46, AHE-3.47, AHE-3.48, AHE-3.49, AHE-3.50, AHE-3.51, AHE-3.52, AHE-3.53, AHE-3.55, AHE-3.56, AHE-3.57, AHE-3.58, AHE-3.59, AHE-3.60, AHE-3.61, AHE-3.62, AHE-3.63, AHE-3.64, AHE-3.65, AHE-3.66, AHE-3.67, AHE-3.68, AHE-3.69, AHE-3.70, AHE-3.71, AHE-3.72, AHE-3.73 |
-| **CE-038** | 1 | CE-038 |
-| **CTX-1** | 1 | CTX-1.0 |
-| **ECO-4** | 82 | ECO-4.0, ECO-4.1, ECO-4.3, ECO-4.04, ECO-4.05, ECO-4.10, ECO-4.11, ECO-4.12, ECO-4.13, ECO-4.17, ECO-4.21, ECO-4.22, ECO-4.23, ECO-4.24, ECO-4.25, ECO-4.26, ECO-4.27, ECO-4.28, ECO-4.29, ECO-4.30, ECO-4.31, ECO-4.32, ECO-4.33, ECO-4.34, ECO-4.35, ECO-4.36, ECO-4.37, ECO-4.38, ECO-4.39, ECO-4.40, ECO-4.41, ECO-4.42, ECO-4.43, ECO-4.44, ECO-4.45, ECO-4.46, ECO-4.47, ECO-4.48, ECO-4.49, ECO-4.50, ECO-4.51, ECO-4.52, ECO-4.53, ECO-4.54, ECO-4.55, ECO-4.56, ECO-4.57, ECO-4.60, ECO-4.61, ECO-4.63, ECO-4.64, ECO-4.65, ECO-4.66, ECO-4.67, ECO-4.68, ECO-4.70, ECO-4.71, ECO-4.72, ECO-4.73, ECO-4.74, ECO-4.75, ECO-4.77, ECO-4.78, ECO-4.79, ECO-4.80, ECO-4.81, ECO-4.82, ECO-4.83, ECO-4.84, ECO-4.85, ECO-4.86, ECO-4.87, ECO-4.88, ECO-4.90, ECO-4.91, ECO-4.92, ECO-4.93, ECO-4.95, ECO-4.96, ECO-4.97, ECO-4.98, ECO-4.99 |
-| **EE-033** | 1 | EE-033 |
-| **EE-034** | 1 | EE-034 |
-| **EE-036** | 1 | EE-036 |
-| **EE-037** | 1 | EE-037 |
-| **EE-039** | 1 | EE-039 |
-| **EG-009** | 1 | EG-009 |
-| **EG-010** | 1 | EG-010 |
-| **EG-037** | 1 | EG-037 |
-| **KG-1** | 1 | KG-1.0 |
-| **KG-2** | 233 | KG-2.0, KG-2.1, KG-2.2, KG-2.3, KG-2.4, KG-2.5, KG-2.6, KG-2.7, KG-2.8, KG-2.8r, KG-2.9, KG-2.9g, KG-2.9h, KG-2.10, KG-2.11, KG-2.12, KG-2.13, KG-2.14, KG-2.15, KG-2.16, KG-2.17, KG-2.18, KG-2.19, KG-2.20, KG-2.20g, KG-2.21, KG-2.22, KG-2.24, KG-2.25, KG-2.26, KG-2.27, KG-2.28, KG-2.29, KG-2.30, KG-2.31, KG-2.32, KG-2.33, KG-2.34, KG-2.35, KG-2.36, KG-2.37, KG-2.38, KG-2.39, KG-2.40, KG-2.41, KG-2.42, KG-2.43, KG-2.44, KG-2.44b, KG-2.45, KG-2.46, KG-2.47, KG-2.48, KG-2.49, KG-2.50, KG-2.51, KG-2.52, KG-2.53, KG-2.54, KG-2.55, KG-2.56, KG-2.57, KG-2.58, KG-2.59, KG-2.60, KG-2.61, KG-2.62, KG-2.63, KG-2.64, KG-2.65, KG-2.66, KG-2.67, KG-2.68, KG-2.69, KG-2.70, KG-2.71, KG-2.72, KG-2.73, KG-2.73b, KG-2.74, KG-2.75, KG-2.76, KG-2.77, KG-2.78, KG-2.79, KG-2.80, KG-2.81, KG-2.82, KG-2.83, KG-2.84, KG-2.85, KG-2.86, KG-2.87, KG-2.88, KG-2.89, KG-2.90, KG-2.91, KG-2.92, KG-2.93, KG-2.94, KG-2.95, KG-2.96, KG-2.97, KG-2.98, KG-2.99, KG-2.100, KG-2.101, KG-2.102, KG-2.103, KG-2.104, KG-2.105, KG-2.106, KG-2.107, KG-2.108, KG-2.109, KG-2.110, KG-2.111, KG-2.112, KG-2.113, KG-2.114, KG-2.115, KG-2.116, KG-2.117, KG-2.121, KG-2.122, KG-2.123, KG-2.124, KG-2.125, KG-2.126, KG-2.127, KG-2.128, KG-2.129, KG-2.130, KG-2.131, KG-2.133, KG-2.134, KG-2.135, KG-2.136, KG-2.137, KG-2.138, KG-2.139, KG-2.140, KG-2.141, KG-2.142, KG-2.143, KG-2.144, KG-2.145, KG-2.146, KG-2.147, KG-2.148, KG-2.150, KG-2.151, KG-2.154, KG-2.155, KG-2.156, KG-2.157, KG-2.158, KG-2.159, KG-2.160, KG-2.161, KG-2.163, KG-2.164, KG-2.165, KG-2.166, KG-2.172, KG-2.173, KG-2.174, KG-2.185, KG-2.188, KG-2.189, KG-2.192, KG-2.193, KG-2.194, KG-2.203, KG-2.206, KG-2.208, KG-2.210, KG-2.211, KG-2.212, KG-2.213, KG-2.214, KG-2.225, KG-2.231, KG-2.238, KG-2.242, KG-2.243, KG-2.244, KG-2.245, KG-2.246, KG-2.247, KG-2.248, KG-2.250, KG-2.251, KG-2.252, KG-2.253, KG-2.255, KG-2.256, KG-2.257, KG-2.258, KG-2.259, KG-2.260, KG-2.261, KG-2.262, KG-2.264, KG-2.265, KG-2.266, KG-2.267, KG-2.269, KG-2.272, KG-2.273, KG-2.274, KG-2.275, KG-2.276, KG-2.277, KG-2.278, KG-2.279, KG-2.280, KG-2.281, KG-2.282, KG-2.283, KG-2.284, KG-2.285, KG-2.286, KG-2.287, KG-2.288, KG-2.289, KG-2.290, KG-2.291, KG-2.292, KG-2.293, KG-2.294, KG-2.295, KG-2.296 |
-| **LGC-1** | 1 | LGC-1.0 |
-| **ML-011** | 1 | ML-011 |
-| **ORCH-1** | 89 | ORCH-1.0, ORCH-1.1, ORCH-1.2, ORCH-1.3, ORCH-1.3b, ORCH-1.4, ORCH-1.8, ORCH-1.9, ORCH-1.10, ORCH-1.11, ORCH-1.12, ORCH-1.13, ORCH-1.20, ORCH-1.21, ORCH-1.22, ORCH-1.23, ORCH-1.24, ORCH-1.26, ORCH-1.27, ORCH-1.28, ORCH-1.29, ORCH-1.30, ORCH-1.31, ORCH-1.32, ORCH-1.33, ORCH-1.34, ORCH-1.35, ORCH-1.36, ORCH-1.37, ORCH-1.38, ORCH-1.39, ORCH-1.40, ORCH-1.41, ORCH-1.42, ORCH-1.43, ORCH-1.44, ORCH-1.45, ORCH-1.46, ORCH-1.47, ORCH-1.48, ORCH-1.49, ORCH-1.50, ORCH-1.51, ORCH-1.52, ORCH-1.53, ORCH-1.54, ORCH-1.55, ORCH-1.56, ORCH-1.57, ORCH-1.58, ORCH-1.59, ORCH-1.60, ORCH-1.62, ORCH-1.63, ORCH-1.64, ORCH-1.65, ORCH-1.67, ORCH-1.68, ORCH-1.69, ORCH-1.70, ORCH-1.71, ORCH-1.72, ORCH-1.74, ORCH-1.75, ORCH-1.76, ORCH-1.77, ORCH-1.78, ORCH-1.79, ORCH-1.80, ORCH-1.81, ORCH-1.82, ORCH-1.83, ORCH-1.84, ORCH-1.85, ORCH-1.86, ORCH-1.87, ORCH-1.88, ORCH-1.89, ORCH-1.90, ORCH-1.91, ORCH-1.92, ORCH-1.93, ORCH-1.94, ORCH-1.95, ORCH-1.96, ORCH-1.97, ORCH-1.98, ORCH-1.99, ORCH-1.100 |
-| **ORCH-2** | 1 | ORCH-2.0 |
-| **ORCH-5** | 1 | ORCH-5.0 |
-| **OS-5** | 64 | OS-5.0, OS-5.1, OS-5.2, OS-5.3, OS-5.4, OS-5.5, OS-5.6, OS-5.8, OS-5.9, OS-5.10, OS-5.11, OS-5.12, OS-5.13, OS-5.14, OS-5.15, OS-5.16, OS-5.17, OS-5.18, OS-5.23, OS-5.24, OS-5.25, OS-5.26, OS-5.27, OS-5.28, OS-5.29, OS-5.31, OS-5.32, OS-5.33, OS-5.34, OS-5.35, OS-5.36, OS-5.37, OS-5.38, OS-5.39, OS-5.40, OS-5.41, OS-5.42, OS-5.43, OS-5.44, OS-5.45, OS-5.46, OS-5.47, OS-5.48, OS-5.49, OS-5.50, OS-5.52, OS-5.53, OS-5.55, OS-5.57, OS-5.58, OS-5.59, OS-5.60, OS-5.61, OS-5.63, OS-5.64, OS-5.65, OS-5.66, OS-5.67, OS-5.68, OS-5.69, OS-5.70, OS-5.71, OS-5.72, OS-5.73 |
-| **SAFE-1** | 9 | SAFE-1.0, SAFE-1.1, SAFE-1.2, SAFE-1.3, SAFE-1.4, SAFE-1.5, SAFE-1.6, SAFE-1.7, SAFE-1.8 |
-| **UTIL-1** | 1 | UTIL-1.0 |
+| **AU-AHE** | 109 | assimilation, evaluation, harness, optimization, reward, rlm, sdd, trainer |
+| **AU-ECO** | 107 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 374 | backend, compute, coordination, domains, enrichment, ingest, maintenance, memory, ontology, query, research, retrieval, sharding, storage, temporal, txn |
+| **AU-ORCH** | 177 | adapter, dispatch, execution, optimization, planning, reactive, routing, sandbox, scheduling, session |
+| **AU-OS** | 119 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **EG-AHE** | 1 | harness |
+| **EG-KG** | 20 | backend, compute, domains, enrichment, ingest, memory, query, sharding, storage, txn |
+| **EG-ORCH** | 1 | routing |
+
+_Full id list + code paths: `docs/concepts.yaml`._

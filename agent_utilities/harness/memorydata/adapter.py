@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""MemoryData agent adapter for the graph-os memory stack (CONCEPT:AHE-3.71).
+"""MemoryData agent adapter for the graph-os memory stack (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
 MemoryData (``utils/agent.py::AgentWrapper``) drives every method through two calls:
 
@@ -91,7 +91,7 @@ def _estimate_tokens(text: str) -> int:
 
 
 class GraphOSMemoryMethod:
-    """Graph-os memory method conforming to MemoryData's agent contract (CONCEPT:AHE-3.71).
+    """Graph-os memory method conforming to MemoryData's agent contract (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     Construct with ``agent_config`` (carrying ``agent_name``, ``retrieval``, ``top_k``,
     ``transport`` …) and ``dataset_config``; ``send_message`` then stores chunks and answers

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Unified DSPy optimization subsystem — metric · targets · driver · demo refinement.
 
-CONCEPT:AHE-3.39 — Real optimization metric (replaces the exact-match placeholder).
-CONCEPT:AHE-3.40 — Optimizable-target registry + generalized DSPy driver.
-CONCEPT:AHE-3.43 — Few-shot demo-set refinement.
+CONCEPT:AU-AHE.optimization.real-optimization-metric — Real optimization metric (replaces the exact-match placeholder).
+CONCEPT:AU-AHE.optimization.optimizable-target-registry — Optimizable-target registry + generalized DSPy driver.
+CONCEPT:AU-AHE.optimization.few-shot-demo-set — Few-shot demo-set refinement.
 
 DSPy optimizes anything expressible as a ``Signature`` (typed in→out) + a *metric* +
 a *trainset*. The original wiring (`EvolveAgent._dspy_optimize_cluster`) was hardcoded
@@ -41,7 +41,7 @@ DspyMetric = Callable[..., float]
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.39 — the real optimization metric
+# CONCEPT:AU-AHE.optimization.real-optimization-metric — the real optimization metric
 # --------------------------------------------------------------------------- #
 def graded_score(expected: str, actual: str) -> float:
     """Graded [0, 1] similarity between ``expected`` and ``actual`` text.
@@ -70,7 +70,7 @@ def make_optimization_metric(
     reward_weight: float = 0.0,
     return_bool: bool = False,
 ) -> DspyMetric:
-    """Build a DSPy-compatible metric (CONCEPT:AHE-3.39).
+    """Build a DSPy-compatible metric (CONCEPT:AU-AHE.optimization.real-optimization-metric).
 
     The metric grades ``prediction.response`` against ``example.response`` via
     :func:`graded_score`, optionally blending a per-example ``reward_fn`` (e.g. the
@@ -100,7 +100,7 @@ def make_optimization_metric(
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.40 — optimizable-target registry
+# CONCEPT:AU-AHE.optimization.optimizable-target-registry — optimizable-target registry
 # --------------------------------------------------------------------------- #
 @dataclass
 class OptimizationResult:
@@ -117,7 +117,7 @@ class OptimizationResult:
 
 @dataclass
 class OptimizableTarget:
-    """One DSPy-optimizable artifact type (CONCEPT:AHE-3.40).
+    """One DSPy-optimizable artifact type (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
 
     A handler declares, for a :class:`ComponentType`, how to (1) read the artifact's
     optimizable *text* from its file, (2) name it, and (3) write the compiled state back.
@@ -182,7 +182,7 @@ OPTIMIZABLE_TARGETS: dict[str, OptimizableTarget] = {
         task_name=lambda bp: str(bp.get("task", "agent")),
         kg_label="EvolvedPromptNode",
     ),
-    # CONCEPT:AHE-3.41 — MCP tool descriptions become a DSPy-optimizable target (was
+    # CONCEPT:AU-AHE.optimization.optimizable-tool-descriptions — MCP tool descriptions become a DSPy-optimizable target (was
     # only heuristic-edited); apply side is PhysicalDistillationEngine.distill_mcp_tool.
     "tool_description": OptimizableTarget(
         component_type="tool_description",
@@ -191,7 +191,7 @@ OPTIMIZABLE_TARGETS: dict[str, OptimizableTarget] = {
         task_name=lambda a: str(a.get("name") or a.get("tool") or "tool"),
         kg_label="EvolvedToolDescriptionNode",
     ),
-    # CONCEPT:AHE-3.42 — agent skill SOP/description as a DSPy-optimizable target; the SOP
+    # CONCEPT:AU-AHE.optimization.agent-skill-sop-description — agent skill SOP/description as a DSPy-optimizable target; the SOP
     # already reaches the model via mount_skill_unit (ORCH-1.28), apply side distill_skill.
     "skill": OptimizableTarget(
         component_type="skill",
@@ -210,7 +210,7 @@ def get_target(component_type: ComponentType | str) -> OptimizableTarget | None:
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.43 — few-shot demo-set refinement
+# CONCEPT:AU-AHE.optimization.few-shot-demo-set — few-shot demo-set refinement
 # --------------------------------------------------------------------------- #
 def refine_demos(
     program: Any,
@@ -221,7 +221,7 @@ def refine_demos(
 ) -> list[Any]:
     """Drop-one demo ablation: keep only demos that don't hurt held-out score.
 
-    CONCEPT:AHE-3.43. ``BootstrapFewShot`` selects demos but never re-checks them; a noisy
+    CONCEPT:AU-AHE.optimization.few-shot-demo-set. ``BootstrapFewShot`` selects demos but never re-checks them; a noisy
     demo then survives into the blueprint. This evaluates the program on ``holdout``,
     removes each demo whose removal does **not** lower the mean score, and returns the
     pruned demo list (never below ``min_demos``). Best-effort: any failure returns the
@@ -266,7 +266,7 @@ def refine_demos(
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.40 — the generalized driver
+# CONCEPT:AU-AHE.optimization.optimizable-target-registry — the generalized driver
 # --------------------------------------------------------------------------- #
 def build_optimizer(optimizer_name: str, metric: DspyMetric) -> Any:
     """Construct a DSPy teleprompter by name, degrading to BootstrapFewShot.
@@ -311,7 +311,7 @@ def run_dspy_optimization(
 ) -> OptimizationResult | None:
     """Compile a target with DSPy, refine its demos, and return the result.
 
-    CONCEPT:AHE-3.40/3.43. Splits ``trainset`` into a feedback set (used by the optimizer)
+    CONCEPT:AU-AHE.optimization.optimizable-target-registry/3.43. Splits ``trainset`` into a feedback set (used by the optimizer)
     and a held-out set (used by :func:`refine_demos`), compiles the target's Signature with
     the selected optimizer under the real metric, prunes the bootstrapped demos, and
     returns an :class:`OptimizationResult` (compiled state + kept demos). Returns ``None``
@@ -355,7 +355,7 @@ def run_dspy_optimization(
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.40 — one entry point for every optimizable target
+# CONCEPT:AU-AHE.optimization.optimizable-target-registry — one entry point for every optimizable target
 # --------------------------------------------------------------------------- #
 # The metric + data source + driver for each target, so the optimize surface (MCP
 # `graph_orchestrate action=optimize_component` + REST twin) is one dispatch, not six.
@@ -390,7 +390,7 @@ OPTIMIZATION_TARGETS_META: dict[str, dict[str, str]] = {
 def run_component_optimization(
     target_name: str, data: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Dispatch a DSPy optimization pass for any target (CONCEPT:AHE-3.40).
+    """Dispatch a DSPy optimization pass for any target (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
 
     The single reusable entry point both surfaces call. For the registry targets
     (system_prompt / tool_description / skill) optimization is driven by the evolution
@@ -446,7 +446,7 @@ def run_component_optimization(
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.46 — scheduled optimization sweep (the daemon-tick twin)
+# CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only — scheduled optimization sweep (the daemon-tick twin)
 # --------------------------------------------------------------------------- #
 # The self-supervised targets the daemon can run unattended (the registry targets —
 # system_prompt/tool_description/skill — are driven by the failure-cluster evolution
@@ -457,14 +457,14 @@ SCHEDULABLE_TARGETS: tuple[str, ...] = ("extraction", "concept_match", "routing"
 def should_promote(
     baseline_score: float, candidate_score: float, *, min_delta: float = 0.0
 ) -> bool:
-    """Promotion gate (CONCEPT:AHE-3.46): a candidate replaces the incumbent only when it
+    """Promotion gate (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only): a candidate replaces the incumbent only when it
     beats it on the held-out metric by at least ``min_delta``. The criterion the sweep
     applies before an optimized artifact is allowed to supersede the live one."""
     return candidate_score >= baseline_score + min_delta
 
 
 # --------------------------------------------------------------------------- #
-# CONCEPT:AHE-3.71 — the prompt-hardening cycle (optimize → evaluate → propose)
+# CONCEPT:AU-AHE.optimization.prompt-hardening-cycle — the prompt-hardening cycle (optimize → evaluate → propose)
 # --------------------------------------------------------------------------- #
 # The system-prompt leg of the four artifacts, closed end-to-end: the DSPy demos (or,
 # when no LM is reachable to run a compile, the agent's own labeled successes) are folded
@@ -493,7 +493,7 @@ def build_hardened_prompt(
     optimized_instruction: str = "",
     max_demos: int = 4,
 ) -> Any:
-    """Fold optimized exemplars into a candidate :class:`StructuredPrompt` (CONCEPT:AHE-3.71).
+    """Fold optimized exemplars into a candidate :class:`StructuredPrompt` (CONCEPT:AU-AHE.optimization.prompt-hardening-cycle).
 
     The hardening edit per BootstrapFewShot: the bootstrapped demos (each a real
     ``input → ideal response`` drawn from the agent's *passing* executions) are appended to
@@ -552,7 +552,7 @@ def _bump_patch(version: str | None) -> str:
 def score_prompt_against_corpus(prompt_text: str, cases: Sequence[Any]) -> float:
     """Mean graded overlap of a prompt body with its eval-corpus expected outputs.
 
-    CONCEPT:AHE-3.71. The offline-deterministic proxy for "does this prompt embed the
+    CONCEPT:AU-AHE.optimization.prompt-hardening-cycle. The offline-deterministic proxy for "does this prompt embed the
     behavior the corpus rewards": each case's ``expected_output`` is scored against the
     rendered prompt via :func:`graded_score` (the same semantic scorer the DSPy metric
     uses). A prompt that has folded in exemplars whose responses match the corpus scores
@@ -570,7 +570,7 @@ def score_prompt_against_corpus(prompt_text: str, cases: Sequence[Any]) -> float
 
 @dataclass
 class PromptHardeningOutcome:
-    """The audit record of one prompt-hardening cycle (CONCEPT:AHE-3.71).
+    """The audit record of one prompt-hardening cycle (CONCEPT:AU-AHE.optimization.prompt-hardening-cycle).
 
     Carries everything a human/Claude needs to review the action: which agent, the
     before/after metric, the promote decision, whether it was actually applied (vs held in
@@ -611,7 +611,7 @@ class PromptHardeningOutcome:
 def gather_optimization_data(
     engine: Any, target: str, *, limit: int = 50
 ) -> dict[str, Any]:
-    """Best-effort production data for a self-supervised target (CONCEPT:AHE-3.46).
+    """Best-effort production data for a self-supervised target (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only).
 
     Reads the live graph via ``engine.query_cypher`` for the data each optimizer needs —
     recent ``Document`` text (extraction), ``ADDRESSED_BY``-labeled concept/source pairs
@@ -669,7 +669,7 @@ def gather_optimization_data(
 def run_optimization_sweep(
     engine: Any = None, targets: Sequence[str] | None = None
 ) -> dict[str, Any]:
-    """Propose-only DSPy optimization sweep over the schedulable targets (CONCEPT:AHE-3.46).
+    """Propose-only DSPy optimization sweep over the schedulable targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only).
 
     The reusable core the daemon tick and the on-demand ``optimize_component task=all``
     surface both call. For each target it gathers live data

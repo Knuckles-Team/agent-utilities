@@ -1,6 +1,6 @@
 # Centralized Knowledge Graph Coordination & Epistemic Gateway Protocol
 
-This document details the architecture, design decisions, and benchmarks for the **Centralized Epistemic Gateway & Transaction Proxy** (`CONCEPT:KG-2.5`) inside the `agent-utilities` ecosystem.
+This document details the architecture, design decisions, and benchmarks for the **Centralized Epistemic Gateway & Transaction Proxy** (`CONCEPT:AU-KG.compute.spectral-cluster-navigator`) inside the `agent-utilities` ecosystem.
 
 ---
 
@@ -33,14 +33,14 @@ sequenceDiagram
 
 ---
 
-## 2. CONCEPT:KG-2.5 — Epistemic Gateway & Transaction Proxy
+## 2. CONCEPT:AU-KG.compute.spectral-cluster-navigator — Epistemic Gateway & Transaction Proxy
 
-With the introduction of the centralized server, we have formalized the entrypoint on port `8100` as the **Epistemic Gateway & Transaction Proxy** (`CONCEPT:KG-2.5`).
+With the introduction of the centralized server, we have formalized the entrypoint on port `8100` as the **Epistemic Gateway & Transaction Proxy** (`CONCEPT:AU-KG.compute.spectral-cluster-navigator`).
 
 ### Gateway Philosophy: Interaction vs. Epistemic
 To align with industry best practices, we compare the roles of an Interaction Gateway vs. our Epistemic Data Gateway:
 
-| Attribute | User/Interaction Gateway (e.g., OpenClaw, AG-UI) | Epistemic Data Gateway (`CONCEPT:KG-2.5` / port 8100) |
+| Attribute | User/Interaction Gateway (e.g., OpenClaw, AG-UI) | Epistemic Data Gateway (`CONCEPT:AU-KG.compute.spectral-cluster-navigator` / port 8100) |
 |---|---|---|
 | **Primary Focus** | User channels, device pairing, chat session routing, sandboxed shell execution. | Data persistency, query serialization, thread-safe transaction isolation, WAL checkpointing. |
 | **Bypass Logic** | None (direct interface to messaging channels). | Seamless fallback to local SQLite execution if the gateway is offline or congested. |
@@ -92,7 +92,7 @@ Every Cypher query routed through the gateway carries custom HTTP headers:
 
 These headers are intercepted by the `CentralizedCypherMiddleware`, logged for security audit trails, and can be used to tag and trace the exact lineage of graph nodes and edges.
 
-### 2. Query Safety Guardrails (`CONCEPT:OS-5.1`)
+### 2. Query Safety Guardrails (`CONCEPT:AU-OS.config.secrets-authentication`)
 To prevent rogue agents or malformed scripts from wiping the database, the gateway middleware runs static analysis on all incoming queries:
 - **Global Destructive Wipes** (such as `MATCH (n) DETACH DELETE n` or `MATCH (n) DELETE n`) are intercepted and **rejected** with a `400 Bad Request` before they hit the database engine.
 - This enforces strict declarative safety contracts at the database boundary.
@@ -214,7 +214,7 @@ The ScholarX file scanner used only `_SEEN_HASHES` for deduplication, missing th
 
 ## 7. Centralized Sessions & Autonomous Goal Coordination
 
-To support multi-agent systems and unified user interfaces (e.g. `agent-webui`) interacting with shared agent runs, we have centralized the management of **Durable Sessions & Autonomous Goals** (`CONCEPT:ORCH-5.0`) inside the Epistemic Gateway on Port `8100`.
+To support multi-agent systems and unified user interfaces (e.g. `agent-webui`) interacting with shared agent runs, we have centralized the management of **Durable Sessions & Autonomous Goals** (`CONCEPT:AU-ORCH.session.durable-session-autonomous-goal`) inside the Epistemic Gateway on Port `8100`.
 
 ### Architectural Topology
 

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Probabilistic Knowledge Graph Reasoning."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Probabilistic Knowledge Graph Reasoning."""
 
 import math
 

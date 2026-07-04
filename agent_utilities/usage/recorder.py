@@ -1,6 +1,6 @@
 """UsageRecorder — the single write facade for both data planes.
 
-CONCEPT:ECO-4.39 / OS-5.31. Plane A (ingested external logs) and plane B (our
+CONCEPT:AU-OS.observability.usage-analytics-store / OS-5.31. Plane A (ingested external logs) and plane B (our
 own runtime telemetry) both go through here so they land in one store with one
 shape. Every method is best-effort: a recorder failure must never break a graph
 run or an ingest. Runtime rows are stamped with the active correlation id.
@@ -43,7 +43,7 @@ def _enabled() -> bool:
 
 
 def _bump_call_metric(category: str, tool_name: str, skill_name: str | None) -> None:
-    """Mirror a tool/skill/db call to Prometheus (CONCEPT:OS-5.31). No-op when
+    """Mirror a tool/skill/db call to Prometheus (CONCEPT:AU-OS.observability.persist-this-graph-run). No-op when
     the metrics extra is absent."""
     try:
         from agent_utilities.observability import gateway_metrics as gm

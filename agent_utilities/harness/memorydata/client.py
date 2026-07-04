@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Pluggable memory-backend transport for the MemoryData bake-off (CONCEPT:AHE-3.71).
+"""Pluggable memory-backend transport for the MemoryData bake-off (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
 The MemoryData benchmark dispatches every memorize/query call through an agent adapter.
 To run that adapter *out of process* against a live ``graph-os`` engine **and** keep the
@@ -52,7 +52,7 @@ def _tokens(text: str) -> list[str]:
 
 
 class MemoryBackendClient(ABC):
-    """Abstract memory transport the adapter drives (CONCEPT:AHE-3.71).
+    """Abstract memory transport the adapter drives (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     A backend stores context chunks (``ingest_memory``), retrieves them for a query
     (``recall``), optionally answers with citations (``synthesize``), and can clear a
@@ -88,7 +88,7 @@ class MemoryBackendClient(ABC):
 
 
 class MockBackendClient(MemoryBackendClient):
-    """Deterministic in-memory backend for tests and dry runs (CONCEPT:AHE-3.71).
+    """Deterministic in-memory backend for tests and dry runs (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     ``recall`` scores stored chunks by token-overlap with the query (a normalized
     intersection count), so a planted fact is reliably retrieved without any model or
@@ -167,7 +167,7 @@ class MockBackendClient(MemoryBackendClient):
 
 
 class GraphOSRestClient(MemoryBackendClient):
-    """Live transport over the graph-os REST surface (``/graph/*``, CONCEPT:AHE-3.71).
+    """Live transport over the graph-os REST surface (``/graph/*``, CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     Maps the abstract operations onto the served endpoints:
 
@@ -293,7 +293,7 @@ class GraphOSRestClient(MemoryBackendClient):
 
 
 class EngineBackendClient(MemoryBackendClient):
-    """In-process transport over the *live* graph-os engine (CONCEPT:AHE-3.71).
+    """In-process transport over the *live* graph-os engine (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     Unlike :class:`GraphOSRestClient` (which assumes a ``/graph/*`` REST gateway), this
     transport talks to the engine the same way the MCP tools do — via
@@ -475,7 +475,7 @@ class EngineBackendClient(MemoryBackendClient):
 
 
 def build_client(config: dict[str, Any]) -> MemoryBackendClient:
-    """Construct a backend client from ``config`` (CONCEPT:AHE-3.71).
+    """Construct a backend client from ``config`` (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
     ``config["transport"]`` selects the implementation — ``"mock"`` (default, offline),
     ``"rest"`` (graph-os ``/graph/*`` gateway), or ``"engine"`` (the *live* in-process

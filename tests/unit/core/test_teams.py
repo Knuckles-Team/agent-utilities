@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.3"""
+"""CONCEPT:AU-AHE.evaluation.interpretability-tests"""
 
 """Tests for TeamCapability — team coordination with ACP/A2A.
 

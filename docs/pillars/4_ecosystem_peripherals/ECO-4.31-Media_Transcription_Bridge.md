@@ -1,4 +1,4 @@
-# Media Transcription Bridge (CONCEPT:ECO-4.31)
+# Media Transcription Bridge (CONCEPT:AU-ECO.toolkit.media-transcription-bridge)
 
 ## Overview
 A thin client for the `faster-whisper` service (OpenAI-compatible

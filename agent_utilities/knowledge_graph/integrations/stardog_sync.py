@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Stardog instance-data sync — explicit push / pull, partitioned by source.
 
-CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction.
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction.
 
 On-demand counterpart to the live fan-out mirror: push the KG's instance data
 (nodes + edges) into a Stardog triplestore, or pull it back. Data is partitioned

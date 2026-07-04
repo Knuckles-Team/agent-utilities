@@ -1,4 +1,4 @@
-"""wger wellness source extractor (CONCEPT:KG-2.9).
+"""wger wellness source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Reads body/nutrition/workout data from a wger instance into canonical wellness
 OWL nodes: weight + measurements → :BodyMeasurement, workout sessions →

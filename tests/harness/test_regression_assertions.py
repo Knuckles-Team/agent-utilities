@@ -1,4 +1,4 @@
-"""Tests for the plain-English assertion regression seam (CONCEPT:AHE-3.25)."""
+"""Tests for the plain-English assertion regression seam (CONCEPT:AU-AHE.evaluation.failure-analysis-loop)."""
 
 from __future__ import annotations
 

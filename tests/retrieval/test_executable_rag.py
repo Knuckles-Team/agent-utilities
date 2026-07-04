@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the executable multi-hop RAG interpreter + HybridRetriever wiring.
 
-CONCEPT:KG-2.12
+CONCEPT:AU-KG.retrieval.memory-first-retrieval
 """
 
 from unittest.mock import MagicMock
@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.retrieval.executable_rag import (
     parse_executable_plan,
 )
 
-pytestmark = pytest.mark.concept("KG-2.12")
+pytestmark = pytest.mark.concept("AU-KG.retrieval.memory-first-retrieval")
 
 
 def _docs(*ids):

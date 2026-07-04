@@ -1,4 +1,4 @@
-"""Remediation playbooks on the OS-5.15 triage seam (CONCEPT:OS-5.26).
+"""Remediation playbooks on the OS-5.15 triage seam (CONCEPT:AU-OS.host.remediation-playbooks).
 
 Covers: idempotent registration on the ``register_playbook()`` seam (critical
 and error severities only — warnings keep the default playbook), the
@@ -7,7 +7,7 @@ with health-watch verification, escalation on deny/actuation-failure), the
 flapping back-off, the never-auto-act resource-pressure path, and the
 per-step ``remediation_log`` trail on the originating FleetEvent node.
 
-@pytest.mark.concept("OS-5.26")
+@pytest.mark.concept("AU-OS.host.remediation-playbooks")
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from .fleet_autonomy_fakes import (
     write_policy,
 )
 
-pytestmark = pytest.mark.concept("OS-5.26")
+pytestmark = pytest.mark.concept("AU-OS.host.remediation-playbooks")
 
 PERMISSIVE = (
     "defaults: {tier: auto, rate_limit: {max: 100, window_s: 60},"

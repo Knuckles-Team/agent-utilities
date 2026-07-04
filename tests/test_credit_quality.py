@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.31 — Dividend Sustainability & Credit Quality.
+"""Tests for CONCEPT:AU-KG.domains.dividend-sustainability-credit-fixed — Dividend Sustainability & Credit Quality.
 
 Known-value assertions on the formulas plus a live-path wiring test that the
 combined verdict folds into a ``DebateContext.fundamentals_report`` (the field

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.18 — live-path integration: recall telemetry is actually invoked by retrieval.
+"""CONCEPT:AU-KG.retrieval.evidence-weighted-memory — live-path integration: recall telemetry is actually invoked by retrieval.
 
 Reachable != invoked. This test exercises the EXISTING `plan_and_retrieve` hot path and asserts the
 evidence-weighting telemetry is populated as a side effect — and that the usage half closes the loop.
@@ -47,7 +47,7 @@ class _FakeRetriever:
         return list(self._results)
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_plan_and_retrieve_records_recall_on_live_path():
     r = _FakeRetriever([{"id": "n1", "_score": 0.9}, {"id": "n2", "_score": 0.8}])
     r.plan_and_retrieve("a real query", mode="standard")  # type: ignore[misc]
@@ -56,7 +56,7 @@ def test_plan_and_retrieve_records_recall_on_live_path():
     assert r.usage_telemetry._recalled.get("n2") == 1  # type: ignore[misc]
 
 
-@pytest.mark.concept(id="KG-2.18")
+@pytest.mark.concept(id="AU-KG.retrieval.evidence-weighted-memory")
 def test_record_answer_usage_closes_loop_and_persists_trust():
     r = _FakeRetriever([{"id": "n1", "_score": 0.9}, {"id": "n2", "_score": 0.8}])
     r.plan_and_retrieve("q", mode="standard")  # type: ignore[misc]

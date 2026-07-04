@@ -1,6 +1,6 @@
 """Declarative Resilience Policy — retry / backoff / fallback / timeout.
 
-CONCEPT:ORCH-1.36 — Declarative Resilience Policy
+CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy
 
 Closes the Reliability & Failure-Management gap (L7) versus the agentic
 reference architecture. The platform already ships the canonical circuit
@@ -163,7 +163,7 @@ class ResiliencePolicy:
                 return bool(retry_on(exc))
             except Exception:  # noqa: BLE001 - a broken predicate must not crash
                 logger.warning(
-                    "[CONCEPT:ORCH-1.36] retry_on predicate raised; treating as non-retryable"
+                    "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] retry_on predicate raised; treating as non-retryable"
                 )
                 return False
         # Tuple allow-list: hard-deny the known-deterministic family first.
@@ -284,7 +284,7 @@ async def run_with_resilience(
             )
             if not retryable or not has_more:
                 logger.debug(
-                    "[CONCEPT:ORCH-1.36] '%s' attempt %d/%d failed (retryable=%s): %s",
+                    "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' attempt %d/%d failed (retryable=%s): %s",
                     policy.name,
                     attempt,
                     policy.max_attempts,
@@ -294,7 +294,7 @@ async def run_with_resilience(
                 break
             delay = _retry_delay(exc, attempt, policy, rng)
             logger.info(
-                "[CONCEPT:ORCH-1.36] '%s' retrying after attempt %d/%d "
+                "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' retrying after attempt %d/%d "
                 "(backoff=%.3fs): %s",
                 policy.name,
                 attempt,
@@ -312,7 +312,7 @@ async def run_with_resilience(
             {"policy": policy.name, "fallback_index": idx},
         )
         logger.info(
-            "[CONCEPT:ORCH-1.36] '%s' primary exhausted; trying fallback %d/%d",
+            "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' primary exhausted; trying fallback %d/%d",
             policy.name,
             idx + 1,
             len(policy.fallbacks),
@@ -324,7 +324,7 @@ async def run_with_resilience(
         except BaseException as exc:  # noqa: BLE001 - try the next fallback
             last_exc = exc
             logger.warning(
-                "[CONCEPT:ORCH-1.36] '%s' fallback %d/%d failed: %s",
+                "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' fallback %d/%d failed: %s",
                 policy.name,
                 idx + 1,
                 len(policy.fallbacks),
@@ -374,7 +374,7 @@ def run_with_resilience_sync(
                 break
             delay = _retry_delay(exc, attempt, policy, rng)
             logger.info(
-                "[CONCEPT:ORCH-1.36] '%s' (sync) retrying after attempt %d/%d "
+                "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' (sync) retrying after attempt %d/%d "
                 "(backoff=%.3fs): %s",
                 policy.name,
                 attempt,
@@ -395,7 +395,7 @@ def run_with_resilience_sync(
         except BaseException as exc:  # noqa: BLE001 - try the next fallback
             last_exc = exc
             logger.warning(
-                "[CONCEPT:ORCH-1.36] '%s' (sync) fallback %d/%d failed: %s",
+                "[CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating] '%s' (sync) fallback %d/%d failed: %s",
                 policy.name,
                 idx + 1,
                 len(policy.fallbacks),

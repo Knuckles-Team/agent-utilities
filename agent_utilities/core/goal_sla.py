@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Goals-as-contracts: SLA evaluation + escalation (CONCEPT:ORCH-1.78).
+"""Goals-as-contracts: SLA evaluation + escalation (CONCEPT:AU-ORCH.session.escalate-breached-goals).
 
 Turns a goal from "a loop that runs" into a durable *contract*: an objective with a
 deadline (``sla_seconds``) and an escalation target. A maintenance tick

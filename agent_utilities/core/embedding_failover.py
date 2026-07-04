@@ -1,4 +1,4 @@
-"""Automatic embedder endpoint failover (CONCEPT:KG-2.299).
+"""Automatic embedder endpoint failover (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
 The embedding plane runs against a **primary** embedder endpoint (e.g. a dedicated
 ``gr1080-embed.arpa`` box, ``gpu_group="gr1080"``). When that endpoint is down or
@@ -21,7 +21,7 @@ now. It is consulted by:
   can never OOM the shared box — exactly the operator's requirement.
 
 **The failover trigger reuses the existing per-endpoint circuit breaker**
-(CONCEPT:ORCH-1.103): the PRIMARY embedder's breaker (keyed ``embedding``) is fed by
+(CONCEPT:AU-ORCH.routing.load-shedding-backoff): the PRIMARY embedder's breaker (keyed ``embedding``) is fed by
 the primary embed fan-out itself. When a connection-failure / timeout / overload
 trips it OPEN, :meth:`ModelCircuitBreaker.is_tripped` returns ``True`` and this
 router selects the fallback. Recovery is automatic and needs no extra machinery:
@@ -59,7 +59,7 @@ FALLBACK_KEY = "embedding:fallback"
 
 @dataclass(frozen=True)
 class EmbeddingEndpoint:
-    """The embedder endpoint that is active right now (CONCEPT:KG-2.299)."""
+    """The embedder endpoint that is active right now (CONCEPT:AU-KG.enrichment.each-call-resolves-active)."""
 
     #: Capacity-guard model key — :data:`PRIMARY_KEY` or :data:`FALLBACK_KEY`. Drives
     #: the per-endpoint gate, breaker, and GPU-group budget bucket.
@@ -80,7 +80,7 @@ _recovery_count = 0
 
 
 def _observe(endpoint: EmbeddingEndpoint) -> None:
-    """Log + count primary↔fallback transitions (CONCEPT:KG-2.299). Never raises."""
+    """Log + count primary↔fallback transitions (CONCEPT:AU-KG.enrichment.each-call-resolves-active). Never raises."""
     global _last_active_key, _failover_count, _recovery_count
     with _obs_lock:
         prev = _last_active_key
@@ -135,10 +135,10 @@ def _endpoint_from_cfg(
 
 
 def active_embedding_endpoint() -> EmbeddingEndpoint:
-    """Resolve the embedder endpoint to use right now (CONCEPT:KG-2.299).
+    """Resolve the embedder endpoint to use right now (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
     Returns the PRIMARY endpoint unless a fallback is configured AND the primary
-    embedder's circuit breaker (CONCEPT:ORCH-1.103) is actively tripped, in which
+    embedder's circuit breaker (CONCEPT:AU-ORCH.routing.load-shedding-backoff) is actively tripped, in which
     case it returns the FALLBACK endpoint (key :data:`FALLBACK_KEY`). Transparent to
     callers, automatic in both directions, and fail-safe: any resolution error or a
     missing config collapses to a bare PRIMARY endpoint (no failover), so embedding
@@ -190,7 +190,7 @@ def active_embedding_endpoint() -> EmbeddingEndpoint:
 
 
 def embedding_endpoint_status() -> dict[str, object]:
-    """Queryable snapshot of the embedder failover state (CONCEPT:KG-2.299).
+    """Queryable snapshot of the embedder failover state (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
     Surfaces the active endpoint, whether it is the fallback, the primary breaker's
     state, and the cumulative failover/recovery counts — a small, stable signal for
@@ -229,7 +229,7 @@ def _fallback_is_configured() -> bool:
 
 
 def reset_embedding_failover() -> None:
-    """Reset the observability counters/state (test isolation). CONCEPT:KG-2.299."""
+    """Reset the observability counters/state (test isolation). CONCEPT:AU-KG.enrichment.each-call-resolves-active."""
     global _last_active_key, _failover_count, _recovery_count
     with _obs_lock:
         _last_active_key = None

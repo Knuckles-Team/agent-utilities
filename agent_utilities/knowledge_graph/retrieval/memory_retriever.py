@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.1 — Persistent Self-Model with OWL Integration.
+"""CONCEPT:AU-KG.memory.persistent-self-model-owl — Persistent Self-Model with OWL Integration.
 
 Provides a versioned metacognitive self-model that aggregates session
 outcomes into a persistent KG representation of the agent's own
@@ -17,11 +17,11 @@ Architecture:
       domains am I improving in?").
 
 Integrates with:
-    - CONCEPT:KG-2.0 (OGM): Declarative KG persistence
+    - CONCEPT:AU-KG.query.object-graph-mapper (OGM): Declarative KG persistence
     - Existing OWL bridge: ``promote_to_owl()`` / ``reason_about_self()``
     - ``GraphState``: Session outcome aggregation
 
-See docs/pillars/architecture_c4.md §CONCEPT:KG-2.1
+See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.memory.persistent-self-model-owl
 """
 
 
@@ -50,7 +50,7 @@ SELF_MODEL_ANCHOR = "self:agent-model"
 class MemoryRetriever:
     """Versioned metacognitive self-model with OWL reasoning.
 
-    CONCEPT:KG-2.1 — Persistent Self-Model
+    CONCEPT:AU-KG.memory.persistent-self-model-owl — Persistent Self-Model
 
     Maintains a linked chain of ``MemoryRetrieverNode`` snapshots, each
     representing the agent's self-assessed capabilities at a point in
@@ -295,7 +295,7 @@ class MemoryRetriever:
         # Persist with pheromone updates
         self.ogm.upsert(new_model)
 
-        # CONCEPT:AHE-3.3 — Model Synergy Tracker
+        # CONCEPT:AU-AHE.evaluation.interpretability-tests — Model Synergy Tracker
         # Record the combination of models used in this session from the
         # routing confidence log.  Each entry in routing_confidence_log
         # records a specialist's routed tier; we collect the unique set
@@ -315,12 +315,12 @@ class MemoryRetriever:
             )
             self.ogm.upsert(new_model)
             logger.info(
-                "[CONCEPT:AHE-3.3] Model synergy updated: %s → %.2f",
+                "[CONCEPT:AU-AHE.evaluation.interpretability-tests] Model synergy updated: %s → %.2f",
                 synergy_key,
                 new_model.model_synergies[synergy_key],
             )
 
-        # CONCEPT:ORCH-1.2 — Invalidate hot cache so routing reflects new self-knowledge
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate hot cache so routing reflects new self-knowledge
         from ...core.config import invalidate_registry_cache
 
         invalidate_registry_cache()
@@ -356,7 +356,7 @@ class MemoryRetriever:
     def get_best_synergies(
         self, available_models: list[str], top_k: int = 3
     ) -> list[tuple[str, float]]:
-        """CONCEPT:AHE-3.3 — Find historically successful model combinations.
+        """CONCEPT:AU-AHE.evaluation.interpretability-tests — Find historically successful model combinations.
 
         Filters synergy records to only include combinations possible with
         the currently available models.
@@ -460,7 +460,7 @@ class MemoryRetriever:
             for pattern in current.known_failure_patterns[:10]:
                 lines.append(f"- {pattern}")
 
-        # CONCEPT:AHE-3.3 — Model Synergy section
+        # CONCEPT:AU-AHE.evaluation.interpretability-tests — Model Synergy section
         if current.model_synergies:
             lines.append("")
             lines.append("## Model Synergies")

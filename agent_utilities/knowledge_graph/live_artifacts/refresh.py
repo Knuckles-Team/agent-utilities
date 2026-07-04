@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Refresh service: re-derive artifact data from the KG; preserve prior on failure.
+"""CONCEPT:AU-KG.memory.refresh-service — Refresh service: re-derive artifact data from the KG; preserve prior on failure.
 
 ``refresh`` re-runs the artifact's bound source (a callable that returns fresh ``data`` — in
 production a KG query over ``source_node_ids``), validates it against the bounded-JSON contract, and

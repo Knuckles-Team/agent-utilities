@@ -1,6 +1,6 @@
 """The :class:`GatewayClient` — typed, reusable access to the agent-utilities gateway.
 
-CONCEPT:ECO-4.37 — Surface Gateway Client SDK
+CONCEPT:AU-ECO.interop.gateway-client-sdk — Surface Gateway Client SDK
 
 One client for every surface. Unary calls go through
 :class:`agent_utilities.http.AsyncBaseApiClient` (auth, 429 backoff, redaction);
@@ -145,7 +145,7 @@ class GatewayClient:
         body = self._body(await self._api.post(endpoint, json=payload))
         return body if isinstance(body, dict) else {}
 
-    # --- Observability / usage / cost (CONCEPT:ECO-4.41) -------------------- #
+    # --- Observability / usage / cost (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface) -------------------- #
 
     async def usage_summary(self, **filters: Any) -> dict[str, Any]:
         """Token/cost/cache totals (``/api/observability/summary``)."""

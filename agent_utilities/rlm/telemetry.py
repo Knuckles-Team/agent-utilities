@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.29 — RLM Resilience + Structured Telemetry.
+"""CONCEPT:AU-ORCH.execution.rlm-resilience-telemetry — RLM Resilience + Structured Telemetry.
 
 Assimilated from predict-rlm (`Trampoline-AI/predict-rlm@edaddfe`, `src/predict_rlm/trace.py`,
 `telemetry.py`, `interpreter.py`). Two concerns that make the RLM robust and give GEPA a
@@ -44,7 +44,7 @@ FailureClass = Literal[
 
 # Precedence: a fatal sandbox failure dominates a tool timeout dominates a code error, etc.
 # ``sandbox_escalated`` (a backend rejected the snippet and the router moved to the next tier,
-# CONCEPT:ORCH-1.38) sits near the bottom — it is a benign routing event, not a run failure,
+# CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox) sits near the bottom — it is a benign routing event, not a run failure,
 # and is dominated by any real failure that co-occurred.
 _PRECEDENCE: tuple[FailureClass, ...] = (
     "sandbox_fatal",
@@ -58,7 +58,7 @@ _PRECEDENCE: tuple[FailureClass, ...] = (
 
 
 def classify_failure(exc: BaseException | str) -> FailureClass:
-    """Classify a failure into the taxonomy the GEPA proposer keys off (CONCEPT:ORCH-1.29)."""
+    """Classify a failure into the taxonomy the GEPA proposer keys off (CONCEPT:AU-ORCH.execution.rlm-resilience-telemetry)."""
     if isinstance(exc, SandboxFatalError):
         return "sandbox_fatal"
     if isinstance(exc, asyncio.TimeoutError):
@@ -140,7 +140,7 @@ class RunTrace(BaseModel):
 async def with_tool_timeout(
     coro: Any, *, seconds: float = TOOL_CALL_TIMEOUT_SEC
 ) -> tuple[bool, Any]:
-    """Await a host tool with a wall-clock budget; a timeout is RECOVERABLE (CONCEPT:ORCH-1.29).
+    """Await a host tool with a wall-clock budget; a timeout is RECOVERABLE (CONCEPT:AU-ORCH.execution.rlm-resilience-telemetry).
 
     Returns ``(ok, value_or_error)``: ``(True, result)`` on success, ``(False, "<timeout msg>")`` on
     timeout — the caller surfaces the message to the model and keeps the sandbox alive, rather than

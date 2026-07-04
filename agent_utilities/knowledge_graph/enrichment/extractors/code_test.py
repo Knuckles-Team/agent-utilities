@@ -1,4 +1,4 @@
-"""Code/test entity extraction from the epistemic-graph Rust AST (CONCEPT:KG-2.8).
+"""Code/test entity extraction from the epistemic-graph Rust AST (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 The AST + test-quality metrics are computed in the **Rust compute layer**
 (`epistemic-graph` ``ParseFile`` RPC → ``parser::tree_sitter``), not in Python.
@@ -18,13 +18,13 @@ from ..models import CodeEntity, EnrichmentEdge, ExtractionResult, TestEntity
 # A parse function: (file_path, source_bytes) -> Rust ParseResult dict
 ParseFn = Callable[[str, bytes], dict[str, Any]]
 # A batched parse function: [(file_path, source_bytes), ...] -> [ParseResult dict, ...]
-# (one result per input file, in input order). (CONCEPT:KG-2.16)
+# (one result per input file, in input order). (CONCEPT:EG-KG.compute.graph-compute-engine)
 BatchParseFn = Callable[[list[tuple[str, bytes]]], list[dict[str, Any]]]
 # An index function: [(file_path, source_bytes), ...] -> one merged IndexResult dict
-# (parse + cross-file type/scope resolution in a SINGLE round-trip). (CONCEPT:KG-2.100)
+# (parse + cross-file type/scope resolution in a SINGLE round-trip). (CONCEPT:EG-KG.compute.type-scope-resolved-call)
 IndexFn = Callable[[list[tuple[str, bytes]]], dict[str, Any]]
 
-# Engine resolved edge types → enrichment rel types (CONCEPT:KG-2.100/2.101).
+# Engine resolved edge types → enrichment rel types (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
 _RESOLVED_EDGE_RELS = {
     "calls": "CALLS",
     "inherits": "INHERITS",
@@ -60,7 +60,7 @@ def _bool(props: dict[str, Any], key: str) -> bool:
 def _split_decorators(raw: str) -> list[str]:
     """Split the parser's ``decorators`` property. Function route decorators embed
     commas (``app.route("/x", methods=[...])``) so they are US-separated (\\x1f);
-    class decorators are comma-joined. Detect which (CONCEPT:KG-2.102)."""
+    class decorators are comma-joined. Detect which (CONCEPT:AU-KG.compute.http-route-graph)."""
     raw = raw or ""
     sep = "\x1f" if "\x1f" in raw else ","
     return [d for d in raw.split(sep) if d]
@@ -91,7 +91,7 @@ def entities_from_parse_result(
             # ``model_construct`` skips Pydantic validation — the values already
             # come typed from our own Rust parser (+ ``_int``/``_bool`` coercion),
             # so validating tens of thousands of entities per big repo is pure
-            # overhead on the ingest hot path. (CONCEPT:KG-2.8, #3)
+            # overhead on the ingest hot path. (CONCEPT:EG-KG.storage.nonblocking-checkpoint, #3)
             result.tests.append(
                 TestEntity.model_construct(
                     id=f"test:{file_path}::{name}",
@@ -155,7 +155,7 @@ def entities_from_index_result(
     index: dict[str, Any], content_hashes: dict[str, str]
 ) -> tuple[list[ExtractionResult], list[EnrichmentEdge]]:
     """Map one engine ``IndexResult`` into per-file entities AND already-resolved
-    ``CALLS``/``INHERITS``/``REALIZES`` edges (CONCEPT:KG-2.100).
+    ``CALLS``/``INHERITS``/``REALIZES`` edges (CONCEPT:EG-KG.compute.type-scope-resolved-call).
 
     A single ``IndexRepository`` round-trip both parses every file and resolves
     cross-file calls type/scope-aware in Rust, so the symbols come from the merged
@@ -239,7 +239,7 @@ def extract_source_files(
     in order. Returns one :class:`ExtractionResult` per input file, in input
     order. A file whose parse failed or is missing from the response degrades to
     an empty result (its ``content_hash`` is still recorded), mirroring the
-    per-file fault tolerance of :func:`extract_source`. (CONCEPT:KG-2.16)
+    per-file fault tolerance of :func:`extract_source`. (CONCEPT:EG-KG.compute.graph-compute-engine)
     """
     raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in files]
     hashes = [hashlib.sha256(b).hexdigest() for _, b in raw]

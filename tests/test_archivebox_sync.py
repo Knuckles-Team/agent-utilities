@@ -1,4 +1,4 @@
-"""Tests for the ArchiveBox source (preset + delta sync) — CONCEPT:KG-2.7."""
+"""Tests for the ArchiveBox source (preset + delta sync) — CONCEPT:AU-KG.query.vendor-agnostic-traversal."""
 
 from __future__ import annotations
 

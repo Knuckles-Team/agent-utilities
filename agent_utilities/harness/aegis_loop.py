@@ -1,4 +1,4 @@
-"""AEGIS unified harness-evolution loop (CONCEPT:AHE-3.52).
+"""AEGIS unified harness-evolution loop (CONCEPT:AU-AHE.harness.run-aegis-loop-over).
 
 HarnessX's AEGIS decomposes harness evolution into Digester → Planner → Evolver →
 Critic. We wire our *existing* machinery into that shape — but the Critic is the
@@ -15,14 +15,14 @@ pattern as `FastSlowController`/`SubstrateTrainer`.
 Beyond the offline self-correction, the loop now exercises three HarnessX
 mechanisms at runtime that were previously only modelled:
 
-  * **Complete deterministic gate sequence (CONCEPT:AHE-3.60):** manifest-verify →
+  * **Complete deterministic gate sequence (CONCEPT:AU-AHE.harness.manifest-verify):** manifest-verify →
     config-normalization (canonical-form dedup) → build/smoke test → SHACL gate.
-  * **Selective invocation + reputation audit (CONCEPT:AHE-3.57):** an actionability
+  * **Selective invocation + reputation audit (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome):** an actionability
     threshold and patience-based idle early-stop, plus a per-dimension ship-outcome
     ledger that diverts exploration away from a *declining-yield* dimension — the
     paper's quantitative under-exploration defense, complementary to the
     concentration gate (over-concentration ≠ declining yield).
-  * **Variant isolation via ensemble routing (CONCEPT:AHE-3.59):** when an edit
+  * **Variant isolation via ensemble routing (CONCEPT:AU-AHE.harness.variant-pool):** when an edit
     improves one task cluster but regresses another, FORK a new variant scoped to
     the improved cluster instead of rejecting it (the single-harness seesaw
     stagnation the paper documents on heterogeneous benchmarks). The no-regression
@@ -96,17 +96,17 @@ class AegisLoop:
         self._hit_rate_floor = float(hit_rate_floor)
 
         self.shipped: list[dict[str, Any]] = []
-        # CONCEPT:AHE-3.59 — variant pool: each {id, cluster:set(task_ids),
+        # CONCEPT:AU-AHE.harness.variant-pool — variant pool: each {id, cluster:set(task_ids),
         # applies:[edit_ids], status}. Seeded lazily with a base variant.
         self.variants: list[dict[str, Any]] = []
-        # CONCEPT:AHE-3.57 — per-dimension ship-outcome ledger (reputation audit).
+        # CONCEPT:AU-AHE.harness.per-dimension-ship-outcome — per-dimension ship-outcome ledger (reputation audit).
         self._ledger: dict[str, list[bool]] = {}
         self._idle = 0
         self._seen_norm: set[str] = set()
 
     # ── Planner ──────────────────────────────────────────────────────────────
     def dimension_hit_rate(self, dimension: str, window: int = 3) -> float | None:
-        """Recent ship hit-rate for a dimension (CONCEPT:AHE-3.57).
+        """Recent ship hit-rate for a dimension (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome).
 
         ``None`` if the dimension has no recorded attempts yet. The reputation
         audit reads the last ``window`` attempts — a *declining-yield* signal the
@@ -145,7 +145,7 @@ class AegisLoop:
             "strategy_concerns": concerns,
         }
 
-    # ── Variant routing (CONCEPT:AHE-3.59) ───────────────────────────────────
+    # ── Variant routing (CONCEPT:AU-AHE.harness.variant-pool) ───────────────────────────────────
     def _base_variant(self) -> dict[str, Any]:
         if not self.variants:
             self.variants.append(
@@ -210,7 +210,7 @@ class AegisLoop:
     def run_round(self, round_idx: int) -> AegisDecision:
         landscape = self.adaptation_landscape()
 
-        # Selective invocation (CONCEPT:AHE-3.57): the Evolver may decline to
+        # Selective invocation (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome): the Evolver may decline to
         # produce a candidate (empty landscape / nothing actionable) — short-circuit
         # the round as idle instead of forcing an edit.
         raw = self._evolver(landscape)
@@ -236,7 +236,7 @@ class AegisLoop:
         regresses_decl = set(regresses)
         candidate["regresses"] = sorted(regresses_decl)
 
-        # Critic stage 2 — config-normalization (CONCEPT:AHE-3.60): canonical-form
+        # Critic stage 2 — config-normalization (CONCEPT:AU-AHE.harness.manifest-verify): canonical-form
         # dedup so a re-proposed identical edit is not double-counted toward
         # concentration (and cannot masquerade as fresh progress).
         if self._normalize is not None:
@@ -247,7 +247,7 @@ class AegisLoop:
                     round_idx, False, candidate, ["duplicate edit (config-normalized)"]
                 )
 
-        # Critic stage 3 — build/smoke test (CONCEPT:AHE-3.60): does the edited
+        # Critic stage 3 — build/smoke test (CONCEPT:AU-AHE.harness.manifest-verify): does the edited
         # processor/tool instantiate and run? A failed smoke never reaches the gate.
         if self._smoke is not None:
             passed = bool(self._smoke(candidate))
@@ -256,7 +256,7 @@ class AegisLoop:
                 self._record(dim, False)
                 return AegisDecision(round_idx, False, candidate, ["smoke test failed"])
 
-        # Variant routing (CONCEPT:AHE-3.59) — fork on a mixed edit when isolation
+        # Variant routing (CONCEPT:AU-AHE.harness.variant-pool) — fork on a mixed edit when isolation
         # is enabled, so the per-variant seesaw is scoped to the improved cluster.
         forked = False
         variant: dict[str, Any] | None = None
@@ -303,7 +303,7 @@ class AegisLoop:
     def run(self, rounds: int) -> list[AegisDecision]:
         """Run up to ``rounds`` AEGIS rounds.
 
-        Patience early-stop (CONCEPT:AHE-3.57): if ``patience`` is set and that many
+        Patience early-stop (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome): if ``patience`` is set and that many
         consecutive rounds ship nothing, the loop stops — no point burning rounds on
         an exhausted landscape.
         """

@@ -1,4 +1,4 @@
-"""Execution-time workflow ontology gate (CONCEPT:ORCH-1.42).
+"""Execution-time workflow ontology gate (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path).
 
 A stored WorkflowDefinition is SHACL-validated (WorkflowDefinitionShape /
 WorkflowStepShape in governance.shapes.ttl) before dispatch — malformed
@@ -6,7 +6,7 @@ definitions are refused with a structured report; with KG_BRAIN_ENFORCE on,
 the ontology permissioning row gate (markings + ACLs, fail-closed) is applied
 to the workflow node for the current actor.
 
-@pytest.mark.concept("ORCH-1.42")
+@pytest.mark.concept("AU-ORCH.execution.ontology-validation-execution-path")
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.core.workflow_gate import (
     workflow_shape_gate_enabled,
 )
 
-pytestmark = pytest.mark.concept("ORCH-1.42")
+pytestmark = pytest.mark.concept("AU-ORCH.execution.ontology-validation-execution-path")
 
 
 class FakeGraph:

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 """Agentic-iModels KG Node Models.
 
-CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver
-CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
-CONCEPT:KG-2.6  — Model Display Optimization
+CONCEPT:AU-AHE.evaluation.interpretability-tests — Agent-Interpretable Model Evolver
+CONCEPT:AU-AHE.evaluation.interpretability-tests — LLM-Graded Interpretability Tests
+CONCEPT:AU-KG.compute.model-display-optimization  — Model Display Optimization
 
 Pydantic models for persisting agent-interpretable ML model classes,
 their interpretability test results, and optimized display representations
@@ -17,15 +17,15 @@ optimized for both predictive accuracy and LLM readability via their
 ``__str__()`` output.
 
 Integration points:
-    - CONCEPT:AHE-3.2  (VariantPool): Tournament-selected model variants
-    - CONCEPT:AHE-3.1 (RewardDecomposer): Accuracy as trajectory reward,
+    - CONCEPT:AU-AHE.harness.evolutionary-aggregation  (VariantPool): Tournament-selected model variants
+    - CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort (RewardDecomposer): Accuracy as trajectory reward,
       interpretability as step reward
-    - CONCEPT:KG-2.4   (EncPI): Vectorized model topology for cross-domain
+    - CONCEPT:AU-KG.compute.cross-pillar-synergy   (EncPI): Vectorized model topology for cross-domain
       analogy matching
-    - CONCEPT:KG-2.2  (SemanticSubsumption): Auto-classify evolved model
+    - CONCEPT:AU-KG.ingest.engineering-rules  (SemanticSubsumption): Auto-classify evolved model
       types into OWL hierarchy
 
-See docs/overview.md §CONCEPT:AHE-3.3
+See docs/overview.md §CONCEPT:AU-AHE.evaluation.interpretability-tests
 """
 
 
@@ -36,14 +36,14 @@ from pydantic import BaseModel, Field
 from .knowledge_graph import RegistryNode, RegistryNodeType
 
 # ---------------------------------------------------------------------------
-# Display strategy enumeration (CONCEPT:KG-2.6)
+# Display strategy enumeration (CONCEPT:AU-KG.compute.model-display-optimization)
 # ---------------------------------------------------------------------------
 
 
 class DisplayStrategy(StrEnum):
     """Display optimization strategy for model ``__str__()`` output.
 
-    CONCEPT:KG-2.6 — Model Display Optimization
+    CONCEPT:AU-KG.compute.model-display-optimization — Model Display Optimization
 
     Controls how the model's internal structure is rendered into a
     string representation optimized for LLM consumption. Based on
@@ -67,14 +67,14 @@ class DisplayStrategy(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Interpretability test category enumeration (CONCEPT:AHE-3.3)
+# Interpretability test category enumeration (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 # ---------------------------------------------------------------------------
 
 
 class InterpretabilityTestCategory(StrEnum):
     """Categories of LLM-graded interpretability tests.
 
-    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — LLM-Graded Interpretability Tests
 
     Six test categories following the protocol in arXiv:2605.03808.
     Each category exercises a different dimension of whether an LLM
@@ -109,7 +109,7 @@ class InterpretabilityTestCategory(StrEnum):
 class IModelNode(RegistryNode):
     """A KG node representing an evolved agent-interpretable model class.
 
-    CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — Agent-Interpretable Model Evolver
 
     Stores the full lifecycle metadata of an evolved scikit-learn-compatible
     model class: source code, fitted ``__str__()`` representation, dual-axis
@@ -169,7 +169,7 @@ class IModelNode(RegistryNode):
 class InterpretabilityTestNode(RegistryNode):
     """A KG node representing an individual interpretability test result.
 
-    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — LLM-Graded Interpretability Tests
 
     Records the result of a single quantitative interpretability test:
     whether an LLM agent could correctly answer a specific question about
@@ -209,7 +209,7 @@ class InterpretabilityTestNode(RegistryNode):
 class ModelDisplayNode(RegistryNode):
     """A KG node for an optimized display representation of a model.
 
-    CONCEPT:KG-2.6 — Model Display Optimization
+    CONCEPT:AU-KG.compute.model-display-optimization — Model Display Optimization
 
     Implements the paper's key insight: display optimization is a
     first-class design axis. A model's ``__str__()`` output can be
@@ -255,7 +255,7 @@ class ModelDisplayNode(RegistryNode):
 class IModelCandidate(BaseModel):
     """A candidate model under evaluation in the autoresearch loop.
 
-    CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver
+    CONCEPT:AU-AHE.evaluation.interpretability-tests — Agent-Interpretable Model Evolver
 
     Wraps a scikit-learn-compatible model specification with dual-axis
     fitness scores. Used transiently during evolution rounds before
@@ -289,7 +289,7 @@ class IModelCandidate(BaseModel):
 class DisplayComplexityBudget(BaseModel):
     """Controls display size for model ``__str__()`` output.
 
-    CONCEPT:KG-2.6 — Model Display Optimization
+    CONCEPT:AU-KG.compute.model-display-optimization — Model Display Optimization
 
     Implements Pattern 1 from arXiv:2605.03808: bounded display
     complexity. Architectural caps on the size and detail of the

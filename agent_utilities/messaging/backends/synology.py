@@ -1,7 +1,7 @@
-"""Synology Chat Backend (CONCEPT:ECO-4.0). Webhook-based via httpx.
+"""Synology Chat Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction). Webhook-based via httpx.
 
 Install: ``pip install agent-utilities[messaging-synology]``
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class SynologyChatBackend(MessagingBackend):
-    """Synology Chat backend via incoming/outgoing webhooks. CONCEPT:ECO-4.0"""
+    """Synology Chat backend via incoming/outgoing webhooks. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -44,7 +44,7 @@ class SynologyChatBackend(MessagingBackend):
         return CAPABILITY_MATRIX["synology"]
 
     async def connect(self) -> None:
-        """Connect to Synology Chat webhook. CONCEPT:ECO-4.0"""
+        """Connect to Synology Chat webhook. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
         try:
             import httpx
         except ImportError:
@@ -59,7 +59,7 @@ class SynologyChatBackend(MessagingBackend):
             raise ValueError("Set SYNOLOGY_CHAT_WEBHOOK_URL.")
         self._client = httpx.AsyncClient()
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] Synology Chat backend connected.")
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Synology Chat backend connected.")
 
     async def disconnect(self) -> None:
         if self._client:

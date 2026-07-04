@@ -1,4 +1,4 @@
-"""Tests for the MCP agent-package fleet connector + Onyx parity (CONCEPT:ECO-4.29).
+"""Tests for the MCP agent-package fleet connector + Onyx parity (CONCEPT:AU-ECO.connector.mcp-package-adapter).
 
 Offline: the MCP transport is an injected ``call_tool`` callable, so no package
 servers are spawned.
@@ -17,7 +17,7 @@ from agent_utilities.protocols.source_connectors.connectors.package_manifest imp
 )
 
 
-@pytest.mark.concept("ECO-4.29")
+@pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_mcp_connector_maps_tool_result_to_documents():
     def fake_call(tool, args):
         assert tool == "search_papers"
@@ -48,13 +48,13 @@ def test_mcp_connector_maps_tool_result_to_documents():
     assert conn.name == "mcp:scholarx"
 
 
-@pytest.mark.concept("ECO-4.29")
+@pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_mcp_connector_requires_tool_without_preset():
     with pytest.raises(ValueError):
         build_connector("mcp", {"package": "unknown-pkg"})
 
 
-@pytest.mark.concept("ECO-4.29")
+@pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_mcp_connector_poll_dedup_cursorless():
     def fake_call(tool, args):
         return {"items": [{"id": "1", "text": "a"}, {"id": "2", "text": "b"}]}
@@ -74,14 +74,14 @@ def test_mcp_connector_poll_dedup_cursorless():
     assert b2.documents == []
 
 
-@pytest.mark.concept("ECO-4.29")
+@pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_presets_present():
     presets = list_presets()
     assert "scholarx" in presets and "github-agent" in presets
     assert get_preset("github")["tool"]  # short alias resolves
 
 
-@pytest.mark.concept("ECO-4.29")
+@pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_onyx_parity_catalog_covers_sources():
     assert onyx_parity("github")["via"] == "native"
     assert onyx_parity("github")["package"] == "github-agent"

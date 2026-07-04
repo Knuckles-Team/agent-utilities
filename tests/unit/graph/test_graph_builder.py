@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.0"""
+"""CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
 from unittest.mock import MagicMock, patch
 

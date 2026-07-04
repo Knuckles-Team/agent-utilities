@@ -1,4 +1,4 @@
-"""Phase 4 — finance/legal/personal connectors (CONCEPT:KG-2.9).
+"""Phase 4 — finance/legal/personal connectors (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 wger + mealie are standard (live once their flag is set); emerald + legal are
 high_stakes / propose-only (never auto-execute — queued for approval).

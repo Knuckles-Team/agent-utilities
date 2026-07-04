@@ -17,7 +17,7 @@
 - [x] Extension target identified: `fleet_autoscaler.py` (`compute_desired_replicas`,
   `_evaluate_service`) + `fleet_reconciler.ScalingSpec` (the `scaling:` block) — verified
   to do single-signal `desired = ceil(current * value_per_replica / target)` today.
-- [x] New CONCEPT:OS-5.35 justified: a distinct *objective* axis (throughput-per-USD
+- [x] New CONCEPT:AU-OS.scaling.cost-aware-autoscaling justified: a distinct *objective* axis (throughput-per-USD
   across heterogeneous node classes) layered onto OS-5.29's *mechanism* (target-tracking
   on one signal), not a replacement — OS-5.29 stays the default when no cost/node metadata
   is declared.

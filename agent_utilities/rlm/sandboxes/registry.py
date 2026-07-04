@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Default sandbox registry.
+"""CONCEPT:AU-ORCH.sandbox.default-sandbox-registry — Default sandbox registry.
 
 Constructs the standard backend set for the router. Each non-local backend is imported
 defensively: a backend whose optional dependency is missing (``pydantic-monty``, ``wasmtime``,
@@ -43,7 +43,7 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("wasm sandbox not registered: %s", e)
 
-    # forkserver (CONCEPT:ORCH-1.87) — native warm-fork via os.fork; isolated, host callbacks
+    # forkserver (CONCEPT:AU-ORCH.sandbox.native-warm-fork-os) — native warm-fork via os.fork; isolated, host callbacks
     # via the UDS bridge, zero infra. Available on any Unix host (incl. ARM); the cheap
     # isolated tier between wasm and docker.
     try:
@@ -55,7 +55,7 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("forkserver sandbox not registered: %s", e)
 
-    # container_fork (CONCEPT:ORCH-1.89) — warm pooled container (vs cold --rm docker);
+    # container_fork (CONCEPT:AU-ORCH.sandbox.container-fork-sandbox) — warm pooled container (vs cold --rm docker);
     # full isolation, host callbacks via UDS bridge. Gated on a docker/podman daemon.
     try:
         from .container_fork_backend import ContainerForkSandbox
@@ -74,7 +74,7 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("docker sandbox not registered: %s", e)
 
-    # firecracker (CONCEPT:ORCH-1.90) — forkd-backed microVM, the strongest-isolation rung.
+    # firecracker (CONCEPT:AU-ORCH.sandbox.forkd-backed-microvm-strongest) — forkd-backed microVM, the strongest-isolation rung.
     # Registered only where a reachable forkd controller exists (implies x86_64+KVM+forkd);
     # otherwise it never appears and the router uses a cheaper rung.
     try:

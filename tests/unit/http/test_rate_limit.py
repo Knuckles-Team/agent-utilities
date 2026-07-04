@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.rate_limit (CONCEPT:ECO-4.35).
+"""Tests for agent_utilities.http.rate_limit (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Pins both header families (X-RateLimit-* and X-Rate-Limit-*), Retry-After
 parsing (seconds + HTTP-date), bounded backoff (okta/dockerhub semantics),

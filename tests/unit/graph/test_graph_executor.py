@@ -1,6 +1,6 @@
 """
 
-CONCEPT:ORCH-1.0
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations
 Concepts: Graph Executor Architecture
 This module contains unit tests for the graph executor, verifying the orchestration logic for
 domain-specific agents, specialized steps, and MCP tool interactions.

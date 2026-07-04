@@ -1,4 +1,4 @@
-# Agent Config Versioning (CONCEPT:AHE-3.2)
+# Agent Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
 
 ## Overview
 Immutable config snapshots with forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's AgentConfigVersion pattern. OWL-inferred `configDrift` and `stableConfig`.
@@ -9,7 +9,7 @@ Immutable config snapshots with forward-only rollback, structured diffs, and SUP
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Agent-Interpretable Model Evolver (CONCEPT:AHE-3.3)
+# Agent-Interpretable Model Evolver (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 
 ## Overview
 Autoresearch loop that evolves scikit-learn-compatible model classes optimized for dual objectives: predictive accuracy and LLM readability via `__str__()`. Pareto frontier tracking, reward decomposition (AHE-3.10), and KG-native evolutionary lineage. Based on arXiv:2605.03808. MCP-delegated model fitting via `data-science-mcp`.
@@ -20,7 +20,7 @@ Autoresearch loop that evolves scikit-learn-compatible model classes optimized f
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# LLM-Graded Interpretability Tests (CONCEPT:AHE-3.3)
+# LLM-Graded Interpretability Tests (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 
 ## Overview
 6-category, 200-test protocol measuring whether an LLM can simulate model predictions, feature effects, and counterfactuals from `__str__()` alone. Reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808.

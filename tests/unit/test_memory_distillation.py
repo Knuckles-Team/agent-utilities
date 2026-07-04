@@ -1,4 +1,4 @@
-"""Unit tests for episodic→procedural memory distillation (CONCEPT:KG-2.309).
+"""Unit tests for episodic→procedural memory distillation (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation).
 
 Drives the AU-side distiller with a MOCK engine (records ``store_memory`` writes),
 a MOCK LLM (returns a fixed procedural JSON artifact), and a MOCK flywheel (records
@@ -46,7 +46,7 @@ class _MockEngine:
 
 
 class _MockFlywheel:
-    """Mock capability index recording reward-EMA seeds (CONCEPT:KG-2.309)."""
+    """Mock capability index recording reward-EMA seeds (CONCEPT:AU-KG.memory.episodic-procedural-memory-distillation)."""
 
     def __init__(self) -> None:
         self.rewards: dict[str, float] = {}
@@ -186,7 +186,7 @@ def test_kg_2_309_distill_records_a_named_procedural_artifact() -> None:
     assert call["memory_type"] == "procedural"
     assert call["name"] == "Rotate deploy credentials"
     assert "STEPS:" in call["content"]
-    assert call["extra_props"]["concept"] == "KG-2.309"
+    assert call["extra_props"]["concept"] == "AU-KG.memory.episodic-procedural-memory-distillation"
     assert call["extra_props"]["step_count"] == 4
     # Provenance: the source episode ids are stamped on the artifact.
     assert "ep-rot-0" in call["extra_props"]["distilled_from"]

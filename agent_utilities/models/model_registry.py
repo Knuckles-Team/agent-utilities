@@ -30,15 +30,15 @@ from agent_utilities.agent.sampling_profile import DEFAULT_PROFILE, SamplingProf
 
 ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 
-# Ordered tier list for CONCEPT:ORCH-1.2 confidence-gated routing helpers.
+# Ordered tier list for CONCEPT:AU-ORCH.routing.confidence-gated-routing-log confidence-gated routing helpers.
 _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 
-# CONCEPT:ORCH-1.27 — Role-Specialized Model Routing.
+# CONCEPT:AU-ORCH.routing.conductor-per-step-model — Role-Specialized Model Routing.
 # Functional roles a pipeline stage can request. Assimilated from Quarq Agent's
 # three-specialized-model pattern (planner / generator / learner; agent-oss/agent.py:58-92),
 # generalized to a role→(tier,tags) binding over the existing registry so any provider
 # pool works and degrades gracefully via pick_for_task() instead of hardcoded model ids.
-# CONCEPT:ORCH-1.27 (+ORCH-1.12 RLM extension): planner/generator/learner/judge plus the RLM-GEPA
+# CONCEPT:AU-ORCH.routing.conductor-per-step-model (+ORCH-1.12 RLM extension): planner/generator/learner/judge plus the RLM-GEPA
 # roles — a cheap proxy executor + sub-LM optimized against a strong proposer (the AppWorld trick).
 ModelRole = Literal[
     "planner",
@@ -54,7 +54,7 @@ ModelRole = Literal[
 class RoleSpec(BaseModel):
     """Tier + capability-tag query that a functional role binds to.
 
-    CONCEPT:ORCH-1.27 — resolved at runtime through :meth:`ModelRegistry.pick_for_task`,
+    CONCEPT:AU-ORCH.routing.conductor-per-step-model — resolved at runtime through :meth:`ModelRegistry.pick_for_task`,
     so a role degrades by tier when no exact-tag/tier model is configured.
     """
 
@@ -74,7 +74,7 @@ _DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
     "generator": RoleSpec(tier="heavy", tags=["synthesis"]),
     "learner": RoleSpec(tier="heavy", tags=["extraction"]),
     "judge": RoleSpec(tier="reasoning", tags=[]),
-    # CONCEPT:ORCH-1.27 RLM-GEPA roles: cheap executor/sub-LM run the skill; the strong proposer
+    # CONCEPT:AU-ORCH.routing.conductor-per-step-model RLM-GEPA roles: cheap executor/sub-LM run the skill; the strong proposer
     # reflects on traces and rewrites it. A skill optimized with a cheap executor still lifts a
     # strong one at eval — so this is the cost/quality Pareto knob for RLM-GEPA.
     "rlm-executor": RoleSpec(tier="light", tags=["code"]),
@@ -83,7 +83,7 @@ _DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
 }
 
 
-# CONCEPT:ORCH-1.58 — curated per-task-class sampling profiles. Hand-tuned starting
+# CONCEPT:AU-ORCH.routing.sampling-profile-selection — curated per-task-class sampling profiles. Hand-tuned starting
 # points: deterministic low-temp (+ tight top_k/min_p) for code/extraction/judge where
 # we want one right answer; exploratory high-temp for generate/brainstorm where we want
 # spread. The AHE-3.38 evolution loop refines these in place via promote_winner; they are
@@ -199,14 +199,14 @@ class ModelRegistry(BaseModel):
     role_routing: dict[str, RoleSpec] = Field(
         default_factory=dict,
         description=(
-            "CONCEPT:ORCH-1.27 — optional role→(tier,tags) overrides. Empty keys "
+            "CONCEPT:AU-ORCH.routing.conductor-per-step-model — optional role→(tier,tags) overrides. Empty keys "
             "fall back to the built-in default map. Round-trips through JSON/YAML."
         ),
     )
     task_class_profiles: dict[str, SamplingProfile] = Field(
         default_factory=dict,
         description=(
-            "CONCEPT:ORCH-1.58 — optional per-task-class sampling-profile overrides. "
+            "CONCEPT:AU-ORCH.routing.sampling-profile-selection — optional per-task-class sampling-profile overrides. "
             "Empty keys fall back to the curated built-in defaults; the AHE-3.38 loop "
             "writes learned profiles here. Round-trips through JSON/YAML."
         ),
@@ -287,7 +287,7 @@ class ModelRegistry(BaseModel):
             raise ValueError("Model registry is empty; configure at least one model.")
         return default
 
-    # ── CONCEPT:ORCH-1.27 role-specialized routing ───────────────────────────────
+    # ── CONCEPT:AU-ORCH.routing.conductor-per-step-model role-specialized routing ───────────────────────────────
 
     def resolve_role(
         self,
@@ -301,7 +301,7 @@ class ModelRegistry(BaseModel):
         ``role_routing`` → the built-in :data:`_DEFAULT_ROLE_ROUTING` →
         ``RoleSpec(tier="medium")`` for unknown roles.
 
-        CONCEPT:ORCH-1.27.
+        CONCEPT:AU-ORCH.routing.conductor-per-step-model.
         """
         if override is not None:
             return override
@@ -337,10 +337,10 @@ class ModelRegistry(BaseModel):
         spec = self.resolve_role(role, override=override)
         return self.pick_for_task(complexity=spec.tier, required_tags=spec.tags)
 
-    # ── CONCEPT:ORCH-1.58 sampling-profile selection ─────────────────────────────
+    # ── CONCEPT:AU-ORCH.routing.sampling-profile-selection sampling-profile selection ─────────────────────────────
 
     def pick_profile_for_task(self, task_class: str) -> SamplingProfile:
-        """Return the sampling profile for a task-class (CONCEPT:ORCH-1.58).
+        """Return the sampling profile for a task-class (CONCEPT:AU-ORCH.routing.sampling-profile-selection).
 
         Precedence: this registry's ``task_class_profiles`` (learned/operator
         overrides) → the curated :data:`_DEFAULT_TASK_PROFILES` built-ins →
@@ -351,7 +351,7 @@ class ModelRegistry(BaseModel):
         return _DEFAULT_TASK_PROFILES.get(task_class, DEFAULT_PROFILE)
 
     def pick_profile_for_role(self, role: ModelRole | str) -> SamplingProfile:
-        """Return the sampling profile bound to a functional role (CONCEPT:ORCH-1.58).
+        """Return the sampling profile bound to a functional role (CONCEPT:AU-ORCH.routing.sampling-profile-selection).
 
         Maps the role to its sampling task-class (:data:`_ROLE_TASK_CLASS`) and
         delegates to :meth:`pick_profile_for_task`, so role-routed model selection
@@ -360,20 +360,20 @@ class ModelRegistry(BaseModel):
         return self.pick_profile_for_task(_ROLE_TASK_CLASS.get(str(role), "default"))
 
     def set_task_profile(self, profile: SamplingProfile) -> None:
-        """Install/replace the profile for ``profile.task_class`` (CONCEPT:AHE-3.38).
+        """Install/replace the profile for ``profile.task_class`` (CONCEPT:AU-AHE.harness.evolvable-sampling-profiles).
 
         The single write seam the evolution loop's ``promote_winner`` and the
         ``ontology_sampling_profile`` ``set`` action use to publish a profile.
         """
         self.task_class_profiles[profile.task_class] = profile
 
-    # ── CONCEPT:ORCH-1.2 tier helpers ────────────────────────────────────────────
+    # ── CONCEPT:AU-ORCH.routing.confidence-gated-routing-log tier helpers ────────────────────────────────────────────
 
     @staticmethod
     def _tier_down(tier: ModelTier) -> ModelTier:
         """Return one tier below the given tier, clamped at 'light'.
 
-        CONCEPT:ORCH-1.2 — Confidence-Gated Router
+        CONCEPT:AU-ORCH.routing.confidence-gated-routing-log — Confidence-Gated Router
         """
         idx = _TIER_ORDER.index(tier)
         return _TIER_ORDER[max(0, idx - 1)]
@@ -382,7 +382,7 @@ class ModelRegistry(BaseModel):
     def _tier_up(tier: ModelTier) -> ModelTier:
         """Return one tier above the given tier, clamped at 'reasoning'.
 
-        CONCEPT:ORCH-1.2 — Confidence-Gated Router
+        CONCEPT:AU-ORCH.routing.confidence-gated-routing-log — Confidence-Gated Router
         """
         idx = _TIER_ORDER.index(tier)
         return _TIER_ORDER[min(len(_TIER_ORDER) - 1, idx + 1)]
@@ -395,7 +395,7 @@ class ModelRegistry(BaseModel):
         routing_percentile: float = 50.0,
         required_tags: list[str] | None = None,
     ) -> ModelDefinition:
-        """Confidence-gated adaptive model selection (CONCEPT:ORCH-1.2).
+        """Confidence-gated adaptive model selection (CONCEPT:AU-ORCH.routing.confidence-gated-routing-log).
 
         Extends :meth:`pick_for_task` with a runtime confidence signal
         derived from specialist consensus or WorkspaceAttention scores.
@@ -490,7 +490,7 @@ class ModelRegistry(BaseModel):
 
 
 def inference_owl_ttl(registry: ModelRegistry | None = None) -> str:
-    """Project the registry's models + sampling profiles to OWL turtle (CONCEPT:KG-2.95).
+    """Project the registry's models + sampling profiles to OWL turtle (CONCEPT:AU-KG.ontology.inference-profile-implementers).
 
     Emits each configured model as a ``kg:Model`` individual and each effective
     task-class profile (built-in defaults overlaid with the registry's learned
@@ -550,7 +550,7 @@ _ACTIVE_REGISTRY: ModelRegistry | None = None
 def load_active_registry() -> ModelRegistry:
     """Return the process-global active registry (lazy-loaded, cached).
 
-    CONCEPT:ORCH-1.58. Mirrors ``model_factory._resolve_role_model``'s load
+    CONCEPT:AU-ORCH.routing.sampling-profile-selection. Mirrors ``model_factory._resolve_role_model``'s load
     (``config.model_registry_path``), but always returns a usable ``ModelRegistry``
     so the curated/learned sampling profiles are available even in the zero-infra
     ``tiny`` profile where no registry file exists. The same object is returned on

@@ -1,5 +1,5 @@
 """
-Profit Attribution Engine — CONCEPT:KG-2.6
+Profit Attribution Engine — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Decomposes P&L into alpha, beta, and residual components with
 comprehensive performance analytics.

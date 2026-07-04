@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.3 — Graph Integrity Validator.
+"""CONCEPT:AU-KG.ontology.graph-integrity-validator — Graph Integrity Validator.
 
 Non-blocking, tiered validation for the Unified Intelligence Graph.
 Inspired by Understand-Anything's ``graph-reviewer`` agent, adapted for
@@ -25,7 +25,7 @@ Usage::
     report = validator.validate()
     # report.tier1_fixes, report.tier2_violations, report.tier3_warnings
 
-See docs/pillars/architecture_c4.md §CONCEPT:KG-2.3
+See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.ontology.graph-integrity-validator
 """
 
 
@@ -155,7 +155,7 @@ class ValidationIssue:
 class ValidationReport:
     """Complete validation report from a graph integrity check.
 
-    CONCEPT:KG-2.3 — Graph Integrity Validator
+    CONCEPT:AU-KG.ontology.graph-integrity-validator — Graph Integrity Validator
 
     Attributes:
         tier1_fixes: Auto-fixed issues (applied silently).
@@ -214,7 +214,7 @@ class ValidationReport:
 class GraphValidator:
     """Non-blocking, tiered graph integrity validator.
 
-    CONCEPT:KG-2.3 — Graph Integrity Validator
+    CONCEPT:AU-KG.ontology.graph-integrity-validator — Graph Integrity Validator
 
     Runs four validation tiers over the graph and produces a structured
     report. Never crashes the server — auto-fixes what it can, logs
@@ -267,21 +267,21 @@ class GraphValidator:
         # Log summary
         if report.tier1_fixes:
             logger.info(
-                "[CONCEPT:KG-2.3] Auto-fixed %d issues in graph",
+                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] Auto-fixed %d issues in graph",
                 len(report.tier1_fixes),
             )
         if report.tier2_violations:
             logger.warning(
-                "[CONCEPT:KG-2.3] Found %d integrity violations",
+                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] Found %d integrity violations",
                 len(report.tier2_violations),
             )
         if report.tier3_warnings:
             logger.info(
-                "[CONCEPT:KG-2.3] Found %d quality warnings", len(report.tier3_warnings)
+                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] Found %d quality warnings", len(report.tier3_warnings)
             )
         if report.tier4_fatal:
             logger.error(
-                "[CONCEPT:KG-2.3] FATAL: %d critical issues detected",
+                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] FATAL: %d critical issues detected",
                 len(report.tier4_fatal),
             )
 

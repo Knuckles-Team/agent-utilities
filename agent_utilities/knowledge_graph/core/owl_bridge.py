@@ -42,7 +42,7 @@ def _with_au_prefix(sparql: str) -> str:
 # Node types registered at runtime from an external metamodel (e.g. the live
 # LeanIX data model compiled by ``ontology.leanix_metamodel``). Unioned into
 # every bridge's effective promotable set so generated types reach the reasoner
-# without editing the static set below. (CONCEPT:KG-2.9)
+# without editing the static set below. (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 DYNAMIC_PROMOTABLE_NODE_TYPES: set[str] = set()
 
 
@@ -55,25 +55,25 @@ def register_promotable_node_types(types: Iterable[str]) -> None:
 
 # Node types eligible for OWL promotion (must have matching class in ontology.ttl)
 PROMOTABLE_NODE_TYPES: set[str] = {
-    # Enrichment / code-understanding entities (CONCEPT:KG-2.8)
+    # Enrichment / code-understanding entities (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "code",
     "test",
     "feature",
     "pattern",
-    "route",  # HTTP route a Code handler serves (CONCEPT:KG-2.102)
-    "resource",  # IaC resource (Dockerfile/K8s/Terraform) (CONCEPT:KG-2.103)
-    # Harness foundry: evolvable harness as reasoned-over ontology (CONCEPT:KG-2.107)
+    "route",  # HTTP route a Code handler serves (CONCEPT:AU-KG.compute.http-route-graph)
+    "resource",  # IaC resource (Dockerfile/K8s/Terraform) (CONCEPT:AU-KG.enrichment.read-them-here-so)
+    # Harness foundry: evolvable harness as reasoned-over ontology (CONCEPT:AU-KG.ontology.harness-ontology)
     "harness",
     "processor",
     "harness_dimension",
     "harness_edit",
     "harness_variant",
     "harness_pathology",
-    # Substitution-algebra hook contract (CONCEPT:KG-2.109)
+    # Substitution-algebra hook contract (CONCEPT:AU-KG.ontology.harness-gate)
     "harness_hook",
     "concept",
     "document",
-    # Enterprise OS entities (CONCEPT:KG-2.9)
+    # Enterprise OS entities (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
     "server",
     "hardwarenode",
     "service",
@@ -85,7 +85,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "itcomponent",
     "businesscapability",
     "dataobject",
-    # Technology Reference Model + risk (CONCEPT:KG-2.9)
+    # Technology Reference Model + risk (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
     "technologyproduct",
     "technologystandard",
     "assetinstance",
@@ -106,14 +106,14 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "panel",
     "alert",
     "datasource",
-    # A2A + data-source schema (CONCEPT:KG-2.9 / 2.10)
+    # A2A + data-source schema (CONCEPT:AU-KG.ingest.enterprise-source-extractor / 2.10)
     "a2aagentcard",
     "table",
     "column",
     "collection",
     "graphqltype",
     "field",
-    # Orchestration synthesis (CONCEPT:KG-2.10)
+    # Orchestration synthesis (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     "team",
     "workflow",
     "goal",
@@ -121,13 +121,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "agent",
     "tool",
     "skill",
-    # Unified scheduling / task / loop engine (CONCEPT:OS-5.44 / KG-2.113)
+    # Unified scheduling / task / loop engine (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent / KG-2.113)
     "task",
     "schedule",
     "loop",
-    # Unified feed ingestion (CONCEPT:KG-2.122) — first-class RSS/Atom feed sources.
+    # Unified feed ingestion (CONCEPT:AU-KG.compute.first-class-rss-atom) — first-class RSS/Atom feed sources.
     "feedsource",
-    # Computer-use (GUI) runtime entities (CONCEPT:KG-2.185 / 2.186 / ORCH-1.84).
+    # Computer-use (GUI) runtime entities (CONCEPT:AU-KG.ontology.owl-screen-bridge / 2.186 / ORCH-1.84).
     "computerusesession",
     "screenobservation",
     "uielement",
@@ -142,7 +142,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "decision",
     "observation",
     "action",
-    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    # Ontology Action System — governed verbs (CONCEPT:AU-KG.ontology.ontology-action-system)
     "ontology_action",
     "action_invocation",
     "action_parameter",
@@ -151,7 +151,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "fact",
     "principle",
     "evidence",
-    # ARA — OWL-native 4-layer research artifact (CONCEPT:KG-2.80)
+    # ARA — OWL-native 4-layer research artifact (CONCEPT:AU-KG.ontology.verified-by-implemented-by)
     "research_artifact",
     "claim",
     "code_spec",
@@ -178,7 +178,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "financial_instrument",
     "financial_transaction",
     "account",
-    # AHE Types (CONCEPT:AHE-3.0)
+    # AHE Types (CONCEPT:AU-AHE.harness.harness-evolution)
     "change_manifest",
     "component_edit_record",
     "evidence_record",
@@ -196,24 +196,24 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "businesstask",
     "applicationevent",
     "erpnextissue",
-    # Feedback loop — corrections → rules → eval (CONCEPT:KG-2.8)
+    # Feedback loop — corrections → rules → eval (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "correction",
     "governance_rule",
     "voice_rule",
     "source_rule",
     "preference",
     "eval_case",
-    # Operating intelligence distilled from calls/docs (CONCEPT:KG-2.8)
+    # Operating intelligence distilled from calls/docs (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "insight",
     "framework",
     "playbook",
     "knowledge_base",
     "knowledge_base_topic",
     "experiment",
-    # Engineering Rules Engine (CONCEPT:KG-2.2)
+    # Engineering Rules Engine (CONCEPT:AU-KG.ingest.engineering-rules)
     "engineering_rule",
     "rule_book",
-    # External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
+    # External Integration & SDLC Entities (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
     "repository",
     "merge_request",
     "pull_request",
@@ -222,73 +222,73 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "issue",
     "external_graph_reference",
     "external_entity",
-    # Perspectival inquiry — STORM structures (CONCEPT:KG-2.127/2.128/2.129)
+    # Perspectival inquiry — STORM structures (CONCEPT:AU-KG.research.perspectival-inquiry/2.128/2.129)
     "research_inquiry",
     "perspective",
     "agreement",
     "contradiction",
     "blind_spot",
     "peer_review",
-    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    # Financial Trading Pipeline (CONCEPT:AU-KG.ontology.rdf-materialization)
     "trading_signal",
     "order",
     "position",
     "portfolio",
     "strategy",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
+    # Market Data Connector Protocol (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     "data_connector",
     "data_fetch_record",
-    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    # Swarm Preset Template Engine (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
     "swarm_preset",
     "swarm_run",
     "swarm_task_record",
-    # Risk Scoring Ontology (CONCEPT:KG-2.6)
+    # Risk Scoring Ontology (CONCEPT:AU-KG.ontology.rdf-materialization)
     "risk_assessment",
     "risk_factor",
     "risk_mitigation",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
+    # Backtest Evaluation Harness (CONCEPT:AU-AHE.evaluation.backtest-harness)
     "backtest_run",
     "backtest_metric",
-    # Prompt Injection Scanner (CONCEPT:OS-5.1)
+    # Prompt Injection Scanner (CONCEPT:AU-OS.config.secrets-authentication)
     "security_finding",
-    # Tool Repetition Guard (CONCEPT:OS-5.1)
+    # Tool Repetition Guard (CONCEPT:AU-OS.config.secrets-authentication)
     "experience",
-    # MATE Integration — Token Analytics (CONCEPT:OS-5.1)
+    # MATE Integration — Token Analytics (CONCEPT:AU-OS.config.secrets-authentication)
     "token_usage_record",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
+    # MATE Integration — Audit Logging (CONCEPT:AU-OS.config.secrets-authentication)
     "audit_log",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
+    # MATE Integration — Guardrail Engine (CONCEPT:AU-OS.config.secrets-authentication)
     "guardrail_trigger",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
+    # MATE Integration — Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "agent_config_version",
-    # MATE Integration — EvalRunner (CONCEPT:AHE-3.1)
+    # MATE Integration — EvalRunner (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "eval_run",
-    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AU-AHE.evaluation.interpretability-tests, CONCEPT:AU-AHE.harness.width-diverse-best-k, CONCEPT:EG-KG.compute.compiled-semantic-reasoner)
     "imodel",
     "interpretability_test",
     "model_display",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
+    # Ecosystem Topology Map (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     "ecosystem_package",
     "frontend_package",
     "kernel_package",
     "mcp_server_package",
     "skill_package",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
+    # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
     "synergy_insight",
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
+    # Formal Graph Theory Primitives (CONCEPT:AU-KG.ontology.rdf-materialization)
     "math_foundation",
     "critical_path_result",
-    # Structural Causal Reasoning (CONCEPT:KG-2.6)
+    # Structural Causal Reasoning (CONCEPT:AU-KG.ontology.rdf-materialization)
     "causal_factor",
     "causal_model",
-    # Optimal Execution Engine (CONCEPT:KG-2.6)
+    # Optimal Execution Engine (CONCEPT:AU-KG.ontology.rdf-materialization)
     "execution_plan",
     "market_making_quote",
     "pairs_trade_signal",
-    # Context Graph Architecture (CONCEPT:KG-2.6)
+    # Context Graph Architecture (CONCEPT:AU-KG.ontology.rdf-materialization)
     "architecture_decision",
     "archimate_element",
-    # Legal Entity & Compliance domain (CONCEPT:LGC-1.0)
+    # Legal Entity & Compliance domain (CONCEPT:AU-KG.ontology.owl-rdf-bridge)
     "legal_trust",
     "trustee_role",
     "settlor_role",
@@ -306,7 +306,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "opportunity",
     "uptime_monitor",
     "chat_channel",
-    # Capability Abstraction Layer (CONCEPT:KG-2.7)
+    # Capability Abstraction Layer (CONCEPT:AU-KG.ontology.owl-durable-backfeed)
     "service_capability",
     "vpn_purpose",
     "development_domain",
@@ -314,29 +314,29 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "ea_fact_sheet",
     "process_model",
     # Ontology System — Foundry-parity type/link/function layer
-    # (CONCEPT:KG-2.26 links, KG-2.38 interfaces, KG-2.41 functions)
+    # (CONCEPT:AU-KG.domains.trade-journal-bias-auditor links, KG-2.38 interfaces, KG-2.41 functions)
     "relationship",
     "function",
     "function_invocation",
     "interface",
     "interface_property",
     "interface_link_constraint",
-    # Object-edits durable ledger (CONCEPT:KG-2.43)
+    # Object-edits durable ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback)
     "object_edit",
-    # Object permissioning — mandatory markings (CONCEPT:KG-2.46)
+    # Object permissioning — mandatory markings (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted)
     "marking",
-    # Document processing pipeline — exploded chunk objects (CONCEPT:KG-2.48)
+    # Document processing pipeline — exploded chunk objects (CONCEPT:AU-KG.ingest.chunk-overlap-stage)
     "chunk",
-    # Finance microstructure signals (CONCEPT:KG-2.81) — Kyle surveillance signal
+    # Finance microstructure signals (CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance) — Kyle surveillance signal
     # reasons over grounded_in/supports transitively.
     "microstructure_signal",
     "surveillance_signal",
-    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90) — the distiller's
+    # Connector → Skill synthesis proposals (CONCEPT:AU-KG.ontology.connector-agnostic-proposal) — the distiller's
     # propose-only candidates; OWL reasoning runs transitive/inverse over their
-    # automates/derived_from/composes edges (CONCEPT:KG-2.91).
+    # automates/derived_from/composes edges (CONCEPT:AU-KG.compute.automates).
     "skill_proposal",
     "skill_workflow_proposal",
-    # Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161).
+    # Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161).
     # (``repository``, ``observation``, ``host``, ``person``, ``company``,
     # ``opportunity``, ``uptime_monitor`` are already promotable above.)
     "container_image",  # DockerHub image (KG-2.155)
@@ -348,7 +348,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "heartbeat_stat",  # Uptime Kuma heartbeat sample (KG-2.159)
     "device",  # Home Assistant device (KG-2.160)
     "entity",  # Home Assistant entity (KG-2.160)
-    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166).
+    # Media / finance / document / genealogy connectors (CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors–2.166).
     # (``account``, ``document``, ``person``, ``event`` are already promotable above.)
     "library",  # Audiobookshelf library (KG-2.163)
     "book",  # Audiobookshelf book / audiobook (KG-2.163)
@@ -362,11 +362,11 @@ PROMOTABLE_NODE_TYPES: set[str] = {
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
 PROMOTABLE_EDGE_TYPES: set[str] = {
-    # Perspectival inquiry edges (CONCEPT:KG-2.128/2.129)
+    # Perspectival inquiry edges (CONCEPT:AU-KG.research.contradiction-agreement-blind-spot/2.129)
     "asks_from",
     "agrees_with",
     "reviews",
-    # Enrichment / code-understanding edges (CONCEPT:KG-2.8)
+    # Enrichment / code-understanding edges (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     "calls",
     "covers",
     "tests",
@@ -374,10 +374,10 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "implements_pattern",
     "realizes",
     "inherits",
-    "serves",  # Code handler → HTTP Route (CONCEPT:KG-2.102)
-    "served_by",  # Route → deployed Service (CONCEPT:KG-2.102)
-    "provisions",  # IaC Resource → deployed Service (CONCEPT:KG-2.103)
-    # Harness foundry edges (CONCEPT:KG-2.107)
+    "serves",  # Code handler → HTTP Route (CONCEPT:AU-KG.compute.http-route-graph)
+    "served_by",  # Route → deployed Service (CONCEPT:AU-KG.compute.http-route-graph)
+    "provisions",  # IaC Resource → deployed Service (CONCEPT:AU-KG.enrichment.read-them-here-so)
+    # Harness foundry edges (CONCEPT:AU-KG.ontology.harness-ontology)
     "targets_dimension",  # HarnessEdit → HarnessDimension (formal edit scope)
     "has_variant",  # Harness → HarnessVariant (inverse variant_of)
     "variant_of",
@@ -387,34 +387,34 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "mitigated_by",
     "causes_regression",  # HarnessEdit → task (formal seesaw signal)
     "confirms_fix",  # HarnessEdit → predicted fix
-    "at_hook",  # HarnessEdit → HarnessHook (substitution algebra, CONCEPT:KG-2.109)
-    "attached_to_hook",  # Processor → HarnessHook (CONCEPT:KG-2.109)
+    "at_hook",  # HarnessEdit → HarnessHook (substitution algebra, CONCEPT:AU-KG.ontology.harness-gate)
+    "attached_to_hook",  # Processor → HarnessHook (CONCEPT:AU-KG.ontology.harness-gate)
     "implemented_by",
     "similar_to",
     "mentions",
     "relates_to",
     "corrects",
-    # Enterprise OS edges (CONCEPT:KG-2.9)
+    # Enterprise OS edges (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
     "runs_on",
     "affects",
     "assigned_to",
     "supports",
     "depends_on_it",
-    "connects_via",  # Host → Tunnel (tunnel-manager, CONCEPT:KG-2.158)
-    "authored_by",  # Book → Author (audiobookshelf, CONCEPT:KG-2.163)
-    "tagged_with",  # Document → Tag (paperless-ngx, CONCEPT:KG-2.165)
+    "connects_via",  # Host → Tunnel (tunnel-manager, CONCEPT:AU-KG.compute.tunnel-manager-hosts)
+    "authored_by",  # Book → Author (audiobookshelf, CONCEPT:AU-KG.compute.audiobookshelf-libraries-books-authors)
+    "tagged_with",  # Document → Tag (paperless-ngx, CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents)
     "placed_by",
     "member_of",
     "part_of_dashboard",
     "monitors",
-    # A2A + data-source schema (CONCEPT:KG-2.9 / 2.10)
+    # A2A + data-source schema (CONCEPT:AU-KG.ingest.enterprise-source-extractor / 2.10)
     "exposes_skill",
     "delegates_to",
     "has_table",
     "has_column",
     "foreign_key",
     "has_field",
-    # Orchestration synthesis (CONCEPT:KG-2.10)
+    # Orchestration synthesis (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     "has_prompt",
     "uses_tool",
     "has_skill",
@@ -456,13 +456,13 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "creator",
     "cites_source",
     "cited_by_paper",
-    # Research-state domain edges (CONCEPT:KG-2.37)
+    # Research-state domain edges (CONCEPT:AU-KG.research.research-state-domain-pack)
     "weakens",
     "uses_dataset",
     "has_financial_instrument",
     "executed_transaction",
     "account",
-    # AHE Edges (CONCEPT:AHE-3.0)
+    # AHE Edges (CONCEPT:AU-AHE.harness.harness-evolution)
     "edited_in_round",
     "predicted_fix",
     "caused_regression",
@@ -471,88 +471,88 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "escalated_to",
     "applied_edit",
     "has_edit_for",
-    # Engineering Rules Engine Edges (CONCEPT:KG-2.2)
+    # Engineering Rules Engine Edges (CONCEPT:AU-KG.ingest.engineering-rules)
     "conflicts_with",
     "corrects_bias",
     "applicable_when",
     "derived_from_book",
     "applied_in_task",
-    # External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
+    # External Integration & SDLC Entities (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
     "modified_in",
     "mentioned_in",
     "triggered",
     "targets",
     "mapped_to_external",
-    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    # Financial Trading Pipeline (CONCEPT:AU-KG.ontology.rdf-materialization)
     "generated_signal",
     "placed_order",
     "opened_position",
     "belongs_to_portfolio",
     "executes_strategy",
     "backtested_with",
-    # BPMN process structure lift (CONCEPT:KG-2.53) — sequence flows between
+    # BPMN process structure lift (CONCEPT:AU-KG.ontology.descriptive-process-world-gains) — sequence flows between
     # BusinessTask elements; matches :flowsTo in the ontology.
     "flows_to",
-    # Process lineage close-out (CONCEPT:ORCH-1.43) — RunTrace → the
+    # Process lineage close-out (CONCEPT:AU-ORCH.execution.best-effort-provenance) — RunTrace → the
     # BusinessProcess its workflow realizes; matches :executedProcess.
     "executed_process",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
+    # Market Data Connector Protocol (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     "fetched_from",
     "falls_back_to",
-    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    # Swarm Preset Template Engine (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
     "preset_of",
     "ran_preset",
     "task_depends_on",
-    # Risk Scoring Ontology (CONCEPT:KG-2.6)
+    # Risk Scoring Ontology (CONCEPT:AU-KG.ontology.rdf-materialization)
     "assessed_risk",
     "has_risk_factor",
     "propagates_risk_to",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
+    # Backtest Evaluation Harness (CONCEPT:AU-AHE.evaluation.backtest-harness)
     "evaluated_strategy",
     "has_metric",
     "compared_to_benchmark",
-    # Prompt Injection Scanner (CONCEPT:OS-5.1)
+    # Prompt Injection Scanner (CONCEPT:AU-OS.config.secrets-authentication)
     "detected_threat",
-    # Structured Retry Manager (CONCEPT:ORCH-1.3)
+    # Structured Retry Manager (CONCEPT:AU-ORCH.execution.execution-budget-caps)
     "triggered_retry",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
+    # MATE Integration — Audit Logging (CONCEPT:AU-OS.config.secrets-authentication)
     "audited_by",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
+    # MATE Integration — Guardrail Engine (CONCEPT:AU-OS.config.secrets-authentication)
     "triggered_guardrail",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
+    # MATE Integration — Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "config_version_of",
-    # MATE Integration — EvalRunner (CONCEPT:AHE-3.1)
+    # MATE Integration — EvalRunner (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "evaluated_by",
-    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AU-AHE.evaluation.interpretability-tests, CONCEPT:AU-AHE.harness.width-diverse-best-k, CONCEPT:EG-KG.compute.compiled-semantic-reasoner)
     "evolved_model",
     "tested_interpretability",
     "display_of",
     "pareto_dominates",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
+    # Ecosystem Topology Map (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     "provides_capability_to",
     "consumes_from_kernel",
     "visualizes",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
+    # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
     "has_synergy_with",
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
+    # Formal Graph Theory Primitives (CONCEPT:AU-KG.ontology.rdf-materialization)
     "critical_path_of",
     "colored_with",
-    # Structural Causal Reasoning (CONCEPT:KG-2.6)
+    # Structural Causal Reasoning (CONCEPT:AU-KG.ontology.rdf-materialization)
     "causes",
     "causal_mechanism",
     "counterfactual_of",
-    # Probabilistic Reasoning (CONCEPT:KG-2.6)
+    # Probabilistic Reasoning (CONCEPT:AU-KG.ontology.rdf-materialization)
     "belief_update",
-    # Optimal Execution (CONCEPT:KG-2.6)
+    # Optimal Execution (CONCEPT:AU-KG.ontology.rdf-materialization)
     "executed_via",
     "pairs_with",
     "makes_market_in",
-    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.6)
+    # Context Graph Architecture — ADR edges (CONCEPT:AU-KG.ontology.rdf-materialization)
     "impacts_concept",
     "alternatives_to",
     "decided_by",
     "supersedes",
-    # Legal Entity & Compliance domain edges (CONCEPT:LGC-1.0)
+    # Legal Entity & Compliance domain edges (CONCEPT:AU-KG.ontology.owl-rdf-bridge)
     "has_trustee",
     "has_settlor",
     "has_beneficiary",
@@ -568,13 +568,13 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "works_at",
     "related_to",
     "associated_with",
-    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    # Ontology Action System — governed verbs (CONCEPT:AU-KG.ontology.ontology-action-system)
     "acts_on",
     "invokes",
     "invoked_by",
     "acts_on_object",
     "may_be_invoked_by",
-    # Capability Abstraction Layer (CONCEPT:KG-2.7)
+    # Capability Abstraction Layer (CONCEPT:AU-KG.ontology.owl-durable-backfeed)
     "provides_capability",
     "requires_capability",
     "swappable_with",
@@ -583,7 +583,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "applies_to_domain",
     "works_on_domain",
     "must_follow",
-    # Universal Relationship Properties (CONCEPT:KG-2.7)
+    # Universal Relationship Properties (CONCEPT:AU-KG.ontology.owl-durable-backfeed)
     # Lineage / Ancestry
     "has_parent",
     "has_child",
@@ -624,7 +624,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "classified_as",
     # Alignment
     "aligned_with",
-    # ARA forensic bindings (CONCEPT:KG-2.80) — verified_by/implemented_by/contains/
+    # ARA forensic bindings (CONCEPT:AU-KG.ontology.verified-by-implemented-by) — verified_by/implemented_by/contains/
     # was_derived_from already promotable above; add the remaining /logic + /trace edges
     "grounded_in",
     "has_evidence",
@@ -633,7 +633,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "certifies",
 }
 
-# ARA forensic-edge OWL object-property characteristics, always on (CONCEPT:KG-2.80).
+# ARA forensic-edge OWL object-property characteristics, always on (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 # Independent of any schema pack so every reasoning cycle chains a claim's grounding
 # (claim -grounded_in-> evidence -grounded_in-> source ⟹ claim -grounded_in-> source)
 # and materialises the evidence→claim ``supports`` inverse — letting reasoning relate
@@ -641,9 +641,9 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
 ARA_TRANSITIVE_EDGES: frozenset[str] = frozenset({"grounded_in"})
 ARA_INVERSE_EDGES: dict[str, str] = {"grounded_in": "supports"}
 
-# Harness-foundry OWL object-property characteristics, always on (CONCEPT:KG-2.107).
+# Harness-foundry OWL object-property characteristics, always on (CONCEPT:AU-KG.ontology.harness-ontology).
 # This is what makes HarnessX's "operational mirror" a formal operational *ontology*
-# (CONCEPT:AHE-3.51): reasoning materialises the variant↔base and edit↔pathology
+# (CONCEPT:AU-KG.ontology.owl-bridge): reasoning materialises the variant↔base and edit↔pathology
 # inverses so the SHACL concentration/no-regression/pathology gate (AHE-3.53) queries
 # a complete, inferred graph rather than relying on the paper's RL↔symbolic analogy.
 HARNESS_INVERSE_EDGES: dict[str, str] = {
@@ -687,7 +687,7 @@ class OWLBridge:
         self._rdf_cache: Any = None
         self._rdf_cache_hash: int = -1
 
-        # Compute effective promotable types filtered by schema pack (CONCEPT:KG-2.2).
+        # Compute effective promotable types filtered by schema pack (CONCEPT:AU-KG.ingest.engineering-rules).
         # Static built-ins are unioned with any runtime-registered types (e.g. the
         # generated LeanIX metamodel) so external sources reason without hub edits.
         promotable_nodes = PROMOTABLE_NODE_TYPES | DYNAMIC_PROMOTABLE_NODE_TYPES
@@ -704,8 +704,8 @@ class OWLBridge:
         # object-properties; these are unioned into the lightweight reasoning sets
         # below so the existing promote→reason→downfeed cycle materialises multi-hop
         # and inverse edges for free — e.g. a research pack's supports_belief
-        # transitive chains and cites_source/cited_by inverses (CONCEPT:KG-2.36).
-        # Start from ARA's always-on forensic-edge characteristics (CONCEPT:KG-2.80)
+        # transitive chains and cites_source/cited_by inverses (CONCEPT:AU-KG.ontology.pack-owl-closure).
+        # Start from ARA's always-on forensic-edge characteristics (CONCEPT:AU-KG.ontology.verified-by-implemented-by)
         # so claim-grounding chains/inverses materialise even without a schema pack,
         # then union any pack-declared object-properties on top.
         self._pack_transitive = set(ARA_TRANSITIVE_EDGES)
@@ -732,7 +732,7 @@ class OWLBridge:
 
         If lightweight=True, performs fast local RDFS+/OWL closure -- engine-native
         first (``client.rdf.owl_reason``), Python last-resort -- and needs NO owlready2
-        backend (CONCEPT:KG-2.242): the engine reasons over the live graph directly, so
+        backend (CONCEPT:AU-KG.compute.native-sparql-owl-shacl): the engine reasons over the live graph directly, so
         owl-backend promotion is skipped. If False, executes full Description Logic
         reasoning via the (owlready2) OWL backend, which is then required.
         """
@@ -772,7 +772,7 @@ class OWLBridge:
     def _lightweight_reasoning(self) -> list[dict[str, Any]]:
         """Lightweight OWL/RDFS+ reasoning -- engine-native first, Python last-resort.
 
-        CONCEPT:KG-2.242 — OWL reasoning is demoted to the engine's native OWL 2
+        CONCEPT:AU-KG.compute.native-sparql-owl-shacl — OWL reasoning is demoted to the engine's native OWL 2
         (EL+/RL) reasoner (``client.rdf.owl_reason``, confidence/decay-weighted). The
         engine's RDF/OWL surface ships in every profile (the tiny/pi-tier binary
         included), so the engine path is the default everywhere. The Python
@@ -791,7 +791,7 @@ class OWLBridge:
 
     def _engine_reasoning(self) -> list[dict[str, Any]]:
         """Execute OWL entailment via the engine's native reasoner (the memory
-        inference primitive, CONCEPT:KG-2.242).
+        inference primitive, CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
         Routes to ``self.graph.owl_reason`` (the engine ``OwlReason`` op): it
         classifies the OWL axioms in the engine's RDF projection of the live graph
@@ -800,7 +800,7 @@ class OWLBridge:
         edges and class memberships -- which we convert to inference dicts. The engine
         reasoner does not emit ``owl:inverseOf`` facts, so pack-declared inverse
         closure is added on top (same as the Python path), keeping the two paths in
-        agreement (CONCEPT:KG-2.36).
+        agreement (CONCEPT:AU-KG.ontology.pack-owl-closure).
 
         Raises if the engine / ``owl`` feature is unavailable so the caller falls back
         to :meth:`_python_reasoning`.
@@ -810,7 +810,7 @@ class OWLBridge:
 
         # Seed the reasoner with the pack-declared object-property characteristics so
         # the engine classifies the active domain's transitive/symmetric edges
-        # (CONCEPT:KG-2.36). An empty ontology => reason over the graph's own axioms.
+        # (CONCEPT:AU-KG.ontology.pack-owl-closure). An empty ontology => reason over the graph's own axioms.
         ontology = self._pack_axioms_turtle() or None
         result = self.graph.owl_reason(ontology=ontology)
 
@@ -843,7 +843,7 @@ class OWLBridge:
             )
 
         # Pack-declared inverse closure -- the engine reasoner does not materialize
-        # owl:inverseOf, so emit it here so both paths agree (CONCEPT:KG-2.36).
+        # owl:inverseOf, so emit it here so both paths agree (CONCEPT:AU-KG.ontology.pack-owl-closure).
         inferences.extend(self._inverse_inferences())
 
         return inferences
@@ -851,7 +851,7 @@ class OWLBridge:
     def _pack_axioms_turtle(self) -> str:
         """Render the pack-declared object-property characteristics as OWL Turtle.
 
-        CONCEPT:KG-2.36 — the engine reasons over OWL axioms; surface the active
+        CONCEPT:AU-KG.ontology.pack-owl-closure — the engine reasons over OWL axioms; surface the active
         pack's transitive/symmetric properties as ``owl:TransitiveProperty`` /
         ``owl:SymmetricProperty`` declarations so the native reasoner closes them.
         Returns an empty string when no pack characteristics are declared.
@@ -881,16 +881,16 @@ class OWLBridge:
             "broader",
             "narrower",
             "inherits_from",
-            "inherits",  # class inheritance chains (CONCEPT:KG-2.100)
+            "inherits",  # class inheritance chains (CONCEPT:EG-KG.compute.type-scope-resolved-call)
         }
         symmetric_props = {
             "related_concept",
             "exact_match",
             "close_match",
             "broad_match",
-            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
+            "similar_to",  # model-free code similarity (CONCEPT:EG-KG.compute.model-free-similar-code)
         }
-        # Union pack-declared object-property characteristics (CONCEPT:KG-2.36).
+        # Union pack-declared object-property characteristics (CONCEPT:AU-KG.ontology.pack-owl-closure).
         transitive_props |= self._pack_transitive
         symmetric_props |= self._pack_symmetric
 
@@ -943,7 +943,7 @@ class OWLBridge:
     def _inverse_inferences(self) -> list[dict[str, Any]]:
         """Emit inverse-edge facts for pack-declared ``owl:inverseOf`` properties.
 
-        CONCEPT:KG-2.36 — for each edge ``A -rel-> B`` whose ``rel`` has a declared
+        CONCEPT:AU-KG.ontology.pack-owl-closure — for each edge ``A -rel-> B`` whose ``rel`` has a declared
         inverse ``inv``, emit ``B -inv-> A`` (deduplicated downstream by
         ``_downfeed_inferences``, so re-running the cycle is a fixpoint).
         """
@@ -1081,7 +1081,7 @@ class OWLBridge:
             affected_nodes.add(subject)
             affected_nodes.add(obj)
 
-            # Entailment-aware scoping (CONCEPT:KG-2.6): a derived fact inherits
+            # Entailment-aware scoping (CONCEPT:AU-KG.ontology.rdf-materialization): a derived fact inherits
             # the most-restrictive classification of its parents so reasoning
             # can't leak a RESTRICTED node through an inferred edge.
             try:
@@ -1095,7 +1095,7 @@ class OWLBridge:
         if downfed > 0 and self.backend:
             self._sync_inferred_to_backend(inferences, downfed)
 
-        # Trigger Context-Aware Re-embedding (CONCEPT:KG-2.2)
+        # Trigger Context-Aware Re-embedding (CONCEPT:AU-KG.ingest.engineering-rules)
         if affected_nodes:
             from .engine import IntelligenceGraphEngine
 
@@ -1131,7 +1131,7 @@ class OWLBridge:
         daemon tick and pipeline phase both call this **synchronously**, so inferred
         triples never reached the backend. This writes them now via the active
         engine's ``link_nodes`` (MERGE-based; carries edge properties + provenance),
-        with a direct-backend MERGE fallback. (CONCEPT:KG-2.7 — durable backfeed.)
+        with a direct-backend MERGE fallback. (CONCEPT:AU-KG.ontology.owl-durable-backfeed — durable backfeed.)
         """
         import re as _re
 
@@ -1175,7 +1175,7 @@ class OWLBridge:
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
 
-        CONCEPT:KG-2.242 — SPARQL is demoted to the engine's native SPARQL 1.1
+        CONCEPT:AU-KG.compute.native-sparql-owl-shacl — SPARQL is demoted to the engine's native SPARQL 1.1
         surface (``client.rdf.sparql``), run over the LIVE engine graph rather than a
         materialized rdflib copy. The engine RDF/SPARQL surface ships in every profile
         (tiny/pi-tier binary included), so the engine path is the default everywhere.
@@ -1195,7 +1195,7 @@ class OWLBridge:
         # 1) Engine-native SPARQL over the live graph (the demoted-to-engine path;
         #    the engine's native RDF/SPARQL surface is available in EVERY profile,
         #    tiny/pi included, so this is the default path -- not a no-engine special
-        #    case). CONCEPT:KG-2.242 (over the engine projection, engine concept KG-2.240).
+        #    case). CONCEPT:AU-KG.compute.native-sparql-owl-shacl (over the engine projection, engine concept KG-2.240).
         #    We pass the AU projection vocabulary (the ``au:`` namespace + CamelCased
         #    rdf:type) so the engine projects the LIVE property graph into the SAME RDF
         #    terms ``_build_rdf_graph`` materializes (engine concept KG-2.240): ``<node>
@@ -1246,7 +1246,7 @@ class OWLBridge:
     def _build_rdf_graph(self) -> Any:
         """Materialize the LPG into an rdflib Graph for SPARQL queries.
 
-        CONCEPT:KG-2.6 — RDF Materialization
+        CONCEPT:AU-KG.ontology.rdf-materialization — RDF Materialization
 
         Promotes all nodes as typed OWL individuals and all edges as
         property assertions under the ``au:`` namespace. The result is
@@ -1263,7 +1263,7 @@ class OWLBridge:
         g.bind("rdf", rdflib.RDF)
         g.bind("rdfs", rdflib.RDFS)
 
-        # Fast path (CONCEPT:KG-2.7): bulk-export triples from the engine in ONE
+        # Fast path (CONCEPT:AU-KG.ontology.owl-durable-backfeed): bulk-export triples from the engine in ONE
         # call (GetTriples) instead of per-node round-trips, then map to RDF. An
         # object that is itself a known subject is an edge target (URI); otherwise
         # a literal. Falls back to the per-node iteration below if unavailable.

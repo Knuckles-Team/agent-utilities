@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Live Research Manager — typed research events with provenance (CONCEPT:KG-2.80).
+"""Live Research Manager — typed research events with provenance (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 
 The paper's Live Research Manager continuously captures the *act* of research, not just
 its conclusion: a Context-Harvester ingests the working stream, an Event-Router classifies
@@ -51,7 +51,7 @@ def _now_iso() -> str:
 
 
 class ResearchEvent(BaseModel):
-    """One captured research move (CONCEPT:KG-2.80)."""
+    """One captured research move (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
     id: str
     type: EventType

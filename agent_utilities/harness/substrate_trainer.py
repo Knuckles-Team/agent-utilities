@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Substrate trainer — the SLOW-loop's corpus builder + training-job emitter.
 
-CONCEPT:ORCH-1.57 — Substrate training-job emission (Fast-Slow SLOW loop)
+CONCEPT:AU-ORCH.execution.substrate-training-job-emission — Substrate training-job emission (Fast-Slow SLOW loop)
 
 The real, correctly-factored slow-loop trainer for the Fast-Slow Training
 controller (Fast-Slow Training, arXiv:2605.12484). It is the live consumer that
@@ -111,7 +111,7 @@ DispatchFn = Callable[["TrainingJobSpec"], bool]
 
 
 class SubstrateTrainer:
-    """Real Fast-Slow SLOW-loop trainer: build a GRPO corpus + dispatch a job (CONCEPT:ORCH-1.57).
+    """Real Fast-Slow SLOW-loop trainer: build a GRPO corpus + dispatch a job (CONCEPT:AU-ORCH.execution.substrate-training-job-emission).
 
     Builds a group-normalized-advantage corpus from a recurring trace group (the
     agent-utilities reward-spine responsibility) and emits a

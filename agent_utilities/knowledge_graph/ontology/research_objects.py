@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Research ontology objects (CONCEPT:KG-2.76).
+"""Research ontology objects (CONCEPT:AU-KG.ontology.kg-2).
 
 Makes the unified research-intelligence pipeline *ontologically driven*: research
 papers (``Article``) and ecosystem capabilities (``Concept``) become first-class
@@ -15,7 +15,7 @@ ontology **Interfaces**, and the ConceptMatcher's verdicts are first-class typed
 Registered into the import-populated default registries so ``kg.ontology``
 discovers them with no configuration (KG-2.38 interfaces, KG-2.26 links). The
 matcher keeps writing raw edges for robustness; this layer gives the same edges a
-governed ontology schema (conformance, link cardinality, discovery). (CONCEPT:KG-2.76)
+governed ontology schema (conformance, link cardinality, discovery). (CONCEPT:AU-KG.ontology.kg-2)
 """
 
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
@@ -39,7 +39,7 @@ _RESEARCH_INTERFACES = "ResearchPaper", "ResearchConcept"
 def register_research_ontology(
     interfaces: InterfaceRegistry, links: LinkTypeRegistry
 ) -> None:
-    """Register the research-intelligence interfaces + typed links (CONCEPT:KG-2.76).
+    """Register the research-intelligence interfaces + typed links (CONCEPT:AU-KG.ontology.kg-2).
 
     Idempotent: skips an interface/link already registered (re-import safe).
     """

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Decentralized-but-collaborative agent memory.
 
-CONCEPT:KG-2.82 — Decentralized Memory
+CONCEPT:AU-KG.memory.ahe-record-this-base — Decentralized Memory
 
 Operationalizes DecentMem: "Self-Evolving Multi-Agent Systems via Decentralized
 Memory" (arXiv:2605.22721). The prior behaviour we are surpassing is a single
@@ -98,7 +98,7 @@ class DecentralizedMemory:
         self._embedder = embedder
         self._stores: dict[tuple[str, MemoryPool], EvolvingMemoryStore] = {}
         self._trace: list[Contribution] = []
-        # CONCEPT:AHE-3.33 — one online exploit/explore bandit router per agent,
+        # CONCEPT:EG-AHE.harness.online-exploit-explore-reference — one online exploit/explore bandit router per agent,
         # so each agent learns its OWN exploit/explore balance from reward feedback
         # (DecentMem: the balance is not a hard-coded schedule).
         self._routers: dict[str, ExploreExploitRouter] = {}
@@ -126,7 +126,7 @@ class DecentralizedMemory:
         tagged["pool"] = MemoryPool(pool).value
         return tagged
 
-    # -- exploit/explore routing (CONCEPT:AHE-3.33) -------------------------
+    # -- exploit/explore routing (CONCEPT:EG-AHE.harness.online-exploit-explore-reference) -------------------------
 
     def _router(self, agent_id: str) -> ExploreExploitRouter:
         """Return (creating if needed) ``agent_id``'s exploit/explore bandit."""
@@ -222,7 +222,7 @@ class DecentralizedMemory:
         if pool is not None:
             pools = [MemoryPool(pool)]
         else:
-            # CONCEPT:AHE-3.33 — let the agent's bandit pick which pool to favour;
+            # CONCEPT:EG-AHE.harness.online-exploit-explore-reference — let the agent's bandit pick which pool to favour;
             # both pools are still searched (recall stays complete), but the
             # router-preferred pool is consulted first so its records win ties.
             preferred = self.choose_pool(agent_id)

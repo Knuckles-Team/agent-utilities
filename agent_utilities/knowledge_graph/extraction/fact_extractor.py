@@ -1,4 +1,4 @@
-"""Document → atomic-triple fact extraction core (CONCEPT:KG-2.64).
+"""Document → atomic-triple fact extraction core (CONCEPT:AU-KG.enrichment.atomic-triple-extraction).
 
 Turns document text into a stream of ``ExtractedFact`` edges via a self-hosted
 chat model, dedups them semantically (across rounds AND files) using our own
@@ -463,7 +463,7 @@ async def extract_facts(
     deliberate choice. The same ``deduper`` may be passed across documents to
     dedup across files.
 
-    ``schema`` (CONCEPT:KG-2.255) — when an :class:`ExtractionSchema` is supplied,
+    ``schema`` (CONCEPT:AU-KG.retrieval.mmr-diversification) — when an :class:`ExtractionSchema` is supplied,
     its OWL classes + ``rdfs:domain/range`` are spliced into the prompt so the
     model extracts ontology-typed, direction-constrained triples (we exceed
     sift-kg's flat closed-vocab by sourcing it from the formal ontology and
@@ -576,7 +576,7 @@ def _coerce_fact(raw: dict[str, Any], source_file: str) -> ExtractedFact | None:
 
 
 def aggregate_confidence(confidences: Iterable[float]) -> float:
-    """Product-complement confidence ``1 − ∏(1 − cᵢ)`` over members (CONCEPT:KG-2.257).
+    """Product-complement confidence ``1 − ∏(1 − cᵢ)`` over members (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot).
 
     Each ``cᵢ`` is a 0..1 confidence. Independent weak mentions *reinforce*: two
     0.5 mentions combine to 0.75, three to 0.875 — corroboration raises the edge's
@@ -593,7 +593,7 @@ def persist_facts(store: Any, facts: Iterable[ExtractedFact]) -> dict[str, int]:
 
     Nodes are keyed by ``normalize_key`` so surface-form variants merge. Repeated
     mentions of the same ``(subject, predicate, object)`` triple are **merged into
-    one edge** (CONCEPT:KG-2.257): the edge's ``confidence`` is the
+    one edge** (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot): the edge's ``confidence`` is the
     product-complement aggregate (corroboration reinforces), ``support_count`` is
     the number of mentions backing it, and ``weight`` is set to that count so
     well-supported edges rank above singletons — all populating fields the engine

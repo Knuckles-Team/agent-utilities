@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Background OWL-RL + SHACL closure for recently-ingested knowledge.
 
-CONCEPT:KG-2.6 — Background semantic closure (L2 of the layered KG)
+CONCEPT:AU-KG.research.research-pipeline-runner — Background semantic closure (L2 of the layered KG)
 
 This is the tail of the universal ingestion funnel::
 
@@ -43,7 +43,7 @@ _GOVERNANCE_SHAPES = (
     Path(__file__).resolve().parent.parent / "shapes" / "governance.shapes.ttl"
 )
 
-# CONCEPT:KG-2.112 — Single canonical ontology library: one root ontology.ttl that
+# CONCEPT:AU-KG.maintenance.canonical-ontology-library — Single canonical ontology library: one root ontology.ttl that
 # imports every domain module, no divergent duplicate, no unlinked/orphan modules;
 # kept valid + connected by scripts/check_ontology.py (docs/architecture/ontology_library.md).
 # The single canonical bundled ontology the OWL backend reasons over
@@ -70,7 +70,7 @@ def _empty_summary(reason: str) -> dict[str, Any]:
 def run_closure(engine: Any, limit: int = 2000) -> dict[str, Any]:
     """Run one background OWL-RL + SHACL closure pass over the live graph.
 
-    CONCEPT:KG-2.6 — promote recently-ingested nodes to RDF, materialize the
+    CONCEPT:AU-KG.research.research-pipeline-runner — promote recently-ingested nodes to RDF, materialize the
     OWL-RL closure back into the graph as inferred edges, then validate against
     the governance shapes.
 
@@ -100,7 +100,7 @@ def run_closure(engine: Any, limit: int = 2000) -> dict[str, Any]:
     if graph is None:
         return _empty_summary("engine has no graph")
 
-    # CONCEPT:KG-2.242 — the lightweight closure reasons engine-native
+    # CONCEPT:AU-KG.ontology.owl-closure-native — the lightweight closure reasons engine-native
     # (``client.rdf.owl_reason`` over the live graph), so it needs NO owlready2
     # backend: the bridge runs ``run_cycle(lightweight=True)`` with ``owl_backend=None``
     # and the engine materializes the OWL/RDFS+ closure. owlready2 is a true

@@ -1,4 +1,4 @@
-"""Live-path test for the agent-hardening loop (CONCEPT:AHE-3.71/3.72/3.73).
+"""Live-path test for the agent-hardening loop (CONCEPT:AU-AHE.harness.hardening-transparency-surface/3.72/3.73).
 
 The closed cycle, end-to-end for ONE agent and offline-deterministic (no LM):
 

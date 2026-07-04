@@ -1,4 +1,4 @@
-"""Tests for ontology-aware schema discovery (CONCEPT:KG-2.259)."""
+"""Tests for ontology-aware schema discovery (CONCEPT:AU-KG.ontology.do-not-auto-merge)."""
 
 from __future__ import annotations
 

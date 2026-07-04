@@ -1,4 +1,4 @@
-"""Dedicated ingest-engine lifecycle (CONCEPT:KG-2.58, Phase D).
+"""Dedicated ingest-engine lifecycle (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, Phase D).
 
 Verifies the safe-by-default behavior: unset/unreachable ⇒ fall back to the query
 engine (return None), only local unix endpoints are spawnable, and the health

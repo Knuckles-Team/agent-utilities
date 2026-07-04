@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Non-saturating, superhuman-range progress signals.
 
-CONCEPT:SAFE-1.1 — non-saturating superhuman progress tracking via relative scorers and a saturation detector that keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable from metric saturation
+CONCEPT:AU-OS.scaling.non-saturating-superhuman-progress — non-saturating superhuman progress tracking via relative scorers and a saturation detector that keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable from metric saturation
 
 Every fixed-target benchmark (LongMemEval-S, the 1-5 quality gates, the frozen eval
 corpus) clamps at a human-expert / known-answer ceiling — useless for telling two

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Functions runtime — typed invocation entry point (CONCEPT:KG-2.41).
+"""Functions runtime — typed invocation entry point (CONCEPT:AU-KG.ontology.default-runtime-bound-import).
 
 Palantir Foundry ``functions/overview``: an authored Function is invoked with
 typed inputs, runs, and returns a typed output; Actions and derived properties
@@ -22,7 +22,7 @@ invocation entry for the ontology layer.
       entry (actor / function / status),
   (g) return a :class:`FunctionResult` carrying the typed value or the error.
 
-This is the contract that Actions (CONCEPT:KG-2.25) and derived-properties will
+This is the contract that Actions (CONCEPT:AU-KG.ontology.ontology-action-system) and derived-properties will
 consume — ``runtime.invoke(name, params, version=None)`` — so the I/O typing and
 audit happen in exactly one place.
 """
@@ -52,7 +52,7 @@ RESOURCE_FUNCTION = "function"
 
 
 class FunctionResult(BaseModel):
-    """The typed outcome of one :class:`FunctionRuntime` invocation. CONCEPT:KG-2.41."""
+    """The typed outcome of one :class:`FunctionRuntime` invocation. CONCEPT:AU-KG.ontology.default-runtime-bound-import."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -96,7 +96,7 @@ def coerce_output(value: Any, expected: type) -> Any:
 
 
 class FunctionRuntime:
-    """The single governed invocation entry for typed functions. CONCEPT:KG-2.41.
+    """The single governed invocation entry for typed functions. CONCEPT:AU-KG.ontology.default-runtime-bound-import.
 
     Args:
         registry: The :class:`FunctionRegistry` to resolve functions from
@@ -246,7 +246,7 @@ class FunctionRuntime:
             result.audit_ref = record.id
 
 
-# CONCEPT:KG-2.41 — a default runtime bound to the import-populated registry, so
+# CONCEPT:AU-KG.ontology.default-runtime-bound-import — a default runtime bound to the import-populated registry, so
 # Actions/derived-properties have a ready single invocation entry (live path).
 DEFAULT_FUNCTION_RUNTIME = FunctionRuntime()
 

@@ -1,6 +1,6 @@
 """Trading-knowledge curator — organise (don't dump) book/PDF/notes knowledge.
 
-CONCEPT:EE-036
+CONCEPT:AU-AHE.assimilation.trading-curator
 
 After the standard Document + chunks + Concept ingestion has extracted concepts
 from a trading book, paper, or set of notes, this module *classifies* each

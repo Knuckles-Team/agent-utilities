@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Action-conditioned world model over the graph's transition kernels.
 
-CONCEPT:KG-2.67 — a first-class action-conditioned world model wrapping the graph's Markov transition kernel so an agent can roll an action policy forward over predicted next-states and rewards instead of only retrieving the past
+CONCEPT:AU-KG.compute.first-class-action-conditioned — a first-class action-conditioned world model wrapping the graph's Markov transition kernel so an agent can roll an action policy forward over predicted next-states and rewards instead of only retrieving the past
 
 The epistemic graph holds rich *descriptive* state, but every "model" is an LLM, a
 scikit regressor (AHE-3.3) or a symbolic OWL closure — there is no manipulable
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 _SEP = "\x1f"  # composite "state|action" key separator (unit-separator, collision-safe)
 
-# Persistent-latent-memory EMA weight (CONCEPT:KG-2.73b). Each rollout step blends
+# Persistent-latent-memory EMA weight (CONCEPT:AU-KG.compute.reuse-model-latent). Each rollout step blends
 # this fraction of the carried latent into the next prediction so an imagined
 # trajectory stays on-manifold instead of snapping to the nearest discrete next-state
 # and re-deriving from a bare string (the drift Mirage / arXiv:2606.09828 eliminates by
@@ -52,7 +52,7 @@ class Transition:
     next_state: str
     probability: float = 0.0
     reward: float = 0.0
-    # Persistent-latent-memory telemetry (CONCEPT:KG-2.73b): the L2 norm of the
+    # Persistent-latent-memory telemetry (CONCEPT:AU-KG.compute.reuse-model-latent): the L2 norm of the
     # carried next-state latent at this step and its distance from the prior step's
     # carried latent (step-to-step drift). Both are 0.0 on the symbolic backend and
     # on memoryless steps; populated only when latent rollout memory is active.
@@ -98,7 +98,7 @@ def _hash_embed(text: str, dim: int) -> Any:
 
 
 class LatentDynamicsModel:
-    """Learned parametric backend for :class:`WorldModel` (CONCEPT:KG-2.73).
+    """Learned parametric backend for :class:`WorldModel` (CONCEPT:AU-KG.compute.kg-3).
 
     The parametric counterpart to the symbolic Markov kernel: it embeds states and
     actions, fits a ridge-regression map ``[embed(state) ; embed(action)] → embed(next_state)``
@@ -164,7 +164,7 @@ class LatentDynamicsModel:
     ) -> tuple[list[tuple[str, float]], Any]:
         """Like :meth:`predict`, but also returns the predicted next-state latent.
 
-        CONCEPT:KG-2.73b — the latent the model already computes (``y_hat``) is
+        CONCEPT:AU-KG.compute.reuse-model-latent — the latent the model already computes (``y_hat``) is
         returned so a rollout can *carry it forward* instead of discarding it and
         re-deriving from the bare next-state string each step. When ``prior`` (the
         previous step's carried latent) is supplied with ``memory_weight>0`` the two
@@ -318,7 +318,7 @@ class WorldModel:
         """The most-likely single transition (absorbing in ``state`` if unseen).
 
         When the learned latent backend is active and ``latent_cache`` is supplied
-        (persistent rollout memory, CONCEPT:KG-2.73b), the predicted next-state latent
+        (persistent rollout memory, CONCEPT:AU-KG.compute.reuse-model-latent), the predicted next-state latent
         is carried in the cache under ``"latent"`` and EMA-blended into each step so an
         imagined trajectory stays coherent; the step's ``latent_norm`` and ``drift``
         (distance from the prior carried latent) are recorded on the Transition.
@@ -370,7 +370,7 @@ class WorldModel:
 
         With ``latent_memory=True`` (the default) and the learned backend active, a
         persistent latent cache is carried across steps so the imagined trajectory
-        stays on-manifold (CONCEPT:KG-2.73b); ``latent_memory=False`` — or the symbolic
+        stays on-manifold (CONCEPT:AU-KG.compute.reuse-model-latent); ``latent_memory=False`` — or the symbolic
         backend, which has no latents — reproduces the memoryless rollout exactly.
         """
         traj: list[Transition] = []

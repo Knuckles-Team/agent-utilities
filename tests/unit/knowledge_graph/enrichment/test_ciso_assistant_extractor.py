@@ -1,4 +1,4 @@
-"""CISO Assistant GRC source extractor tests (CONCEPT:KG-2.110).
+"""CISO Assistant GRC source extractor tests (CONCEPT:AU-KG.enrichment.ciso-assistant-extraction).
 
 Uses an injected fake client (no network / no daemon) plus the write_batch
 contract to assert node/edge mapping, canonical typing, the Egeria/Camunda

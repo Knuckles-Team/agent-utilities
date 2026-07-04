@@ -1,4 +1,4 @@
-# Universal Enterprise Entities (CONCEPT:KG-2.6)
+# Universal Enterprise Entities (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 > The entities that **every** 100,000+ employee enterprise needs, regardless of sector. These form the cross-domain foundation of the Company Brain.
 

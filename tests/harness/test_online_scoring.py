@@ -1,4 +1,4 @@
-"""Online-scoring pipeline over live traces (CONCEPT:AHE-3.64).
+"""Online-scoring pipeline over live traces (CONCEPT:AU-AHE.harness.receives-trace-id-must).
 
 Production automation rules AND regression assertions run through ONE judge path; verdicts
 persist as OnlineScore/AssertionResult nodes linked SCORED_BY the trace, and a FAILED
@@ -126,7 +126,7 @@ def test_install_defers_scoring_via_completion_hook():
     assert any(p.get("type") == "online_score" for p in kg.nodes.values())
 
 
-# ── B5: sandboxed user-defined Python metrics (CONCEPT:AHE-3.67) ──
+# ── B5: sandboxed user-defined Python metrics (CONCEPT:AU-AHE.harness.onlinescorenode) ──
 from agent_utilities.harness.online_scoring import Metric  # noqa: E402
 
 

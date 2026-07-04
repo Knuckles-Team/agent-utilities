@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Inductive program synthesis over a typed primitive DSL with an Occam prior.
 
-CONCEPT:KG-2.69 — inductive program-synthesis search over a typed primitive composition DSL biased by a minimum-description-length prior so among programs that fit the examples the shortest is preferred a finite stand-in for the Solomonoff universal prior
+CONCEPT:AU-KG.coordination.inductive-program-synthesis-search — inductive program-synthesis search over a typed primitive composition DSL biased by a minimum-description-length prior so among programs that fit the examples the shortest is preferred a finite stand-in for the Solomonoff universal prior
 
 AU's only "synthesis" was evolving scikit regressors (AHE-3.3) or prompt/agent
 variants (AHE-3.2) — search over a fixed parametric or textual space, never over

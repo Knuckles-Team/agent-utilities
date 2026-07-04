@@ -1,4 +1,4 @@
-"""Tests for the adaptive per-model concurrency controller (CONCEPT:KG-2.145).
+"""Tests for the adaptive per-model concurrency controller (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
 These never hit the network: a fake metrics fetcher is injected so the AIMD logic,
 bounds, and fail-safe paths are exercised deterministically.

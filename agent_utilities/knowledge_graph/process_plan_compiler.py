@@ -1,6 +1,6 @@
 """BusinessProcess → Executable Workflow Compiler.
 
-CONCEPT:ORCH-1.41 — Ontology→Workflow Bridge
+CONCEPT:AU-ORCH.planning.business-process-to-executable — Ontology→Workflow Bridge
 
 Compiles a *descriptive* process — a harvested ``BusinessProcess`` node with
 its step-level ``BusinessTask``/``FLOWS_TO`` subgraph (lifted from Camunda
@@ -98,7 +98,7 @@ def _is_gateway(props: dict[str, Any]) -> bool:
 class ProcessPlanCompiler:
     """Compile a descriptive BusinessProcess subgraph into a GraphPlan.
 
-    CONCEPT:ORCH-1.41 — Ontology→Workflow Bridge
+    CONCEPT:AU-ORCH.planning.business-process-to-executable — Ontology→Workflow Bridge
 
     Sibling of :class:`~agent_utilities.knowledge_graph.workflow_compiler.
     WorkflowCompiler` (natural language → plan); this compiler starts from KG
@@ -293,7 +293,7 @@ class ProcessPlanCompiler:
     ) -> GraphPlan:
         """Compile a BusinessProcess node into an executable GraphPlan.
 
-        CONCEPT:ORCH-1.41 — structure-driven compilation: dependencies come
+        CONCEPT:AU-ORCH.planning.business-process-to-executable — structure-driven compilation: dependencies come
         from the lifted BPMN sequence flows (not NL heuristics); agents come
         from the same KG semantic matching the NL compiler uses.
 
@@ -417,7 +417,7 @@ class ProcessPlanCompiler:
     ) -> dict[str, Any]:
         """Compile a BusinessProcess and persist it as a WorkflowDefinition.
 
-        CONCEPT:ORCH-1.41 — persists via the shared ``WorkflowStore`` and
+        CONCEPT:AU-ORCH.planning.business-process-to-executable — persists via the shared ``WorkflowStore`` and
         records the bridge with a ``REALIZES`` edge
         ``(:WorkflowDefinition)-[:REALIZES]->(:BusinessProcess)``
         (``:realizesProcess`` in the ontology) so lineage close-out

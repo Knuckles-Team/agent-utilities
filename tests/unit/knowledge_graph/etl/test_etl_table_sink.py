@@ -1,4 +1,4 @@
-"""ETL sink='table' → native engine SQL table (CONCEPT:KG-2.266).
+"""ETL sink='table' → native engine SQL table (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 run_etl routes ``sink='table'`` to ``ingest_connector_to_table`` instead of the
 graph-store / writeback dispatch, mirroring the inbound source's connector data into
@@ -11,7 +11,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.etl import pipeline
 
-pytestmark = pytest.mark.concept("KG-2.266")
+pytestmark = pytest.mark.concept("AU-KG.ingest.mirror-inbound")
 
 
 def test_run_etl_sink_table_routes_to_table_ingest(monkeypatch):

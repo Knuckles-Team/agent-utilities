@@ -1,4 +1,4 @@
-# AgentSpecs Catalog (CONCEPT:AHE-3.4)
+# AgentSpecs Catalog (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 The **AgentSpec Catalog Generator** bridges the gap between dynamic agent generation and reproducible, structured deployments.
 

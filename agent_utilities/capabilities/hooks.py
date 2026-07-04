@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Lifecycle hooks capability with knowledge graph integration.
 
-CONCEPT:ORCH-1.4
+CONCEPT:AU-ORCH.adapter.kg-graph-materialization
 
 Provides PRE_TOOL_USE, POST_TOOL_USE, BEFORE_RUN, and AFTER_RUN hooks
 for auditing, safety, and automatic graph tracing.

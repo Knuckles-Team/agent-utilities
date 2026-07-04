@@ -1,32 +1,32 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Agent reactions / emotes — a first-class orchestrator output (CONCEPT:ECO-4.79/4.80).
+"""Agent reactions / emotes — a first-class orchestrator output (CONCEPT:AU-ECO.reactions.emitted-alongside-reply/4.80).
 
 Reactions used to live ONLY in the messaging layer: the instinctive-reaction heuristic,
 the available-emoji choices, and the Telegram ``setMessageReaction`` call all sat inside
-``messaging/`` (CONCEPT:ECO-4.60). That made "react with 👍" a messaging-only feature —
+``messaging/`` (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction). That made "react with 👍" a messaging-only feature —
 no other entrypoint (webui / terminal-ui / geniusbot / ``agent_server.py``) could inherit it.
 
 This module promotes reactions to a **core capability of the universal orchestrator** so any
 agent turn can emit one and every entrypoint renders it (the *Universal capability — ONE
 core, thin entrypoints* rule). Three pieces, all torch-free and dependency-light:
 
-* :class:`AgentReaction` (CONCEPT:ECO-4.79) — first-class reaction/emote output any agent
+* :class:`AgentReaction` (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) — first-class reaction/emote output any agent
   turn can emit alongside or instead of text, inherited by every entrypoint.
   Shape: ``{emote, target_message_id?, intensity?}``. Optional and lightweight — a turn that
   doesn't react simply produces ``None``.
-* :class:`EmoteRegistry` (CONCEPT:ECO-4.80) — one emote registry and governance gate shared
+* :class:`EmoteRegistry` (CONCEPT:AU-ECO.reactions.one-emote-registry-governance) — one emote registry and governance gate shared
   by all renderers, governed through the existing :class:`ActionPolicy`
   (``reaction`` kind). No per-surface emote list.
-* :func:`decide_reaction` (CONCEPT:ECO-4.79) — the instinctive-reaction heuristic, moved
+* :func:`decide_reaction` (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) — the instinctive-reaction heuristic, moved
   here from ``messaging/router.py``. A cheap, model-agnostic, tool-free completion that
   works on ANY model (including local serves that can't call tools), so the decision is made
   once in core and the renderers just paint it.
 
 Renderers (the ONLY per-surface code) consume :class:`AgentReaction`:
 
-* Telegram/messaging → ``send_reaction`` / ``setMessageReaction`` (CONCEPT:ECO-4.81).
+* Telegram/messaging → ``send_reaction`` / ``setMessageReaction`` (CONCEPT:AU-ECO.messaging.messaging-as-renderer).
 * ``agent-webui`` → emoji reaction chips · ``agent-terminal-ui`` → inline emote glyph ·
   ``geniusbot`` → desktop reaction affordance · ``agent_server.py`` → ``reaction`` envelope
   field. Their renderer contract is documented in
@@ -47,12 +47,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 
-# ── The core output type (CONCEPT:ECO-4.79) ──────────────────────────────────
+# ── The core output type (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) ──────────────────────────────────
 @dataclass(slots=True)
 class AgentReaction:
     """A structured reaction an agent turn emits — a first-class orchestrator output.
 
-    CONCEPT:ECO-4.79 — emitted alongside (or instead of) the text of a turn. Every
+    CONCEPT:AU-ECO.reactions.emitted-alongside-reply — emitted alongside (or instead of) the text of a turn. Every
     entrypoint renders it natively (chat reaction, webui chip, TUI glyph, API field).
 
     Attributes:
@@ -103,7 +103,7 @@ class AgentReaction:
         )
 
 
-# ── The one emote registry + governance (CONCEPT:ECO-4.80) ───────────────────
+# ── The one emote registry + governance (CONCEPT:AU-ECO.reactions.one-emote-registry-governance) ───────────────────
 # The single source of available emotes, shared by every renderer. NO per-surface list.
 # Keep this small and universally renderable (chat reactions, a TUI glyph, an API field) —
 # platform reaction sets vary, so a backend that cannot render a given emote degrades to its
@@ -124,7 +124,7 @@ _DEFAULT_EMOTES: tuple[str, ...] = (
 
 @dataclass
 class EmoteRegistry:
-    """The ONE registry of available emotes + governance over their use (CONCEPT:ECO-4.80).
+    """The ONE registry of available emotes + governance over their use (CONCEPT:AU-ECO.reactions.one-emote-registry-governance).
 
     A single source every renderer reads from — there is no per-surface emote list. Whether a
     given principal/context may emit a reaction is decided through the existing
@@ -164,7 +164,7 @@ class EmoteRegistry:
     ) -> bool:
         """Whether ``actor`` may emit ``emote`` in ``context`` — the governance gate.
 
-        CONCEPT:ECO-4.80 — reuses the ActionPolicy decision point (kind ``reaction``) rather
+        CONCEPT:AU-ECO.reactions.one-emote-registry-governance — reuses the ActionPolicy decision point (kind ``reaction``) rather
         than a bespoke per-surface allowlist. An unknown emote is never allowed. When the
         policy gate is unavailable (zero-infra default), reactions are allowed (cosmetic,
         fail-open) — they never block or mutate anything a human cares about.
@@ -197,7 +197,7 @@ class EmoteRegistry:
             return True
 
 
-# ── The instinctive-reaction heuristic, moved into core (CONCEPT:ECO-4.79) ───
+# ── The instinctive-reaction heuristic, moved into core (CONCEPT:AU-ECO.reactions.emitted-alongside-reply) ───
 # Model-agnostic: a cheap tool-free completion so reactions work on ANY model (including local
 # serves that cannot do tool calls). This is the heuristic that used to live in
 # ``messaging/router.py::_decide_reaction`` — it now lives in core so EVERY entrypoint, not
@@ -232,7 +232,7 @@ async def decide_reaction(
 ) -> AgentReaction | None:
     """Instinctively decide whether a turn should react, returning an :class:`AgentReaction`.
 
-    CONCEPT:ECO-4.79 — first-class reaction output any agent turn can emit, shared by every
+    CONCEPT:AU-ECO.reactions.emitted-alongside-reply — first-class reaction output any agent turn can emit, shared by every
     entrypoint. Returns ``None`` when no reaction fits, when disabled, or when governance
     forbids the chosen emote. The
     LLM call is bounded (10s) so a slow/hung serve can never stall a caller that awaits it

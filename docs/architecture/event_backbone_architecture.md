@@ -1,6 +1,6 @@
 # Event Backbone Architecture
 
-> CONCEPT:KG-2.7 — Vendor-Agnostic Event Backbone
+> CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Event Backbone
 
 ## Overview
 
@@ -160,7 +160,7 @@ docker exec agent-utilities-kafka \
 event-kafka = ["confluent-kafka>=2.0"]
 ```
 
-## Ingest Task Queue Scale-Out (CONCEPT:KG-2.55 / KG-2.56 / KG-2.57)
+## Ingest Task Queue Scale-Out (CONCEPT:AU-KG.backend.selectable-queue-backend / KG-2.56 / AU-KG.ingest.decoupled-kg-ingest-consumer)
 
 Separate from the pub/sub event backbone above, the **durable ingest task
 queue** (the queue `submit_task` writes and the ingest workers drain) is
@@ -171,7 +171,7 @@ selectable, fail-loud, and — with Kafka — horizontally scalable.
 | Mode | Selected by | Scope | Workers |
 |------|-------------|-------|---------|
 | `sqlite` | default (nothing set) | one host (per-host `kg_task_queue.db`) | in-process daemon threads on the flock host |
-| `postgres` | auto when `STATE_DB_URI` is set, or `TASK_QUEUE_BACKEND=postgres` | fleet (one shared queue, `FOR UPDATE SKIP LOCKED` claims — KG-2.54) | in-process threads on every participating host |
+| `postgres` | auto when `STATE_DB_URI` is set, or `TASK_QUEUE_BACKEND=postgres` | fleet (one shared queue, `FOR UPDATE SKIP LOCKED` claims — AU-KG.ingest.cross-host-safe-kg) | in-process threads on every participating host |
 | `kafka` | `TASK_QUEUE_BACKEND=kafka` | fleet (keyed `kg_tasks` topic) | the `kg-ingest` consumer group: the host engine's pool **plus** any number of decoupled `kg-ingest-worker` processes |
 
 Selection contract (KG-2.55):
@@ -199,13 +199,13 @@ partitions (default 6). **Grow-only**: raising the flag adds partitions; an
 existing topic is never shrunk. Partition count bounds the consumer group's
 maximum parallelism.
 
-### Ordering & idempotency guarantees (KG-2.57)
+### Ordering & idempotency guarantees (AU-KG.ingest.decoupled-kg-ingest-consumer)
 
 - **At-least-once delivery.** Offsets are committed only after a task
   completes (or is durably marked failed); worker crashes redeliver.
 - **Idempotent claims.** `job_id` is the idempotency key: a consumer claims by
   MERGE-ing the `:Task` node to `running` (skipping jobs already
-  running/completed/failed/cancelled), guarded cross-host by the KG-2.54
+  running/completed/failed/cancelled), guarded cross-host by the AU-KG.ingest.cross-host-safe-kg
   `state_claim_guard` advisory lock when `STATE_DB_URI` is set. Graph writes
   are MERGE-based, so rare duplicate executions converge.
 - **Per-key ordering only.** There is no global order and no cross-partition
@@ -236,7 +236,7 @@ override with `--workers` / `KG_INGESTION_WORKERS`.
 ### Backpressure & lag visibility
 
 The leader host's maintenance scheduler samples the queue every pass and
-publishes to the OS-5.23 gateway Prometheus registry:
+publishes to the AU-OS.observability.no-op-without-metrics gateway Prometheus registry:
 
 - `agent_utilities_kg_ingest_queue_depth{backend}` — pending tasks in the
   selected backend (uniform across sqlite/postgres/kafka);

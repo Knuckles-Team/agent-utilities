@@ -1,5 +1,5 @@
 """Wire-First: the real graph_* MCP tools route through the connection registry
-when a ``target`` is supplied (CONCEPT:KG-2.63).
+when a ``target`` is supplied (CONCEPT:AU-KG.backend.multi-connection-registry).
 
 These call the tools via ``kg_server._execute_tool`` (the same dispatch the MCP
 and REST surfaces use, which resolves ``Field`` defaults) and assert the registry
@@ -132,7 +132,7 @@ def _install_cas_registry(result: bool) -> _CASEngine:
 async def test_compare_and_set_calls_backend_and_returns_applied_true():
     # The compare_and_set action must call the backend's
     # compare_and_set_node_fields with the EXACT node_id/conditions/updates and
-    # surface a True result as applied=True (CONCEPT:KG-2.141).
+    # surface a True result as applied=True (CONCEPT:AU-KG.compute.user-override-prompt-library).
     engine = _install_cas_registry(result=True)
     out = await kg_server._execute_tool(
         "graph_write",

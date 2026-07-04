@@ -1,4 +1,4 @@
-"""Tests for self-ingest telemetry (CONCEPT:KG-2.304).
+"""Tests for self-ingest telemetry (CONCEPT:AU-KG.ingest.attaching-this-root-logger).
 
 Covers:
 * the opt-in / default-off no-op behavior (no env / no endpoint),
@@ -7,7 +7,7 @@ Covers:
 * a mock endpoint receiving batched records through the sink + log handler,
 * RunTrace / ToolCall provenance emission.
 
-@pytest.mark.concept("KG-2.304")
+@pytest.mark.concept("AU-KG.ingest.attaching-this-root-logger")
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from agent_utilities.observability.self_ingest import (
     set_self_ingest_sink,
 )
 
-pytestmark = pytest.mark.concept("KG-2.304")
+pytestmark = pytest.mark.concept("AU-KG.ingest.attaching-this-root-logger")
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,4 @@
-# Hardened WASM Sandbox Executor (CONCEPT:OS-5.4)
+# Hardened WASM Sandbox Executor (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
 
 ## Overview
 Rather than executing raw local subprocesses or shell commands which pose severe prompt and command injection risks, the kernel executes micro-agents and untrusted utility tools inside an isolated **WebAssembly (WASM) Sandbox**.
@@ -133,7 +133,7 @@ result = runner.execute({
 ## Integration Points
 
 - **Security Kernel (OS-5.1)**: Tool guard checks run before WASM dispatch
-- **Ontological Guardrails (OS-5.10)**: Arguments validated against OWL policies before sandbox entry
+- **Ontological Guardrails (AU-OS.safety.ontological-guardrail)**: Arguments validated against OWL policies before sandbox entry
 - **Cognitive Scheduler (OS-5.2)**: WASM executions are tracked as agent processes with token quotas
 - **SandboxedExecutor (OS-5.6)**: Process-level isolation complement — WASM for untrusted code, subprocess for trusted scripts
 

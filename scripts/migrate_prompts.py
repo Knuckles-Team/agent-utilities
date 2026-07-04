@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One-time migration of prompt JSON blueprints to the canonical schema.
 
-CONCEPT:ORCH-1.80. Moves every system-prompt blueprint to the single canonical
+CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. Moves every system-prompt blueprint to the single canonical
 body location (``instructions.core_directive``), stamps ``schema_version`` and a
 ``source`` provenance label, and ensures ``type == "prompt"``. The legacy flat
 ``content``/``input`` keys are removed once their value has been folded into

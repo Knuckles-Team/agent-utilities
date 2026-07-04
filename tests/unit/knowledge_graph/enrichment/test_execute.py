@@ -1,4 +1,4 @@
-"""Synthesis → execution bridge (CONCEPT:KG-2.10), with injected runner/facade."""
+"""Synthesis → execution bridge (CONCEPT:AU-KG.enrichment.a2a-capability-extraction), with injected runner/facade."""
 
 from __future__ import annotations
 

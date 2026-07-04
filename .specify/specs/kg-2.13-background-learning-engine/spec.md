@@ -5,7 +5,7 @@
 ## Pre-Flight Checklist
 - [x] Design exists; KG-nearest-concepts table completed.
 - [x] Extension target identified (KG-2.1, similarity 0.84 ≥ 0.70); reuses KG-2.11, ORCH-1.27, observer seam.
-- [x] New CONCEPT:KG-2.13 justified as continuous targeted-edit consolidation.
+- [x] New CONCEPT:AU-KG.memory.background-learning-engine justified as continuous targeted-edit consolidation.
 - [x] Wire-First confirmed: `agent-utilities-memory learn` CLI → `run_learner` → `engine.*_memory_node` = 3 hops.
 
 ## User Stories

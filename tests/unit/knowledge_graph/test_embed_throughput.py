@@ -1,4 +1,4 @@
-"""Batched + concurrent embedding throughput (CONCEPT:KG-2.280).
+"""Batched + concurrent embedding throughput (CONCEPT:AU-KG.ingest.applying-agents-md-batch).
 
 The fresh north-star e2e run shifted its bottleneck to ENRICHMENT: embeds were
 issued one HTTP round-trip at a time (the host log showed one

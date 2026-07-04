@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 — Developer-Workspace Runtime: a long-lived, stateful workspace the SWE
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Developer-Workspace Runtime: a long-lived, stateful workspace the SWE
 agent (ORCH-1.47) drives via typed actions.
 
 ``DevWorkspace`` is the facade. It owns:

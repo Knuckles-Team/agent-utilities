@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for Backlink-Density Retrieval Boost.
 
-CONCEPT:KG-2.2
+CONCEPT:AU-KG.ingest.engineering-rules
 """
 
 
@@ -41,7 +41,7 @@ class _NoCypherBackend:
 
 class _FakeVectorGraph:
     """Engine-graph double: the vector arm reads ``semantic_search`` (engine ANN)
-    and hydrates via ``_get_node_properties`` — the CONCEPT:KG-2.250 contract."""
+    and hydrates via ``_get_node_properties`` — the CONCEPT:AU-KG.compute.kg-2 contract."""
 
     def __init__(self, hits, props):  # type: ignore[no-untyped-def]
         self._hits = hits  # list[(id, score)]

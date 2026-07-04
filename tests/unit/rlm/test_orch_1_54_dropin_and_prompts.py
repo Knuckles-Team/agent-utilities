@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.54 — drop-in RLM client + model-family-aware prompt + AHE-3.32 usage capture."""
+"""CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — drop-in RLM client + model-family-aware prompt + AHE-3.32 usage capture."""
 
 from __future__ import annotations
 

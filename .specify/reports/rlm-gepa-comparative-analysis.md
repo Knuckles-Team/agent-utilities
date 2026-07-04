@@ -2,7 +2,7 @@
 
 **Sources:** GEPA paper (Agrawal et al., ICLR 2026 Oral, `2507.19457v2`); `Trampoline-AI/predict-rlm@edaddfe`
 (pinned); the "RLM-GEPA on AppWorld" summary (mismanaged-genius hypothesis, skill-as-SOP, TGC/SGC).
-**Target:** `agent-utilities` (`agent_utilities/rlm`: ORCH-1.12 Predict-RLM, ORCH-1.13 GEPA) + `epistemic-graph`.
+**Target:** `agent-utilities` (`agent_utilities/rlm`: ORCH-1.12 Predict-RLM, AU-ORCH.optimization.optimize-skill-prompt-gepa GEPA) + `epistemic-graph`.
 **Mode:** Lightweight. Pipeline: pin → explore→ledger → verify → score → scaffold-SDD → wiring-audit.
 **Artifacts:** `reports/rlm-ca/{ledger,verified,scored,wiring}.json`; SDD stubs under `.specify/`.
 
@@ -24,11 +24,11 @@ optimized skills actually transfer (the AppWorld summary's whole point: +7.2 pp 
 
 | # | SDD feature | Concept | Bundles (verified rows) | Wiring |
 |---|---|---|---|---|
-| **A** | **Generalizing GEPA** | extends ORCH-1.13 | gepa-heldout-pareto-split, agent-spec-grounding, patch-merge-selection | ⚠️ needs RLM-GEPA entry point |
+| **A** | **Generalizing GEPA** | extends AU-ORCH.optimization.optimize-skill-prompt-gepa | gepa-heldout-pareto-split, agent-spec-grounding, patch-merge-selection | ⚠️ needs RLM-GEPA entry point |
 | **B** | Role-Specialized RLM Optimization | extends ORCH-1.27 / ORCH-1.12 | rlm-role-specialized-optimization | ⚠️ via entry point |
 | **C** | Composable Skills + Generic Adapter | extends ORCH-1.12 | composable-skill-system, generic-environment-adapter | ✅ `specialist.py` (1), `repl.py` (2) |
 | **D** | RLM Resilience + Telemetry | extends ORCH-1.12 | structured-runtrace-telemetry, recoverable-vs-fatal-timeout | ✅ `repl.py` (2) |
-| **E** | Graph-Native Optimization State | extends ORCH-1.13 (+KG-2.7) | epistemic-graph-backed-gepa-state | ⚠️ via entry point |
+| **E** | Graph-Native Optimization State | extends AU-ORCH.optimization.optimize-skill-prompt-gepa (+KG-2.7) | epistemic-graph-backed-gepa-state | ⚠️ via entry point |
 
 **Highest leverage (score order):** agent-spec-grounding, composable-skill-system, recoverable-vs-fatal-timeout.
 **Build order (deps respected):** C/D foundations → A (heldout-split → agent-spec/patch-merge) → B → E.

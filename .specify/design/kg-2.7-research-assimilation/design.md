@@ -1,4 +1,4 @@
-# Design Document: Research Assimilation Tracking (CONCEPT:KG-2.6)
+# Design Document: Research Assimilation Tracking (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 > Every feature begins with a design document. This gates creation through
 > the Knowledge Graph to enforce the **Extend-Before-Invent** principle.
@@ -15,11 +15,11 @@ This feature is meta — it tracks the provenance of all other research-derived 
 |---|---|---|---|
 | `KG-2.7` | Research Intelligence | 0.90 | KG |
 | `KG-2.0` | Active Knowledge Graph | 0.60 | KG |
-| `ORCH-1.5` | DSTDD Pipeline | 0.55 | ORCH |
+| `AU-ORCH.planning.legal-automation-roadmap` | DSTDD Pipeline | 0.55 | ORCH |
 
 ### Extension Analysis
 
-- **Primary Extension Point**: `CONCEPT:KG-2.6` — Research Intelligence
+- **Primary Extension Point**: `CONCEPT:AU-KG.research.research-pipeline-runner` — Research Intelligence
 - **Extension Strategy**: `augment` — adds assimilation lifecycle tracking to existing research intelligence
 - **New Concept Required?**: No
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """AHE Manifest Verifier.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Decision Observability)
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Decision Observability)
 
 Verifies whether the Evolve Agent's predictions came true by comparing
 a ChangeManifest's self-declared predictions against actual outcomes
@@ -58,7 +58,7 @@ class ManifestVerifier:
     def _signature_fired(
         signature: dict[str, Any], new_evidence: EvidenceCorpus
     ) -> bool:
-        """Did the edit's declared trace feature actually appear (CONCEPT:AHE-3.58)?
+        """Did the edit's declared trace feature actually appear (CONCEPT:AU-AHE.evaluation.edit-claims-fix)?
 
         The ``attribution_signature`` names a feature/value pair (e.g.
         ``{"tool_call": "WikiTextFetch", "min_count": 1}``). We scan the new
@@ -147,7 +147,7 @@ class ManifestVerifier:
             else 0.0
         )
 
-        # Self-attribution reliability (CONCEPT:AHE-3.0, plan b7-04 F7): would random
+        # Self-attribution reliability (CONCEPT:AU-AHE.harness.harness-evolution, plan b7-04 F7): would random
         # predictions of the same scope do as well? Random precision = base rate of
         # actual fixes among all evaluated tasks; the harness is only "reliable" when
         # its fix_precision beats that base rate by ``reliability_multiple``.
@@ -164,7 +164,7 @@ class ManifestVerifier:
         # Calculate overall score delta
         overall_delta = new_evidence.benchmark_score - baseline_evidence.benchmark_score
 
-        # Signature attribution (CONCEPT:AHE-3.58): an edit that declared an
+        # Signature attribution (CONCEPT:AU-AHE.evaluation.edit-claims-fix): an edit that declared an
         # ``attribution_signature`` must have actually FIRED in the new trace — else
         # any apparent fix is unattributed (coincidence / reward-hacking) and the
         # edit cannot be credited. HarnessX never checks this; we make every edit

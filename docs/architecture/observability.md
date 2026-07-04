@@ -21,7 +21,7 @@ built on the existing LGTM stack (`services/lgtm/`).
 |--------|-----------|-------|-------|
 | Host metrics | node-exporter (global) | Prometheus | CPU/mem/disk/net per node |
 | Container metrics | cAdvisor (global) | Prometheus | per-container, labelled `com.docker.stack.namespace` |
-| MCP app metrics | each MCP `GET /metrics` | Prometheus | per-tool count/latency/error (CONCEPT:OS-5.23) |
+| MCP app metrics | each MCP `GET /metrics` | Prometheus | per-tool count/latency/error (CONCEPT:AU-OS.observability.no-op-without-metrics) |
 | Synthetic health | blackbox-exporter | Prometheus | `GET /health` per MCP |
 | Logs | promtail (docker SD) | Loki | container stdout/stderr, labelled stack/service |
 | Traces | OTEL | Tempo + Langfuse | Langfuse for LLM traces |
@@ -86,9 +86,9 @@ The LGTM stack above is *infrastructure* observability (host/container/fleet met
 logs, synthetic health). Complementary to it is **KG-native application observability +
 evaluation** — every agent run is captured as a first-class graph subgraph and scored by
 the same engine, so traces are *queryable and reasoned over* rather than buried in an
-opaque store (the moat over Opik's ClickHouse). Concepts: OS-5.68 (capture),
-AHE-3.64/3.65/3.66/3.67/3.68 (online-scoring / G-Eval / tool-judge / sandboxed metrics /
-dataset-prompt loop), KG-2.257 (moat queries).
+opaque store (the moat over Opik's ClickHouse). Concepts: AU-OS.config.model-factory-passthrough (capture),
+AU-AHE.harness.receives-trace-id-must/3.65/3.66/3.67/3.68 (online-scoring / G-Eval / tool-judge / sandboxed metrics /
+dataset-prompt loop), AU-KG.ingest.observability-queries-opik-cannot (moat queries).
 
 ### 1. Always-on capture → the trace subgraph
 

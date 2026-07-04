@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Graph Governance Agent.
 
-CONCEPT:KG-2.2 — Governance Agent
+CONCEPT:AU-OS.governance.governance-agent — Governance Agent
 
 A background autonomous agent that manages continuous knowledge synthesis,
 departmental orchestration, and reviews/approves ecosystem proposals

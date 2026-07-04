@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Git Utilities Tools Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module provides tools for inspecting git status, managing isolated
 worktrees for parallel development, and auditing version control history.

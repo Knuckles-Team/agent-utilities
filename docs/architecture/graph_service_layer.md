@@ -1,6 +1,6 @@
 # Epistemic Graph Service Layer Architecture
 
-> CONCEPT:KG-2.7 — Tokio-first graph service
+> CONCEPT:AU-KG.query.vendor-agnostic-traversal — Tokio-first graph service
 
 ## Overview
 
@@ -89,7 +89,7 @@ is no in-process embedded fallback. If the daemon is unreachable, set
 
 With 2+ entries in `GRAPH_SERVICE_ENDPOINTS`, `GraphComputeEngine` routes each
 named graph to its owning shard by HRW rendezvous hashing (`tenant → named
-graph → HRW → shard`, CONCEPT:KG-2.58). Autostart then applies **only** to the
+graph → HRW → shard`, CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Autostart then applies **only** to the
 local `unix://` endpoint — an unreachable remote shard is a fail-loud
 `ConnectionError` naming the shard. See
 [engine_sharding.md](./engine_sharding.md).

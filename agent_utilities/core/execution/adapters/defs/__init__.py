@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Built-in adapter definitions.
+"""CONCEPT:AU-ORCH.adapter.builtin-adapter-definitions — Built-in adapter definitions.
 
 Declarative descriptions of common agent-CLI / local-LLM backends. Each is pure data; the registry
 detects which are actually installed. Add a backend by appending an :class:`AdapterDefinition` here

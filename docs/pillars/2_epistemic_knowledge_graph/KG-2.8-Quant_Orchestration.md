@@ -1,4 +1,4 @@
-# Quant Orchestration (CONCEPT:KG-2.6)
+# Quant Orchestration (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 The KG-Native Quant Orchestration layer transforms `agent-utilities` into a master quantitative trading framework. It introduces a multi-agent debate architecture (Bull vs Bear) for consensus-driven trading, regime-aware signal fusion, and comprehensive unified market data abstraction. All state, lifecycle, and provenance of hypotheses and backtests are persisted as first-class nodes in the Knowledge Graph.
@@ -55,5 +55,5 @@ The framework registers several new `OntologySchema` types into the core KG engi
 - **Pillar**: KG (Pillar 2) & ECO (Pillar 4 MCP Tools)
 
 ## Related Concepts
-- `CONCEPT:KG-2.6` - Domain: Finance (Base Layer)
-- `CONCEPT:KG-2.0` - Active Knowledge Graph
+- `CONCEPT:AU-KG.research.research-pipeline-runner` - Domain: Finance (Base Layer)
+- `CONCEPT:AU-KG.query.object-graph-mapper` - Active Knowledge Graph

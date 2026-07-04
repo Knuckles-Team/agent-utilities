@@ -1,4 +1,4 @@
-"""ARIS / RSA Archer / Odoo CRM source extractors (CONCEPT:KG-2.9).
+"""ARIS / RSA Archer / Odoo CRM source extractors (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Injected fake clients (no network) assert node/edge mapping, canonical typing,
 the vendor-neutral capability tag, tolerance, and registry discovery.

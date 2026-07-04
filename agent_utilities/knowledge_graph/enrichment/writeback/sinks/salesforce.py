@@ -1,4 +1,4 @@
-"""Salesforce CRM write-back sink (CONCEPT:KG-2.9).
+"""Salesforce CRM write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Creates/enriches CRM records (Account/Contact/Opportunity) from KG-derived
 knowledge — fail-closed (``SALESFORCE_ENABLE_WRITE``), dry-run-first. Resolves KG

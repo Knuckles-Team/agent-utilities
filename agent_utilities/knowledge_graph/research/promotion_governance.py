@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Production promotion-governance validator (CONCEPT:AHE-3.20).
+"""Production promotion-governance validator (CONCEPT:AU-AHE.harness.promotion-governance-validator).
 
 :class:`~agent_utilities.knowledge_graph.research.auto_merge.GovernedAutoMerger`
 always accepted an injected ``governance_validator`` — but until now only test
@@ -123,7 +123,7 @@ class _OneNodeGraph:
 class PromotionGovernanceValidator:
     """Validate golden-loop promotion candidates against live governance.
 
-    CONCEPT:AHE-3.20 — Promotion Governance Validator.
+    CONCEPT:AU-AHE.harness.promotion-governance-validator — Promotion Governance Validator.
 
     Callable: ``validator(spec) -> bool`` (the ``governance_validator``
     contract of :class:`GovernedAutoMerger`); :meth:`validate` returns the

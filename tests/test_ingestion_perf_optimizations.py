@@ -1,4 +1,4 @@
-"""Ingestion performance optimizations (CONCEPT:KG-2.7 / KG-2.8).
+"""Ingestion performance optimizations (CONCEPT:AU-KG.query.vendor-agnostic-traversal / KG-2.8).
 
 Covers the delta/throttle work that keeps a large-repo (re-)ingest cheap and
 prevents bulk ingest from saturating the engine:
@@ -143,7 +143,7 @@ class TestBulkIngestGate:
 
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
         # :Task status/metadata is the CONTROL plane, so _bulk_ingest_active reads
-        # via _control_cypher (CONCEPT:KG-2.148), not the data-plane query_cypher.
+        # via _control_cypher (CONCEPT:AU-KG.backend.schedule-on-control-graph), not the data-plane query_cypher.
         obj._control_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
         return obj
 
@@ -166,7 +166,7 @@ class TestBulkIngestGate:
         assert obj._bulk_ingest_active() is False
 
 
-# ── per-lane/stage profiling (CONCEPT:OS-5.55) ──────────────────────────────
+# ── per-lane/stage profiling (CONCEPT:AU-OS.observability.per-lane-latency-metrics) ──────────────────────────────
 class TestProfileReport:
     def _mixin(self, rows: list[dict]):
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
@@ -230,7 +230,7 @@ class TestProfileReport:
         assert obj.profile_report() == {}
 
 
-# ── batched parse (CONCEPT:KG-2.16): extractor + pipeline routing ───────────
+# ── batched parse (CONCEPT:EG-KG.compute.graph-compute-engine): extractor + pipeline routing ───────────
 class TestBatchExtract:
     def test_order_and_hashes_preserved(self):
         import hashlib

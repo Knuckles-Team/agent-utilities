@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """KB Structured Extraction Engine.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Uses Pydantic AI with typed output_type= to extract structured articles,
 facts, and concepts from raw document chunks. This ensures all LLM output

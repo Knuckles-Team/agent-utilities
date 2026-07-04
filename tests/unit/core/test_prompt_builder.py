@@ -1,6 +1,6 @@
 """Tests for Prompt Builder.
 
-CONCEPT:KG-2.1 — Project-Aware Context
+CONCEPT:AU-KG.memory.tiered-memory-caching — Project-Aware Context
 """
 
 import json

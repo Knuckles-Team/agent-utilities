@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.44 — Optional browser-agent tier for the developer-workspace runtime.
+"""CONCEPT:AU-ECO.toolkit.browser-agent-tier — Optional browser-agent tier for the developer-workspace runtime.
 
 A pluggable :class:`BrowserDriver` lets the SWE agent issue ``BrowseAction``s (navigate a docs
 page, reproduce a web bug) without dragging playwright/browsergym into the core edit→test

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.3 — Coordination Protocol Layer.
+"""CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Coordination Protocol Layer.
 
 Explicit coordination layer for multi-agent orchestration.
 
@@ -20,7 +20,7 @@ Architecture:
     - **CoordinationTrace**: KG-persisted record of coordination events
       for observability and learning.
 
-See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.3
+See docs/pillars/1_graph_orchestration.md §CONCEPT:AU-ORCH.execution.coordination-protocol-metadata
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ── Named aggregation registry (CONCEPT:ORCH-1.3) ──────────────────
+# ── Named aggregation registry (CONCEPT:AU-ORCH.execution.coordination-protocol-metadata) ──────────────────
 # The coordination layer's named aggregation taxonomy (b1-02 F5). Scalar
 # reductions live here; pairwise/uncertainty operators (Bradley–Terry,
 # conservative-rating, contribution-weighted) are delegated to the unified
@@ -63,7 +63,7 @@ class AggregationOperator(StrEnum):
 def aggregate_scores(
     values: list[float], operator: AggregationOperator | str = AggregationOperator.MEAN
 ) -> float:
-    """Aggregate a list of scores by a named operator (CONCEPT:ORCH-1.3).
+    """Aggregate a list of scores by a named operator (CONCEPT:AU-ORCH.execution.coordination-protocol-metadata).
 
     ``log_pool`` is the geometric mean (clamped to >0), the principled pool for
     combining independent probabilities; the rest are the obvious reductions.
@@ -93,7 +93,7 @@ def aggregate_scores(
 class ProtocolType(StrEnum):
     """Available coordination protocol types.
 
-    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+    CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
     """
 
     CONSENSUS = "consensus"  # All agents must agree
@@ -116,7 +116,7 @@ class ConvergenceCriterion(StrEnum):
 class CoordinationProtocol(BaseModel):
     """Declarative coordination protocol definition.
 
-    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+    CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
 
     Each protocol specifies how multiple agents should coordinate
     on a shared task: who speaks, when convergence is reached, and
@@ -148,7 +148,7 @@ class CoordinationProtocol(BaseModel):
 class CoordinationResult(BaseModel):
     """Outcome of a coordination round.
 
-    CONCEPT:ORCH-1.3
+    CONCEPT:AU-ORCH.execution.coordination-protocol-metadata
 
     Attributes:
         protocol_id: Protocol that was applied.
@@ -226,7 +226,7 @@ BUILTIN_PROTOCOLS: dict[str, CoordinationProtocol] = {
 class CoordinationLayer:
     """Explicit coordination layer for multi-agent tasks.
 
-    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+    CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
 
     Sits between ``AgentOrchestrationEngine.synthesize_team()`` and
     graph execution. Selects the optimal coordination protocol based
@@ -257,7 +257,7 @@ class CoordinationLayer:
         values: list[float],
         operator: AggregationOperator | str = AggregationOperator.MEAN,
     ) -> float:
-        """Aggregate coordinated scalar outputs by a named operator (CONCEPT:ORCH-1.3)."""
+        """Aggregate coordinated scalar outputs by a named operator (CONCEPT:AU-ORCH.execution.coordination-protocol-metadata)."""
         return aggregate_scores(values, operator)
 
     def rank(
@@ -271,7 +271,7 @@ class CoordinationLayer:
 
         Delegates to :mod:`agent_utilities.harness.selection_operators` so the
         coordination layer and the evolution/variant paths share ONE selection
-        implementation (CONCEPT:ORCH-1.30; STRATEGY synergy #2).
+        implementation (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data; STRATEGY synergy #2).
         """
         from ..harness.selection_operators import rank_from_comparisons
 
@@ -285,7 +285,7 @@ class CoordinationLayer:
     ) -> CoordinationProtocol:
         """Select the optimal coordination protocol for a task.
 
-        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+        CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
 
         Selection logic:
         1. If single agent → delegation (no coordination needed).
@@ -377,7 +377,7 @@ class CoordinationLayer:
     ) -> CoordinationResult:
         """Apply a coordination protocol and return the result.
 
-        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+        CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
 
         This is the synchronous coordination step that occurs *before*
         graph execution begins. It determines how agents will coordinate
@@ -456,7 +456,7 @@ class CoordinationLayer:
     ) -> str | None:
         """Persist a coordination trace to the Knowledge Graph.
 
-        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
+        CONCEPT:AU-ORCH.execution.coordination-protocol-metadata — Research: 2605.03310v1
 
         Creates a ``CoordinationTrace`` node in the KG for observability,
         learning, and historical protocol selection.

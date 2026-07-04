@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Provenance-completeness critic gate — deterministic accept/revise/escalate.
 
-CONCEPT:AHE-3.13 — Layered Pre-Emit Gate (provenance check)
+CONCEPT:AU-AHE.harness.pre-emit-quality-gate — Layered Pre-Emit Gate (provenance check)
 
 A deterministic pre-emit gate distilled from the MAKA "traceable, risk-aware
 decision support" research (``.specify/specs/research-evolution-20260606/`` plan

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:OS-5.3 — Reactive Multi-Axis Budget Guardrails.
+"""CONCEPT:AU-OS.governance.reactive-multi-axis-budget — Reactive Multi-Axis Budget Guardrails.
 
 Governs cost, token, and wall-clock execution limits dynamically. Integrates
 with OS-5.4 token usage analytics to prevent runaway agent execution paths and
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class BudgetTrippedException(Exception):
     """Exception raised when an agent execution path breaches budget limits.
 
-    CONCEPT:OS-5.1 — Resilient Self-Healing & Guardrails.
+    CONCEPT:AU-OS.safety.self-healing-guardrails — Resilient Self-Healing & Guardrails.
     """
 
     def __init__(

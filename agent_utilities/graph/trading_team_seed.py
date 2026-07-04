@@ -1,4 +1,4 @@
-"""Curated trading TeamConfig seed — CONCEPT:EE-039.
+"""Curated trading TeamConfig seed — CONCEPT:AU-AHE.harness.trading-team-seed.
 
 A blessed multi-specialist trading team mapped onto the Finance Pipeline topology
 (router → alpha → risk → execution → attribution) and the emerald-exchange tool

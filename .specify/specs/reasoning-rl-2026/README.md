@@ -15,9 +15,9 @@ on-policy base-model trainer — see the analysis "Framing" section).
 
 | Rank | Spec | Concept | Primary papers | Verdict closed |
 |---|---|---|---|---|
-| 1 | [agent-step-policy-optimization](./spec-arpo-agent-step-po.md) | AHE-3.x | ARPO (2507.19849) | partial→gap, HIGH |
-| 2 | [test-time-diversity](./spec-vpo-test-time-diversity.md) | AHE-3.x | VPO (2605.22817) | partial→gap, HIGH |
-| 3 | [preference-corpus-reliability](./spec-preference-corpus-reliability.md) | AHE-3.x | RAPPO (OR LrHfYPFTtg), TI-DPO (2505.19653), InSPO (2512.23126), DPO (2305.18290) | partial, broadly enabling |
+| 1 | [agent-step-policy-optimization](./spec-arpo-agent-step-po.md) | AU-AHE.optimization.telemetry-optimization | ARPO (2507.19849) | partial→gap, HIGH |
+| 2 | [test-time-diversity](./spec-vpo-test-time-diversity.md) | AU-AHE.optimization.telemetry-optimization | VPO (2605.22817) | partial→gap, HIGH |
+| 3 | [preference-corpus-reliability](./spec-preference-corpus-reliability.md) | AU-AHE.optimization.telemetry-optimization | RAPPO (OR LrHfYPFTtg), TI-DPO (2505.19653), InSPO (2512.23126), DPO (2305.18290) | partial, broadly enabling |
 | 4 | [reward-primitive-hardening](./spec-ahe31-reward-primitive-hardening.md) | AHE-3.1 | Dr.GRPO (2503.20783), DAPO (2503.14476), EP-GRPO (2605.04960), TR-GRPO (2511.00066) | partial/net-new, banked |
 
 **Already covered (no spec needed):** GRPO (2402.03300), REINFORCE++ (2501.03262),

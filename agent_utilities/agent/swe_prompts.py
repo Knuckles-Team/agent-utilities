@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.47 — System prompt for the KG-grounded SWE agent.
+"""CONCEPT:AU-ORCH.execution.swe-agent-system-prompt — System prompt for the KG-grounded SWE agent.
 
 The prompt's job is to make the agent *graph-first*: reason over the code ontology (KG-2.65)
 before reading files, so it scales to repos it has never read in full — the behaviour that lets

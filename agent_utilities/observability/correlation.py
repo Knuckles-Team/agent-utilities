@@ -1,4 +1,4 @@
-"""Cross-agent trace correlation (CONCEPT:OS-5.11).
+"""Cross-agent trace correlation (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
 The ``@trace`` decorators in :mod:`agent_utilities.harness.tracing` already nest
 spans within a single process via ``contextvars``. This module closes the
@@ -35,7 +35,7 @@ TRACEPARENT_HEADER = "traceparent"
 CORRELATION_HEADER = "x-correlation-id"
 SESSION_HEADER = "x-session-id"
 # Originating identity, so an external write is joinable back to the tenant/actor
-# that caused it (CONCEPT:OS-5.14 + OS-5.11), not just the correlation id.
+# that caused it (CONCEPT:AU-OS.identity.authenticated-identity-enforcement + OS-5.11), not just the correlation id.
 TENANT_HEADER = "x-tenant-id"
 ACTOR_HEADER = "x-actor-id"
 
@@ -87,7 +87,7 @@ def current_carrier() -> dict[str, str]:
     sid = tracing.get_session_id()
     if sid:
         carrier[SESSION_HEADER] = sid
-    # CONCEPT:KG-2.293 — carry the resource PriorityClass so a spawned/child agent,
+    # CONCEPT:AU-KG.compute.priority-class-propagation — carry the resource PriorityClass so a spawned/child agent,
     # and any engine read it issues (EG-044 reserved read lane), inherit the same
     # priority as the entry point that started the run.
     try:
@@ -118,7 +118,7 @@ def bind_carrier(carrier: dict[str, str] | None) -> Iterator[str]:
             (tracing._current_session_id, tracing._current_session_id.set(sid))
         )
 
-    # CONCEPT:KG-2.293 — restore the inherited resource priority for the block, so
+    # CONCEPT:AU-KG.compute.priority-class-propagation — restore the inherited resource priority for the block, so
     # the child's LLM calls and engine reads are admitted at the parent's class.
     prio = carrier.get(PRIORITY_HEADER)
     if prio:
@@ -154,7 +154,7 @@ def inject(headers: dict[str, str] | None = None) -> dict[str, str]:
     if sid:
         headers[SESSION_HEADER] = sid
     # Carry the originating identity alongside the trace so downstream/external
-    # writes are joinable back to the tenant/actor (CONCEPT:OS-5.14).
+    # writes are joinable back to the tenant/actor (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
     try:
         from agent_utilities.security.brain_context import current_actor
 
@@ -165,7 +165,7 @@ def inject(headers: dict[str, str] | None = None) -> dict[str, str]:
             headers[ACTOR_HEADER] = actor.actor_id
     except Exception:  # noqa: BLE001 — identity is best-effort context
         pass
-    # CONCEPT:KG-2.293 — propagate the resource priority on outbound calls.
+    # CONCEPT:AU-KG.compute.priority-class-propagation — propagate the resource priority on outbound calls.
     try:
         from agent_utilities.core.resource_priority import priority_carrier
 

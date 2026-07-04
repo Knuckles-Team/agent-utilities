@@ -8,7 +8,7 @@ COHESIVE, intent-scoped tools, each with a short scannable description:
 * ``graph_research`` — assimilation / research pipeline
 * ``graph_evaluate`` — eval, harness gates, world-model, forecasting
 * ``graph_explain``  — the universal context plane (one cited answer per question)
-* ``graph_observe``  — KG-native observability/eval analytics (CONCEPT:KG-2.257)
+* ``graph_observe``  — KG-native observability/eval analytics (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot)
 
 The code/research/evaluate/explain tools are THIN facades: they carry only a focused
 description and delegate to the SAME proven action core via ``_execute_tool`` (no logic
@@ -147,7 +147,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     @mcp.tool(
         name="graph_explain",
         description=(
-            "The UNIVERSAL context plane (CONCEPT:KG-2.136): route a question to its domain "
+            "The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to its domain "
             "provider and return ONE grounded, cited answer. action='explain' with "
             "target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', "
             "'entity:health') — or a bare intent with the domain inferred, or target='domains' "
@@ -175,7 +175,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         description=(
             "Reason over the KG-native observability subgraph — traces, online-scores, "
             "assertion verdicts, generations, prompt versions — queries an opaque trace "
-            "store can't do (CONCEPT:KG-2.257). Actions: 'trace_rootcause' (FAILED "
+            "store can't do (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot). Actions: 'trace_rootcause' (FAILED "
             "assertions + low scores joined to their trace's agent, grouped; query=agent/"
             "capability filter), 'prompt_regression' (mean score per prompt version — which "
             "regressed), 'failure_cluster' (failing traces clustered by the failed assertion "

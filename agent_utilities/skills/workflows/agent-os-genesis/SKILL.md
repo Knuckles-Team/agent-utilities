@@ -126,7 +126,7 @@ the remaining steps so the same workflow scales from a laptop to a full swarm:
 | **single-node-prod** | One host, durable: the engine container + gateway + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm. | **`node` tier** (or `full`) — the engine-as-a-DB **container**. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
 | **enterprise** | Full multi-node swarm + all integrations + the entire `*-mcp` fleet. | **`cluster` tier** — the engine-as-a-DB container reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`; mirrors fan out. | All steps (1–16 + A1–A6). |
 
-> **The engine is the ONE store at every scale** (CONCEPT:OS-5.63 / KG-2.195). The
+> **The engine is the ONE store at every scale** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision / AU-KG.backend.backend-modes). The
 > Rust `epistemic-graph` engine (≥1.0.0) is a full multi-model master-of-all —
 > graph + vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning + time-series + blob +
 > text + multi-Raft + cross-shard 2PC + streaming/CDC + RLS/encryption-at-rest/
@@ -170,7 +170,7 @@ messaging), so a single-package deploy is genesis with a one-item run plan.
    `vault://apps/<package>/<KEY>` refs for the env/config.
 4. **Apply cert trust** (Step 1b) if a `ca_bundle` was given, and **register the MCP
    server** (`graph_configure action=register_mcp`) so the multiplexer/IDE can reach it.
-   Its `mcp_config`/compose `env` follows the env-var canon (CONCEPT:OS-5.72) — only the
+   Its `mcp_config`/compose `env` follows the env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard) — only the
    vars the code reads, plus `"MCP_TOOL_MODE": "condensed"`; the package ships the
    `env-var-drift` pre-commit guard (`python -m agent_utilities.mcp.check_env_var_drift
    --check`).
@@ -272,7 +272,7 @@ keycloak is deployed only when no IdP exists. See Step 8/14.
 
 **0e. Secrets store** — three tiers in precedence: **`vault`** (OpenBao/HashiCorp
 Vault, same API — the enterprise fleet source of truth) · **`engine`** (the engine's
-**encrypted `__secrets__` graph**, CONCEPT:OS-5.66 — the default embedded app-secret
+**encrypted `__secrets__` graph**, CONCEPT:AU-OS.identity.encrypted-secret-store — the default embedded app-secret
 store: `:Secret` nodes whose values are sealed by the engine's **encryption-at-rest**,
 no local SQLite/disk fallback) · **`env`** (`.env` fallback). If a Vault is reachable
 genesis prefers it and **reads existing secrets** before prompting (Step 8,
@@ -289,7 +289,7 @@ no self-signed errors occur.
 tiny. Drives the ontology-host step (Step A4b).
 
 **0h. Messaging channels** — which channel(s) the agent uses to reach the end user
-(agent-utilities has a native multi-channel messaging subsystem, CONCEPT:ECO-4.0):
+(agent-utilities has a native multi-channel messaging subsystem, CONCEPT:AU-ECO.messaging.native-backend-abstraction):
 `slack` · `teams` · `telegram` · `mattermost` · `discord` · `whatsapp` · `matrix` ·
 `signal` · … (17 backends). Pick **one or more**; each picked channel's token is seeded
 to the secrets store and added to `MESSAGING_ENABLED_BACKENDS` so all configured
@@ -394,7 +394,7 @@ highest-free-RAM node, manager/edge (Caddy)→R820. This manifest drives node la
 > When you must **SHARE one host/GPU** for both (homelab / tiny / single-node — a Pi or one box),
 > apply the **capacity guard** instead: a per-endpoint ceiling (`max_concurrent_requests`), the
 > joint per-physical-GPU budget (`GPU_CONCURRENCY_BUDGETS` keyed on a shared `gpu_group`), and the
-> circuit breaker (CONCEPT:ORCH-1.102/1.103, KG-2.146/KG-2.298) so the **combined** load can't OOM
+> circuit breaker (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103, AU-KG.compute.pure-config-enumeration-fail/AU-KG.compute.same-semantics-as) so the **combined** load can't OOM
 > the box — and optionally keep an embedder on the LLM host as an automatic **fallback** for the
 > dedicated embedder. Tiny single-host deploys may put embeddings on **CPU / a remote endpoint**
 > entirely. Mechanism + the dedicate-vs-share decision: agent-utilities
@@ -464,12 +464,12 @@ the rest of the run** (honor the Step 0 `secrets_store` + `idp` choices):
 - **Seed the bootstrap secrets first** (so later automated steps can authenticate):
   the Vault token, private-registry creds, the IdP client secret, the DB password, and
   the **engine encryption key `EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (a 32-byte key — generate
-  one if absent — that seals the engine's encrypted `__secrets__` store, CONCEPT:OS-5.66).
-  Use `graph_configure action=vault_sync` (CONCEPT:OS-5.43) per service — it **reads
+  one if absent — that seals the engine's encrypted `__secrets__` store, CONCEPT:AU-OS.identity.encrypted-secret-store).
+  Use `graph_configure action=vault_sync` (CONCEPT:AU-OS.deployment.vault-first-routine-genesis) per service — it **reads
   existing** `apps/<service>` secrets to skip re-prompting and **seeds** only what's
   missing, returning `vault://apps/<service>/<KEY>` refs to drop into config.json
   (Step A1b). When `secrets_store=env`, the same reconcile writes the service `.env`.
-- **Engine-backed secret store (CONCEPT:OS-5.66).** Once the engine encryption key is
+- **Engine-backed secret store (CONCEPT:AU-OS.identity.encrypted-secret-store).** Once the engine encryption key is
   seeded, the embedded app-secret store *is* the engine: secrets live as `:Secret` nodes
   in the **`__secrets__` graph**, values sealed by the engine's encryption-at-rest — so no
   local SQLite/`secrets.db` (a one-time `secrets.db → __secrets__` migration runs if a
@@ -491,7 +491,7 @@ On GitLab CE, auto-provision projects from `workspace.yml`, seed stack compose f
 [depends_on: Step 9]
 Provision the **standard, ABSTRACT set of operator-owned PRIVATE repos** so this
 deployment's environment lives in the operator's own repos + XDG config — **never in
-the public agent-utilities repo** (CONCEPT:OS-5.74 / OS-5.75). The standard set, its
+the public agent-utilities repo** (CONCEPT:AU-OS.deployment.standard-repo-templates / AU-OS.deployment.concept-2). The standard set, its
 templated skeletons, and the profile scaling are defined ONCE in
 `agent_utilities/deployment/repo_templates.py` and surfaced in `genesis.yaml` under
 `private_repos` — loop that, don't hand-roll. Full recipe + per-repo layout:
@@ -549,7 +549,7 @@ or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
 - T4 AI/ML (vLLM→GB10, Ollama, XTTS, Faster-Whisper) → GPU nodes
   - **Optional KV-cache layering (opt-in):** to pool + dedup vLLM's KV cache into the
     engine, deploy the KV-cache layer after vLLM is healthy — see **Step 11b** (LMCache
-    → the epistemic-graph kvcache-server, `CONCEPT:EG-187`/`KG-2.306`).
+    → the epistemic-graph kvcache-server, `CONCEPT:EG-KG.backend.is-configured-so-co`/`KG-2.306`).
 - T5 Agent MCP servers (stateless) — **tolerate missing images**
 - T6 Media/NAS-bound (arr-suite, Jellyfin, Immich) → R510
   - **arr-suite VPN hardening (REQUIRED):** deploy the arr-suite with the **gluetun-namespace +
@@ -604,14 +604,14 @@ Layer **LMCache** onto the deployed vLLM so its KV cache is pooled + deduplicate
 the **epistemic-graph engine** — cutting time-to-first-token on repeated prefixes
 (system prompts, few-shot exemplars, long docs, multi-turn history) and letting the box
 **offload KV under memory pressure** instead of recomputing it. The engine's KV-cache
-server (`CONCEPT:EG-187`) is a small HTTP surface (`GET|PUT|HEAD /kv/<hash>`,
-`GET /kv/stats`) over the tiered hot/warm/cold cache (`CONCEPT:EG-185`) + content-
-addressed shared dedup (`CONCEPT:EG-186`); the Python connector is
-`EpistemicGraphKVBackend` (`CONCEPT:KG-2.306`). Full runbook + the two wiring paths:
+server (`CONCEPT:EG-KG.backend.is-configured-so-co`) is a small HTTP surface (`GET|PUT|HEAD /kv/<hash>`,
+`GET /kv/stats`) over the tiered hot/warm/cold cache (`CONCEPT:EG-KG.memory.byte-bounded-tiers`) + content-
+addressed shared dedup (`CONCEPT:EG-KG.enrichment.content-address-separation`); the Python connector is
+`EpistemicGraphKVBackend` (`CONCEPT:AU-KG.backend.kvcache-vllm-connector`). Full runbook + the two wiring paths:
 agent-utilities `docs/guides/kvcache-vllm-lmcache.md` (the single source of truth —
 do not duplicate the config here). (The same engine also hosts the BLAS-free numeric
-kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine `CONCEPT:EG-321`
-/ `CONCEPT:KG-2.312` — a separate, unrelated capability, not part of this KV-cache step.)
+kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine `CONCEPT:AU-KG.compute.numeric-kernel`
+/ `CONCEPT:AU-KG.compute.surface-analytics-program` — a separate, unrelated capability, not part of this KV-cache step.)
 
 - **Co-locate on the GPU/inference host (e.g. GB10).** LMCache offload/fetch is on the
   inference hot path, so the kvcache tier runs on the **same box** as vLLM, reached
@@ -629,7 +629,7 @@ kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine
   in-tree `services/vllm/Dockerfile.lmcache` + engine `docker/Dockerfile` remain for
   offline/local builds. (GB10 must resolve `registry.arpa` → `10.0.0.13` in `/etc/hosts`.)
 - **Seed the token** via `graph_configure action=vault_sync config_key=epistemic-kvcache`
-  (`CONCEPT:OS-5.43`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
+  (`CONCEPT:AU-OS.deployment.vault-first-routine-genesis`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
   dropped into the kvcache-server env AND the vLLM LMCache override (same value both sides).
 - **Universal connector — use `LMCacheMPConnector` for EVERY model (dense OR Mamba/GDN
   hybrid).** The older `LMCacheConnectorV1` handles full-attention only and **crash-loops on
@@ -645,9 +645,9 @@ kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine
   compose service runs it with `network:host`+`ipc:host`+`--gpus all` for CUDA-IPC transfer).
   Its **L1** is CPU RAM (`--l1-size-gb`, survives vLLM restarts); its **L2** is the
   epistemic-graph engine via `--l2-adapter`. Two adapter choices: **(default) the engine-native
-  `native_plugin`** → `EpistemicGraphL2Connector` (`CONCEPT:KG-2.311`), the EG-187 HTTP KV
+  `native_plugin`** → `EpistemicGraphL2Connector` (`CONCEPT:AU-KG.backend.lmcache-native-connector`), the EG-KG.backend.is-configured-so-co HTTP KV
   surface with content-addressed dedup (EG-186) + live `/kv/stats` counters; **(fallback,
-  zero-code) `resp`** → the engine Redis wire (`CONCEPT:EG-174`/`EG-307`). Both hit the same
+  zero-code) `resp`** → the engine Redis wire (`CONCEPT:EG-KG.ontology.resp2-resp3-codec-round`/`EG-KG.txn.pubsub-transactions`). Both hit the same
   durable EG-185 store and survive server restarts. This is what gives cross-restart /
   cross-instance KV reuse on ANY model (native vLLM APC is GPU-only and lost on restart).
 - **Enable is a WINDOWED, opt-in restart of vLLM** — the LMCache wiring lives in an
@@ -678,7 +678,7 @@ preserve intentional direct records (`adguard`→.199, `home-assistant`, per-nod
 ### Step 14: keycloak-oidc-wiring
 [depends_on: Step 13]
 Register OIDC SSO clients in Keycloak for SSO-enabled services; store their secrets in OpenBao KV2.
-**MCP fleet auth (CONCEPT:OS-5.32):** also create the **`mcp-multiplexer` confidential
+**MCP fleet auth (CONCEPT:AU-OS.identity.so-jwt-protected-children):** also create the **`mcp-multiplexer` confidential
 client** (audience `agent-services`) via `keycloak-client-onboarder` and store its secret
 in OpenBao — this is the service identity the multiplexer uses to reach jwt children
 (Step A2). Then load the **baseline eunomia policy** (allow the multiplexer principal,
@@ -722,7 +722,7 @@ Bootstrap the deployed **CISO Assistant** GRC stack so its API is usable headles
   the write-capable `OPENBAO_TOKEN` from Step 8/14) **and** the stack `.env`. Idempotent.
 - Capture the emitted `CISO_ASSISTANT_URL` / `CISO_ASSISTANT_TOKEN` and inject them into
   the **graph-os** environment (Step A2/A4) so the agent-utilities `ciso_assistant` KG
-  connector (KG-2.110 extractor / KG-2.111 writeback) can sync the GRC estate into the KG
+  connector (AU-KG.enrichment.ciso-assistant-extraction extractor / AU-KG.enrichment.ciso-2 writeback) can sync the GRC estate into the KG
   and reconcile it with Egeria + Camunda via the `ALIGNED_WITH` crosswalk.
 - The stack's `compose.yml` already puts the backend on the `caddy` overlay and the repo
   carries the `ciso.arpa` Caddyfile route; ensure the central Caddy is reloaded (Step 7/13).
@@ -731,7 +731,7 @@ Bootstrap the deployed **CISO Assistant** GRC stack so its API is usable headles
 
 ### Step 15: observability-and-backups
 [depends_on: Step 14]
-Stand up the full LGTM observability standard (CONCEPT:OS-5.23) + Borgmatic backups:
+Stand up the full LGTM observability standard (CONCEPT:AU-OS.observability.no-op-without-metrics) + Borgmatic backups:
 - node-exporter + cAdvisor (global) already give every host + every container metrics.
 - **Tune cAdvisor for low CPU on busy nodes** (it runs `global`, and per-container cgroup
   housekeeping is the cost — untuned it eats 1–1.5 cores on a node with dozens of
@@ -823,7 +823,7 @@ pinned to the **KG host node (R820)** with `KG_DAEMON_ROLE=host` — it owns the
 single consolidated KG daemon. Also start `mcp-multiplexer` federating graph-os +
 the connector fleet, and (optionally) the REST gateway `graph-os-daemon` (:8100).
 
-**Backend — the engine is the ONE durable multi-model store (CONCEPT:KG-2.195 /
+**Backend — the engine is the ONE durable multi-model store (CONCEPT:AU-KG.backend.backend-modes /
 OS-5.63).** The epistemic-graph engine is the ONE authority: it serves reads, acks
 writes, AND persists durably (**redb-authoritative by default** — an acked write
 survives a crash; it is NOT a rebuildable cache), spanning graph + vector + SQL +
@@ -845,7 +845,7 @@ its first authoritative boot it runs a one-time `.mp`→redb migration (minutes 
 large KG; the socket is not bound until it finishes) — see the engine
 binary-promotion runbook for the deploy-time health-start-period.
 
-**Multiplexer outbound auth (CONCEPT:OS-5.32):** set `MCP_CLIENT_AUTH=oidc-client-credentials`,
+**Multiplexer outbound auth (CONCEPT:AU-OS.identity.so-jwt-protected-children):** set `MCP_CLIENT_AUTH=oidc-client-credentials`,
 `OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET` (OpenBao ref from Step 13),
 `OIDC_AUDIENCE=agent-services` on the multiplexer so it mints + attaches a Keycloak service
 token to every jwt child. Without this, children with `AUTH_TYPE=jwt` are unreachable (401)
@@ -876,7 +876,7 @@ for GitOps auto-sync via `portainer-sync-agent`. Apply the missing-image
 Failure-handling policy. (Regenerate the registry with
 `python agent-utilities/scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents`.)
 
-**Auth + deploy artifact (CONCEPT:OS-5.32 / OS-5.23):** the generated composes ship
+**Auth + deploy artifact (CONCEPT:AU-OS.identity.so-jwt-protected-children / AU-OS.observability.no-op-without-metrics):** the generated composes ship
 `AUTH_TYPE=jwt` + eunomia by default (from `gen_mcp_service_stacks.py` / `gen_editable_compose.py`),
 and every service exposes unauthenticated `/metrics` + `/health`. Deploy the **editable**
 `compose.dev.yml` (set Portainer `ConfigFilePath=compose.dev.yml`): one container per MCP,
@@ -885,7 +885,7 @@ are reachable because the multiplexer presents its service token (Step A2). Flip
 **phased waves** (read-only → data → sensitive; `portainer-mcp` last; never the multiplexer),
 verifying multiplexer reachability after each wave.
 
-**Env-var canon (CONCEPT:OS-5.72).** The code is the single source of truth for env
+**Env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard).** The code is the single source of truth for env
 vars: each connector's generated compose `environment:` block and its
 `mcp_config*.json` `env` block match exactly the variable set the connector actually
 reads (no dead/undocumented vars), and **every MCP server's `env`/compose carries
@@ -947,9 +947,9 @@ this step configures everything — including the ontology upload — automatica
 Configure the agent→user **messaging** channels (Step 0 `messaging`) so the agent can
 reach the operator. agent-utilities already ships the multi-channel send core
 (`MessagingService.reach_user` / MCP `graph_reach` / REST `/graph/reach`,
-CONCEPT:ECO-4.0) — this step only **provisions** it; it adds no engine code:
+CONCEPT:AU-ECO.messaging.native-backend-abstraction) — this step only **provisions** it; it adds no engine code:
 - For each picked channel, **seed its token** via `graph_configure action=vault_sync`
-  (CONCEPT:OS-5.43) into `apps/messaging` (or the service `.env`), reusing read-existing
+  (CONCEPT:AU-OS.deployment.vault-first-routine-genesis) into `apps/messaging` (or the service `.env`), reusing read-existing
   so a re-run never re-prompts. Channel keys: `MESSAGING_SLACK_TOKEN`
   (+`MESSAGING_SLACK_APP_TOKEN`), `MESSAGING_TEAMS_APP_ID`+`MESSAGING_TEAMS_APP_SECRET`,
   `MESSAGING_TELEGRAM_TOKEN`, `MESSAGING_MATTERMOST_TOKEN`+`MESSAGING_MATTERMOST_URL`,
@@ -966,7 +966,7 @@ CONCEPT:ECO-4.0) — this step only **provisions** it; it adds no engine code:
   > (`agent_utilities/messaging/*`); this step writes the agreed `MESSAGING_REACH_MODE`
   > contract. If the engine fan-out is not yet present, `last-active` is the working
   > default and `broadcast` activates as soon as that lands. Do not edit `messaging/*` here.
-- **Instant push via webhook + ZERO open ports (CONCEPT:ECO-4.66, recommended).** Inbound
+- **Instant push via webhook + ZERO open ports (CONCEPT:AU-ECO.messaging.telegram-webhook-receiver-started, recommended).** Inbound
   defaults to long-polling (near-real-time, no ingress). For true push with **no inbound
   port opened**, use an **outbound tunnel** — **Cloudflare Tunnel is the default and needs
   NO edge-ingress node**: run `cloudflared` on this host (it dials out; Cloudflare is the
@@ -978,7 +978,7 @@ CONCEPT:ECO-4.0) — this step only **provisions** it; it adds no engine code:
   signature + Telegram IP allowlist + CrowdSec). Gate human routes with **Cloudflare Access
   / Keycloak**; keep secrets in **OpenBao**. See `agent-utilities` docs/architecture/
   messaging_security.md. Empty `MESSAGING_WEBHOOK_BASE_URL` ⇒ polling (no ingress).
-- **Fleet delegation via graph-os + multiplexer (CONCEPT:ECO-4.75).** Wire the chat agent
+- **Fleet delegation via graph-os + multiplexer (CONCEPT:AU-ECO.messaging.make-fleet-credentials-present).** Wire the chat agent
   to reach the WHOLE fleet by delegating through graph-os — the agent never carries per-
   connector tools. Set TWO MCP servers on the messaging agent (the same surface Claude
   uses): **graph-os** for `graph_orchestrate` + KG, and the **mcp-multiplexer** for dynamic
@@ -1003,7 +1003,7 @@ CONCEPT:ECO-4.0) — this step only **provisions** it; it adds no engine code:
 - **Verify:** `graph_reach action=status` lists every configured channel as connected;
   a test `graph_reach action=reach_user text="genesis: messaging online"` reaches the
   operator (last-active/default), or — in broadcast mode — all configured channels. For
-  delegation, the daemon log shows `[ECO-4.75] fleet auth: loaded …` and the chat agent can
+  delegation, the daemon log shows `[AU-ECO.messaging.make-fleet-credentials-present] fleet auth: loaded …` and the chat agent can
   fetch e.g. GitHub issues via `graph_orchestrate`/the multiplexer.
 - Requires: `graph-os`, `mcp-multiplexer` (+ OpenBao for fleet OIDC)
 - Expected: `messaging-configured, channels-connected` (broadcast: `+broadcast-mode-set`;
@@ -1020,10 +1020,10 @@ We no longer run the connectors as stdio servers. `graph-os` likewise points at
 its R820 streamable-http endpoint. Only rewire entries whose container is live
 (use the deferred/skipped report from Step A3); leave the rest stdio until
 deployed. Reload the multiplexer.
-**Auth note (CONCEPT:OS-5.32):** rewired entries are remote `streamable-http` children that
+**Auth note (CONCEPT:AU-OS.identity.so-jwt-protected-children):** rewired entries are remote `streamable-http` children that
 enforce jwt — leave their `headers` empty; the multiplexer's service token (Step A2) is
 attached automatically. Do NOT bake per-child bearer tokens into `mcp_config.json`.
-**Env-var canon (CONCEPT:OS-5.72):** for any entry kept as a local **stdio** spawn, its
+**Env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard):** for any entry kept as a local **stdio** spawn, its
 `env` block must include `"MCP_TOOL_MODE": "condensed"` (the tool-surface knob — remote
 children read it from their compose env); run
 `python -m agent_utilities.mcp.check_env_var_drift --check` on the rewired config to
@@ -1033,7 +1033,7 @@ confirm no MISSING_TOOL_MODE / DEAD / UNDOCUMENTED drift.
 
 ### Step A6: verify auth + observability end-state
 [depends_on: Step A5] (profiles: single-node-prod, enterprise)
-Assert the realized end-state (CONCEPT:OS-5.32 / OS-5.23):
+Assert the realized end-state (CONCEPT:AU-OS.identity.so-jwt-protected-children / AU-OS.observability.no-op-without-metrics):
 - Each jwt MCP rejects unauthenticated calls: `curl -s -o /dev/null -w '%{http_code}'
   -X POST http://<svc>.arpa/mcp` → `401`.
 - The multiplexer can call a tool on a jwt child (service token attached) → success.

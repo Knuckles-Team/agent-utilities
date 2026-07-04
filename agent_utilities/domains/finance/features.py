@@ -37,7 +37,7 @@ class StationaryFeatureEngineer:
 
     def __init__(self, check_all: bool = True, regularize: bool = False):
         self.check_all = check_all
-        # CONCEPT:KG-2.252 — when True, gappy/irregular raw OHLCV is gap-filled onto a
+        # CONCEPT:AU-KG.domains.ohlcv-gap-fill — when True, gappy/irregular raw OHLCV is gap-filled onto a
         # regular daily grid IN-ENGINE (timeseries.gap_fill, LOCF) before features are
         # computed. The rolling/ewm feature math itself stays in pandas (already
         # vectorized + optimal); only the irregular-series alignment — the clear engine
@@ -50,7 +50,7 @@ class StationaryFeatureEngineer:
         Takes OHLCV dataframe, returns (features_df, target_series).
         Target is next-period direction (binary classification).
 
-        With ``regularize=True`` (CONCEPT:KG-2.252) the OHLCV columns are first
+        With ``regularize=True`` (CONCEPT:AU-KG.domains.ohlcv-gap-fill) the OHLCV columns are first
         gap-filled onto a regular daily grid via the engine tsdb (``gap_fill``), so a
         feed with missing bars yields aligned features without hand-rolled reindexing.
         """

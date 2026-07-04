@@ -1,4 +1,4 @@
-"""Spec ↔ ticket ↔ agent bidirectional linking (CONCEPT:KG-2.9).
+"""Spec ↔ ticket ↔ agent bidirectional linking (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Ties KG SDD specs/features to Plane & Jira work items: push spec content onto the
 item (as it is drafted→completed), link the item to the KG spec, assign it (to an

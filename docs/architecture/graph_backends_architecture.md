@@ -73,15 +73,15 @@ graph TB
     EG -->|"SPARQL via OWL/RDF layer (local - any data)"| SPARQL["W3C SPARQL endpoint\n(core/owl_bridge · pyjena_fuseki)"]
 ```
 
-## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:KG-2.195)
+## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:AU-KG.backend.backend-modes)
 
 **The engine is a durable source of truth out of the box — not a rebuildable
-cache.** As of "THE FLIP" (CONCEPT:KG-2.195), a stock `epistemic-graph-server`
+cache.** As of "THE FLIP" (CONCEPT:AU-KG.backend.backend-modes), a stock `epistemic-graph-server`
 built with the standard `--features full` includes the **`redb`** store, so its
 persist backend (`EPISTEMIC_GRAPH_PERSIST_BACKEND`) defaults to `redb` and runs in
 **authoritative mode** whenever a persist dir (`GRAPH_SERVICE_PERSIST_DIR`) is
 configured. An acked write survives a `kill -9`. The three guarantees that make
-"authoritative" safe (engine-side, CONCEPT:KG-2.187/KG-2.191):
+"authoritative" safe (engine-side, CONCEPT:EG-KG.backend.authoritative-dispatch/EG-KG.storage.read-through-seam-exercised):
 
 - **Commit-before-ack** — a durable mutation is fsync-committed to redb *before*
   its response is acked, so an acked write is always on disk.
@@ -108,12 +108,12 @@ feature is non-authoritative and boots clean with no warning.) This is an
 **engine-side** setting (`epistemic-graph-server` env), independent of the
 agent-utilities-side `GRAPH_BACKEND` mirror selection below.
 
-## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:KG-2.244–2.248)
+## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:AU-KG.backend.cache-lives-as–2.248)
 
 Auxiliary stores that used to keep their own local SQLite/JSON file *next to* the
 one engine authority now route through the **engine unconditionally** — there is
 **no SQLite/JSON/file fallback**. Each resolves the engine-authority backend (the
-OS-5.63 resolver auto-starts the pi-tier engine in prod; the KG-2.238 test fixture
+OS-5.63 resolver auto-starts the pi-tier engine in prod; the AU-KG.memory.provides-real-ephemeral-one test fixture
 provides a real ephemeral one) and raises a clear error if the engine is genuinely
 unreachable. They share the engine-only helpers in
 `knowledge_graph/backends/base.py` — `is_engine_authority_backend` /
@@ -124,14 +124,14 @@ subset can't do `WHERE … IN $list` / unscoped `MATCH`).
 
 | Store | Engine surface (the only store) | Node id / scan | Concept |
 |---|---|---|---|
-| LLM card cache (`CardStore`) | `:CardCache` nodes | `cardcache:<ast_hash>` (keyed) | KG-2.244 |
-| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | KG-2.245 |
-| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | series ids | KG-2.246 |
-| Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `wbp:<target>:<seq>` + label scan | KG-2.247 |
-| Code-health baselines | `:CodeHealthBaseline` nodes | `codehealthbaseline:<repo>` (keyed) | KG-2.248 |
+| LLM card cache (`CardStore`) | `:CardCache` nodes | `cardcache:<ast_hash>` (keyed) | AU-KG.backend.cache-lives-as |
+| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | AU-KG.compute.graph-builder |
+| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | series ids | AU-KG.memory.time-series-lives-one |
+| Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `wbp:<target>:<seq>` + label scan | AU-KG.enrichment.proposals-live-as |
+| Code-health baselines | `:CodeHealthBaseline` nodes | `codehealthbaseline:<repo>` (keyed) | AU-KG.maintenance.only-no-file-cache |
 
 > The **ingestion delta manifest** (`DeltaManifest`, `:IngestManifest` /
-> `kg_ingest_manifest.db`, CONCEPT:KG-2.9) is a SEPARATE, pre-existing store that
+> `kg_ingest_manifest.db`, CONCEPT:AU-KG.ingest.enterprise-source-extractor) is a SEPARATE, pre-existing store that
 > *keeps* its zero-infra SQLite fallback via `is_durable_backend` — it is NOT part
 > of this engine-only consolidation.
 
@@ -227,7 +227,7 @@ installed — and, for AGE and pg_search, preloaded:
 > **Why AGE, not just the transpiler.** Without AGE, a Postgres connection falls
 > back to the bounded regex transpiler (`backend: "postgresql"`, `cypher_support
 > = "subset"`) — fine as a single store, but it cannot serve the full query
-> surface a fan-out mirror set shares (CONCEPT:KG-2.74). With AGE, Postgres is a
+> surface a fan-out mirror set shares (CONCEPT:AU-KG.backend.mirror-health-repair). With AGE, Postgres is a
 > peer of Neo4j/FalkorDB and the **richest mirror target** (full openCypher).
 
 **The curated image bundles all three.** `services/pg-age/` builds
@@ -265,11 +265,11 @@ requires pgvector; BM25 requires pg_search.
 | `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 | `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
-| `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:KG-2.63). See below. |
+| `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry). See below. |
 
 These are the **agent-utilities-side** (mirror-selection) variables. Engine
 durability is configured on the **`epistemic-graph-server`** process itself
-(CONCEPT:KG-2.195) and is independent of `GRAPH_BACKEND`:
+(CONCEPT:AU-KG.backend.backend-modes) and is independent of `GRAPH_BACKEND`:
 
 | Variable (engine-side) | Default | Description |
 |---|---|---|
@@ -277,7 +277,7 @@ durability is configured on the **`epistemic-graph-server`** process itself
 | `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` | `redb` = durable authoritative store (default — THE FLIP); `snapshot` = opt-in rebuildable-cache (`.mp` + WAL) |
 | `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | (auto) | Defaults ON when the redb backend is active; rarely set by hand |
 
-## Multiple Connections at Once (CONCEPT:KG-2.63)
+## Multiple Connections at Once (CONCEPT:AU-KG.backend.multi-connection-registry)
 
 The engine has always been vendor-agnostic, but historically only **one** backend
 was live per process. The **named multi-connection registry** lets a deployment
@@ -341,7 +341,7 @@ query to run unchanged across neo4j + falkordb + postgres. `list_connections`
 reports each connection's `cypher_support` so fan-out callers can tell which
 backends can serve a full query.
 
-## Connection roles + live config (CONCEPT:KG-2.89)
+## Connection roles + live config (CONCEPT:AU-KG.backend.connection-registry)
 
 Every registered connection carries a **role**, so you can safely attach an existing
 third-party graph as a data source — not just for mirroring:
@@ -373,7 +373,7 @@ third-party graph as a data source — not just for mirroring:
   connection's role + flags stalled mirrors. All of this is exposed on **MCP and the
   API gateway** (`POST /api/graph/configure`).
 
-## Mirror every write to N stores at once (CONCEPT:KG-2.74)
+## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 
 Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
 mirroring the **default** for every write: one configurable **authority** store
@@ -434,7 +434,7 @@ and list it in `GRAPH_MIRROR_TARGETS`. Its single-writer file lock is serialised
 by its one drainer thread; ad-hoc props fold into the `metadata` JSON column and
 edge props into the `properties` JSON column (durably stored, conformance-verified).
 
-### Native cross-backend migration (CONCEPT:KG-2.74)
+### Native cross-backend migration (CONCEPT:AU-KG.backend.mirror-health-repair)
 
 `knowledge_graph/migration.py` `copy_graph(source, target)` copies every node +
 edge (+ embeddings) from any source (the engine authority, or a full-cypher mirror
@@ -485,15 +485,15 @@ fixes a specific one.
 ```mermaid
 flowchart TB
     subgraph CLIENT["agent-utilities (engine client)"]
-        BR["iter_nodes_by_types() / get_node_data()<br/>core/bounded_read.py — KG-2.261"]
-        BRK["BreakerClientProxy._guard()<br/>core/engine_breaker.py — KG-2.262"]
+        BR["iter_nodes_by_types() / get_node_data()<br/>core/bounded_read.py — AU-KG.ingest.never-scan-whole-graph"]
+        BRK["BreakerClientProxy._guard()<br/>core/engine_breaker.py — AU-KG.compute.single-dropped-connection"]
     end
     subgraph ENGINE["epistemic-graph (Rust)"]
-        GUARD["GetNodes handler:<br/>oversize_dump_error(node_count, cap)<br/>handlers/graph_ops.rs — KG-2.264"]
+        GUARD["GetNodes handler:<br/>oversize_dump_error(node_count, cap)<br/>handlers/graph_ops.rs — EG-KG.ingest.resets-socket-so-assimilation"]
         CAP["max_response_nodes()<br/>EPISTEMIC_GRAPH_MAX_RESPONSE_NODES<br/>default 50000 (0 = off) — state.rs"]
         LABEL["GetNodesByLabel (bounded, NOT capped)"]
         LOCK["per-graph topology write lock"]
-        COAL["write_coalescer.apply_batch()<br/>N writes to 1 core.txn() — KG-2.182"]
+        COAL["write_coalescer.apply_batch()<br/>N writes to 1 core.txn() — EG-KG.sharding.per-graph-write-coalescer"]
     end
 
     BR -->|"per-label fetch, O(#type) not O(graph)"| LABEL
@@ -506,20 +506,20 @@ flowchart TB
 
 ### The three backstops
 
-- **Bounded reads (KG-2.261, `core/bounded_read.py`).** A whole-graph
+- **Bounded reads (AU-KG.ingest.never-scan-whole-graph, `core/bounded_read.py`).** A whole-graph
   `graph.nodes(data=True)` materializes every node into one MessagePack frame — a
   gigabyte payload that overloads and resets the connection. `iter_nodes_by_types`
   iterates by **type** through the engine-side bounded label fetch
   (`get_nodes_by_label`, KG-2.51), and **trusts** an empty bounded result rather
   than falling back to a full scan; `get_node_data` fetches one node by id. A
   type-filtered reader becomes O(#type), not O(graph).
-- **Adaptive transient retry (KG-2.262, `core/engine_breaker.py`).** A single
+- **Adaptive transient retry (AU-KG.compute.single-dropped-connection, `core/engine_breaker.py`).** A single
   dropped connection mid-op is transient — the client transparently reconnects on
   its next call. `_guard` now retries the op a bounded `_MAX_TRANSIENT_RETRIES`
   (=2) with exponential backoff and records a `"retry"` outcome **without**
   counting it against the circuit breaker, so a brief blip self-heals instead of
   cascading N callers into a tripped breaker.
-- **Engine response guard (KG-2.264, epistemic-graph).** The engine itself caps
+- **Engine response guard (EG-KG.ingest.resets-socket-so-assimilation, epistemic-graph).** The engine itself caps
   the unbounded full-graph dump: `oversize_dump_error` checks the cheap
   `node_count()` against `max_response_nodes()` (env
   `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`, default **50000**, `0` disables) **before**
@@ -534,7 +534,7 @@ funnels through the **`__commons__` per-graph topology write lock**, so it
 serializes and starves reads. Measured: a `semantic_search` that is **~0.02s
 idle** climbs to **~14s** under the ingestion firehose (and a single `nodes.add`
 to `__commons__` took ~13s), with the engine pinning roughly one core. Two
-histograms (CONCEPT:EG-011, `epistemic_graph/src/metrics.rs`) make the gap
+histograms (CONCEPT:EG-KG.compute.parse-resolve-span, `epistemic_graph/src/metrics.rs`) make the gap
 observable:
 
 | metric (labelled `{graph}`) | measures |
@@ -548,11 +548,11 @@ flowchart LR
     READ["semantic_search<br/>0.02s idle to ~14s under load"] --> WLOCK
     WLOCK -. "wait_seconds (starvation)" .-> HW["EG-011 histograms"]
     WLOCK -. "hold_seconds (contention)" .-> HW
-    WLOCK --> FIX1["write_coalescer: N writes to 1 txn/batch<br/>(KG-2.182, ~57x fewer acquisitions)"]
+    WLOCK --> FIX1["write_coalescer: N writes to 1 txn/batch<br/>(EG-KG.sharding.per-graph-write-coalescer, ~57x fewer acquisitions)"]
     WLOCK --> FIX2["split control plane onto __control__ graph<br/>(distinct GraphCore = distinct lock)"]
 ```
 
-The fixes attack both axes: the **write-coalescer (KG-2.182)** turns many
+The fixes attack both axes: the **write-coalescer (EG-KG.sharding.per-graph-write-coalescer)** turns many
 concurrent single-op writes into one lock acquisition per batch (~57× fewer
 acquisitions in the engine benchmark), and routing the scheduler/control plane
 onto a separate **`__control__`** engine graph gives it its own lock so ingestion

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.46 — Action/Observation event protocol round-trip + policy mapping."""
+"""CONCEPT:AU-ORCH.reactive.action-dispatcher — Action/Observation event protocol round-trip + policy mapping."""
 
 from __future__ import annotations
 

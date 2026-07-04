@@ -1,5 +1,5 @@
 """
-KG-Native Alpha Factor Library — CONCEPT:KG-2.6
+KG-Native Alpha Factor Library — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides a comprehensive library of battle-tested alpha factors with
 Information Coefficient (IC) / Information Ratio (IR) analysis.

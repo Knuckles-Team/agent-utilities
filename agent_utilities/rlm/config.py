@@ -10,7 +10,7 @@ from ..base_utilities import to_boolean
 class RLMConfig(BaseModel):
     """Configuration for Recursive Language Models (RLM).
 
-    CONCEPT:ORCH-1.1 — Recursive Language Model Execution
+    CONCEPT:AU-ORCH.execution.recursive-language-model — Recursive Language Model Execution
 
     RLM provides a persistent Python REPL that enables agents to process
     arbitrarily long inputs through recursive, programmatic decomposition.
@@ -33,7 +33,7 @@ class RLMConfig(BaseModel):
         use_container: Run REPL in Docker/Podman sandbox (env: ``RLM_USE_CONTAINER``).
         max_context_threshold: Character threshold for auto-triggering on large outputs.
         trigger_on_large_output: Auto-invoke RLM when output exceeds threshold.
-        trigger_on_ahe_distillation: Auto-invoke for AHE trace analysis (CONCEPT:AHE-3.0).
+        trigger_on_ahe_distillation: Auto-invoke for AHE trace analysis (CONCEPT:AU-AHE.harness.harness-evolution).
         trigger_on_kg_bulk_analysis: Auto-invoke for KG bulk queries.
         ahe_trace_threshold: Trace count that triggers AHE RLM routing.
         kg_bulk_threshold: Node count that triggers KG bulk RLM routing.
@@ -89,7 +89,7 @@ class RLMConfig(BaseModel):
     ] = Field(
         default_factory=lambda: setting("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
         description=(
-            "CONCEPT:ORCH-1.38 — sandbox selection. 'auto' engages the capability-driven "
+            "CONCEPT:AU-ORCH.sandbox.sandbox-selection — sandbox selection. 'auto' engages the capability-driven "
             "router (cheapest capable backend, escalate on reject); any explicit value pins "
             "that one backend. The legacy use_monty/use_wasm/use_container booleans are "
             "honored as overrides for back-compat and map onto this field."
@@ -101,7 +101,7 @@ class RLMConfig(BaseModel):
         description="Character threshold for tool outputs to auto-trigger RLM routing.",
     )
 
-    # ── Semantic Trigger Conditions (CONCEPT:ORCH-1.1) ──
+    # ── Semantic Trigger Conditions (CONCEPT:AU-ORCH.execution.recursive-language-model) ──
 
     trigger_on_large_output: bool = Field(
         default=True,
@@ -116,7 +116,7 @@ class RLMConfig(BaseModel):
         description=(
             "Auto-invoke RLM during AHE trace distillation when trace "
             "count exceeds ahe_trace_threshold. Enables deep, programmatic "
-            "analysis of large evidence corpora (CONCEPT:AHE-3.0)."
+            "analysis of large evidence corpora (CONCEPT:AU-AHE.harness.harness-evolution)."
         ),
     )
 
@@ -160,7 +160,7 @@ class RLMConfig(BaseModel):
     prompt_family: Literal["auto", "openai", "anthropic", "qwen"] = Field(
         default="auto",
         description=(
-            "CONCEPT:ORCH-1.54 — model family the RLM REPL system prompt is tuned for. The RLM "
+            "CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — model family the RLM REPL system prompt is tuned for. The RLM "
             "paper flags that one fixed system prompt fails across model families; 'auto' infers "
             "the family from the root model id and applies a family-specific addendum (terser for "
             "qwen which can exhaust output tokens; code-first for anthropic which tends to narrate). "
@@ -190,7 +190,7 @@ class RLMConfig(BaseModel):
     def resolved_sandbox(self) -> str:
         """Collapse the ``sandbox`` field + legacy boolean overrides into one selection.
 
-        CONCEPT:ORCH-1.38. Precedence (first wins): explicit ``sandbox`` != 'auto' →
+        CONCEPT:AU-ORCH.sandbox.sandbox-selection. Precedence (first wins): explicit ``sandbox`` != 'auto' →
         ``use_monty`` → ``use_wasm`` → ``use_container`` → 'auto'. Returns 'auto' (engage the
         router) or a concrete backend name (the router treats it as a forced pin).
         """
@@ -249,7 +249,7 @@ class RLMConfig(BaseModel):
     ) -> str:
         """Explicit lossless-vs-compaction decision for a long-context payload.
 
-        CONCEPT:ORCH-1.12. Returns ``"rlm_lossless"`` when RLM should handle the
+        CONCEPT:AU-ORCH.execution.predict-rlm-runtime. Returns ``"rlm_lossless"`` when RLM should handle the
         context losslessly (recursive variable access, no information loss),
         ``"memento_compaction"`` when the payload is large but RLM isn't triggered
         (fall back to lossy KG-2.20 Memento compaction), else ``"none"``.

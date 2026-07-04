@@ -1,4 +1,4 @@
-# Media Generation Gateway (CONCEPT:ECO-4.30)
+# Media Generation Gateway (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path)
 
 ## Overview
 Lazy-`httpx` clients for self-hosted media generation: speech synthesis (`xtts`), image

@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.client (CONCEPT:ECO-4.35).
+"""Tests for agent_utilities.http.client (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 All transport via httpx.MockTransport — no live calls. Pins the dockerhub-api
 envelope shape, rate-limit capture + bounded 429 backoff, error mapping,

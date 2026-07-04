@@ -1,4 +1,4 @@
-"""Unit tests for the Loop model — the long-running-objective unit (CONCEPT:KG-2.78)."""
+"""Unit tests for the Loop model — the long-running-objective unit (CONCEPT:AU-KG.research.these-properties-carry)."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def test_submit_loop_records_priority_bucket():
 
 
 def test_submit_loop_coerces_legacy_string_priority():
-    """A loop bucket goes through the ONE normalizer (CONCEPT:KG-2.113)."""
+    """A loop bucket goes through the ONE normalizer (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)."""
     eng = _Engine()
     # Legacy string priority on a loop is coerced to the shared 0..3 bucket.
     loop = submit_loop(eng, "hot", prio_bucket="critical")  # type: ignore[arg-type]
@@ -124,7 +124,7 @@ def test_submit_loop_coerces_legacy_string_priority():
     assert loop2["prio_bucket"] == 3
 
 
-# ── claim_loop: engine compare-and-set arbitration (CONCEPT:KG-2.141) ───────
+# ── claim_loop: engine compare-and-set arbitration (CONCEPT:AU-KG.compute.user-override-prompt-library) ───────
 
 
 class _CASRecorder:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Ontology Interfaces — abstract shape contracts implemented by object types.
 
-CONCEPT:KG-2.38 — Ontology Interfaces.
+CONCEPT:AU-KG.ontology.conformance-check — Ontology Interfaces.
 
 Palantir Foundry doc matched: *interfaces/interface-overview*. A Foundry
 **interface** is an *abstract* schema element — it has no instances of its own.
@@ -63,7 +63,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 # OWL/SHACL namespaces — identical bindings to the ontology *.ttl files and the
 # owl_bridge RDF materialization, so interface classes/shapes resolve in the same
-# graph (CONCEPT:KG-2.38).
+# graph (CONCEPT:AU-KG.ontology.conformance-check).
 KG = "http://knuckles.team/kg#"
 OWL = "http://www.w3.org/2002/07/owl#"
 RDFS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -84,7 +84,7 @@ def _camel(name: str) -> str:
 class InterfaceProperty(BaseModel):
     """A required interface-property: a name plus the :class:`PropertyType` it must satisfy.
 
-    CONCEPT:KG-2.38 — a Foundry interface *shared property*. An implementing
+    CONCEPT:AU-KG.ontology.conformance-check — a Foundry interface *shared property*. An implementing
     object type satisfies this when it carries a property ``name`` whose value
     coerces to ``type_ref`` (via Stage-A :func:`parse_type_ref`). Optional
     properties (``required=False``) participate in the shape (and OWL/SHACL
@@ -121,7 +121,7 @@ class InterfaceProperty(BaseModel):
 
 
 class InterfaceLinkConstraint(BaseModel):
-    """A required shared link the implementer must expose. CONCEPT:KG-2.38.
+    """A required shared link the implementer must expose. CONCEPT:AU-KG.ontology.conformance-check.
 
     Mirrors a Foundry interface *link constraint*: every implementing object type
     must declare a link of ``edge_type`` (optionally to a specific
@@ -151,7 +151,7 @@ class InterfaceLinkConstraint(BaseModel):
 class Interface(BaseModel):
     """An abstract ontology interface — a shape contract, never instantiated.
 
-    CONCEPT:KG-2.38 — a Foundry *interface*. Declares the shared properties and
+    CONCEPT:AU-KG.ontology.conformance-check — a Foundry *interface*. Declares the shared properties and
     link constraints that any implementing object type must satisfy, plus the
     parent interfaces it ``extends`` (single- or multi-inheritance). Because an
     interface is abstract it has no own instances; instead concrete object types
@@ -181,7 +181,7 @@ class Interface(BaseModel):
     ) -> dict[str, InterfaceProperty]:
         """Return the effective property map including inherited ones.
 
-        CONCEPT:KG-2.38 — interface *inheritance*: a sub-interface's shape is the
+        CONCEPT:AU-KG.ontology.conformance-check — interface *inheritance*: a sub-interface's shape is the
         union of its own properties and every ancestor's. A locally-declared
         property overrides an inherited one of the same name (sub-interface
         refinement). Resolution is cycle-safe.
@@ -244,7 +244,7 @@ class Interface(BaseModel):
     ) -> list[str]:
         """Return the list of unmet contract requirements for ``object_dict``.
 
-        CONCEPT:KG-2.38 — the conformance check. ``object_dict`` is a concrete
+        CONCEPT:AU-KG.ontology.conformance-check — the conformance check. ``object_dict`` is a concrete
         object's property map (with an optional ``links``/``edges`` collection or
         ``link_types`` set describing its outgoing edge types). An empty list
         means the object satisfies the (inheritance-resolved) interface shape.
@@ -307,7 +307,7 @@ class Interface(BaseModel):
     def to_owl(self, *, registry: InterfaceRegistry | None = None) -> str:
         """Emit the interface as an ``owl:Class`` plus a SHACL ``sh:NodeShape``.
 
-        CONCEPT:KG-2.38 — OWL/SHACL projection, reusing the ``owl_bridge``
+        CONCEPT:AU-KG.ontology.conformance-check — OWL/SHACL projection, reusing the ``owl_bridge``
         namespace conventions (``kg:`` = ``http://knuckles.team/kg#``):
 
           - The interface becomes an ``owl:Class`` (abstract — no individuals are
@@ -343,7 +343,7 @@ class Interface(BaseModel):
             class_lines.append(f'    rdfs:comment "{comment}" ;')
         class_lines.append(
             "    rdfs:comment "
-            '"Abstract ontology interface (CONCEPT:KG-2.38); '
+            '"Abstract ontology interface (CONCEPT:AU-KG.ontology.conformance-check); '
             'no own individuals — implemented by object types." ;'
         )
         for parent in self.extends:
@@ -433,7 +433,7 @@ def _object_link_view(
 class ImplementationReport(BaseModel):
     """The outcome of validating that an object type implements an interface.
 
-    CONCEPT:KG-2.38 — returned by :meth:`InterfaceRegistry.implement`. ``ok`` is
+    CONCEPT:AU-KG.ontology.conformance-check — returned by :meth:`InterfaceRegistry.implement`. ``ok`` is
     True only when ``gaps`` is empty (the type satisfies the full inheritance-
     resolved shape). Even a gap-bearing implementation is *recorded* (so the
     targeting/index reflects intent), but ``ok=False`` flags the contract breach
@@ -462,7 +462,7 @@ def _type_value(object_type: RegistryNodeType | str) -> str:
 class InterfaceRegistry:
     """Registry of ontology interfaces + the type→interface implementation graph.
 
-    CONCEPT:KG-2.38. Mirrors :class:`~agent_utilities.knowledge_graph.ontology.links.LinkTypeRegistry`
+    CONCEPT:AU-KG.ontology.conformance-check. Mirrors :class:`~agent_utilities.knowledge_graph.ontology.links.LinkTypeRegistry`
     and the actions registry: name-keyed, rejects duplicates, import-populated
     with real built-ins. Holds both the interface *definitions* and the
     *implementations* (which object types implement which interfaces), and is the
@@ -561,7 +561,7 @@ class InterfaceRegistry:
     ) -> ImplementationReport:
         """Record that ``object_type`` implements ``interface`` and validate it.
 
-        CONCEPT:KG-2.38 — the *implemented-by* relation plus contract checking. If
+        CONCEPT:AU-KG.ontology.conformance-check — the *implemented-by* relation plus contract checking. If
         the type previously declared a shape (via :meth:`declare_type_shape`) or
         an explicit ``type_shape`` is passed, it is validated against the
         interface's inheritance-resolved property + link contract. Gaps are
@@ -604,7 +604,7 @@ class InterfaceRegistry:
     def find_implementers(self, interface: str | Interface) -> list[str]:
         """Resolve an interface to the concrete object types that implement it.
 
-        CONCEPT:KG-2.38 — *programmatic targeting*. A Function/Action/object query
+        CONCEPT:AU-KG.ontology.conformance-check — *programmatic targeting*. A Function/Action/object query
         that names an interface where a concrete type is expected calls this to
         expand the interface to the live set of implementing object-type values.
         Sub-interface implementers are included transitively: implementing a
@@ -636,7 +636,7 @@ class InterfaceRegistry:
     ) -> bool:
         """Whether a concrete object satisfies an interface's shape (targeting check).
 
-        CONCEPT:KG-2.38 — the runtime conformance gate used when a function/query
+        CONCEPT:AU-KG.ontology.conformance-check — the runtime conformance gate used when a function/query
         receives a concrete object and an interface target: it confirms the object
         actually conforms before the interface-typed handler runs.
 
@@ -651,7 +651,7 @@ class InterfaceRegistry:
     def resolve_target(self, type_or_interface: str) -> list[str]:
         """Resolve a target reference (object type *or* interface) to object types.
 
-        CONCEPT:KG-2.38 — the single entry the functions runtime (A3) / object
+        CONCEPT:AU-KG.ontology.conformance-check — the single entry the functions runtime (A3) / object
         queries call when a target name may be *either* a concrete object type or
         an interface. An interface name expands to its implementers
         (:meth:`find_implementers`); any other string is returned as-is (a plain
@@ -665,7 +665,7 @@ class InterfaceRegistry:
     def to_owl(self) -> str:
         """Emit OWL/SHACL for every registered interface and its implementers.
 
-        CONCEPT:KG-2.38 — concatenates each interface's :meth:`Interface.to_owl`
+        CONCEPT:AU-KG.ontology.conformance-check — concatenates each interface's :meth:`Interface.to_owl`
         and appends the ``rdfs:subClassOf`` / ``sh:node`` assertions linking each
         implementing object-type class to the interface class + shape. The result
         is loadable alongside the hand-authored ``knowledge_graph/shapes/`` TTL.
@@ -812,7 +812,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # CONCEPT:ECO-4.54 — Messaging ontology shape so reach channels are reasoned over
+    # CONCEPT:AU-ECO.messaging.messaging-ontology-shape-so — Messaging ontology shape so reach channels are reasoned over
     # A MessagingChannel is any platform conversation the system can reach a user on; the
     # durable UserChannelPreference node (ECO-4.49) implements it, letting the reasoner
     # relate users to their last-active channel as first-class OWL/RDF.
@@ -838,7 +838,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # Agent-Native Research Artifact shapes (CONCEPT:KG-2.80). An ARA is a 4-layer
+    # Agent-Native Research Artifact shapes (CONCEPT:AU-KG.ontology.verified-by-implemented-by). An ARA is a 4-layer
     # artifact whose /logic claims are verifiable and grounded; making these
     # ontology interfaces (owl:Class + SHACL NodeShape) lets the reasoner
     # extrapolate over claim↔evidence↔code↔ecosystem rather than treat the artifact
@@ -891,7 +891,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90). The background
+    # Connector → Skill synthesis proposals (CONCEPT:AU-KG.ontology.connector-skill-proposal-shapes). The background
     # distiller turns mapped processes of any connected system (egeria/leanix/
     # aris/camunda) into propose-only candidates. Making these ontology interfaces
     # lets the reasoner extrapolate over automates/derived_from/composes so a
@@ -975,7 +975,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # CONCEPT:KG-2.7 — A SkillGraph is an externally-consumable knowledge corpus
+    # CONCEPT:AU-KG.research.skill-graph-distillation — A SkillGraph is an externally-consumable knowledge corpus
     # (crawled docs / extracted PDF / distilled subgraph / generated text) packaged
     # as an agent skill. Declaring it as an interface lets the reasoner extrapolate
     # coverage across the fleet: which skill-graphs CONTAIN which Documents, which
@@ -1040,7 +1040,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # CONCEPT:KG-2.95 — InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type projecting configured models and their tuned sampling profiles to OWL.
+    # CONCEPT:AU-KG.ontology.inference-profile-implementers — InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type projecting configured models and their tuned sampling profiles to OWL.
     # Task-aware inference profiles. An InferenceProfile is the
     # shape of a SamplingProfile (ORCH-1.58): the sampling knobs as shared
     # properties. The bounds are enforced by the matching value types (KG-2.94,
@@ -1142,7 +1142,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         link_types=[RegistryEdgeType.WAS_DERIVED_FROM, RegistryEdgeType.CONTAINS],
     )
     registry.implement(RegistryNodeType.RESEARCH_ARTIFACT, "ResearchArtifactShape")
-    # CONCEPT:KG-2.90 — connector→skill synthesis proposal shapes.
+    # CONCEPT:AU-KG.ontology.connector-skill-proposal-shapes — connector→skill synthesis proposal shapes.
     _proposal_props = {
         "name": "string",
         "description": "string",
@@ -1174,7 +1174,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
     registry.implement(
         RegistryNodeType.SKILL_WORKFLOW_PROPOSAL, "SkillWorkflowProposal"
     )
-    # CONCEPT:KG-2.95 — inference-profile shapes ship with live implementers.
+    # CONCEPT:AU-KG.ontology.inference-profile-implementers — inference-profile shapes ship with live implementers.
     registry.declare_type_shape(
         RegistryNodeType.INFERENCE_PROFILE,
         properties={"task_class": "string"},
@@ -1188,7 +1188,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
     registry.implement(RegistryNodeType.MODEL, "SamplingConfigurable")
 
 
-# CONCEPT:KG-2.38 — populated at import with real built-ins, never empty.
+# CONCEPT:AU-KG.ontology.conformance-check — populated at import with real built-ins, never empty.
 DEFAULT_INTERFACE_REGISTRY = InterfaceRegistry()
 register_builtin_interfaces(DEFAULT_INTERFACE_REGISTRY)
 
@@ -1200,7 +1200,7 @@ def target_object_types(
 ) -> list[str]:
     """Module-level convenience resolving a target name to concrete object types.
 
-    CONCEPT:KG-2.38 — the function the A3 functions runtime / object queries call
+    CONCEPT:AU-KG.ontology.conformance-check — the function the A3 functions runtime / object queries call
     to accept an interface name where a concrete type is expected. Delegates to
     :meth:`InterfaceRegistry.resolve_target` on the default registry (or a
     supplied one). A plain object-type name passes through unchanged; an

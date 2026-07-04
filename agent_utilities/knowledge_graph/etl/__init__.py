@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unified ETL surface for the Knowledge Graph (CONCEPT:KG-2.98 / KG-2.99).
+"""Unified ETL surface for the Knowledge Graph (CONCEPT:AU-KG.ontology.one-source / KG-2.99).
 
 One ``source → (ontological transform) → sink`` interface over the existing
 ingestion (extractors/hydration), write-back (sinks), and graph-store (mirror/push)

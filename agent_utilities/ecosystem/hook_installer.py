@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agent Hook Installer.
 
-CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
+CONCEPT:AU-ECO.messaging.native-backend-abstraction -- Cross-Agent Memory Hook Installer
 
 Writes startup/checkpoint hooks into external agent configurations so they
 call ``agent-utilities context`` at session start and ``agent-utilities observe``
@@ -67,7 +67,7 @@ _CLAUDE_HOOKS = {
         "PreCompact": [
             {"type": "command", "command": _OBSERVE_CMD.format(agent="claude")}
         ],
-        # CONCEPT:OS-5.41 wires the PreToolUse gate here too, so installing
+        # CONCEPT:AU-OS.deployment.dynamic-two-fail-closed wires the PreToolUse gate here too, so installing
         # memory hooks also lays the fail-closed permission fence — an unattended
         # session is governed even before a full `setup-config harness-fence`
         # run. Command + matcher come from claude_fence so they never drift.
@@ -186,7 +186,7 @@ AGENT_SURFACES: dict[str, dict[str, Any]] = {
 class HookInstaller:
     """Installs agent-utilities memory hooks into external agent configurations.
 
-    CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction -- Cross-Agent Memory Hook Installer
     """
 
     def __init__(self) -> None:

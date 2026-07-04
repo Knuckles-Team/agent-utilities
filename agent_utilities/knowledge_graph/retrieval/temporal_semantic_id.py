@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Temporal semantic IDs for generative retrieval (CONCEPT:KG-2.86).
+"""Temporal semantic IDs for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).
 
 Implements ChronoID-style **temporal semantic IDs** following the method of
 "ChronoID: Infusing Explicit Temporal Signals into Semantic IDs for Generative

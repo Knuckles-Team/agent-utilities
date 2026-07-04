@@ -1,6 +1,6 @@
 # Orchestration Execution Seam — ingested capability → executed by a local LLM
 
-> CONCEPT:ORCH-1.95 · ORCH-1.96 · ORCH-1.97 · KG-2.296
+> CONCEPT:AU-ORCH.execution.execution-seam-closure · AU-ORCH.dispatch.dispatch-half-skill-ingestion · AU-ORCH.execution.rich-result-wrapper · KG-2.296
 > The keystone that turns the ingested-but-dormant capability substrate into a working
 > "ingested skill/workflow → executed by a local LLM via real MCP tools" loop, with full
 > per-tool-call visibility in the epistemic-graph. Closes the highest-leverage gap from
@@ -10,38 +10,38 @@
 
 The substrate already had every part — the step executor (`WorkflowRunner`), the
 tool-binding loop (`run_agent`, ORCH-1.21), the model router, the SHACL/ACL gate
-(ORCH-1.42), and the ingested DAGs (KG-2.97) — but they were **not connected**. Three
+(AU-ORCH.execution.ontology-validation-execution-path), and the ingested DAGs (KG-2.97) — but they were **not connected**. Three
 wires close it:
 
 | Gap | Before | After (this change) |
 |---|---|---|
 | **ORCH-1.95** `execute_workflow` ignored the stored DAG | `Orchestrator.execute_workflow` → `AgentOrchestrationEngine` ran one generic `dynamic_worker` | routes to `WorkflowRunner.execute_by_name`, which loads the stored `WorkflowDefinition`/`WorkflowStep` DAG and runs **each step via `run_agent`** on the local LLM, in dependency-wave order |
-| **ORCH-1.96** ingested skills weren't executable | a `:Skill` (or cold `AGENT_SKILL`) node was search corpus only | `_resolve_agent_from_kg` hydrates the skill's instruction body as the system prompt + its `USES_TOOL` tools, and binds it into a runnable `CallableResource (AGENT_SKILL)` (reusing the `persist_as_runnable` shape via `persist_skill_as_runnable`) |
-| **KG-2.296** tool calls weren't visible | only a run-level `RunTrace` was written | every tool call the local LLM makes is persisted as a `:ToolCall` node linked `RunTrace -[:MADE_TOOL_CALL]-> :ToolCall` (tool, server, sanitized args, result/error, sequence) and feeds `action_outcome` (AHE-3.62) |
-| **ORCH-1.97** a delegation wasn't trackable | `execute_agent` returned a bare string | the MCP `execute_agent`/`execute_workflow` surfaces now also return a `run_id` handle — query its RunTrace + ToolCalls over graph-os |
+| **AU-ORCH.dispatch.dispatch-half-skill-ingestion** ingested skills weren't executable | a `:Skill` (or cold `AGENT_SKILL`) node was search corpus only | `_resolve_agent_from_kg` hydrates the skill's instruction body as the system prompt + its `USES_TOOL` tools, and binds it into a runnable `CallableResource (AGENT_SKILL)` (reusing the `persist_as_runnable` shape via `persist_skill_as_runnable`) |
+| **KG-2.296** tool calls weren't visible | only a run-level `RunTrace` was written | every tool call the local LLM makes is persisted as a `:ToolCall` node linked `RunTrace -[:MADE_TOOL_CALL]-> :ToolCall` (tool, server, sanitized args, result/error, sequence) and feeds `action_outcome` (AU-AHE.evaluation.action-outcome-feedback) |
+| **AU-ORCH.execution.rich-result-wrapper** a delegation wasn't trackable | `execute_agent` returned a bare string | the MCP `execute_agent`/`execute_workflow` surfaces now also return a `run_id` handle — query its RunTrace + ToolCalls over graph-os |
 
 ## Flow
 
 ```mermaid
 flowchart TD
     G[goal] --> O["graph_orchestrate<br/>execute_workflow / execute_agent"]
-    O --> GATE["workflow_gate (ORCH-1.42)<br/>SHACL + ACL — unchanged, still in path"]
+    O --> GATE["workflow_gate (AU-ORCH.execution.ontology-validation-execution-path)<br/>SHACL + ACL — unchanged, still in path"]
     GATE --> WR["WorkflowRunner.execute_by_name<br/>(ORCH-1.95): load stored DAG"]
     WR --> WAVE["dependency waves"]
     WAVE --> RA["run_agent (ORCH-1.21)<br/>per step / per agent"]
     O --> RA
-    RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (ORCH-1.96)"]
+    RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion)"]
     RES --> BIND["bind real MCP toolset<br/>(stdio / http + OIDC for *.arpa)"]
     BIND --> LLM["LOCAL vLLM (qwen, model_router)"]
     LLM --> TOOL["REAL MCP tool call"]
     TOOL --> TRACE["RunTrace + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
-    RA --> RID["run_id handle (ORCH-1.97)"]
+    RA --> RID["run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
     TRACE -.queryable.-> CLAUDE["Claude via graph-os:<br/>'what did the local LLM do?'"]
 ```
 
 ## Governance, model, visibility
 
-- **Governance preserved.** The ORCH-1.42 SHACL shape gate + the OS-5.14 permissioning ACL
+- **Governance preserved.** The AU-ORCH.execution.ontology-validation-execution-path SHACL shape gate + the OS-5.14 permissioning ACL
   run in the `graph_orchestrate` handler *before* `Orchestrator.execute_workflow` is called —
   unchanged. `run_agent` keeps the ActionPolicy + OIDC service-account auth for `*.arpa`
   servers.
@@ -50,7 +50,7 @@ flowchart TD
   admission can tag these runs ORCHESTRATION/INTERACTIVE and they are never stuck behind
   ingestion enrichment.
 - **Full visibility.** Reuses the existing `KGTraceBackend`/RunTrace + `action_outcome`
-  (AHE-3.62). Query a delegated run:
+  (AU-AHE.evaluation.action-outcome-feedback). Query a delegated run:
   ```cypher
   MATCH (t:RunTrace {id:'trace:<run_id>'})-[:MADE_TOOL_CALL]->(tc:ToolCall)
   RETURN tc.tool_name, tc.server, tc.args, tc.status, tc.result_preview ORDER BY tc.sequence
@@ -84,7 +84,7 @@ on it.
 ## The workflow path in depth — `execute_workflow` → `WorkflowRunner` DAG
 
 `graph_orchestrate action=execute_workflow` (the MCP tool, REST twin
-`/graph/orchestrate`) dispatches — after the ORCH-1.42 SHACL + ACL gate — into
+`/graph/orchestrate`) dispatches — after the AU-ORCH.execution.ontology-validation-execution-path SHACL + ACL gate — into
 `Orchestrator.execute_workflow` (`orchestration/manager.py`). That method now routes to
 `WorkflowRunner.execute_by_name` (`workflows/runner.py`) instead of the old generic
 fallback, and returns the `WorkflowResult` as a dict carrying the **`run_id`**
@@ -93,7 +93,7 @@ fallback, and returns the `WorkflowResult` as a dict carrying the **`run_id`**
 `WorkflowRunner.execute_by_name` resolves the workflow name to its **stored DAG** — the
 `WorkflowDefinition` + `WorkflowStep` nodes (the KG-2.97 `WorkflowStore` shape, optionally
 carrying a `(:WorkflowDefinition)-[:REALIZES]->(:BusinessProcess)` edge) — and hands it to
-`_execute_plan_via_agents` (CONCEPT:ORCH-1.95). That function:
+`_execute_plan_via_agents` (CONCEPT:AU-ORCH.execution.execution-seam-closure). That function:
 
 1. Resolves each step's `(agent_name, task)` from the canonical `WorkflowStep` shape.
 2. Computes **dependency waves** — steps with satisfied dependencies run **concurrently**
@@ -109,7 +109,7 @@ So a workflow is just *N* governed `run_agent` invocations in dependency order, 
 fully traced. (The change also fixed a real `AttributeError` — `AgentExecutionResult` has
 no `.task` — that previously crashed the manifest path after steps ran.)
 
-## Skills-as-runnable (ORCH-1.96) in depth
+## Skills-as-runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion) in depth
 
 Before the seam, a `:Skill` node (or a cold `AGENT_SKILL`) was only ever *retrieved* —
 it could be searched and cited but not **executed**. `_resolve_agent_from_kg`
@@ -126,7 +126,7 @@ The net effect: `graph_orchestrate action=execute_agent agent=<skill-name>` runs
 ingested skill on the local LLM with its declared tools — an ingested capability becomes
 an executable one, with no separate registration step.
 
-## The `run_id` handle (ORCH-1.97) — what the caller gets back
+## The `run_id` handle (AU-ORCH.execution.rich-result-wrapper) — what the caller gets back
 
 The MCP `execute_agent` / `execute_workflow` surfaces return a **`run_id`** handle so a
 delegation is trackable. In `run_agent`, when the caller opts into the rich wrapper
@@ -177,7 +177,7 @@ Each `:ToolCall` node (id `toolcall:<run>:<i>`) carries:
 | `sequence` | the call's order within the run |
 | `timestamp` | UTC ISO-8601 |
 
-Each call also feeds **`action_outcome` (AHE-3.62)** via
+Each call also feeds **`action_outcome` (AU-AHE.evaluation.action-outcome-feedback)** via
 `FeedbackService.record_action_outcome("tool:<tool_name>", success=…)`, so the capability
 reward-EMA densifies on the tools that actually worked — **visibility and learning from
 the same seam**. Both `RunTrace` and `:ToolCall` are also identity-stamped
@@ -194,7 +194,7 @@ RETURN tc.tool_name, tc.server, tc.args, tc.status, tc.result_preview, tc.error
 ORDER BY tc.sequence
 ```
 
-This is the same provenance the **`troubleshoot` context provider** (KG-2.297, see
+This is the same provenance the **`troubleshoot` context provider** (AU-KG.retrieval.kg-4, see
 [`troubleshooting.md`](troubleshooting.md)) pulls as its app-trace layer when a delegated
 run fails.
 

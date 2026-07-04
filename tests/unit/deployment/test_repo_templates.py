@@ -1,6 +1,6 @@
 """Tests for the standard private-repo set + generalized CI templates.
 
-CONCEPT:OS-5.74 / CONCEPT:OS-5.75. Covers the TEMPLATING + the provisioning PLAN +
+CONCEPT:AU-OS.deployment.standard-repo-templates / CONCEPT:AU-OS.deployment.concept-2. Covers the TEMPLATING + the provisioning PLAN +
 profile scaling — no network / no live repo create. The load-bearing invariant is
 that NOTHING here carries operator-specific environment data (the whole point).
 """
@@ -204,6 +204,6 @@ def test_secrets_repo_is_references_only():
 
 def test_manifest_summary_is_generator_friendly():
     summary = manifest_summary()
-    assert summary["concept"] == "OS-5.74"
+    assert summary["concept"] == "AU-OS.deployment.standard-repo-templates"
     assert set(summary["per_profile"]) == set(PROFILES)
     assert summary["ci_templates"] == sorted(CI_TEMPLATES)

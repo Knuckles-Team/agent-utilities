@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Agentic Harness MCP Server — Exposes DSTDD and agent-native tools.
 
-CONCEPT:ECO-4.1 — Harness MCP Exposure
+CONCEPT:AU-ECO.mcp.harness-exposure — Harness MCP Exposure
 
 Exposes the DSTDD design governance pipeline, agent self-model,
 team composition, and evaluation history as MCP tools for external
@@ -181,7 +181,7 @@ def _build_server():
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    # --- Task-management ergonomics (CONCEPT:ORCH-1.50) ---
+    # --- Task-management ergonomics (CONCEPT:AU-ORCH.planning.sdd-task-ergonomics) ---
 
     @mcp.tool()
     def task_parse_prd(prd_text: str, feature_id: str) -> str:

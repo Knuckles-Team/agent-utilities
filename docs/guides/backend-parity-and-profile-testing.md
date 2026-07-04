@@ -147,7 +147,7 @@ Conventions to keep parity with this package:
 - let `testcontainers` pick the port — never bind the canonical homelab port.
 ```
 
-## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:KG-2.238)
+## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:AU-KG.memory.provides-real-ephemeral-one)
 
 Engine-backed tests validate against the **ACTUAL database we ship** — never
 SQLite, never a mock — deployed ephemerally and destroyed afterwards. Two
@@ -164,9 +164,9 @@ own this:
   temp `--persist-dir`, a test `GRAPH_SERVICE_AUTH_SECRET`, and
   `--idle-shutdown-secs 120` (so a crashed suite self-reaps). It exports
   `GRAPH_SERVICE_SOCKET` (+ the secret) so the client / `EngineResolver` connect
-  to **this** engine via the *shared* leg (CONCEPT:OS-5.63 — no autostart).
+  to **this** engine via the *shared* leg (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — no autostart).
   Teardown is a graceful **SIGTERM** (the engine checkpoints + exits cleanly,
-  CONCEPT:KG-2.223), then the temp persist dir + socket are removed — zero
+  CONCEPT:EG-KG.backend.tiny-shared), then the temp persist dir + socket are removed — zero
   residue. If no binary AND no Rust toolchain exist, it `skip`s with a clear
   message; an externally-provided `GRAPH_SERVICE_SOCKET` (a shared host engine)
   is reused verbatim.
@@ -174,7 +174,7 @@ own this:
 - **`engine_graph`** (function-scoped) — gives each test a **fresh, isolated
   tenant graph** on the session engine: a uniquely-named tenant
   (`GraphComputeEngine(graph_name=…)` auto-creates it) is yielded, then
-  **tenant-purged** (CONCEPT:KG-2.221) on teardown so per-test state never leaks.
+  **tenant-purged** (CONCEPT:EG-KG.backend.tenant-delete-recreate-same) on teardown so per-test state never leaks.
   This is fast isolation — one engine process, a fresh graph per test — not a new
   process per test.
 

@@ -1,4 +1,4 @@
-"""LeanIX Enterprise Architecture source extractor (CONCEPT:KG-2.9).
+"""LeanIX Enterprise Architecture source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Mirrors the LeanIX fact-sheet graph into the KG via the uniform
 :class:`ExtractionBatch` shape, so this enterprise source needs **no** edits to

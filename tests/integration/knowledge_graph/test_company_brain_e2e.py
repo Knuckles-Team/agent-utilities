@@ -1,4 +1,4 @@
-"""End-to-end Company Brain enforcement (CONCEPT:KG-2.6 / KG-2.8).
+"""End-to-end Company Brain enforcement (CONCEPT:AU-KG.research.research-pipeline-runner / KG-2.8).
 
 Exercises the layers composing through their public seams with
 ``KG_BRAIN_ENFORCE=1`` and the shared runtime brain: write-path trust

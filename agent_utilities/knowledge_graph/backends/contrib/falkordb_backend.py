@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """FalkorDB Backend Implementation."""
 
-# CONCEPT:KG-2.0
+# CONCEPT:AU-KG.query.object-graph-mapper
 
 
 import logging
@@ -68,7 +68,7 @@ class FalkorDBBackend(GraphBackend):
         # — even an EMPTY ``{}`` — and the server then rejects the headered query with
         # "Missing parameters". Passing ``None`` for an empty map omits the header so a
         # parameter-free mirror query applies cleanly instead of stalling/retrying
-        # forever (CONCEPT:KG-2.74).
+        # forever (CONCEPT:AU-KG.backend.mirror-health-repair).
         result = self.graph.query(query, params or None)
         # Convert FalkorDB ResultSet to list of dicts
         output = []
@@ -95,7 +95,7 @@ class FalkorDBBackend(GraphBackend):
         return results
 
     # Native vector search is intentionally NOT served by FalkorDB. In the
-    # one-authority + mirrors architecture (CONCEPT:KG-2.74), vector search is
+    # one-authority + mirrors architecture (CONCEPT:AU-KG.backend.mirror-health-repair), vector search is
     # served by the epistemic-graph engine authority (and the pgvector/AGE mirror);
     # a graph mirror like FalkorDB only carries the node/edge topology. This is also
     # a hard necessity: ``falkordb:latest``'s vector engine (CREATE VECTOR INDEX +

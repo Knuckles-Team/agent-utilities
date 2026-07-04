@@ -24,7 +24,7 @@ def mock_backend():
     backend._known_tables = {"Agent", "Tool", "Memory"}
     # Subset of _known_tables carrying the universal node shape (mirrors
     # PostgreSQLBackend.__init__; read by execute()/ensure_label_table for the
-    # label-less UNION projection, CONCEPT:KG-2.9).
+    # label-less UNION projection, CONCEPT:AU-KG.ingest.enterprise-source-extractor).
     backend._node_tables = {"Agent", "Tool", "Memory"}
     backend._pggraph_available = False
     backend._pgvector_available = False
@@ -196,7 +196,7 @@ class TestSingleConnPool:
 
 
 class TestRowLevelSecurity:
-    """Tenant-isolation RLS DDL/GUC generation (CONCEPT:KG-2.61)."""
+    """Tenant-isolation RLS DDL/GUC generation (CONCEPT:AU-KG.backend.concept-2)."""
 
     def test_rls_statements_idempotent_and_complete(self):
         stmts = PostgreSQLBackend.rls_statements("Agent")

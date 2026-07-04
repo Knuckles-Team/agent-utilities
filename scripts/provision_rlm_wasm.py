@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provision the CPython-WASI payload for the RLM ``wasm`` sandbox tier (CONCEPT:ORCH-1.38).
+"""Provision the CPython-WASI payload for the RLM ``wasm`` sandbox tier (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox).
 
 Downloads a self-contained ``python.wasm`` (CPython compiled to WASI, stdlib embedded) into the
 platform cache where :func:`agent_utilities.rlm.sandboxes.wasm_backend._resolve_payload` looks

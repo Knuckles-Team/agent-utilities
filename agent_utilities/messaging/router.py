@@ -3,7 +3,7 @@
 Consumes ``InboundEvent`` streams from all connected messaging backends. A chat turn is
 NOT handled by a bespoke messaging-only reply path: it IS a run of the universal
 orchestration pipeline (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per
-channel (CONCEPT:ECO-4.78). That single path natively provides what the router used to hand-
+channel (CONCEPT:AU-ECO.messaging.universal-graph-agent). That single path natively provides what the router used to hand-
 roll — conversation CONTINUITY (the core memory primes each run with the recent compressed
 mementos for the channel's session and persists this turn back as one) and DYNAMIC CAPABILITY
 selection (specialists / skills / A2A / swarms / fleet tools, ActionPolicy-governed). The
@@ -17,8 +17,8 @@ Architecture::
                        KG Auto-Ingest  ───────────┘  + per-turn memento  ───┘
                        (kg_ingest.py)         (knowledge_graph/memory/*)
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
-CONCEPT:ECO-4.78 — Messaging routes through the universal graph/orchestration path
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.universal-graph-agent — Messaging routes through the universal graph/orchestration path
 
 See Also:
     - ``orchestration/manager.py`` / ``orchestration/agent_runner.py`` for the universal path
@@ -48,11 +48,11 @@ EventHandler = Callable[[InboundEvent, "MessagingBackend"], Awaitable[None]]
 class InboundRouter:
     """Routes inbound messaging events to the planner graph agent.
 
-    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
     The router listens on all connected backends simultaneously and
     dispatches events to registered handlers. The default handler runs
-    each chat turn through the universal graph agent (CONCEPT:ECO-4.78),
+    each chat turn through the universal graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent),
     which:
 
     1. Recalls prior turns of this channel from the core memory (session-scoped mementos)
@@ -97,14 +97,14 @@ class InboundRouter:
         """
         self._backends.append(backend)
         logger.info(
-            "[CONCEPT:ECO-4.0] Registered backend '%s' for inbound routing.",
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Registered backend '%s' for inbound routing.",
             backend.id,
         )
 
     def on_event(self, event_type: EventType) -> Callable[[EventHandler], EventHandler]:
         """Decorator to register a handler for a specific event type.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Usage::
 
@@ -130,7 +130,7 @@ class InboundRouter:
     def set_default_handler(self, handler: EventHandler) -> None:
         """Set the default handler for events without a specific handler.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         The default handler is typically the planner graph agent
         dispatcher, which routes messages through the KG-aware
@@ -144,21 +144,21 @@ class InboundRouter:
     async def start(self) -> None:
         """Start listening on all registered backends.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Creates an async task for each backend's ``listen()`` method
         and dispatches events to registered handlers.
         """
         self._running = True
         logger.info(
-            "[CONCEPT:ECO-4.0] Starting inbound router with %d backends.",
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Starting inbound router with %d backends.",
             len(self._backends),
         )
 
         for backend in self._backends:
             if not backend.is_connected:
                 logger.warning(
-                    "[CONCEPT:ECO-4.0] Backend '%s' is not connected, skipping.",
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' is not connected, skipping.",
                     backend.id,
                 )
                 continue
@@ -168,7 +168,7 @@ class InboundRouter:
             )
             self._tasks.append(task)
 
-        # CONCEPT:ECO-4.83 — durable-inbox reaper: re-answers inbound turns that were recorded
+        # CONCEPT:AU-ECO.messaging.durable-inbound-pending — durable-inbox reaper: re-answers inbound turns that were recorded
         # pending but never got a reply (engine down / crashed mid-flight), so nothing is lost.
         if self._backends:
             self._tasks.append(
@@ -181,7 +181,7 @@ class InboundRouter:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def _backend_for(self, platform: str) -> MessagingBackend | None:
-        """The connected backend for a platform id (CONCEPT:ECO-4.83), for reaper retries."""
+        """The connected backend for a platform id (CONCEPT:AU-ECO.messaging.durable-inbound-pending), for reaper retries."""
         for b in self._backends:
             if platform and (
                 str(getattr(b, "id", "")) == platform
@@ -192,7 +192,7 @@ class InboundRouter:
 
     async def _inbox_reaper_loop(self) -> None:
         """Periodically re-attempt durably-recorded but still-unanswered inbound messages
-        (CONCEPT:ECO-4.83). Uses this router's own backends + the universal reply path, so a
+        (CONCEPT:AU-ECO.messaging.durable-inbound-pending). Uses this router's own backends + the universal reply path, so a
         turn that failed while the engine was down is answered once the system recovers."""
         from agent_utilities.core.config import setting
         from agent_utilities.messaging.inbox import retry_unanswered
@@ -217,18 +217,18 @@ class InboundRouter:
                     return True
 
                 await retry_unanswered(engine, _reply_send)
-                # CONCEPT:ECO-4.91 — same housekeeping cadence prunes expired AgentBus topic-log
+                # CONCEPT:AU-ECO.messaging.topic-log-pruning — same housekeeping cadence prunes expired AgentBus topic-log
                 # messages so the store-and-forward backlog can't grow unbounded.
                 from agent_utilities.messaging.bus import AgentBus
 
                 AgentBus.instance(engine).prune_topic_log()
             except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
-                logger.debug("[CONCEPT:ECO-4.83] inbox reaper pass failed: %s", e)
+                logger.debug("[CONCEPT:AU-ECO.messaging.durable-inbound-pending] inbox reaper pass failed: %s", e)
 
     async def stop(self) -> None:
         """Stop all listener tasks gracefully.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
         """
         self._running = False
         for task in self._tasks:
@@ -236,12 +236,12 @@ class InboundRouter:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
-        logger.info("[CONCEPT:ECO-4.0] Inbound router stopped.")
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Inbound router stopped.")
 
     async def _listen_loop(self, backend: MessagingBackend) -> None:
         """Internal listener loop for a single backend.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Consumes the backend's ``listen()`` async iterator and
         dispatches each event to the appropriate handler.
@@ -249,22 +249,22 @@ class InboundRouter:
         Args:
             backend: The messaging backend to listen on.
         """
-        logger.info("[CONCEPT:ECO-4.0] Listening for events on '%s'...", backend.id)
+        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listening for events on '%s'...", backend.id)
         try:
             async for event in backend.listen():
                 if not self._running:
                     break
                 await self._dispatch(event, backend)
         except asyncio.CancelledError:
-            logger.debug("[CONCEPT:ECO-4.0] Listener cancelled for '%s'.", backend.id)
+            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.", backend.id)
         except NotImplementedError:
             logger.warning(
-                "[CONCEPT:ECO-4.0] Backend '%s' does not support inbound listening.",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support inbound listening.",
                 backend.id,
             )
         except Exception as e:
             logger.error(
-                "[CONCEPT:ECO-4.0] Error in listener for '%s': %s",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Error in listener for '%s': %s",
                 backend.id,
                 e,
                 exc_info=True,
@@ -273,7 +273,7 @@ class InboundRouter:
     async def _dispatch(self, event: InboundEvent, backend: MessagingBackend) -> None:
         """Dispatch an event to registered handlers.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Priority:
         1. Specific event-type handlers (registered via ``on_event``)
@@ -292,7 +292,7 @@ class InboundRouter:
                     await handler(event, backend)
                 except Exception as e:
                     logger.error(
-                        "[CONCEPT:ECO-4.0] Handler error for %s event: %s",
+                        "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Handler error for %s event: %s",
                         event.event_type,
                         e,
                         exc_info=True,
@@ -302,13 +302,13 @@ class InboundRouter:
                 await self._default_handler(event, backend)
             except Exception as e:
                 logger.error(
-                    "[CONCEPT:ECO-4.0] Default handler error: %s",
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Default handler error: %s",
                     e,
                     exc_info=True,
                 )
         else:
             logger.debug(
-                "[CONCEPT:ECO-4.0] No handler for %s event from '%s'.",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] No handler for %s event from '%s'.",
                 event.event_type,
                 backend.id,
             )
@@ -321,15 +321,15 @@ async def create_planner_handler(
 
     For each inbound message the handler:
     1. Delivers the message to a waiting goal-loop if it is the answer to a question the
-       loop asked (CONCEPT:ECO-4.52) — in which case it is NOT re-routed to the agent.
-    2. Coalesces a burst of messages into ONE turn (CONCEPT:ECO-4.63) and runs that turn
+       loop asked (CONCEPT:AU-ECO.messaging.elicitation-loop-bridge) — in which case it is NOT re-routed to the agent.
+    2. Coalesces a burst of messages into ONE turn (CONCEPT:AU-ECO.messaging.burst-mode-coalescing) and runs that turn
        through the universal path (``Orchestrator.execute_agent`` → ``run_agent``), session-
-       scoped per channel (CONCEPT:ECO-4.78), so continuity + dynamic capability come from
+       scoped per channel (CONCEPT:AU-ECO.messaging.universal-graph-agent), so continuity + dynamic capability come from
        the core — not a messaging-specific recall. The returned text is sent back through the
        originating backend, with a hard ``MESSAGING_REPLY_TIMEOUT`` plain-chat fallback.
-    3. AFTER the reply, off the reply path: records last-active (CONCEPT:ECO-4.49), auto-
-       ingests the turn as episodic memory (CONCEPT:KG-2.1), and persists a per-session
-       conversation memento that gives the NEXT turn its continuity (CONCEPT:ECO-4.78).
+    3. AFTER the reply, off the reply path: records last-active (CONCEPT:AU-ECO.messaging.last-active-channel-routing), auto-
+       ingests the turn as episodic memory (CONCEPT:AU-KG.memory.tiered-memory-caching), and persists a per-session
+       conversation memento that gives the NEXT turn its continuity (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
     Args:
         knowledge_engine: Optional ``IntelligenceGraphEngine``; falls back to the active
@@ -343,7 +343,7 @@ async def create_planner_handler(
     from agent_utilities.messaging.service import MessagingService
 
     async def _reply_to_burst(_key: str, items: list[Any]) -> None:
-        """Answer a coalesced burst with ONE agent turn + ONE reply (CONCEPT:ECO-4.63)."""
+        """Answer a coalesced burst with ONE agent turn + ONE reply (CONCEPT:AU-ECO.messaging.burst-mode-coalescing)."""
         svc = MessagingService.instance(knowledge_engine)
         engine = svc._resolve_engine()
         event, backend = items[-1]["event"], items[-1]["backend"]
@@ -351,9 +351,9 @@ async def create_planner_handler(
         contents = [it["content"] for it in items]
         combined = contents[0] if len(contents) == 1 else "\n".join(contents)
 
-        # One instinctive reaction for the burst (CONCEPT:ECO-4.60). It is COSMETIC and
+        # One instinctive reaction for the burst (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction). It is COSMETIC and
         # involves an LLM call, so it runs OFF the reply path in the background
-        # (CONCEPT:ECO-4.74) — a slow/hung reaction call must never block the actual reply,
+        # (CONCEPT:AU-ECO.messaging.debounce-timer-cancel) — a slow/hung reaction call must never block the actual reply,
         # which was the root cause of "message received but no answer".
         if event.message and event.message.id:
             _spawn_bg(
@@ -366,7 +366,7 @@ async def create_planner_handler(
                 )
             )
 
-        # Collect image attachments across the burst → vision input (CONCEPT:ECO-4.67).
+        # Collect image attachments across the burst → vision input (CONCEPT:AU-ECO.messaging.image-attachment-fallback).
         image_urls: list[str] = []
         for it in items:
             msg = getattr(it["event"], "message", None)
@@ -375,7 +375,7 @@ async def create_planner_handler(
                     image_urls.append(att.url)
         image_parts = await _fetch_image_parts(image_urls)
 
-        # CONCEPT:ECO-4.78 — the reply IS the universal graph agent, session-scoped per
+        # CONCEPT:AU-ECO.messaging.universal-graph-agent — the reply IS the universal graph agent, session-scoped per
         # channel. NO bespoke recall on the reply path: continuity comes from the core memory
         # the universal path already threads — ``run_agent`` primes the run with the recent
         # compressed mementos for this ``session`` source (``get_recent_mementos``), and after
@@ -383,7 +383,7 @@ async def create_planner_handler(
         # the reply path). So message 2 sees message 1 via core memory, not a messaging query.
         session = _channel_session(str(event.platform), event.channel_id)
         logger.info(
-            "[CONCEPT:ECO-4.78] Routing a burst of %d message(s) (%d image[s]) from %s/%s "
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] Routing a burst of %d message(s) (%d image[s]) from %s/%s "
             "through the universal graph agent (session=%s).",
             len(items),
             len(image_parts),
@@ -391,13 +391,13 @@ async def create_planner_handler(
             event.user_name,
             session,
         )
-        # CONCEPT:ORCH-1.72 — the per-job SHAPE decides BOTH how long this turn should take
+        # CONCEPT:AU-ORCH.execution.passthrough-identity — the per-job SHAPE decides BOTH how long this turn should take
         # (its dynamic ``reply_budget_s``) and whether to answer INLINE or
         # acknowledge-now / deliver-later. A direct or lean turn is answered within its short
         # budget inline; a full multi-agent tool turn would blow any reasonable inline wait, so
         # we ack immediately and send the result as a follow-up when it is ready. The transport
         # stays thin — the core shape makes the call; here we only render it for this medium.
-        # CONCEPT:ECO-4.83 — record the inbound turn DURABLY as pending BEFORE we attempt the
+        # CONCEPT:AU-ECO.messaging.durable-inbound-pending — record the inbound turn DURABLY as pending BEFORE we attempt the
         # reply, so a turn that fails mid-flight (engine down, crash before _send) is found +
         # retried by the reaper instead of being silently lost ("I saved your message" → real).
         from agent_utilities.messaging.inbox import mark_answered, record_inbound
@@ -422,7 +422,7 @@ async def create_planner_handler(
                 else:
                     await backend.send_message(event.channel_id, text)
             except Exception as e:  # noqa: BLE001
-                logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
+                logger.error("[CONCEPT:AU-ECO.messaging.sending-reply-failed] Sending reply failed: %s", e)
 
         async def _run_and_deliver(*, deferred: bool) -> None:
             reply = await _graph_agent_reply(
@@ -435,10 +435,10 @@ async def create_planner_handler(
             # An interactive turn threads its reply to the user's message; a deferred turn
             # already acked there, so its result lands as a fresh follow-up message.
             await _send(reply, threaded=not deferred)
-            # CONCEPT:ECO-4.83 — the real reply was delivered → close the durable inbox entry.
+            # CONCEPT:AU-ECO.messaging.durable-inbound-pending — the real reply was delivered → close the durable inbox entry.
             # If _run_and_deliver crashed BEFORE this (engine down), it stays pending → retried.
             mark_answered(engine, _inbox_id)
-            # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
+            # Persist + enrich AFTER the reply is sent (CONCEPT:AU-ECO.messaging.debounce-timer-cancel). EVERY KG write and
             # local-model encode (last-active, message ingest, episodic memory, and the
             # per-session conversation memento that gives the NEXT turn its continuity) runs
             # here — NEVER concurrently with reply generation, which otherwise contends with it
@@ -452,7 +452,7 @@ async def create_planner_handler(
         if shape.is_interactive:
             await _run_and_deliver(deferred=False)
         else:
-            # CONCEPT:ORCH-1.74 — describe the actual altitude: a focused-tools turn runs the
+            # CONCEPT:AU-ORCH.routing.altitude-description — describe the actual altitude: a focused-tools turn runs the
             # named servers' tools (in parallel), not the full planning graph.
             _n = len(shape.tool_servers)
             _kind = (
@@ -461,7 +461,7 @@ async def create_planner_handler(
                 else "full multi-agent turn"
             )
             logger.info(
-                "[CONCEPT:ORCH-1.72] burst shaped as a %s (~%.0fs budget) "
+                "[CONCEPT:AU-ORCH.execution.passthrough-identity] burst shaped as a %s (~%.0fs budget) "
                 "— acknowledging now, delivering the result as a follow-up.",
                 _kind,
                 shape.reply_budget_s,
@@ -476,13 +476,13 @@ async def create_planner_handler(
     )
 
     async def planner_handler(event: InboundEvent, backend: MessagingBackend) -> None:
-        """Drive an inbound message through the graph agent. CONCEPT:ECO-4.51/4.63"""
+        """Drive an inbound message through the graph agent. CONCEPT:AU-ECO.messaging.sending-reply-failed/4.63"""
         if event.event_type != EventType.MESSAGE:
             return  # Only handle messages
 
         content = event.content or (event.message.content if event.message else "")
         if not content:
-            # CONCEPT:ECO-4.68 — no text? transcribe a voice/audio attachment and use that.
+            # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — no text? transcribe a voice/audio attachment and use that.
             content = await _transcribe_attachments(event)
             if content and event.message is not None:
                 event.message.content = content
@@ -493,19 +493,19 @@ async def create_planner_handler(
         svc = MessagingService.instance(knowledge_engine)
 
         # NOTE: last-active + KG ingest are NOT done here. They run AFTER the reply is sent
-        # (in _reply_to_burst → _persist_and_enrich, CONCEPT:ECO-4.74) so no KG write or
+        # (in _reply_to_burst → _persist_and_enrich, CONCEPT:AU-ECO.messaging.debounce-timer-cancel) so no KG write or
         # local-model encode ever runs concurrently with reply generation.
 
         # 2. If a goal-loop is awaiting this user's reply, deliver it and stop
-        #    (CONCEPT:ECO-4.52) — the message is an answer, not a new request.
+        #    (CONCEPT:AU-ECO.messaging.elicitation-loop-bridge) — the message is an answer, not a new request.
         if svc.deliver_reply(str(event.platform), event.channel_id, content):
             logger.info(
-                "[CONCEPT:ECO-4.52] Delivered reply on %s to a waiting loop.",
+                "[CONCEPT:AU-ECO.messaging.elicitation-loop-bridge] Delivered reply on %s to a waiting loop.",
                 event.platform,
             )
             return
 
-        # 3b. Built-in universal command? (CONCEPT:ECO-4.57) Answer immediately and stop;
+        # 3b. Built-in universal command? (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher) Answer immediately and stop;
         #     /claude, /skill, and unknowns fall through to the coalesced agent reply.
         from agent_utilities.messaging.commands import handle_command
 
@@ -514,10 +514,10 @@ async def create_planner_handler(
             try:
                 await backend.send_message(event.channel_id, cmd_reply)
             except Exception as e:  # noqa: BLE001
-                logger.error("[CONCEPT:ECO-4.57] command reply send failed: %s", e)
+                logger.error("[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] command reply send failed: %s", e)
             return
 
-        # 4. Coalesce normal messages into one agent turn per burst (CONCEPT:ECO-4.63):
+        # 4. Coalesce normal messages into one agent turn per burst (CONCEPT:AU-ECO.messaging.burst-mode-coalescing):
         #    a rapid run of messages → ONE holistic reply + ONE LLM call, not N.
         await coalescer.submit(
             f"{event.platform}:{event.channel_id}",
@@ -530,7 +530,7 @@ async def create_planner_handler(
 async def _decide_reaction(content: str) -> str:
     """Return a single emoji to react with, or "" — a thin shim over the CORE decision.
 
-    CONCEPT:ECO-4.81 — reactions are no longer owned by messaging: the instinctive,
+    CONCEPT:AU-ECO.messaging.messaging-as-renderer — reactions are no longer owned by messaging: the instinctive,
     model-agnostic decision lives in the core orchestrator
     (``orchestration.reactions.decide_reaction``), so EVERY entrypoint produces reactions
     from the same one heuristic. Messaging is now just a RENDERER. This shim preserves the
@@ -548,10 +548,10 @@ async def _react_in_background(
 ) -> None:
     """Render the CORE instinctive reaction on this platform, OFF the reply path.
 
-    CONCEPT:ECO-4.81 — the decision is the core orchestrator's
+    CONCEPT:AU-ECO.messaging.messaging-as-renderer — the decision is the core orchestrator's
     (``orchestration.reactions.decide_reaction`` → an :class:`AgentReaction`); messaging
     only RENDERS it via ``svc.react`` → the backend's ``send_reaction`` /
-    ``setMessageReaction``. Best-effort and bounded (CONCEPT:ECO-4.74): the reply is
+    ``setMessageReaction``. Best-effort and bounded (CONCEPT:AU-ECO.messaging.debounce-timer-cancel): the reply is
     generated and sent independently, so a slow or failing reaction never delays (or
     blocks) the user getting an answer.
     """
@@ -569,10 +569,10 @@ async def _react_in_background(
                 reaction.emote,
             )
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.81] reaction render skipped: %s", e)
+        logger.debug("[CONCEPT:AU-ECO.messaging.messaging-as-renderer] reaction render skipped: %s", e)
 
 
-# CONCEPT:ECO-4.72 — fire-and-forget background tasks (strong refs so they aren't GC'd).
+# CONCEPT:AU-ECO.messaging.fire-and-forget-tasks — fire-and-forget background tasks (strong refs so they aren't GC'd).
 _BG_TASKS: set[asyncio.Task[Any]] = set()
 
 
@@ -584,7 +584,7 @@ def _spawn_bg(coro: Any) -> None:
 
 
 def _channel_session(platform: str, channel_id: str) -> str:
-    """The universal-agent session key for a chat channel (CONCEPT:ECO-4.78).
+    """The universal-agent session key for a chat channel (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
     One stable id per ``(platform, channel_id)`` so successive turns of the same conversation
     run as one session — the core memory (mementos under this source) carries continuity, and
@@ -602,13 +602,13 @@ async def _persist_and_enrich(
     *,
     session: str,
 ) -> None:
-    """Record last-active + ingest every message + enrich — AFTER the reply (CONCEPT:ECO-4.74).
+    """Record last-active + ingest every message + enrich — AFTER the reply (CONCEPT:AU-ECO.messaging.debounce-timer-cancel).
 
     Runs strictly off the reply path so no KG write or local-model encode (add_node, ingest,
     concept extraction, memento compression) ever competes with reply generation. Best-effort;
     failures here never affect the reply that already went out.
 
-    CONCEPT:ECO-4.78 — this is also where conversation CONTINUITY is established: the just-
+    CONCEPT:AU-ECO.messaging.universal-graph-agent — this is also where conversation CONTINUITY is established: the just-
     finished turn (user prompt + assistant reply) is compressed into a memento under the
     channel's ``session`` source via the CORE memory primitive (``compress_to_memento``), so
     the NEXT turn of this channel recalls it through ``run_agent``'s native memento priming —
@@ -621,23 +621,23 @@ async def _persist_and_enrich(
     try:
         await asyncio.to_thread(svc.record_inbound, last)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
+        logger.debug("[CONCEPT:AU-ECO.messaging.last-active-channel-routing] record_inbound failed: %s", e)
     for it in items:
         try:
             memory_id = await ingest_message_to_kg(it["event"], knowledge_engine=engine)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
+            logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] KG ingest failed: %s", e)
             memory_id = None
-        # CONCEPT:KG-2.251 — also persist the message's media (image/voice/video)
+        # CONCEPT:AU-KG.ingest.list-durable-media — also persist the message's media (image/voice/video)
         # DURABLY: store the bytes in the engine BLOB substrate + a :MediaAsset node
         # linked to this message's memory. Keeps the transcription/vision flow intact;
         # this just makes the media first-class instead of discarding it after use.
         try:
             await _persist_media(engine, it["event"], message_memory_id=memory_id)
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:KG-2.251] media persist skipped: %s", e)
+            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media persist skipped: %s", e)
     # Compress this turn into a per-session memento so the next turn inherits continuity
-    # through the universal path's core memory (CONCEPT:ECO-4.78).
+    # through the universal path's core memory (CONCEPT:AU-ECO.messaging.universal-graph-agent).
     try:
         from agent_utilities.knowledge_graph.memory.memento_compressor import (
             compress_to_memento,
@@ -650,7 +650,7 @@ async def _persist_and_enrich(
         await asyncio.to_thread(
             compress_to_memento, engine, turn, source=session, refine=False
         )
-        # CONCEPT:KG-2.131 — refresh the per-session memento cache in this SAME background
+        # CONCEPT:AU-KG.memory.refresh-per-session-memento — refresh the per-session memento cache in this SAME background
         # pass so the NEXT turn reads the just-written memento from memory, never from a
         # blocking ``get_recent_mementos`` round-trip on the reply path.
         from agent_utilities.knowledge_graph.memory.session_memento_cache import (
@@ -659,7 +659,7 @@ async def _persist_and_enrich(
 
         await asyncio.to_thread(refresh_session_memento_cache, engine, session)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.78] session memento skipped: %s", e)
+        logger.debug("[CONCEPT:AU-ECO.messaging.universal-graph-agent] session memento skipped: %s", e)
     try:
         from agent_utilities.messaging.enrichment import enrich_conversation
 
@@ -672,13 +672,13 @@ async def _persist_and_enrich(
             channel_id=last.channel_id,
         )
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.65] enrichment skipped: %s", e)
+        logger.debug("[CONCEPT:AU-ECO.messaging.post-conversation-enrichment] enrichment skipped: %s", e)
 
 
 def _resolve_media_store(engine: Any) -> Any:
     """A :class:`MediaStore` bound to the live engine's compute client, or ``None``.
 
-    CONCEPT:KG-2.251 — the durable-media path needs the engine BLOB substrate, reached
+    CONCEPT:AU-KG.ingest.list-durable-media — the durable-media path needs the engine BLOB substrate, reached
     through ``engine.graph_compute`` (the ``GraphComputeEngine`` whose ``._client``
     carries ``.blob``/``.txn``). Returns ``None`` (caller no-ops) when no live engine.
     """
@@ -693,7 +693,7 @@ def _resolve_media_store(engine: Any) -> Any:
 async def _persist_media(
     engine: Any, event: Any, *, message_memory_id: str | None
 ) -> None:
-    """Durably persist an event's media attachments into the KG (CONCEPT:KG-2.251).
+    """Durably persist an event's media attachments into the KG (CONCEPT:AU-KG.ingest.list-durable-media).
 
     For each image/voice/video/audio attachment: download the bytes (best-effort) and
     hand them to :class:`MediaStore`, which stores them content-addressed in the engine
@@ -723,7 +723,7 @@ async def _persist_media(
                 resp.raise_for_status()
                 data = resp.content
             except Exception as e:  # noqa: BLE001
-                logger.debug("[CONCEPT:KG-2.251] media download failed: %s", e)
+                logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s", e)
                 continue
             await asyncio.to_thread(
                 store.store_media,
@@ -738,7 +738,7 @@ async def _persist_media(
 
 
 async def _transcribe_attachments(event: Any) -> str:
-    """Transcribe any voice/audio attachments to text (CONCEPT:ECO-4.68)."""
+    """Transcribe any voice/audio attachments to text (CONCEPT:AU-ECO.messaging.voice-attachment-fallback)."""
     msg = getattr(event, "message", None)
     urls = [
         att.url
@@ -754,7 +754,7 @@ async def _transcribe_attachments(event: Any) -> str:
 
 
 async def _fetch_image_parts(urls: list[str]) -> list[Any]:
-    """Download image attachments → pydantic-ai BinaryContent for vision (CONCEPT:ECO-4.67).
+    """Download image attachments → pydantic-ai BinaryContent for vision (CONCEPT:AU-ECO.messaging.image-attachment-fallback).
 
     Downloaded + inlined (not passed as a URL) so the vision model never has to fetch an
     external/token-bearing URL itself. Best-effort; unreachable images are skipped.
@@ -785,7 +785,7 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
 
 
 def _sniff_image_media_type(data: bytes) -> str | None:
-    """Detect an image MIME type from magic bytes (CONCEPT:ECO-4.67) — used when the
+    """Detect an image MIME type from magic bytes (CONCEPT:AU-ECO.messaging.image-attachment-fallback) — used when the
     transport gives a generic/absent content-type (Telegram serves octet-stream)."""
     if data[:3] == b"\xff\xd8\xff":
         return "image/jpeg"
@@ -799,7 +799,7 @@ def _sniff_image_media_type(data: bytes) -> str | None:
 
 
 def _is_backend_timeout(failure_text: str) -> bool:
-    """True when a failure string is a backend/LLM timeout (CONCEPT:ORCH-1.62).
+    """True when a failure string is a backend/LLM timeout (CONCEPT:AU-ORCH.routing.chat-budget-routing).
 
     Such a failure means the endpoint is slow/degraded; a second full LLM call to the same
     endpoint (the double-LLM tax) is exactly what we must avoid, so the caller surfaces a
@@ -820,7 +820,7 @@ async def _graph_agent_reply(
     image_parts: list[Any] | None = None,
     budget: float | None = None,
 ) -> str:
-    """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:ECO-4.78).
+    """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
     Messaging is thin transport: an inbound chat turn IS a run of the one universal
     orchestration path (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per
@@ -833,12 +833,12 @@ async def _graph_agent_reply(
         swarms and fleet tools (e.g. a GitHub request reaches ``graph_orchestrate`` →
         ``execute_agent`` for the github specialist), all governed by the ActionPolicy gate.
 
-    It is wrapped in a hard ``MESSAGING_REPLY_TIMEOUT`` (CONCEPT:ECO-4.74): a slow/hung graph
+    It is wrapped in a hard ``MESSAGING_REPLY_TIMEOUT`` (CONCEPT:AU-ECO.messaging.debounce-timer-cancel): a slow/hung graph
     run must still yield a reply, so on timeout/error we fall through to a plain-chat
-    completion. CONCEPT:ECO-4.67 — image attachments are carried on the fallback (vision)
+    completion. CONCEPT:AU-ECO.messaging.image-attachment-fallback — image attachments are carried on the fallback (vision)
     path; the responder label / ``/claude`` routing applies there too.
 
-    CONCEPT:ORCH-1.62 — the run uses the ``chat`` execution profile, so each LLM round is
+    CONCEPT:AU-ORCH.routing.chat-budget-routing — the run uses the ``chat`` execution profile, so each LLM round is
     bounded to the chat budget (≈12 s) instead of 300 s: a degraded backend fails fast
     inside the reply budget. And to remove the measured double-LLM tax, a *backend timeout*
     (the run hit the reply-timeout wall) does NOT trigger a second full LLM call to the same
@@ -851,7 +851,7 @@ async def _graph_agent_reply(
     # through the full multi-agent orchestration graph (dynamic delegation) — which is what we
     # want — so the default is the dedicated messaging assistant identity.
     agent_name = str(setting("MESSAGING_AGENT", "")).strip() or "messaging-assistant"
-    # CONCEPT:ORCH-1.72 — the reply budget is DYNAMIC: the caller passes the per-job shape's
+    # CONCEPT:AU-ORCH.execution.passthrough-identity — the reply budget is DYNAMIC: the caller passes the per-job shape's
     # ``reply_budget_s`` (how long a turn of this shape should reasonably take). A fixed 45 s
     # wall both over-waits a trivial turn and prematurely cuts a legitimate multi-agent tool
     # turn. ``MESSAGING_REPLY_TIMEOUT`` remains the fallback when no shape budget is supplied.
@@ -861,14 +861,14 @@ async def _graph_agent_reply(
         else float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
     )
 
-    # CONCEPT:ECO-4.67 — the universal graph path (execute_agent → run_agent) does NOT carry
+    # CONCEPT:AU-ECO.messaging.image-attachment-fallback — the universal graph path (execute_agent → run_agent) does NOT carry
     # image attachments to the model: it answers text-only, "succeeds", and so never reaches
     # the vision-capable fallback. Route image turns straight to the vision responder so
     # "what is this photo of?" actually sees the image. (Pure-vision Q&A; tool/graph turns
     # with images would need image plumbing through run_agent — tracked separately.)
     if image_parts:
         logger.info(
-            "[CONCEPT:ECO-4.67] %d image(s) attached — routing to the vision responder.",
+            "[CONCEPT:AU-ECO.messaging.image-attachment-fallback] %d image(s) attached — routing to the vision responder.",
             len(image_parts),
         )
         return await _plain_chat_reply(content, image_parts=image_parts)
@@ -887,7 +887,7 @@ async def _graph_agent_reply(
             timeout=reply_timeout,
         )
         text = str(out).strip() if out else ""
-        # CONCEPT:ORCH-1.40/1.37 — when the run opened a native message channel (or carries a
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37 — when the run opened a native message channel (or carries a
         # mermaid diagram), run_agent returns a JSON ENVELOPE string
         # ``{"output", "channel_id"?, "mermaid"?}`` rather than the bare reply. The chat reply
         # is the ``output`` field; unwrap it so the user sees the rendered text, not raw JSON.
@@ -910,11 +910,11 @@ async def _graph_agent_reply(
             return text
         # The run completed but returned a failure string. If that failure was a backend
         # timeout (an inner node hit the chat-profile bound), do NOT re-call the same slow
-        # endpoint (CONCEPT:ORCH-1.62) — surface the graceful message. Only a non-timeout
+        # endpoint (CONCEPT:AU-ORCH.routing.chat-budget-routing) — surface the graceful message. Only a non-timeout
         # failure (delegation/structural) is worth a single cheap plain-chat attempt.
         if _is_backend_timeout(text):
             logger.warning(
-                "[CONCEPT:ORCH-1.62] universal agent timed out on a degraded backend "
+                "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent timed out on a degraded backend "
                 "(%.80s); skipping the double-LLM plain-chat call.",
                 text,
             )
@@ -923,17 +923,17 @@ async def _graph_agent_reply(
                 "right now, so I couldn't finish a reply in time. Please try again shortly."
             )
         logger.warning(
-            "[CONCEPT:ECO-4.78] universal agent returned no usable reply (%.60s); "
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent returned no usable reply (%.60s); "
             "falling back to a single plain-chat reply.",
             text,
         )
     except TimeoutError:
         # The whole turn hit the reply-timeout wall — the backend is slow/degraded. Making a
         # SECOND full LLM call to the same endpoint is the double-LLM tax that pushed a single
-        # turn past 90 s (CONCEPT:ORCH-1.62). Return a graceful message instead; the chat
+        # turn past 90 s (CONCEPT:AU-ORCH.routing.chat-budget-routing). Return a graceful message instead; the chat
         # profile already bounded each round, so this path is now a fast bound + one message.
         logger.warning(
-            "[CONCEPT:ORCH-1.62] universal agent hit the %ss reply budget — skipping the "
+            "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent hit the %ss reply budget — skipping the "
             "plain-chat fallback to avoid a second call to a degraded backend.",
             reply_timeout,
         )
@@ -943,17 +943,17 @@ async def _graph_agent_reply(
         )
     except Exception as e:  # noqa: BLE001 — a genuine graph error → ONE short plain-chat reply
         logger.warning(
-            "[CONCEPT:ECO-4.78] universal agent failed (%s); "
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent failed (%s); "
             "falling back to a single plain-chat reply.",
             e,
         )
     # Plain-chat fallback — a single short bounded attempt, fired ONLY on a genuine graph
-    # error (not a backend timeout), so it never doubles a slow round (CONCEPT:ORCH-1.62/4.74).
+    # error (not a backend timeout), so it never doubles a slow round (CONCEPT:AU-ORCH.routing.chat-budget-routing/4.74).
     return await _plain_chat_reply(content, image_parts=image_parts)
 
 
 async def _varied_ack(content: str, shape: Any) -> str:
-    """A short, NATURALLY-VARIED 'on it' acknowledgement for a deferred turn (CONCEPT:ECO-4.67).
+    """A short, NATURALLY-VARIED 'on it' acknowledgement for a deferred turn (CONCEPT:AU-ECO.messaging.image-attachment-fallback).
 
     The old single template ("On it — …") read as obviously canned. Generate a quick line
     with the LITE model (so it varies + can reference what it's doing), bounded by a short
@@ -1004,9 +1004,9 @@ async def _varied_ack(content: str, shape: Any) -> str:
         return fallback
 
 
-# CONCEPT:ECO-4.55 — Model-routed inbound responder with local LLM default and Claude address
+# CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — Model-routed inbound responder with local LLM default and Claude address
 def _select_responder(content: str) -> tuple[str, str, str | None, str]:
-    """Pick the responder for an inbound message (CONCEPT:ECO-4.55).
+    """Pick the responder for an inbound message (CONCEPT:AU-ECO.messaging.model-routed-inbound-responder).
 
     Returns ``(label, provider, model_id, task)`` — ``task`` has the trigger stripped.
     Default is the local LLM; an explicit ``/claude`` (configurable) address routes to
@@ -1035,7 +1035,7 @@ def _select_responder(content: str) -> tuple[str, str, str | None, str]:
 
 
 def _messaging_system_prompt() -> str:
-    """Load the dedicated messaging-assistant system prompt (CONCEPT:ECO-4.56)."""
+    """Load the dedicated messaging-assistant system prompt (CONCEPT:AU-ECO.messaging.inbound-router)."""
     import json
     from pathlib import Path
 
@@ -1058,15 +1058,15 @@ def _agent_input(prompt: str, image_parts: list[Any] | None) -> Any:
 async def _plain_chat_reply(
     content: str, *, image_parts: list[Any] | None = None
 ) -> str:
-    """Plain chat completion — the ALWAYS-yields-a-reply fallback (CONCEPT:ECO-4.78).
+    """Plain chat completion — the ALWAYS-yields-a-reply fallback (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
     This is the only responder still owned by the messaging layer: a bare, tool-free chat
     completion used when the universal graph agent times out / errors (so a slow or hung
     graph run never leaves a message unanswered). The full tool/skill/MCP/delegation
     capability that the dedicated messaging agent used to carry now lives on the universal
     path (``_graph_agent_reply`` → ``Orchestrator.execute_agent``), so it is not duplicated
-    here. CONCEPT:ECO-4.55 — the local-default / ``/claude``-address responder selection and
-    its label are preserved; CONCEPT:ECO-4.67 — image attachments are passed to the (vision)
+    here. CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — the local-default / ``/claude``-address responder selection and
+    its label are preserved; CONCEPT:AU-ECO.messaging.image-attachment-fallback — image attachments are passed to the (vision)
     model. Works on local models without function-calling.
     """
     label, provider, model_id, task = _select_responder(content)
@@ -1083,5 +1083,5 @@ async def _plain_chat_reply(
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:ECO-4.78] plain-chat fallback failed: %s", e)
+        logger.error("[CONCEPT:AU-ECO.messaging.universal-graph-agent] plain-chat fallback failed: %s", e)
         return f"I saved your message, but couldn't draft a reply right now ({e})."

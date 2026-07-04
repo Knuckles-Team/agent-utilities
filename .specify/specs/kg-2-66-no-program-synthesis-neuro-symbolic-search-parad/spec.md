@@ -11,7 +11,7 @@
 - [x] Extension target identified: KG-2.65 `Reasoner` registry + `harness/selection_operators.py`
   (operator registry) + `rlm/skills.py` (typed composition space) + `rlm/sandboxes/router.py`
   (candidate validation). All four exist and are verified in-repo.
-- [x] New CONCEPT:KG-2.66 justified: AU's only "synthesis" today is AHE-3.3 (evolving sklearn
+- [x] New CONCEPT:AU-KG.enrichment.multimodal-readers justified: AU's only "synthesis" today is AHE-3.3 (evolving sklearn
   regressors) / AHE-3.2 (evolving prompt/agent text) — search over a fixed parametric or textual
   space, **not** programs/DSLs, and **no** length/MDL/Solomonoff-flavoured prior governs any search
   (zero hits for solomonoff/kolmogorov/MDL/description-length/occam). This adds the missing axis:
@@ -50,7 +50,7 @@ prior).
   verifier-free selectors — added to the same registry, not a new module.
 - **AC5**: The synthesis loop ranks survivors by `quality − λ·description_length` (λ default makes
   the prior active, opt-out via `λ=0` reproducing pure quality selection — backward-compatible per
-  the AHE-3.x opt-in rule), and the chosen program is the shortest among top-quality candidates.
+  the AU-AHE.optimization.telemetry-optimization opt-in rule), and the chosen program is the shortest among top-quality candidates.
 - **AC6**: With `λ>0`, the suite demonstrates the success metric: a correct program shorter than the
   λ=0 baseline's at equal pass-rate.
 
@@ -61,6 +61,6 @@ prior).
   pure `description_length` operator.
 - `pre-commit run --all-files` green (no stubs, no env sprawl, no back-compat shims).
 - Concept registry regenerated (`scripts/build_concepts_yaml.py`; `scripts/check_concepts.py` green);
-  a `CONCEPT:KG-2.66` marker on the new `Reasoner`.
+  a `CONCEPT:AU-KG.enrichment.multimodal-readers` marker on the new `Reasoner`.
 - Per-concept doc authored (cite the Solomonoff/MDL provenance + arXiv 2606.12683 §4/§5.2 in the
   docstring, name from purpose not paper).

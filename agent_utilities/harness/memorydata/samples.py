@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Small MemoryData-shaped sample families for sampled bake-off runs (CONCEPT:AHE-3.72).
+"""Small MemoryData-shaped sample families for sampled bake-off runs (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
 
 The full MemoryData datasets (MemoryAgentBench / LoCoMo / LongBench / MemBench) are *not*
 bundled with the upstream repo — they need multi-GB / auth'd downloads (see its README §

@@ -1,4 +1,4 @@
-"""Embedder circuit-breaker for the KG embedding-backfill loop (CONCEPT:KG-2.8).
+"""Embedder circuit-breaker for the KG embedding-backfill loop (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 When the embedding endpoint is down (e.g. the GPU host power-cycles → vLLM 502s),
 the backfill tick must stop calling it so it doesn't retry-storm a dead endpoint

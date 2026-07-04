@@ -1,4 +1,4 @@
-"""Queries over enriched test entities (CONCEPT:KG-2.8 Phase 1).
+"""Queries over enriched test entities (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 1).
 
 "Which pytests need work" is now a graph query against stored enrichment facts —
 not an ad-hoc script. Runs through the single ``GraphBackend.execute`` interface,
@@ -88,7 +88,7 @@ def code_by_pattern(
 
 
 def enrichment_coverage(backend: Any, graph_name: str | None = None) -> dict[str, Any]:
-    """Per-category enrichment completeness for the KG (CONCEPT:KG-2.8).
+    """Per-category enrichment completeness for the KG (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
     The gauge for "how enriched is the graph by category": structural ingest
     lands nodes immediately while the background daemon backfills LLM cards, so

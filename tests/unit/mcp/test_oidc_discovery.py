@@ -1,4 +1,4 @@
-"""Tests for IdP-agnostic OIDC discovery (CONCEPT:OS-5.46).
+"""Tests for IdP-agnostic OIDC discovery (CONCEPT:AU-OS.identity.resolve-token-endpoint-from).
 
 Fleet auth is configured by issuer URL only; jwks_uri + token_endpoint are resolved
 from the issuer's OIDC discovery document, so Keycloak/Okta/Auth0/Entra all work with

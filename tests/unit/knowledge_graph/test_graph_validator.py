@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for CONCEPT:KG-2.3 — Graph Integrity Validator."""
+"""Tests for CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Graph Integrity Validator."""
 
 import pytest
 

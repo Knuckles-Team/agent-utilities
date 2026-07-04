@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.13 (Richer Learning enhancement) — typed, outcome-grounded extraction.
+"""CONCEPT:AU-KG.memory.background-learning-engine (Richer Learning enhancement) — typed, outcome-grounded extraction.
 
 Covers the new MemoryEdit fields (entry_type / training_value / outcome_gate / evidence_ids), the
 outcome-grounding gate (un-grounded decisions are dropped), node tagging, and GROUNDED_BY edges.
@@ -33,14 +33,14 @@ class _FakeEngine:
         self.edges.append((src, dst, rel))
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_memory_edit_new_fields_defaults():
     e = MemoryEdit(action="ADD", content="x")
     assert e.entry_type == "fact" and e.training_value == "normal"
     assert e.outcome_gate is True and e.evidence_ids == []
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_ungrounded_decision_is_gated_out():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -58,7 +58,7 @@ def test_ungrounded_decision_is_gated_out():
     assert "d1" not in eng.nodes  # not persisted
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_grounded_decision_persists_with_tags_and_edges():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -82,7 +82,7 @@ def test_grounded_decision_persists_with_tags_and_edges():
     assert ("d1", "msg9", "GROUNDED_BY") in eng.edges
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_plain_fact_not_gated():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -92,7 +92,7 @@ def test_plain_fact_not_gated():
     assert counts["added"] == 1 and counts["gated"] == 0
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_parse_memory_edits_reads_new_fields():
     raw = '{"actions": [{"action": "ADD", "content": "c", "entry_type": "note", "training_value": "low"}]}'
     edits = parse_memory_edits(raw)

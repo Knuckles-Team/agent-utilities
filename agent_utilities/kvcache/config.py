@@ -1,8 +1,8 @@
 """Configuration for the epistemic-graph remote KV-cache connector.
 
-CONCEPT:KG-2.306 — the Python LMCache/vLLM connector reads its endpoint and
+CONCEPT:AU-KG.backend.kvcache-vllm-connector — the Python LMCache/vLLM connector reads its endpoint and
 bearer token from the SAME environment the engine's HTTP KV-cache listener
-(CONCEPT:EG-187) is configured with, so a co-located deploy shares one source of
+(CONCEPT:EG-KG.backend.is-configured-so-co) is configured with, so a co-located deploy shares one source of
 truth. All reads route through :func:`agent_utilities.core.config.setting`
 (configuration discipline — never ``os.environ`` directly).
 """
@@ -52,7 +52,7 @@ def _addr_to_base_url(addr: str) -> str:
 class KvCacheConfig(BaseModel):
     """Endpoint + auth + timeout settings for :class:`EpistemicGraphKVBackend`.
 
-    CONCEPT:KG-2.306. Prefer :meth:`from_env`, which mirrors the engine's
+    CONCEPT:AU-KG.backend.kvcache-vllm-connector. Prefer :meth:`from_env`, which mirrors the engine's
     EG-187 environment variables so client and server stay in lockstep.
     """
 
@@ -89,7 +89,7 @@ class KvCacheConfig(BaseModel):
     def from_env(cls) -> KvCacheConfig:
         """Build config from the engine's EG-187 environment variables.
 
-        CONCEPT:KG-2.306. Recognized variables:
+        CONCEPT:AU-KG.backend.kvcache-vllm-connector. Recognized variables:
 
         * ``EPISTEMIC_GRAPH_KVCACHE_URL`` — explicit client base URL (wins).
         * ``EPISTEMIC_GRAPH_KVCACHE_ADDR`` — the engine bind value, coerced to a

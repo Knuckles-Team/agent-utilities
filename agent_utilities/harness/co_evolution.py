@@ -1,4 +1,4 @@
-"""Cross-harness GRPO co-evolution (CONCEPT:AHE-3.55, AHE-3.56).
+"""Cross-harness GRPO co-evolution (CONCEPT:AU-AHE.harness.co-evolution-loop, CONCEPT:AU-AHE.harness.kg-held-out-certification).
 
 HarnessX co-evolves harness + model over one shared replay buffer via cross-harness
 GRPO — grouping trajectories by *task identity across harness versions* so the model
@@ -27,7 +27,7 @@ from agent_utilities.harness.superhuman_gate import (
 @dataclass
 class Trajectory:
     """One scored rollout, tagged with the (model, harness) that produced it so the
-    shared buffer mixes scaffold versions (CONCEPT:AHE-3.55)."""
+    shared buffer mixes scaffold versions (CONCEPT:AU-AHE.harness.co-evolution-loop)."""
 
     task: str
     harness_version: str

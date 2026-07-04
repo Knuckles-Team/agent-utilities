@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.12 — Memory-First Retrieval.
+"""CONCEPT:AU-KG.retrieval.memory-first-retrieval — Memory-First Retrieval.
 
 Covers the pure HyDE-planner helpers (plan parse/fallback, dual thresholds, merge, evidence
 ledger) and the ``plan_and_retrieve`` orchestration (HyDE multi-query, dual-threshold, and the
@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.retrieval.hyde_planner import (
 # ── pure helpers ──────────────────────────────────────────────────────────────
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_dual_thresholds_match_quarq_constants():
     assert HYDE_THRESHOLDS["standard"] == 0.38
     assert HYDE_THRESHOLDS["deep"] == 0.28
@@ -29,7 +29,7 @@ def test_dual_thresholds_match_quarq_constants():
     assert threshold_for_mode("unknown") == 0.38  # safe default
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_parse_hyde_plan_valid_json():
     raw = (
         '{"vector_queries": ["a", "b"], "keywords": "Foo, Bar", "search_mode": "deep"}'
@@ -40,20 +40,20 @@ def test_parse_hyde_plan_valid_json():
     assert plan.search_mode == "deep"
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_parse_hyde_plan_fallback_on_garbage():
     plan = parse_hyde_plan("not json at all", original_query="orig", mode_hint="deep")
     assert plan.vector_queries == ["orig"]
     assert plan.search_mode == "deep"
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_effective_queries_dedups_and_includes_original():
     plan = HydePlan(vector_queries=["a", "a", ""], search_mode="standard")
     assert plan.effective_queries("orig") == ["a", "orig"]
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_merge_retrievals_dedups_keeps_max_score_and_sorts():
     a = [{"id": "1", "_score": 0.4}, {"id": "2", "_score": 0.9}]
     b = [{"id": "1", "_score": 0.7}, {"id": "3", "_score": 0.5}]
@@ -62,7 +62,7 @@ def test_merge_retrievals_dedups_keeps_max_score_and_sorts():
     assert next(n for n in merged if n["id"] == "1")["_score"] == 0.7  # max kept
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_evidence_ledger_accepts_above_threshold_and_extracts_numbers():
     nodes = [
         {"id": "1", "_score": 0.5, "content": "User paid $40 for the monitor"},
@@ -111,7 +111,7 @@ class _FakeRetriever:
         return [{"id": f"{query}@{relevance_threshold}", "_score": 0.5}]
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_plan_and_retrieve_standard_uses_038_threshold():
     r = _FakeRetriever(gate_passed=True)
     nodes = r.plan_and_retrieve("q", mode="standard")  # type: ignore[misc]
@@ -119,14 +119,14 @@ def test_plan_and_retrieve_standard_uses_038_threshold():
     assert nodes and nodes[0]["id"] == "q@0.38"  # type: ignore[index]
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_plan_and_retrieve_deep_uses_028_threshold():
     r = _FakeRetriever(gate_passed=True)
     r.plan_and_retrieve("q", mode="deep")  # type: ignore[misc]
     assert r.calls == [0.28]
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_self_correct_triggers_second_pass_only_on_gate_failure():
     # Gate passes → no second pass.
     ok = _FakeRetriever(gate_passed=True)
@@ -139,7 +139,7 @@ def test_self_correct_triggers_second_pass_only_on_gate_failure():
     assert bad.calls == [0.38, 0.28]
 
 
-@pytest.mark.concept(id="KG-2.12")
+@pytest.mark.concept(id="AU-KG.retrieval.memory-first-retrieval")
 def test_with_ledger_returns_structured_payload():
     r = _FakeRetriever(gate_passed=True)
     out = r.plan_and_retrieve("q", mode="standard", with_ledger=True)  # type: ignore[misc]

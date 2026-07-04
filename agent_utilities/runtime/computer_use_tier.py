@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.93 / ORCH-1.84 — Computer-use driver tier for the workspace runtime.
+"""CONCEPT:AU-ORCH.sandbox.computer-use-tier / ORCH-1.84 — Computer-use driver tier for the workspace runtime.
 
 A pluggable :class:`ComputerUseDriver` lets an agent drive a GUI desktop (a
 ``gui-sandbox`` container) the same way the optional :class:`BrowserDriver`

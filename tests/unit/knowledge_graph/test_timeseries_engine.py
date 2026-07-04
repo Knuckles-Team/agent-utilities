@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Real-engine proof for native time-series (CONCEPT:KG-2.252).
+"""Real-engine proof for native time-series (CONCEPT:AU-KG.domains.ohlcv-gap-fill).
 
 Against the ACTUAL ephemeral engine (KG-2.238, pi-max tier so tsdb is served):
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("KG-2.252")]
+pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.domains.ohlcv-gap-fill")]
 
 
 def test_engine_tsdb_range_window_asof(engine_graph):

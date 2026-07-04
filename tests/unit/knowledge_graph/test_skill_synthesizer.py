@@ -1,4 +1,4 @@
-"""Tests for the connector → skill synthesis distiller (CONCEPT:KG-2.90/2.83).
+"""Tests for the connector → skill synthesis distiller (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83).
 
 Covers: classify (single-action→atomic, flowsTo-chain→workflow), dedup (existing
 skill ⇒ no proposal), proposal node shape + AUTOMATES/DERIVED_FROM edges, the

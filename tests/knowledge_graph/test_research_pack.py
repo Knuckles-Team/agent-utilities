@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for the flagship research-state Schema-Pack 2.0 profile.
 
-CONCEPT:KG-2.37 — Research-State Domain Pack
+CONCEPT:AU-KG.research.research-state-domain-pack — Research-State Domain Pack
 """
 
 

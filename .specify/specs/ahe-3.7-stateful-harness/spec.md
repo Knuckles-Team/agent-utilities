@@ -1,9 +1,9 @@
-# Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.4)
+# Spec: Stateful Harness & Sensory Verification (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
 - [x] **KG search completed** — `.specify/design/ahe-3.7-stateful-harness/design.md` exists
-- [x] **Extension point identified** — Extends AHE-3.7 (Stateful Harness) & OS-5.3 (Security)
+- [x] **Extension point identified** — Extends AU-AHE.harness.concept-2 (Stateful Harness) & AU-OS.governance.reactive-multi-axis-budget (Security)
 - [x] **C4 diagram created** — showing component interactions in Pillar 3 and Pillar 5
 - [x] **No new CONCEPT: tag** — uses existing tags
 - [ ] **`code-enhancer` audit** — pending implementation

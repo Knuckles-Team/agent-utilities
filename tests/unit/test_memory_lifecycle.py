@@ -1,4 +1,4 @@
-"""Unit tests for the agent-native memory lifecycle loop (CONCEPT:KG-2.307).
+"""Unit tests for the agent-native memory lifecycle loop (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
 Drives the AU-side lifecycle policy with a MOCK engine client (records calls to the
 engine memory primitives ``create_summary_node`` / ``consolidate`` / ``maintain``)
@@ -171,7 +171,7 @@ def test_kg_2_307_summarization_calls_create_summary_node_with_generated_text() 
     # AU produced the summary TEXT; the engine stores it.
     assert call["summary_text"] == _mock_llm("", "")
     assert set(call["child_ids"]) == {"ep-alpha-0", "ep-alpha-1", "ep-alpha-2"}
-    assert call["metadata"]["concept"] == "KG-2.307"
+    assert call["metadata"]["concept"] == "AU-KG.memory.drive-one-agent-native"
 
 
 def test_kg_2_307_summarization_skips_when_llm_returns_no_text() -> None:

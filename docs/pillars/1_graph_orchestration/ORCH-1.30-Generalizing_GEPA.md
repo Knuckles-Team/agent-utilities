@@ -1,10 +1,10 @@
-# Generalizing GEPA (CONCEPT:ORCH-1.30)
+# Generalizing GEPA (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data)
 
 ## Overview
 
 Makes GEPA-optimized skills **transfer** off the optimization split — the AppWorld RLM-GEPA result
 (the +7.2 pp SGC that held on held-out test). Adds the GEPA paper's held-out feedback/Pareto split,
-predict-rlm's `AgentSpec` anti-overfit grounding, and held-out candidate selection. Extends **ORCH-1.13**.
+predict-rlm's `AgentSpec` anti-overfit grounding, and held-out candidate selection. Extends **AU-ORCH.optimization.optimize-skill-prompt-gepa**.
 
 ## How it works
 

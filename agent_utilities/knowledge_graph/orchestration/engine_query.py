@@ -28,7 +28,7 @@ from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
 
-# CONCEPT:KG-2.148 — the labels that live on the isolated ``__control__`` engine
+# CONCEPT:AU-KG.backend.schedule-on-control-graph — the labels that live on the isolated ``__control__`` engine
 # graph (the scheduler / task control plane). A read whose node labels are ALL in
 # this set is a control-plane read and is routed to the control backend; anything
 # else (content labels, or a label-less pattern that might match content) stays on
@@ -70,7 +70,7 @@ class QueryMixin(_Base):
         Queries are automatically scoped by the user's/agent's security clearance.
         Nodes with a requiresClassification > clearance_level are omitted.
 
-        CONCEPT:KG-2.11 — when ``as_of`` (an ISO-8601 instant) is supplied, result rows are
+        CONCEPT:AU-KG.temporal.bi-temporal-memory-layers — when ``as_of`` (an ISO-8601 instant) is supplied, result rows are
         post-filtered to those whose bi-temporal validity interval
         (``valid_from <= as_of < valid_to``) contains that instant. Rows without temporal
         metadata pass through unchanged. This answers "what was true as of date T" — something
@@ -86,7 +86,7 @@ class QueryMixin(_Base):
         )
 
         # Tenant scoping + owner/scope visibility on the MCP/orchestration read
-        # chokepoint (CONCEPT:KG-2.6 + KG-2.60). No-op unless KG_BRAIN_ENFORCE is
+        # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). No-op unless KG_BRAIN_ENFORCE is
         # on and a non-privileged tenant actor is in scope, so the existing
         # suite and single-tenant/local paths are unchanged. This is what
         # isolates ``graph_query`` on a shared backend graph (the named-graph
@@ -99,7 +99,7 @@ class QueryMixin(_Base):
         except Exception as exc:  # pragma: no cover - never break a read
             logger.debug("query scope() skipped: %s", exc)
 
-        # CONCEPT:KG-2.148 — control-plane / content-plane read isolation. The
+        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control-plane / content-plane read isolation. The
         # control plane (:Task / :Schedule) is stored on the isolated
         # ``__control__`` engine graph (see engine._build_control_backend), so a
         # query that targets ONLY those labels must read from the control backend
@@ -150,7 +150,7 @@ class QueryMixin(_Base):
         (``eg_query::exec_sql_typed`` over an off-lock ``GraphView``). This makes
         SQL-on-the-KG reachable natively over the graph-os MCP ``graph_query`` tool
         (``scope='sql'``) and its REST twin ``/graph/query`` — not just over pg-wire
-        (CONCEPT:KG-2.189) or a raw Python ``client.query.sql()``.
+        (CONCEPT:AU-KG.query.raw-python) or a raw Python ``client.query.sql()``.
 
         Read-path-first: only ``SELECT``/``WITH``/``EXPLAIN`` statements are accepted;
         mutations must go through ``kg_write`` so they get the engine's governed write
@@ -240,12 +240,12 @@ class QueryMixin(_Base):
     def uql(self, query: str) -> list[dict[str, Any]]:
         """Run a UQL text query over the KG via the engine's unified surface (KG-2.214).
 
-        CONCEPT:KG-2.305 — the AU→engine execution path for the engine's native
+        CONCEPT:AU-KG.query.au-engine-execution-path — the AU→engine execution path for the engine's native
         cross-modal query language. ``MATCH (:Label) [WHERE ...] |> TRAVERSE ... |>
         RANK BY ~[...] |> LIMIT k`` is PARSED by the engine into the SAME cross-modal
         ``Plan`` the ``UnifiedQuery`` path carries, then run through the IDENTICAL fused
         executor (``eg_plan::uql::parse`` → filter/traverse/rank over one off-lock
-        snapshot). This is the surface the NL→query planner (CONCEPT:KG-2.305) submits a
+        snapshot). This is the surface the NL→query planner (CONCEPT:AU-KG.query.au-engine-execution-path) submits a
         fleet-LLM-generated UQL string to, so NL→query runs through the engine's
         deterministic pipeline exactly like the engine's own ``NlPlanner`` seam (EG-078).
 
@@ -275,7 +275,7 @@ class QueryMixin(_Base):
         fact_a_props: dict[str, Any],
         fact_b_props: dict[str, Any],
     ) -> dict[str, Any]:
-        """Resolve two contradicting facts by event-time precedence (CONCEPT:KG-2.11).
+        """Resolve two contradicting facts by event-time precedence (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers).
 
         The later ``event_time`` wins; a ``SUPERSEDES`` edge is written winner→loser and the
         loser's ``valid_to`` is closed at the winner's ``event_time`` (the fact is never
@@ -505,15 +505,15 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search using Hybrid GraphRAG.
 
-        CONCEPT:KG-2.12 — when ``mode`` is ``"hyde"``/``"deep"`` (or ``self_correct`` is set),
+        CONCEPT:AU-KG.retrieval.memory-first-retrieval — when ``mode`` is ``"hyde"``/``"deep"`` (or ``self_correct`` is set),
         delegates to the memory-first ``plan_and_retrieve`` policy (HyDE multi-query plan, dual
         thresholds, and an evidence-gated second pass). ``mode="standard"`` preserves the prior
         single-query behavior.
 
         ``as_of`` (ISO-8601) sets the reference time for pack-driven recency decay,
-        enabling knowledge-state-as-of-date-D retrieval (CONCEPT:KG-2.22).
+        enabling knowledge-state-as-of-date-D retrieval (CONCEPT:EG-KG.compute.rust-native-training-loss).
         """
-        # Lazy-ensure the retriever (CONCEPT:KG-2.12): the background-task host and
+        # Lazy-ensure the retriever (CONCEPT:AU-KG.retrieval.memory-first-retrieval): the background-task host and
         # some engine-construction paths can reach search before ``__init__`` wired
         # ``hybrid_retriever``, which made deep_analysis / discover_innovations
         # AttributeError. Build it on first use so the path is always live.
@@ -555,14 +555,14 @@ class QueryMixin(_Base):
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
             ]
-        # CONCEPT:KG-2.85 (ScoreGate) — adaptively trim the weak tail by statistically
+        # CONCEPT:AU-KG.retrieval.unset-dependency-free (ScoreGate) — adaptively trim the weak tail by statistically
         # fusing the bi-encoder (`_score`) and cross-encoder (`_rerank_score`) signals
         # rather than a blind top_k cut. Recall-safe: keeps >= min_results, never more
         # than top_k, and only trims results more than ~1σ below the fused mean.
         results = score_gate(
             results, min_results=min(top_k, 5), max_results=top_k, keep_z=-1.0
         )
-        # CONCEPT:KG-2.86 (ChronoID) — infuse an explicit temporal-recency bucket onto
+        # CONCEPT:AU-KG.query.chronoid-fits-residual-quantization (ChronoID) — infuse an explicit temporal-recency bucket onto
         # every result so generative/recommendation consumers can condition on time.
         self._annotate_time_buckets(results)
         # Public contract: every search result exposes its relevance under the
@@ -577,13 +577,13 @@ class QueryMixin(_Base):
         return results
 
     # ------------------------------------------------------------------
-    # Temporal semantic IDs (CONCEPT:KG-2.86 — ChronoID)
+    # Temporal semantic IDs (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization — ChronoID)
     # ------------------------------------------------------------------
     @staticmethod
     def _node_event_epoch(node: dict[str, Any]) -> float | None:
         """Best-effort epoch (seconds) for a result's event time, or None.
 
-        Reads the bi-temporal fields (CONCEPT:KG-2.11) first, then common
+        Reads the bi-temporal fields (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) first, then common
         creation/timestamp aliases, parsing either an epoch number or an
         ISO-8601 string (``Z`` accepted).
         """
@@ -632,7 +632,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Retrieve, then attach a temporal **semantic ID** to each result (KG-2.86).
 
-        CONCEPT:KG-2.86 — ChronoID. Fits a residual-quantization codebook on the
+        CONCEPT:AU-KG.query.chronoid-fits-residual-quantization — ChronoID. Fits a residual-quantization codebook on the
         retrieved embeddings and infuses an explicit temporal token, exposing a
         compact ``_temporal_sid`` per node for generative retrieval/recommendation.
         """
@@ -662,15 +662,15 @@ class QueryMixin(_Base):
 
     # ------------------------------------------------------------------
     # Iterative query expansion with graded relevance feedback
-    # (CONCEPT:KG-2.88 — ADORE, with CONCEPT:KG-2.87 TASR stopping)
+    # (CONCEPT:AU-KG.query.adore-concept-expansion — ADORE, with CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval TASR stopping)
     # ------------------------------------------------------------------
     def search_adore(
         self, query: str, top_k: int = 10, max_rounds: int = 4
     ) -> list[dict[str, Any]]:
         """Iterative query expansion with retrieval-grounded relevance feedback.
 
-        CONCEPT:KG-2.88 (ADORE) — reformulate → retrieve → judge → partition by
-        graded relevance → repeat, until CONCEPT:KG-2.87 (TASR) training-free
+        CONCEPT:AU-KG.query.adore-concept-expansion (ADORE) — reformulate → retrieve → judge → partition by
+        graded relevance → repeat, until CONCEPT:AU-KG.retrieval.adaptive-stopping-iterative-retrieval (TASR) training-free
         stopping (answer repeat / coverage saturation) or ``max_rounds``. The
         judge is the deterministic lexical relevance proxy (no network), and the
         relevance feedback is grounded in the highest-graded retrieved passages.
@@ -725,7 +725,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Direct Corpus Interaction — multi-hop graph traversal retrieval.
 
-        CONCEPT:KG-2.3 — Research: 2605.05242v1
+        CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Research: 2605.05242v1
 
         Unlike vector search (finds similar chunks by embedding distance),
         DCI traverses the graph structure to find connected evidence chains.
@@ -854,7 +854,7 @@ class QueryMixin(_Base):
     def find_path(self, source: str, target: str) -> list[str]:
         """Find the shortest logical path between two nodes.
 
-        CONCEPT:KG-2.16 (Plan 08 Synergy 4): offload the traversal to the Rust
+        CONCEPT:EG-KG.compute.graph-compute-engine (Plan 08 Synergy 4): offload the traversal to the Rust
         L0 compute tier in a single round-trip via ``GraphComputeEngine`` rather
         than a Python BFS that issues one L0 call per edge. Falls back to a
         local BFS only if the compiled shortest-path is unavailable.
@@ -918,7 +918,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Find the most relevant Tools, Agents, or Skills for a given task.
 
-        CONCEPT:ECO-4.0 enhanced: searches ALL resource types (tools,
+        CONCEPT:AU-ECO.toolkit.self-describing-registry enhanced: searches ALL resource types (tools,
         agents, skills, memory) in a single hybrid query for unified
         capability discovery (AgentOS-style category collapse).
         """
@@ -986,7 +986,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Discover all capabilities across all resource types in a unified view.
 
-        CONCEPT:ECO-4.0 — Self-Describing Function Registry
+        CONCEPT:AU-ECO.toolkit.self-describing-registry — Self-Describing Function Registry
 
         Returns a unified function-level view of all discoverable
         capabilities, inspired by AgentOS's category collapse pattern.
@@ -1195,7 +1195,7 @@ class QueryMixin(_Base):
     ) -> dict[str, Any]:
         """MAGMA Epistemic view — beliefs + supporting / contradicting evidence.
 
-        CONCEPT:KG-2.2 — Entity-Claim Extraction / MAGMA Completion
+        CONCEPT:AU-KG.enrichment.entity-claim-extraction — Entity-Claim Extraction / MAGMA Completion
 
         Queries the KG for ClaimNodes matching the query, then traverses
         BUILDS_ON, EXEMPLIFIES, CITES edges for supporting evidence and
@@ -1328,7 +1328,7 @@ class QueryMixin(_Base):
         )
         return [r.get("f", r) for r in results]
 
-    # ── Native Innovation Discovery (CONCEPT:KG-2.0) ──────────────
+    # ── Native Innovation Discovery (CONCEPT:AU-KG.query.object-graph-mapper) ──────────────
 
     # Signal dictionaries for innovation extraction — embedded in the engine
     # so that all search modes can reuse them without external scripts.
@@ -1552,7 +1552,7 @@ class QueryMixin(_Base):
     ) -> dict[str, Any]:
         """Native Layer 1 cross-reference: vector search + innovation signal extraction.
 
-        CONCEPT:KG-2.0 — Active Knowledge Graph Discovery
+        CONCEPT:AU-KG.query.object-graph-mapper — Active Knowledge Graph Discovery
 
         Performs hybrid search, then enriches each result with biomimicry/tech
         innovation signals extracted from the node content. Results include
@@ -1567,7 +1567,7 @@ class QueryMixin(_Base):
             relevance_threshold: Minimum similarity score.
             exclude_assimilated: If True, filter out Article nodes that have
                 ASSIMILATED_INTO edges with status='implemented' for the
-                given target_codebase. CONCEPT:KG-2.6
+                given target_codebase. CONCEPT:AU-KG.query.skip-assimilated-papers
             target_codebase: Codebase path to check assimilation against.
                 Only used when exclude_assimilated=True.
 
@@ -1616,7 +1616,7 @@ class QueryMixin(_Base):
         domain_accumulator: dict[str, list[dict[str, Any]]] = {}
 
         for r in raw_results:
-            # CONCEPT:KG-2.6 — Skip assimilated papers
+            # CONCEPT:AU-KG.query.skip-assimilated-papers — Skip assimilated papers
             if assimilated_paths:
                 r_path = r.get("target_path", "")
                 if r_path and r_path in assimilated_paths:

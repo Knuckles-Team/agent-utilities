@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Unified Intelligence Graph CLI.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 Command-line interface for running the Intelligence Pipeline
 and querying the graph (Agents, Tools, Code, Memory).
@@ -135,7 +135,7 @@ async def main():
                 create_task_queue,
             )
 
-            # Same selection contract as the engine (CONCEPT:KG-2.55):
+            # Same selection contract as the engine (CONCEPT:AU-KG.backend.selectable-queue-backend):
             # TASK_QUEUE_BACKEND, fail-loud when explicit, auto otherwise.
             queue_db_path = data_dir() / "kg_task_queue.db"
             queue, _ = create_task_queue(app_config, str(queue_db_path))

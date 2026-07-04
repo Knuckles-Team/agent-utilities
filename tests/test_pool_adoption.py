@@ -1,4 +1,4 @@
-"""Hot-path adoption of the multiplexed engine connection pool (CONCEPT:KG-2.274).
+"""Hot-path adoption of the multiplexed engine connection pool (CONCEPT:AU-KG.compute.when-exposes).
 
 Proves the consumer-side win of E's ``ShardRouter``/``ConnectionPool``: INDEPENDENT
 engine ops fan out across the pool — each on its OWN connection — so wall-clock
@@ -169,7 +169,7 @@ def test_degrades_to_single_connection_without_pool() -> None:
 
 def test_batched_backend_fans_node_flush_then_edges() -> None:
     """The C-pipeline write seam (_BatchedBackend) fans a large flush across the pool,
-    and still drains ALL nodes before ANY edge (CONCEPT:KG-2.274 + nodes-before-edges)."""
+    and still drains ALL nodes before ANY edge (CONCEPT:AU-KG.compute.when-exposes + nodes-before-edges)."""
     calls: list[tuple[str, int]] = []  # (phase, n_chunks) in submission order
 
     class _Graph:

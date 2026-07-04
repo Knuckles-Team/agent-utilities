@@ -1,4 +1,4 @@
-"""Tests for the first-class ontology link layer (CONCEPT:KG-2.26).
+"""Tests for the first-class ontology link layer (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).
 
 Covers each cardinality, direct-link edge materialization, round-trip junction
 (reified many-to-many) materialization, reverse traversal, and the

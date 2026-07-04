@@ -1,4 +1,4 @@
-# Epistemic Resource Scheduler (CONCEPT:OS-5.8)
+# Epistemic Resource Scheduler (CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota)
 
 ## Overview
 Traditional schedulers allocate compute based on basic heuristics like NICE levels or first-come, first-served queues. The **Epistemic Resource Scheduler** scales scheduling priority, CPU affinity, and execution token budgets dynamically based on the topological importance of each agent inside the active Knowledge Graph.

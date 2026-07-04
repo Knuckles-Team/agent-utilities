@@ -1,6 +1,6 @@
 """Universal-skills workflow → KG WorkflowDefinition ingestion.
 
-CONCEPT:KG-2.97 — Skill-Workflow Ingestion ("Claude drives, graph-os runs").
+CONCEPT:AU-KG.ingest.skill-workflow-ingestion — Skill-Workflow Ingestion ("Claude drives, graph-os runs").
 
 The ~300 *skill-workflows* under ``universal_skills/workflows/<domain>/<name>/
 SKILL.md`` are dual-mode artefacts: a YAML frontmatter (``name``/``description``/
@@ -373,7 +373,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
 def ingest_skill_workflows(
     engine: IntelligenceGraphEngine, root: str | None = None
 ) -> dict[str, Any]:
-    """Ingest every universal-skills workflow into the KG (CONCEPT:KG-2.97).
+    """Ingest every universal-skills workflow into the KG (CONCEPT:AU-KG.ingest.skill-workflow-ingestion).
 
     For each ``workflows/<domain>/<name>/SKILL.md`` this parses the frontmatter
     + step DAG and upserts a ``WorkflowDefinition`` (+ ``WorkflowStep`` DAG +

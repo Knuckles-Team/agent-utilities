@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the tiered RLM sandbox: analyzer, capability router, and backends.
 
-CONCEPT:ORCH-1.38 — analyzer classifies a snippet's needs; the router picks the cheapest
+CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — analyzer classifies a snippet's needs; the router picks the cheapest
 capable backend and escalates on rejection; backends honor the (rejected vs reported vs
 fatal) error contract. Higher tiers (monty/wasm/docker) are exercised with capability fakes
 where the real dependency may be absent; the monty path runs for real when importable.
@@ -24,7 +24,7 @@ from agent_utilities.rlm.sandboxes.base import (
 from agent_utilities.rlm.sandboxes.local_backend import LocalSandbox
 from agent_utilities.rlm.sandboxes.router import SandboxRouter
 
-pytestmark = pytest.mark.concept("ORCH-1.38")
+pytestmark = pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 
 
 # --- analyzer ---------------------------------------------------------------

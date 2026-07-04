@@ -1,4 +1,4 @@
-"""Tests for the mcp_config examples generator + env-source distillation (CONCEPT:OS-5.72)."""
+"""Tests for the mcp_config examples generator + env-source distillation (CONCEPT:AU-OS.config.env-var-drift-guard)."""
 
 from __future__ import annotations
 

@@ -29,7 +29,7 @@ DEFAULT_DB_PATH = str(
     platformdirs.user_data_path("agent-utilities", "knuckles-team") / "graph_state"
 )
 
-# CONCEPT:ORCH-1.59 — local-inference slots always kept free for the interactive path
+# CONCEPT:AU-ORCH.execution.reserved-inference-slots — local-inference slots always kept free for the interactive path
 # (the messaging responder + graph-os-spawned pydantic-ai agents, which share the default
 # model). Background KG work is bounded to (capacity − this). A constant, not a knob: 1 is
 # the correct universal default (config discipline — no flag for a one-correct-value).
@@ -133,7 +133,7 @@ def _load_docker_secrets(secrets_dir: str = "/run/secrets") -> None:
     invisible to the client-credentials minter. Mirror each secret file into
     ``os.environ`` (``setdefault`` — an explicit spec/config env always wins) so a
     secret is read everywhere WITHOUT ever appearing as a literal in the
-    inspectable service spec. CONCEPT:ECO-4.82 — fleet config single-source.
+    inspectable service spec. CONCEPT:AU-OS.config.fleet-xdg-standardization — fleet config single-source.
     """
     if not os.path.isdir(secrets_dir):
         return
@@ -172,7 +172,7 @@ def load_config(*, reload: bool = False) -> None:
     repeatedly; pass ``reload=True`` to re-read after the file changed. Under the
     test harness it is a deliberate no-op (hermetic tests set their own env).
 
-    CONCEPT:ECO-4.82 — fleet XDG config standardization
+    CONCEPT:AU-OS.config.fleet-xdg-standardization — fleet XDG config standardization
     """
     global _env_loaded
     if reload:
@@ -260,7 +260,7 @@ def _xdg_config_file():
 def save_config_item(key: str, value) -> str:
     """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
 
-    CONCEPT:KG-2.89 — the write-back companion to the read-only XDG loader, so a
+    CONCEPT:AU-KG.storage.config-writeback — the write-back companion to the read-only XDG loader, so a
     config change made via the MCP/REST surfaces survives restart and applies live
     for settings read at call time (``config.setting`` / re-parsed fields). Returns
     the resolved env key. Engine-rebuild settings (GRAPH_BACKEND/…) update the value
@@ -302,7 +302,7 @@ from pydantic import BaseModel
 
 
 def _total_model_capacity(parallel_instances: int, max_parallel_calls: int) -> int:
-    """Resolve a model's total parallel-call capacity (CONCEPT:KG-2.143).
+    """Resolve a model's total parallel-call capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing).
 
     ``total_capacity = parallel_instances * max_parallel_calls`` — the number of
     in-flight LLM/embedding calls the model can serve at once: ``N`` vLLM
@@ -330,11 +330,11 @@ class ChatModelConfig(BaseModel):
     max_parallel_calls: int = 1
     """How many concurrent requests ONE vLLM instance of this model can serve
     (its per-instance concurrency, e.g. vLLM ``--max-num-seqs``). Default ``1``
-    keeps callers sequential and is always safe. CONCEPT:KG-2.143."""
+    keeps callers sequential and is always safe. CONCEPT:AU-KG.compute.concurrency-controller-sizing."""
     max_concurrent_requests: int | None = None
     """Hard ceiling on the **aggregate** in-flight requests this model's *server*
     can serve safely — its real vLLM ``--max-num-seqs`` / KV-cache + (for a
-    unified-memory box like the GB10) the shared-memory headroom (CONCEPT:KG-2.298).
+    unified-memory box like the GB10) the shared-memory headroom (CONCEPT:AU-KG.compute.same-semantics-as).
 
     This is the ONE number the model SERVER's capacity dictates, NOT the local
     host's CPU count. It is deployment-varying (a GB10 ≠ a Pi ≠ a cluster) and
@@ -346,7 +346,7 @@ class ChatModelConfig(BaseModel):
     ``max(total_capacity, MODEL_MAX_CONCURRENT_REQUESTS)`` (a conservative
     default). Set it to your server's ``--max-num-seqs`` (or just below)."""
     gpu_group: str | None = None
-    """Optional shared-GPU group tag (CONCEPT:KG-2.146). Models that physically
+    """Optional shared-GPU group tag (CONCEPT:AU-KG.compute.pure-config-enumeration-fail). Models that physically
     share one GPU are grouped under one concurrency budget so their fan-out cannot
     jointly oversubscribe the device. Explicit tag wins; when unset the group
     defaults to the ``base_url`` host (see :meth:`Config.gpu_group`)."""
@@ -357,7 +357,7 @@ class ChatModelConfig(BaseModel):
     def total_capacity(self) -> int:
         """Total in-flight calls this model can serve = instances × per-instance.
 
-        CONCEPT:KG-2.143 — used by the shared concurrency controller to size the
+        CONCEPT:AU-KG.compute.concurrency-controller-sizing — used by the shared concurrency controller to size the
         fan-out gate for this model.
         """
         return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
@@ -375,24 +375,24 @@ class EmbeddingModelConfig(BaseModel):
     max_parallel_calls: int = 1
     """How many concurrent embedding requests ONE vLLM instance of this model can
     serve (its per-instance concurrency). Default ``1`` keeps batch embedding
-    sequential and is always safe. CONCEPT:KG-2.143."""
+    sequential and is always safe. CONCEPT:AU-KG.compute.concurrency-controller-sizing."""
     max_concurrent_requests: int | None = None
     """Hard ceiling on the aggregate in-flight embedding requests this model's
-    *server* can serve safely (CONCEPT:KG-2.298). Same semantics as
+    *server* can serve safely (CONCEPT:AU-KG.compute.same-semantics-as). Same semantics as
     :pyattr:`ChatModelConfig.max_concurrent_requests`: the SERVER's real capacity,
     capping the embedding fan-out so bulk embedding can never oversubscribe the
     endpoint. On a unified-memory box the embedder shares the GB10's memory with
     the generator — keep this conservative. Unset → ``max(total_capacity,
     MODEL_MAX_CONCURRENT_REQUESTS)``."""
     gpu_group: str | None = None
-    """Optional shared-GPU group tag (CONCEPT:KG-2.146). Tag this with the same
+    """Optional shared-GPU group tag (CONCEPT:AU-KG.compute.pure-config-enumeration-fail). Tag this with the same
     value as a chat model that shares the physical GPU (e.g. both ``"gb10"``) so
     bulk embedding yields its concurrency to latency-sensitive chat under
     contention. Explicit tag wins; else defaults to the ``base_url`` host."""
     chunk_size: int = 768
     fallback: "EmbeddingModelConfig | None" = None
-    """Optional automatic-failover endpoint (CONCEPT:KG-2.299). When the PRIMARY
-    embedder (this config) is unreachable — its circuit breaker (CONCEPT:ORCH-1.103)
+    """Optional automatic-failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active). When the PRIMARY
+    embedder (this config) is unreachable — its circuit breaker (CONCEPT:AU-ORCH.routing.load-shedding-backoff)
     is OPEN — embedding traffic is transparently re-routed to this fallback
     endpoint, and routed back automatically once the primary recovers. The fallback
     is a full ``EmbeddingModelConfig`` with its OWN ``base_url``, ``gpu_group``, and
@@ -407,13 +407,13 @@ class EmbeddingModelConfig(BaseModel):
     def total_capacity(self) -> int:
         """Total in-flight embedding calls this model can serve.
 
-        CONCEPT:KG-2.143 — ``parallel_instances × max_parallel_calls``; used by
+        CONCEPT:AU-KG.compute.concurrency-controller-sizing — ``parallel_instances × max_parallel_calls``; used by
         the concurrency controller to fan out embedding batches.
         """
         return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
 
 
-# Self-referential ``fallback`` field (CONCEPT:KG-2.299): config.py does not use
+# Self-referential ``fallback`` field (CONCEPT:AU-KG.enrichment.each-call-resolves-active): config.py does not use
 # ``from __future__ import annotations``, so rebuild the model to resolve the
 # forward reference to ``EmbeddingModelConfig`` after the class is defined.
 EmbeddingModelConfig.model_rebuild()
@@ -502,7 +502,7 @@ class AgentConfig(BaseSettings):
     deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str | None = Field(default=None, alias="DEEPSEEK_BASE_URL")
 
-    # --- Messaging reach + agent KG layer (CONCEPT:ECO-4.48–4.61) ---
+    # --- Messaging reach + agent KG layer (CONCEPT:AU-ECO.messaging.messaging-reach-service-governed–4.61) ---
     # Outbound/inbound messaging (Telegram/Slack/Teams/Mattermost/…). Tokens per backend
     # (e.g. TELEGRAM_BOT_TOKEN) auto-enable that backend; these tune routing + the agent.
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
@@ -512,7 +512,7 @@ class AgentConfig(BaseSettings):
     messaging_default_channel: str = Field(
         default="", alias="MESSAGING_DEFAULT_CHANNEL"
     )
-    # CONCEPT:ECO-4.78 — the universal graph agent a chat turn routes to. Defaults to the
+    # CONCEPT:AU-ECO.messaging.universal-graph-agent — the universal graph agent a chat turn routes to. Defaults to the
     # dedicated "messaging-assistant" identity in code; set to route a chat turn to a
     # different named agent. Unresolved names still go through the full orchestration graph.
     messaging_agent: str = Field(default="", alias="MESSAGING_AGENT")
@@ -524,29 +524,29 @@ class AgentConfig(BaseSettings):
     )
     messaging_local_model: str = Field(default="", alias="MESSAGING_LOCAL_MODEL")
     messaging_reactions: str = Field(default="1", alias="MESSAGING_REACTIONS")
-    # Burst coalescing (CONCEPT:ECO-4.63): collapse a rapid run of messages into ONE reply.
+    # Burst coalescing (CONCEPT:AU-ECO.messaging.burst-mode-coalescing): collapse a rapid run of messages into ONE reply.
     messaging_burst_window_s: str = Field(
         default="2.5", alias="MESSAGING_BURST_WINDOW_S"
     )
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
-    # Post-conversation enrichment (CONCEPT:ECO-4.65): mine chats → KG concepts (opt-out).
+    # Post-conversation enrichment (CONCEPT:AU-ECO.messaging.post-conversation-enrichment): mine chats → KG concepts (opt-out).
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
-    # Surface goals / SDD specs from chats (CONCEPT:ECO-4.70, opt-out).
+    # Surface goals / SDD specs from chats (CONCEPT:AU-ECO.messaging.surfaced, opt-out).
     messaging_goals: str = Field(default="1", alias="MESSAGING_GOALS")
-    # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
+    # Webhook push (CONCEPT:AU-ECO.messaging.telegram-webhook-receiver-started): set the PUBLIC base URL (served via tunnel/edge to a
     # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
     messaging_webhook_base_url: str = Field(
         default="", alias="MESSAGING_WEBHOOK_BASE_URL"
     )
     messaging_webhook_port: str = Field(default="8443", alias="MESSAGING_WEBHOOK_PORT")
     messaging_webhook_secret: str = Field(default="", alias="MESSAGING_WEBHOOK_SECRET")
-    # Voice input (CONCEPT:ECO-4.68): transcribe voice notes to text via Whisper (opt-out).
+    # Voice input (CONCEPT:AU-ECO.messaging.telegram-voice-note): transcribe voice notes to text via Whisper (opt-out).
     messaging_voice: str = Field(default="1", alias="MESSAGING_VOICE")
     messaging_voice_model: str = Field(default="base", alias="MESSAGING_VOICE_MODEL")
     # KG as a first-class default tool layer for every agent (opt-out).
     agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
 
-    # --- Ingestion sources (CONCEPT:KG-2.7 web-fetch) ---
+    # --- Ingestion sources (CONCEPT:AU-KG.query.vendor-agnostic-traversal web-fetch) ---
     # When set, ArchiveBox (a deployed web-archiving instance reached via the
     # archivebox-api MCP server) is preferred over a live crawl: the unified
     # web-fetch resolver serves the preserved snapshot (fast, no re-crawl,
@@ -570,7 +570,7 @@ class AgentConfig(BaseSettings):
     # Single dev switch that disables ALL KG background daemons (maintenance
     # scheduler: enrichment/reconcile/file-watch/hygiene/task-reaper + the
     # embedding backfill). Production keeps them all on; this replaces the old
-    # per-daemon KG_*_DAEMON env toggles (CONCEPT:KG-2.8, config discipline).
+    # per-daemon KG_*_DAEMON env toggles (CONCEPT:EG-KG.storage.nonblocking-checkpoint, config discipline).
     kg_dev_mode: bool = Field(default=False, alias="KG_DEV_MODE")
 
     # Safety override: by default an unscoped Cypher query (no id/label, no
@@ -579,7 +579,7 @@ class AgentConfig(BaseSettings):
     # default so a buggy unscoped query can never silently scan the whole graph.
     kg_allow_full_scan: bool = Field(default=False, alias="KG_ALLOW_FULL_SCAN")
 
-    # --- Observability / usage analytics (CONCEPT:ECO-4.39 / ECO-4.40 / OS-5.31) ---
+    # --- Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31) ---
     # Backend for the usage/cost/session fact store. Zero-config default is a
     # per-host SQLite+FTS5 file (no external deps); "postgres" / "duckdb" promote
     # to enterprise-scale shared backends via the same UsageBackend interface.
@@ -631,12 +631,12 @@ class AgentConfig(BaseSettings):
         """Primary embedding model (first in list)."""
         return self.embedding_models[0] if self.embedding_models else None
 
-    # --- Parallel-call capacity resolution (CONCEPT:KG-2.143) ---
+    # --- Parallel-call capacity resolution (CONCEPT:AU-KG.compute.concurrency-controller-sizing) ---
 
     def _resolve_model_config(
         self, model: str | None = None
     ) -> "ChatModelConfig | EmbeddingModelConfig | None":
-        """Resolve a model id/role to its config object (CONCEPT:KG-2.143).
+        """Resolve a model id/role to its config object (CONCEPT:AU-KG.compute.concurrency-controller-sizing).
 
         ``model`` may be a model id (matched against both chat and embedding
         registries), a role (``"chat"``/``"default"``, ``"lite"``, ``"super"``,
@@ -654,9 +654,9 @@ class AgentConfig(BaseSettings):
         elif key in ("embedding", "embed"):
             cfg = self.default_embedding_model
         elif key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
-            # The automatic-failover endpoint (CONCEPT:KG-2.299): resolve it as a
+            # The automatic-failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active): resolve it as a
             # first-class model key so the WHOLE capacity guard — server_ceiling,
-            # adaptive capacity, gpu_group budget (CONCEPT:KG-2.300) — keys off the
+            # adaptive capacity, gpu_group budget (CONCEPT:AU-KG.ingest.keys-off) — keys off the
             # FALLBACK endpoint's config (its own gpu_group / max_concurrent_requests)
             # while failed-over, so fallback embeds inherit the shared GPU's joint
             # budget and can't OOM it.
@@ -677,7 +677,7 @@ class AgentConfig(BaseSettings):
     def model_capacity(self, model: str | None = None) -> int:
         """Resolve a model's total parallel-call capacity by id/role.
 
-        CONCEPT:KG-2.143. ``model`` may be a model id (matched against both chat
+        CONCEPT:AU-KG.compute.concurrency-controller-sizing. ``model`` may be a model id (matched against both chat
         and embedding registries), one of the roles ``"chat"``/``"default"``,
         ``"lite"``, ``"super"``, ``"embedding"``/``"embed"``, or ``None`` (→
         default chat model). Unknown/unconfigured models resolve to ``1`` — safe
@@ -689,7 +689,7 @@ class AgentConfig(BaseSettings):
     def model_max_concurrent_requests(self, model: str | None = None) -> int | None:
         """Resolve a model's explicit server-capacity ceiling, if configured.
 
-        CONCEPT:KG-2.298. Returns the model's ``max_concurrent_requests`` (the
+        CONCEPT:AU-KG.compute.same-semantics-as. Returns the model's ``max_concurrent_requests`` (the
         server's real ``--max-num-seqs`` / safe in-flight budget) by id or role,
         or ``None`` when unset/unknown so the caller applies the conservative
         default. A non-positive/garbage value resolves to ``None`` (no hard cap
@@ -708,7 +708,7 @@ class AgentConfig(BaseSettings):
         return v if v > 0 else None
 
     def model_endpoint(self, model: str | None = None) -> tuple[str | None, str | None]:
-        """Resolve a model id/role to its ``(model_id, base_url)`` (CONCEPT:KG-2.145).
+        """Resolve a model id/role to its ``(model_id, base_url)`` (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal).
 
         Used by the adaptive concurrency controller to derive a model's vLLM
         ``/metrics`` URL and the ``model_name`` label its Prometheus gauges carry.
@@ -720,7 +720,7 @@ class AgentConfig(BaseSettings):
         return (cfg.id, cfg.base_url)
 
     def gpu_group(self, model: str | None = None) -> str | None:
-        """Resolve a model's shared-GPU group key (CONCEPT:KG-2.146).
+        """Resolve a model's shared-GPU group key (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
         Models that share one physical GPU are grouped so a per-GPU budget can cap
         their *joint* concurrency (e.g. embedding must leave headroom for chat on a
@@ -752,7 +752,7 @@ class AgentConfig(BaseSettings):
     def embedding_capacity(self) -> int:
         """Total parallel-call capacity of the default embedding model.
 
-        CONCEPT:KG-2.143 — convenience for the embedding fan-out path.
+        CONCEPT:AU-KG.compute.concurrency-controller-sizing — convenience for the embedding fan-out path.
         """
         em = self.default_embedding_model
         return em.total_capacity if em is not None else 1
@@ -805,7 +805,7 @@ class AgentConfig(BaseSettings):
     auth_jwt_audience: str | None = Field(default=None, alias="AUTH_JWT_AUDIENCE")
     """Expected JWT audience claim for validation."""
 
-    # --- Knowledge Graph identity enforcement (CONCEPT:OS-5.14) ---
+    # --- Knowledge Graph identity enforcement (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) ---
 
     kg_auth_required: bool = Field(default=False, alias="KG_AUTH_REQUIRED")
     """Require a server-validated JWT identity for Knowledge Graph access.
@@ -819,7 +819,7 @@ class AgentConfig(BaseSettings):
     kg_served_profile: bool = Field(default=True, alias="KG_SERVED_PROFILE")
     """Apply the fail-closed served-security profile when serving a network MCP
     transport (streamable-http/sse): refuse to start without a JWT validator and
-    auto-enable auth + enforcement (CONCEPT:OS-5.14). Set ``KG_SERVED_PROFILE=0``
+    auto-enable auth + enforcement (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Set ``KG_SERVED_PROFILE=0``
     to serve a network transport WITHOUT enforced identity (local dev only)."""
 
     kg_auth_token: str | None = Field(default=None, alias="KG_AUTH_TOKEN")
@@ -834,7 +834,7 @@ class AgentConfig(BaseSettings):
     True restores allow-on-missing-ACL while keeping exception→deny. Ignored
     when enforcement is off (legacy default-allow)."""
 
-    # --- Fleet events webhook ingress (CONCEPT:OS-5.15) ---
+    # --- Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress) ---
 
     fleet_events_token: str | None = Field(default=None, alias="FLEET_EVENTS_TOKEN")
     """Optional shared secret for the ``POST /api/fleet/events`` webhook
@@ -845,7 +845,7 @@ class AgentConfig(BaseSettings):
     other fleet routes; the OS-5.14 identity middleware still applies when
     ``KG_AUTH_REQUIRED`` is on)."""
 
-    # --- Gateway middle-tier hardening (CONCEPT:OS-5.23) ---
+    # --- Gateway middle-tier hardening (CONCEPT:AU-OS.observability.no-op-without-metrics) ---
 
     gateway_metrics: bool = Field(default=True, alias="GATEWAY_METRICS")
     """Expose Python-tier Prometheus metrics on the gateway: a pure-ASGI
@@ -885,7 +885,7 @@ class AgentConfig(BaseSettings):
     """Seconds an open engine circuit breaker waits before allowing a single
     half-open probe; the probe's outcome closes or re-opens the circuit."""
 
-    # --- MCP multiplexer child resilience (CONCEPT:ECO-4.34) ---
+    # --- MCP multiplexer child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client) ---
 
     mcp_child_max_concurrency: int = Field(default=8, alias="MCP_CHILD_MAX_CONCURRENCY")
     """Maximum in-flight tool calls per multiplexer child server. Excess calls
@@ -937,7 +937,7 @@ class AgentConfig(BaseSettings):
     single half-open probe call; the probe's outcome closes or re-opens the
     circuit. Per-server override: ``breaker_cooldown``."""
 
-    # --- MCP multiplexer dynamic tool gateway (CONCEPT:ECO-4.36) ---
+    # --- MCP multiplexer dynamic tool gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) ---
 
     mcp_multiplexer_mode: str = Field(default="eager", alias="MCP_MULTIPLEXER_MODE")
     """Tool-exposure strategy for the mcp-multiplexer. ``eager`` (default)
@@ -962,7 +962,7 @@ class AgentConfig(BaseSettings):
     caller does not specify ``top_k``. Kept small so the discovery result is
     itself cheap to read; callers can request more explicitly."""
 
-    # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
+    # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
     """OIDC discovery URL (e.g. https://idp.example.com/.well-known/openid-configuration).
@@ -983,7 +983,7 @@ class AgentConfig(BaseSettings):
     delegated_scopes: str = Field(default="api", alias="DELEGATED_SCOPES")
     """Space-separated scopes requested during token delegation."""
 
-    # --- Vault Secrets Backend (CONCEPT:OS-5.1) ---
+    # --- Vault Secrets Backend (CONCEPT:AU-OS.config.secrets-authentication) ---
 
     vault_url: str | None = Field(default=None, alias="SECRETS_VAULT_URL")
     """HashiCorp Vault URL for the secrets backend."""
@@ -1020,18 +1020,18 @@ class AgentConfig(BaseSettings):
     # serving every read, and each write fans out losslessly to the mirrors.
     graph_backend: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
-    # Mirrors (CONCEPT:KG-2.74). When GRAPH_BACKEND=fanout, the graph is served from
+    # Mirrors (CONCEPT:AU-KG.backend.mirror-health-repair). When GRAPH_BACKEND=fanout, the graph is served from
     # ONE authority (the engine) and every write is mirrored, losslessly, to the named
     # mirror connections. ``graph_authority`` names the source-of-truth connection (a
     # ``kg_connections`` name, or a bare backend type like ``epistemic_graph``/``age``);
     # ``graph_mirror_targets`` is the JSON list of mirror connection names. Both resolve
-    # against ``kg_connections`` (CONCEPT:KG-2.63), so the DSN/host/creds live in one
+    # against ``kg_connections`` (CONCEPT:AU-KG.backend.multi-connection-registry), so the DSN/host/creds live in one
     # place. Zero-infra default is unchanged: mirrors are only built when configured.
     graph_authority: str = Field(default="epistemic_graph", alias="GRAPH_AUTHORITY")
     graph_mirror_targets: list[str] | None = Field(
         default=None, alias="GRAPH_MIRROR_TARGETS"
     )
-    # Ingest task-queue selection (CONCEPT:KG-2.55): which durable queue carries
+    # Ingest task-queue selection (CONCEPT:AU-KG.backend.selectable-queue-backend): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the
     # state-externalization convention. An EXPLICIT value is a hard contract:
@@ -1039,11 +1039,11 @@ class AgentConfig(BaseSettings):
     # SQLite degrade). Values: sqlite | postgres | kafka.
     task_queue_backend: str | None = Field(default=None, alias="TASK_QUEUE_BACKEND")
     # Partition count ensured on the ``kg_tasks`` topic at startup when the
-    # kafka task queue is selected (CONCEPT:KG-2.56). Grow-only: raising it adds
+    # kafka task queue is selected (CONCEPT:AU-KG.backend.keyed-ingest-partitions). Grow-only: raising it adds
     # partitions idempotently; an existing topic is NEVER shrunk. Bounds the
     # max parallelism of the ``kg-ingest`` consumer group.
     kg_tasks_partitions: int = Field(default=6, alias="KG_TASKS_PARTITIONS")
-    # Queue-driven agent dispatch (CONCEPT:ORCH-1.45): how agent turns (goal
+    # Queue-driven agent dispatch (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch): how agent turns (goal
     # runs / orchestrator jobs) are dispatched. ``inline`` (default) keeps the
     # existing in-process execution exactly as-is; ``queue`` publishes a
     # session-keyed AgentTurnEnvelope onto the agent_turns queue (transport
@@ -1054,11 +1054,11 @@ class AgentConfig(BaseSettings):
         default="inline", alias="AGENT_DISPATCH_BACKEND"
     )
     # Partitions ensured on the ``agent_turns`` topic when the kafka transport
-    # carries dispatched agent turns (CONCEPT:ORCH-1.45). Grow-only, like
+    # carries dispatched agent turns (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch). Grow-only, like
     # KG_TASKS_PARTITIONS. Bounds agent-dispatch consumer-group parallelism —
     # i.e. how many sessions can execute concurrently across the worker fleet.
     agent_turns_partitions: int = Field(default=6, alias="AGENT_TURNS_PARTITIONS")
-    # Durable-state externalization (CONCEPT:OS-5.16): ONE flag selects where the
+    # Durable-state externalization (CONCEPT:AU-OS.state.unified-durable-state-externalization): ONE flag selects where the
     # platform's durable state lives — durable-execution checkpoints, sessions/
     # turns/goals, and the KG task queue. Unset (default) keeps the zero-infra
     # per-host SQLite files; a postgresql:// URI moves them all onto a shared
@@ -1067,14 +1067,14 @@ class AgentConfig(BaseSettings):
     state_db_uri: str | None = Field(default=None, alias="STATE_DB_URI")
     # Max connections in the shared state-store pool (min is always 1).
     state_db_pool_size: int = Field(default=8, alias="STATE_DB_POOL_SIZE")
-    # Golden-loop breadth ingest roots (CONCEPT:KG-2.7): comma-separated paths the
+    # Golden-loop breadth ingest roots (CONCEPT:AU-KG.query.vendor-agnostic-traversal): comma-separated paths the
     # one-shot ``loop`` cycle (and the 60-min daemon) auto-ingests — OSS
     # libraries and code repos — so evolution runs end-to-end with no manual
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
     # Loop-engine (autonomous research) parameters. Typed config replaces the
-    # scattered bare env reads (CONCEPT:KG-2.7). The loop-enable + stage flags are
+    # scattered bare env reads (CONCEPT:AU-KG.query.vendor-agnostic-traversal). The loop-enable + stage flags are
     # KG_LOOP*; the separate governed auto-merge gate keeps KG_GOLDEN_AUTO_MERGE.
     kg_loop: bool = Field(default=False, alias="KG_LOOP")
     kg_loop_distill: bool = Field(default=False, alias="KG_LOOP_DISTILL")
@@ -1082,16 +1082,16 @@ class AgentConfig(BaseSettings):
     # research papers (LLM concept/fact extraction) at the front of the unified
     # research-intelligence cycle, so the matcher then compares the fresh papers
     # against the ecosystem. Caller-supplied ``papers`` always run regardless.
-    # (CONCEPT:KG-2.77)
+    # (CONCEPT:AU-KG.research.research-intelligence-loop)
     kg_loop_discover: bool = Field(default=False, alias="KG_LOOP_DISCOVER")
     # On by default: the breadth stage auto-ingests the ecosystem so ``assimilate``
     # has the codebase capability map to compare research against. With no
     # KG_BREADTH_* roots set it self-configures from the XDG workspace.yml, so the
     # default is zero-config; content-addressed ingest makes re-runs cheap. Set
-    # KG_LOOP_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
+    # KG_LOOP_BREADTH=0 to opt out. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     kg_loop_breadth: bool = Field(default=True, alias="KG_LOOP_BREADTH")
     kg_loop_standardize: bool = Field(default=False, alias="KG_LOOP_STANDARDIZE")
-    # CONCEPT:OS-5.73 — autonomous spec→develop. OFF by default = review-first: a
+    # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop
     # is created. Turning this ON lets the 24/7 loop auto-advance specs through the
@@ -1102,7 +1102,7 @@ class AgentConfig(BaseSettings):
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
     )
-    # Evolution→branch bridge (CONCEPT:AHE-3.21): root directory the
+    # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): root directory the
     # LocalBranchPublisher creates fresh git worktrees under when publishing a
     # promoted proposal as a reviewable local branch. Empty (default) resolves
     # to ``data_dir()/evolution_worktrees`` — NEVER the canonical checkout's
@@ -1110,7 +1110,7 @@ class AgentConfig(BaseSettings):
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
     kg_loop_interval: float = Field(default=3600.0, alias="KG_LOOP_INTERVAL")
     kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
-    # CONCEPT:KG-2.114 — ScholarX RSS research-feed loop that grades and fetches new papers.
+    # CONCEPT:AU-KG.research.scholarx-rss-research-feed — ScholarX RSS research-feed loop that grades and fetches new papers.
     # A recurring schedule
     # that grades incoming RSS items (keyword taxonomy + ConceptMatcher novelty),
     # skips already-seen items, and enqueues a prioritized full-paper fetch+ingest
@@ -1120,12 +1120,12 @@ class AgentConfig(BaseSettings):
     kg_research_feed_interval: float = Field(
         default=1800.0, alias="KG_RESEARCH_FEED_INTERVAL"
     )
-    # CONCEPT:KG-2.121 — native RSS/Atom feed URLs (comma-separated) the zero-infra
+    # CONCEPT:AU-KG.ingest.rss-feed-connector — native RSS/Atom feed URLs (comma-separated) the zero-infra
     # `rss` connector ingests through the unified world-model gate. This is the SEED;
     # feeds added at runtime via graph_feeds live as :FeedSource nodes in the KG and
     # are swept too. Empty by default (a deployment opts in its feeds).
     kg_rss_feeds: str = Field(default="", alias="KG_RSS_FEEDS")
-    # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
+    # SAI factory self-specialization (CONCEPT:AU-AHE.harness.sai-controller). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,
     # so it costs nothing on an idle system. Like the anomaly consumer, that makes it
@@ -1138,7 +1138,7 @@ class AgentConfig(BaseSettings):
         default=3600.0, alias="KG_SAI_FACTORY_INTERVAL"
     )
     # Failure-driven evolution — opt-in, off by default; pulls failures from
-    # Langfuse into failure-gap topics the golden loop remediates (CONCEPT:AHE-3.18).
+    # Langfuse into failure-gap topics the golden loop remediates (CONCEPT:AU-AHE.harness.failure-evolution).
     kg_failure_evolution: bool = Field(default=False, alias="KG_FAILURE_EVOLUTION")
     kg_failure_evolution_interval: float = Field(
         default=3600.0, alias="KG_FAILURE_EVOLUTION_INTERVAL"
@@ -1149,7 +1149,7 @@ class AgentConfig(BaseSettings):
     kg_failure_regression_dataset: bool = Field(
         default=False, alias="KG_FAILURE_REGRESSION_DATASET"
     )
-    # DSPy optimization sweep (CONCEPT:AHE-3.46) — opt-in, off by default because each
+    # DSPy optimization sweep (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) — opt-in, off by default because each
     # pass runs an LLM-gated DSPy compile per target. The scheduled twin of the
     # `graph_orchestrate action=optimize_component` MCP action: a daemon tick periodically
     # optimizes the self-supervised targets (extraction / concept_match / routing) and
@@ -1159,7 +1159,7 @@ class AgentConfig(BaseSettings):
     kg_dspy_optimization_interval: float = Field(
         default=3600.0, alias="KG_DSPY_OPTIMIZATION_INTERVAL"
     )
-    # Agent-facing auto-apply gate (CONCEPT:AHE-3.71) — the high-impact half of the
+    # Agent-facing auto-apply gate (CONCEPT:AU-AHE.harness.hardening-transparency-surface) — the high-impact half of the
     # hardening loop. A DSPy-optimized *system prompt* that beats baseline on its
     # agent's eval-corpus slice is only written to source (StructuredPrompt.save) when
     # this is True; otherwise the cycle is **propose-only / shadow** — it records a
@@ -1167,7 +1167,7 @@ class AgentConfig(BaseSettings):
     # prompt untouched. Default OFF (mirrors KG_GOLDEN_AUTO_MERGE): a prompt rewrite is
     # never silent. ``should_promote`` still gates even when this is enabled.
     kg_agent_auto_apply: bool = Field(default=False, alias="KG_AGENT_AUTO_APPLY")
-    # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
+    # PerformanceAnomaly consumer (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer) — drains unconsumed
     # PerformanceAnomaly nodes into failure_gap topics for the golden loop.
     # Default ON: it is LLM-free, bounded, and propose-only (it writes topic
     # nodes; nothing merges without the AHE-3.20 governed auto-merge chain).
@@ -1177,7 +1177,7 @@ class AgentConfig(BaseSettings):
 
     kg_engine_pool_size: int = Field(default=8, alias="KG_ENGINE_POOL_SIZE")
     """Max warm per-tenant engine clients kept resident in one process
-    (CONCEPT:KG-2.62). The elastic layer over KG-2.58 shard routing: only the N
+    (CONCEPT:AU-KG.sharding.elastic-over-kg-shard). The elastic layer over KG-2.58 shard routing: only the N
     most-recently-used tenant graphs stay warm; cold ones are evicted (the
     durable L3 mirror keeps them) and re-hydrated on the next access.
 
@@ -1192,13 +1192,13 @@ class AgentConfig(BaseSettings):
     kg_engine_pool_drop_on_evict: bool = Field(
         default=False, alias="KG_ENGINE_POOL_DROP_ON_EVICT"
     )
-    """When a tenant is evicted from the engine pool (CONCEPT:KG-2.62), also
+    """When a tenant is evicted from the engine pool (CONCEPT:AU-KG.sharding.elastic-over-kg-shard), also
     unload its named graph from the engine process to reclaim L1 memory
     (``GraphComputeEngine.drop_graph``). **Only safe when data is durably
     mirrored to L3** (the tiered backend), which re-hydrates on next access;
     otherwise the in-memory graph is lost. Default off (eviction only closes the
     client)."""
-    # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in daemon tick that
+    # Fuseki ontology distribution (CONCEPT:AU-KG.ontology.authoritative-tbox) — opt-in daemon tick that
     # pushes the bundled ontology modules to an Apache Jena Fuseki triplestore
     # (KG-2.6 distribution, operationalized). Off by default because a Fuseki
     # deployment is optional infrastructure.
@@ -1209,15 +1209,15 @@ class AgentConfig(BaseSettings):
     kg_fuseki_publish_interval: float = Field(
         default=3600.0, alias="KG_FUSEKI_PUBLISH_INTERVAL"
     )
-    # Execution-time workflow ontology gate (CONCEPT:ORCH-1.42) — SHACL-validate
+    # Execution-time workflow ontology gate (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path) — SHACL-validate
     # a stored WorkflowDefinition before dispatch. Default ON: it is cheap,
     # LLM-free, and refuses malformed definitions before they burn agent runs.
     kg_workflow_shape_gate: bool = Field(default=True, alias="KG_WORKFLOW_SHAPE_GATE")
 
-    # --- Autonomy control plane (CONCEPT:OS-5.24 — OS-5.27) ---
+    # --- Autonomy control plane (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — OS-5.27) ---
 
     action_policy_path: str = Field(default="", alias="ACTION_POLICY_PATH")
-    """Path to the operational ActionPolicy YAML (CONCEPT:OS-5.24). Empty
+    """Path to the operational ActionPolicy YAML (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). Empty
     (default) resolves to the shipped conservative policy
     (``deploy/action-policy.default.yml`` in a repo checkout, else the
     identical embedded default): every mutating action is approval_required,
@@ -1225,7 +1225,7 @@ class AgentConfig(BaseSettings):
     overrides (scope ``action_policy``) win over file rules either way."""
 
     fleet_reconciler: bool = Field(default=False, alias="FLEET_RECONCILER")
-    """Opt-in desired-state fleet reconciler tick (CONCEPT:OS-5.25). Diffs the
+    """Opt-in desired-state fleet reconciler tick (CONCEPT:AU-OS.config.desired-state-fleet-reconciler). Diffs the
     fleet registry (+ optional desired-state override file) against the
     observed fleet and proposes convergence actions through the ActionPolicy
     decision point. Default False until a deployment wires real actuators —
@@ -1240,7 +1240,7 @@ class AgentConfig(BaseSettings):
         default=5, alias="FLEET_RECONCILER_MAX_ACTIONS"
     )
     """Storm guard: max convergence actions processed per reconciler tick;
-    further divergences are deferred to the next tick (CONCEPT:OS-5.25)."""
+    further divergences are deferred to the next tick (CONCEPT:AU-OS.config.desired-state-fleet-reconciler)."""
 
     fleet_registry_path: str = Field(default="", alias="FLEET_REGISTRY_PATH")
     """Path to the fleet service registry YAML. Empty (default) resolves to
@@ -1259,14 +1259,14 @@ class AgentConfig(BaseSettings):
 
     deploy_watch_window: float = Field(default=300.0, alias="DEPLOY_WATCH_WINDOW")
     """Default health-watch window (seconds) after a deploy/restart action
-    (CONCEPT:OS-5.27): sustained green inside the window records success, an
+    (CONCEPT:AU-OS.config.health-gated-deploy-rollback): sustained green inside the window records success, an
     unhealthy observation triggers the policy-gated rollback/escalation."""
 
     deploy_watch_poll: float = Field(default=15.0, alias="DEPLOY_WATCH_POLL")
     """Seconds between health probes inside a deploy watch window."""
 
     fleet_autoscaler: bool = Field(default=False, alias="FLEET_AUTOSCALER")
-    """Opt-in reactive replica autoscaler tick (CONCEPT:OS-5.29). For each
+    """Opt-in reactive replica autoscaler tick (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling). For each
     service with a registry/override ``scaling:`` block: read its load signal,
     target-track a desired replica count inside the declared min/max bounds,
     and propose ``scale_service`` through the ActionPolicy gate + actuator
@@ -1281,7 +1281,7 @@ class AgentConfig(BaseSettings):
     scaling_prometheus_url: str | None = Field(
         default=None, alias="SCALING_PROMETHEUS_URL"
     )
-    """Optional Prometheus base URL for autoscaling signals (CONCEPT:OS-5.29).
+    """Optional Prometheus base URL for autoscaling signals (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
     Set → the autoscaler reads signals via instant HTTP queries
     (``PrometheusHttpProvider``); unset (default) → the zero-infra
     ``LocalMetricsProvider`` reads this process's own OS-5.23/KG-2.55 gauges.
@@ -1318,14 +1318,14 @@ class AgentConfig(BaseSettings):
     """Engine shard endpoints (comma-separated or JSON list; ``unix://``/
     ``tcp://`` schemes). One entry behaves exactly like the single
     socket/tcp_addr path; 2+ entries enable tenant-partitioned sharding —
-    graphs are routed to shards by HRW rendezvous hashing (CONCEPT:KG-2.58).
+    graphs are routed to shards by HRW rendezvous hashing (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
     Overrides socket/tcp_addr when provided."""
 
     @field_validator("graph_service_endpoints", mode="before")
     @classmethod
     def _coerce_endpoint_list(cls, v: Any) -> Any:
         """Accept comma-separated or JSON-encoded GRAPH_SERVICE_ENDPOINTS
-        (CONCEPT:KG-2.58) via the canonical ``to_list`` so env wiring matches
+        (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) via the canonical ``to_list`` so env wiring matches
         the rest of the fleet's list flags."""
         if v is None or isinstance(v, list):
             return v
@@ -1335,7 +1335,7 @@ class AgentConfig(BaseSettings):
     kg_connections: list[dict[str, Any]] | None = Field(
         default=None, alias="KG_CONNECTIONS"
     )
-    """Declarative named graph connections (CONCEPT:KG-2.63). A JSON list of
+    """Declarative named graph connections (CONCEPT:AU-KG.backend.multi-connection-registry). A JSON list of
     backend specs, each ``{"name": <str>, "backend": <type>, ...create_backend
     kwargs (uri/host/port/user/password/db_name)}``. These are registered into
     the multi-connection registry at first use so the SAME graph tools can target
@@ -1347,7 +1347,7 @@ class AgentConfig(BaseSettings):
     gitlab_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="GITLAB_INSTANCES"
     )
-    """GitLab instances to index into the KG (CONCEPT:KG-2.9g). A JSON list of
+    """GitLab instances to index into the KG (CONCEPT:AU-KG.backend.declared-columns-so-schema). A JSON list of
     ``{"name": <str>, "url": <str>, "token": <str>, "verify_ssl": <bool>}`` — the
     single source of truth shared by the agent-utilities GitLab indexer
     (``knowledge_graph/core/gitlab_indexer``) and the ``gitlab-api`` connector's
@@ -1357,7 +1357,7 @@ class AgentConfig(BaseSettings):
     jira_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="JIRA_INSTANCES"
     )
-    """Jira instances to ingest into the KG (CONCEPT:KG-2.124). A JSON list of
+    """Jira instances to ingest into the KG (CONCEPT:AU-KG.compute.jira-first-class-delta). A JSON list of
     ``{"name": <str>, "server": <atlassian-mcp server name>, "project_keys": [<str>],
     "jql": <optional extra JQL>}`` — each is drained via the ``jira`` mcp_tool preset
     through its named ``atlassian-mcp`` server (which holds the credentials), so two
@@ -1367,7 +1367,7 @@ class AgentConfig(BaseSettings):
     confluence_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="CONFLUENCE_INSTANCES"
     )
-    """Confluence instances to mirror into the KG (CONCEPT:KG-2.123). A JSON list of
+    """Confluence instances to mirror into the KG (CONCEPT:AU-KG.compute.confluence-first-class-delta). A JSON list of
     ``{"name": <str>, "server": <atlassian-mcp server name>, "spaces": [<space-id>]}``
     — each space is drained via the ``confluence`` mcp_tool preset and ingested as
     full-text ``:ConfluencePage`` Documents. Unset → one synthetic instance over
@@ -1376,7 +1376,7 @@ class AgentConfig(BaseSettings):
     plane_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="PLANE_INSTANCES"
     )
-    """Plane instances to ingest into the KG (CONCEPT:KG-2.125). A JSON list of
+    """Plane instances to ingest into the KG (CONCEPT:AU-KG.compute.plane-first-class-delta). A JSON list of
     ``{"name": <str>, "server": <plane-mcp server name>, "projects": [<project-id>]}``
     — each is drained via the ``plane`` mcp_tool preset through its named ``plane-mcp``
     server, so a SECOND Plane workspace is just a second server entry + instance. Unset
@@ -1392,7 +1392,7 @@ class AgentConfig(BaseSettings):
     @classmethod
     def _coerce_instance_list(cls, v: Any) -> Any:
         """Accept a JSON-encoded string or an already-parsed list for the
-        ``*_INSTANCES`` multi-instance connector configs (CONCEPT:KG-2.9g/2.123-2.125)."""
+        ``*_INSTANCES`` multi-instance connector configs (CONCEPT:AU-KG.backend.declared-columns-so-schema/2.123-2.125)."""
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
@@ -1412,7 +1412,7 @@ class AgentConfig(BaseSettings):
     @classmethod
     def _coerce_graph_mirror_targets(cls, v: Any) -> Any:
         """Accept a JSON list, a comma-separated string, or a parsed list for
-        GRAPH_MIRROR_TARGETS (CONCEPT:KG-2.74)."""
+        GRAPH_MIRROR_TARGETS (CONCEPT:AU-KG.backend.mirror-health-repair)."""
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
@@ -1434,7 +1434,7 @@ class AgentConfig(BaseSettings):
     @classmethod
     def _coerce_kg_connections(cls, v: Any) -> Any:
         """Accept a JSON-encoded string or an already-parsed list for
-        KG_CONNECTIONS (CONCEPT:KG-2.63)."""
+        KG_CONNECTIONS (CONCEPT:AU-KG.backend.multi-connection-registry)."""
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
@@ -1482,7 +1482,7 @@ class AgentConfig(BaseSettings):
     graph. In sharded mode (2+ GRAPH_SERVICE_ENDPOINTS) an ambient
     ActorContext tenant maps this default onto its per-tenant graph
     (``tenant__<tenant>__<base>``) before HRW shard selection; single-endpoint
-    deployments are unaffected (CONCEPT:KG-2.58)."""
+    deployments are unaffected (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw)."""
     graph_service_socket: str | None = Field(default=None, alias="GRAPH_SERVICE_SOCKET")
     """Path to the epistemic-graph Tokio service UDS socket. Defaults to
     $XDG_RUNTIME_DIR/epistemic-graph.sock."""
@@ -1490,7 +1490,7 @@ class AgentConfig(BaseSettings):
         default=False, alias="KG_INGEST_GRAPH_ROUTING"
     )
     """Spread ingestion across per-source/per-repo/per-tenant graphs instead of the
-    single ``__commons__`` graph (CONCEPT:KG-2.269). Each graph name hashes to one of
+    single ``__commons__`` graph (CONCEPT:AU-KG.ingest.unified-query-routing). Each graph name hashes to one of
     the engine's K redb shard writers (EG-026), so routing content across names lets K
     cores commit in parallel instead of one. OFF (default) = byte-for-byte today's
     behaviour: ingestion writes the default/tenant graph and reads hit the single
@@ -1500,7 +1500,7 @@ class AgentConfig(BaseSettings):
     kg_rerank_model: str | None = Field(default=None, alias="KG_RERANK_MODEL")
     """Remote reranker model served on vLLM (e.g. ``BAAI/bge-reranker-v2-m3``). When set,
     reranking scores (query, passage) on the remote ``/v1/rerank`` endpoint — no local model,
-    consistent with embeddings/LLM on vLLM (CONCEPT:KG-2.85). Unset → the dependency-free
+    consistent with embeddings/LLM on vLLM (CONCEPT:AU-KG.retrieval.unset-dependency-free). Unset → the dependency-free
     lexical scorer (or opt-in local neural via ``KG_RERANK_LOCAL_NEURAL``)."""
     kg_rerank_base_url: str | None = Field(default=None, alias="KG_RERANK_BASE_URL")
     """Base URL for the remote reranker endpoint; defaults to ``OPENAI_BASE_URL`` (the vLLM
@@ -1508,7 +1508,7 @@ class AgentConfig(BaseSettings):
     kg_ingest_engine_endpoint: str | None = Field(
         default=None, alias="KG_INGEST_ENGINE_ENDPOINT"
     )
-    """Dedicated ingest-engine endpoint (CONCEPT:KG-2.58, Phase D). When set (e.g.
+    """Dedicated ingest-engine endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, Phase D). When set (e.g.
     ``unix:///tmp/epistemic-graph-ingest.sock``), the host daemon spawns a SECOND,
     EPHEMERAL engine there (no persist dir — it only handles stateless parse +
     throwaway community-detection tenants) and the codebase-ingest path routes its
@@ -1525,15 +1525,15 @@ class AgentConfig(BaseSettings):
     """HMAC-SHA256 shared secret for service authentication. When unset, a
     per-install secret is generated once and persisted under the XDG data dir
     (``data_dir()/engine_secret``, mode 0600) so every local process — and any
-    engine this launcher spawns — agrees (CONCEPT:OS-5.14)."""
+    engine this launcher spawns — agrees (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)."""
     kg_engine_insecure: bool = Field(default=False, alias="KG_ENGINE_INSECURE")
-    """Opt out of engine HMAC auth for dev (CONCEPT:OS-5.14). When True no
+    """Opt out of engine HMAC auth for dev (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). When True no
     client auth token is sent and a spawned engine gets
     ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that refuse to start
     without a secret still come up. Default False = secure by default."""
 
     engine_mode: str = Field(default="auto", alias="ENGINE_MODE")
-    """How this process reaches the ONE engine authority (CONCEPT:OS-5.63 — the
+    """How this process reaches the ONE engine authority (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the
     single resolver ``knowledge_graph/core/engine_resolver.resolve_engine``):
 
     * ``auto`` (default) — derive behaviour from the existing ``graph_service_*``
@@ -1554,13 +1554,13 @@ class AgentConfig(BaseSettings):
 
     engine_endpoint: str | None = Field(default=None, alias="ENGINE_ENDPOINT")
     """Explicit remote engine endpoint override for ``engine_mode=remote``
-    (CONCEPT:OS-5.63), e.g. ``tcp://engine.internal:9100`` — the "engine deployed
+    (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision), e.g. ``tcp://engine.internal:9100`` — the "engine deployed
     on another host" case. When set it is folded into the resolved endpoint list
     exactly like a single ``GRAPH_SERVICE_ENDPOINTS`` entry. Unset → the existing
     ``graph_service_*`` resolution applies."""
 
     engine_lifecycle: str = Field(default="refcounted", alias="ENGINE_LIFECYCLE")
-    """Lifecycle of an AUTOSTARTED local engine (CONCEPT:OS-5.63):
+    """Lifecycle of an AUTOSTARTED local engine (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision):
 
     * ``refcounted`` (default) — reference-counted idle shutdown: the engine
       self-terminates ``engine_idle_shutdown_secs`` seconds after its LAST client
@@ -1577,7 +1577,7 @@ class AgentConfig(BaseSettings):
         default=60, alias="ENGINE_IDLE_SHUTDOWN_SECS"
     )
     """Idle-shutdown grace (seconds) for a ``refcounted`` autostarted engine
-    (CONCEPT:OS-5.63). ``> 0`` → the autostart leg passes
+    (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision). ``> 0`` → the autostart leg passes
     ``--idle-shutdown-secs <secs>`` so the engine stops that many seconds after
     its last client disconnects. ``<= 0`` (or ``engine_lifecycle=persistent``) →
     NO flag is passed and the engine is long-living (never auto-stops). Default
@@ -1603,7 +1603,7 @@ class AgentConfig(BaseSettings):
     kg_llm_concurrency: int = Field(default=4, alias="KG_LLM_CONCURRENCY")
     """Total parallel capacity of the local inference endpoint (e.g. vLLM/LM Studio slots).
 
-    This is the ONE knob for local-model parallelism. CONCEPT:ORCH-1.59 — the system always
+    This is the ONE knob for local-model parallelism. CONCEPT:AU-ORCH.execution.reserved-inference-slots — the system always
     reserves ``RESERVED_INTERACTIVE_INSTANCES`` (1) of these slots for the **interactive**
     path (the Telegram/messaging responder and graph-os-spawned pydantic-ai agents, which
     share the default model); all background KG work (fact enrichment, Layer 2/3 analysis,
@@ -1613,7 +1613,7 @@ class AgentConfig(BaseSettings):
 
     def background_llm_concurrency(self) -> int:
         """Concurrency ceiling for background KG LLM work — capacity minus the reserved
-        interactive slot(s) (CONCEPT:ORCH-1.59). Floors at 1 so background never starves."""
+        interactive slot(s) (CONCEPT:AU-ORCH.execution.reserved-inference-slots). Floors at 1 so background never starves."""
         return max(1, self.kg_llm_concurrency - RESERVED_INTERACTIVE_INSTANCES)
 
     kg_analysis_max_depth: int = Field(default=2, alias="KG_ANALYSIS_MAX_DEPTH")
@@ -1629,7 +1629,7 @@ class AgentConfig(BaseSettings):
     role_routing: dict[str, dict] = Field(
         default_factory=dict, alias="MODEL_ROLE_ROUTING"
     )
-    """CONCEPT:ORCH-1.27 — optional role→{tier,tags} overrides for planner/generator/
+    """CONCEPT:AU-ORCH.routing.optional-role-override — optional role→{tier,tags} overrides for planner/generator/
     learner/judge model selection. Empty roles fall back to the built-in default map in
     `models/model_registry.py`. Merged into the active registry when no registry-level
     override is present."""
@@ -1641,7 +1641,7 @@ class AgentConfig(BaseSettings):
     sparql_endpoints: list[str] = Field(
         default=["https://query.wikidata.org/sparql"], alias="SPARQL_ENDPOINTS"
     )
-    """List of external SPARQL endpoints to federate (CONCEPT:KG-2.7)."""
+    """List of external SPARQL endpoints to federate (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
     jena_fuseki_url: str | None = Field(default=None, alias="JENA_FUSEKI_URL")
     """URL for local Apache Jena Fuseki instance (e.g. http://localhost:3030)."""
@@ -1710,9 +1710,9 @@ class AgentConfig(BaseSettings):
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
     a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
     a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
-    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.0)."""
+    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
     a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
-    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.0)."""
+    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -1733,217 +1733,217 @@ class AgentConfig(BaseSettings):
     validation_mode: bool = Field(default=False, alias="VALIDATION_MODE")
     approval_timeout: float = Field(default=0.0, alias="APPROVAL_TIMEOUT")
 
-    # --- Agent OS Architecture (CONCEPT:OS-5.2) ---
+    # --- Agent OS Architecture (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
     cognitive_scheduler_enabled: bool = Field(
         default=True, alias="COGNITIVE_SCHEDULER_ENABLED"
     )
-    """Enable the Cognitive Scheduler for priority-aware agent management (CONCEPT:OS-5.2)."""
+    """Enable the Cognitive Scheduler for priority-aware agent management (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     max_concurrent_agents: int = Field(default=5, alias="MAX_CONCURRENT_AGENTS")
-    """Maximum number of concurrently running specialist agents (CONCEPT:OS-5.2)."""
+    """Maximum number of concurrently running specialist agents (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     agent_token_quota: int = Field(default=100_000, alias="AGENT_TOKEN_QUOTA")
-    """Default per-agent token budget before preemption (CONCEPT:OS-5.2)."""
+    """Default per-agent token budget before preemption (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     preemption_threshold_pct: float = Field(
         default=0.85, alias="PREEMPTION_THRESHOLD_PCT"
     )
-    """Quota usage percentage that triggers preemption warning (CONCEPT:OS-5.2)."""
+    """Quota usage percentage that triggers preemption warning (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     agent_policies_path: str | None = Field(default=None, alias="AGENT_POLICIES_PATH")
-    """Path to agent_policies.json for identity-based governance (CONCEPT:OS-5.2)."""
+    """Path to agent_policies.json for identity-based governance (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     permissions_signing_key: str | None = Field(
         default=None, alias="PERMISSIONS_SIGNING_KEY"
     )
-    """HMAC signing key for agent identity tokens. Auto-generated if not set (CONCEPT:OS-5.2)."""
+    """HMAC signing key for agent identity tokens. Auto-generated if not set (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     specialist_registry_path: str | None = Field(
         default=None, alias="SPECIALIST_REGISTRY_PATH"
     )
-    """Path to local specialist registry directory (CONCEPT:OS-5.2)."""
+    """Path to local specialist registry directory (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
-    # --- Native Messaging Backend (CONCEPT:ECO-4.0) ---
+    # --- Native Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
     messaging_enabled_backends: list[str] = Field(
         default_factory=list, alias="MESSAGING_ENABLED_BACKENDS"
     )
-    """List of messaging backend IDs to auto-connect on startup (CONCEPT:ECO-4.0).
+    """List of messaging backend IDs to auto-connect on startup (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
     Example: ["discord", "slack", "telegram"]."""
 
     messaging_kg_ingest: bool = Field(default=True, alias="MESSAGING_KG_INGEST")
-    """Enable automatic Knowledge Graph ingestion for all inbound/outbound messages (CONCEPT:ECO-4.0)."""
+    """Enable automatic Knowledge Graph ingestion for all inbound/outbound messages (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_kg_memory_type: str = Field(
         default="episodic", alias="MESSAGING_KG_MEMORY_TYPE"
     )
-    """Default KG memory tier for inbound messages: 'episodic', 'semantic', or 'procedural' (CONCEPT:ECO-4.0)."""
+    """Default KG memory tier for inbound messages: 'episodic', 'semantic', or 'procedural' (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_route_to_planner: bool = Field(
         default=True, alias="MESSAGING_ROUTE_TO_PLANNER"
     )
-    """Route inbound messaging events to the Planner Graph Agent for orchestration (CONCEPT:ECO-4.0)."""
+    """Route inbound messaging events to the Planner Graph Agent for orchestration (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     # Per-platform tokens (read from config.json or env vars)
     messaging_discord_token: str | None = Field(
         default=None, alias="MESSAGING_DISCORD_TOKEN"
     )
-    """Discord bot token. Also reads from DISCORD_BOT_TOKEN (CONCEPT:ECO-4.0)."""
+    """Discord bot token. Also reads from DISCORD_BOT_TOKEN (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_slack_token: str | None = Field(
         default=None, alias="MESSAGING_SLACK_TOKEN"
     )
-    """Slack bot token (xoxb-...). Also reads from SLACK_BOT_TOKEN (CONCEPT:ECO-4.0)."""
+    """Slack bot token (xoxb-...). Also reads from SLACK_BOT_TOKEN (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_slack_app_token: str | None = Field(
         default=None, alias="MESSAGING_SLACK_APP_TOKEN"
     )
-    """Slack app-level token (xapp-...) for Socket Mode (CONCEPT:ECO-4.0)."""
+    """Slack app-level token (xapp-...) for Socket Mode (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_telegram_token: str | None = Field(
         default=None, alias="MESSAGING_TELEGRAM_TOKEN"
     )
-    """Telegram bot token. Also reads from TELEGRAM_BOT_TOKEN (CONCEPT:ECO-4.0)."""
+    """Telegram bot token. Also reads from TELEGRAM_BOT_TOKEN (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_whatsapp_token: str | None = Field(
         default=None, alias="MESSAGING_WHATSAPP_TOKEN"
     )
-    """WhatsApp API token. Also reads from WHATSAPP_TOKEN (CONCEPT:ECO-4.0)."""
+    """WhatsApp API token. Also reads from WHATSAPP_TOKEN (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_whatsapp_phone_number_id: str | None = Field(
         default=None, alias="MESSAGING_WHATSAPP_PHONE_NUMBER_ID"
     )
-    """WhatsApp Business API phone number ID (CONCEPT:ECO-4.0)."""
+    """WhatsApp Business API phone number ID (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_whatsapp_use_business_api: bool = Field(
         default=False, alias="MESSAGING_WHATSAPP_USE_BUSINESS_API"
     )
-    """Use official WhatsApp Business API (True) or neonize bridge (False) (CONCEPT:ECO-4.0)."""
+    """Use official WhatsApp Business API (True) or neonize bridge (False) (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_teams_app_id: str | None = Field(
         default=None, alias="MESSAGING_TEAMS_APP_ID"
     )
-    """Microsoft Teams Bot Framework app ID (CONCEPT:ECO-4.0)."""
+    """Microsoft Teams Bot Framework app ID (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_teams_app_secret: str | None = Field(
         default=None, alias="MESSAGING_TEAMS_APP_SECRET"
     )
-    """Microsoft Teams Bot Framework app password (CONCEPT:ECO-4.0)."""
+    """Microsoft Teams Bot Framework app password (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_googlechat_service_account: str | None = Field(
         default=None, alias="MESSAGING_GOOGLECHAT_TOKEN"
     )
-    """Path to Google Chat service account JSON file (CONCEPT:ECO-4.0)."""
+    """Path to Google Chat service account JSON file (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_googlemeet_service_account: str | None = Field(
         default=None, alias="MESSAGING_GOOGLEMEET_TOKEN"
     )
-    """Path to Google Meet service account JSON file (CONCEPT:ECO-4.0)."""
+    """Path to Google Meet service account JSON file (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_mattermost_token: str | None = Field(
         default=None, alias="MESSAGING_MATTERMOST_TOKEN"
     )
-    """Mattermost personal access token (CONCEPT:ECO-4.0)."""
+    """Mattermost personal access token (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_mattermost_url: str | None = Field(
         default=None, alias="MESSAGING_MATTERMOST_URL"
     )
-    """Mattermost server URL (CONCEPT:ECO-4.0)."""
+    """Mattermost server URL (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_matrix_token: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_TOKEN"
     )
-    """Matrix access token (CONCEPT:ECO-4.0)."""
+    """Matrix access token (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_matrix_homeserver: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_HOMESERVER"
     )
-    """Matrix homeserver URL (CONCEPT:ECO-4.0)."""
+    """Matrix homeserver URL (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_matrix_user_id: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_USER_ID"
     )
-    """Matrix user ID (e.g. @bot:matrix.org) (CONCEPT:ECO-4.0)."""
+    """Matrix user ID (e.g. @bot:matrix.org) (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_irc_server: str | None = Field(default=None, alias="MESSAGING_IRC_SERVER")
-    """IRC server hostname (CONCEPT:ECO-4.0)."""
+    """IRC server hostname (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_irc_port: int = Field(default=6667, alias="MESSAGING_IRC_PORT")
-    """IRC server port (CONCEPT:ECO-4.0)."""
+    """IRC server port (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_irc_nickname: str = Field(
         default="agent_bot", alias="MESSAGING_IRC_NICKNAME"
     )
-    """IRC nickname (CONCEPT:ECO-4.0)."""
+    """IRC nickname (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_irc_channels: list[str] = Field(
         default_factory=list, alias="MESSAGING_IRC_CHANNELS"
     )
-    """IRC channels to auto-join (CONCEPT:ECO-4.0)."""
+    """IRC channels to auto-join (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_signal_phone: str | None = Field(
         default=None, alias="MESSAGING_SIGNAL_TOKEN"
     )
-    """Signal phone number for semaphore-bot (CONCEPT:ECO-4.0)."""
+    """Signal phone number for semaphore-bot (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_line_token: str | None = Field(default=None, alias="MESSAGING_LINE_TOKEN")
-    """LINE channel access token (CONCEPT:ECO-4.0)."""
+    """LINE channel access token (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_twitch_token: str | None = Field(
         default=None, alias="MESSAGING_TWITCH_TOKEN"
     )
-    """Twitch OAuth token (CONCEPT:ECO-4.0)."""
+    """Twitch OAuth token (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_twitch_channels: list[str] = Field(
         default_factory=list, alias="MESSAGING_TWITCH_CHANNELS"
     )
-    """Twitch channels to join (CONCEPT:ECO-4.0)."""
+    """Twitch channels to join (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_synology_webhook_url: str | None = Field(
         default=None, alias="MESSAGING_SYNOLOGY_WEBHOOK_URL"
     )
-    """Synology Chat incoming webhook URL (CONCEPT:ECO-4.0)."""
+    """Synology Chat incoming webhook URL (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_twilio_account_sid: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_APP_ID"
     )
-    """Twilio account SID for voice/SMS (CONCEPT:ECO-4.0)."""
+    """Twilio account SID for voice/SMS (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_twilio_auth_token: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_TOKEN"
     )
-    """Twilio auth token for voice/SMS (CONCEPT:ECO-4.0)."""
+    """Twilio auth token for voice/SMS (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_twilio_from_number: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_FROM_NUMBER"
     )
-    """Twilio 'from' phone number (CONCEPT:ECO-4.0)."""
+    """Twilio 'from' phone number (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_nextcloud_url: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_URL"
     )
-    """Nextcloud server URL (CONCEPT:ECO-4.0)."""
+    """Nextcloud server URL (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_nextcloud_token: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_TOKEN"
     )
-    """Nextcloud app token (CONCEPT:ECO-4.0)."""
+    """Nextcloud app token (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
     messaging_nextcloud_user: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_APP_ID"
     )
-    """Nextcloud username (CONCEPT:ECO-4.0)."""
+    """Nextcloud username (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
 
-    # --- Parallel Engine (CONCEPT:ORCH-1.8) ---
+    # --- Parallel Engine (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer) ---
 
     max_parallel_agents: int = Field(default=60, alias="MAX_PARALLEL_AGENTS")
-    """Maximum concurrent agent executions across the engine (CONCEPT:ORCH-1.8).
+    """Maximum concurrent agent executions across the engine (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer).
     Acts as a global semaphore. Set higher for cloud deployments with high API limits."""
 
     worker_pool_size: int = Field(default=8, alias="WORKER_POOL_SIZE")
     """Number of worker processes/threads provisioned per node for executing agent
-    turns and graph mutations (CONCEPT:ORCH-1.8).
+    turns and graph mutations (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer).
 
     Scale knob. Together with ``graph_service_endpoints`` (Postgres/L0 shard fan-out
     for the epistemic graph) and ``kafka_bootstrap_servers`` (event-throughput axis),
@@ -1956,45 +1956,45 @@ class AgentConfig(BaseSettings):
     """
 
     parallel_batch_size: int = Field(default=25, alias="PARALLEL_BATCH_SIZE")
-    """Number of agents per execution wave when batching is needed (CONCEPT:ORCH-1.8)."""
+    """Number of agents per execution wave when batching is needed (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)."""
 
     synthesis_strategy: str = Field(default="auto", alias="SYNTHESIS_STRATEGY")
     """Default output synthesis strategy: 'auto', 'flat', 'hierarchical', 'progressive', 'rlm'.
-    'auto' selects based on agent count and output size (CONCEPT:ORCH-1.26)."""
+    'auto' selects based on agent count and output size (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
     synthesis_ratio: int = Field(default=10, alias="SYNTHESIS_RATIO")
-    """In hierarchical synthesis, how many outputs per synthesis sub-node (CONCEPT:ORCH-1.26)."""
+    """In hierarchical synthesis, how many outputs per synthesis sub-node (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
     agent_execution_timeout: float = Field(
         default=120.0, alias="AGENT_EXECUTION_TIMEOUT"
     )
-    """Per-agent execution timeout in seconds (CONCEPT:ORCH-1.8)."""
+    """Per-agent execution timeout in seconds (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)."""
 
     circuit_breaker_threshold: int = Field(default=3, alias="CIRCUIT_BREAKER_THRESHOLD")
-    """Number of consecutive failures before disabling an agent type (CONCEPT:ORCH-1.8)."""
+    """Number of consecutive failures before disabling an agent type (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)."""
 
     enable_progressive_synthesis: bool = Field(
         default=True, alias="ENABLE_PROGRESSIVE_SYNTHESIS"
     )
-    """Enable streaming synthesis as agents complete (CONCEPT:ORCH-1.26)."""
+    """Enable streaming synthesis as agents complete (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
-    # --- Innovation Framework (CONCEPT:OS-5.2 through CONCEPT:OS-5.2) ---
+    # --- Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
     homeostatic_downgrade_enabled: bool = Field(
         default=True, alias="HOMEOSTATIC_DOWNGRADE_ENABLED"
     )
-    """Enable automatic model tier downgrade when budget is under pressure (CONCEPT:OS-5.2)."""
+    """Enable automatic model tier downgrade when budget is under pressure (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     adversarial_verification: bool = Field(
         default=False, alias="ADVERSARIAL_VERIFICATION"
     )
-    """Enable adversarial verification pass (opt-in only, doubles verification cost) (CONCEPT:AHE-3.1)."""
+    """Enable adversarial verification pass (opt-in only, doubles verification cost) (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)."""
 
     maintenance_token_budget: int = Field(default=0, alias="MAINTENANCE_TOKEN_BUDGET")
-    """Token budget for autonomous maintenance cron (0 = unlimited) (CONCEPT:OS-5.2)."""
+    """Token budget for autonomous maintenance cron (0 = unlimited) (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     maintenance_priority: str = Field(default="LOW", alias="MAINTENANCE_PRIORITY")
-    """Priority level for autonomous maintenance tasks (LOW/MEDIUM/HIGH) (CONCEPT:OS-5.2)."""
+    """Priority level for autonomous maintenance tasks (LOW/MEDIUM/HIGH) (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
 
     watchdog_patterns: list[str] = Field(
         default=[
@@ -2004,7 +2004,7 @@ class AgentConfig(BaseSettings):
         ],
         alias="WATCHDOG_PATTERNS",
     )
-    """File patterns to monitor for the file watcher trigger (CONCEPT:OS-5.0)."""
+    """File patterns to monitor for the file watcher trigger (CONCEPT:AU-OS.safety.doom-loop-detection)."""
 
     tool_guard_mode: str = Field(default="strict", alias="TOOL_GUARD_MODE")
     sensitive_tool_patterns: list[str] = Field(
@@ -2609,14 +2609,14 @@ DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "600000"))
 
 
 # ---------------------------------------------------------------------------
-# CONCEPT:ORCH-1.2 — Session-Scoped Registry Cache
+# CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Session-Scoped Registry Cache
 # ---------------------------------------------------------------------------
 
 
 class _RegistryCache:
     """Session-scoped cache for KG registry data.
 
-    CONCEPT:ORCH-1.2 — Hot Cache Layer
+    CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Hot Cache Layer
 
     Populated on first access, invalidated by explicit event signals.
     No TTL — pure event-driven invalidation from four callsites:
@@ -2637,7 +2637,7 @@ class _RegistryCache:
         cls._registry = None
         cls._prompts.clear()
         cls._tool_agent_map.clear()
-        logger.info("[CACHE] Registry cache invalidated (CONCEPT:ORCH-1.2).")
+        logger.info("[CACHE] Registry cache invalidated (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation).")
 
     @classmethod
     def get_registry(cls) -> MCPAgentRegistryModel:
@@ -2655,7 +2655,7 @@ class _RegistryCache:
 def invalidate_registry_cache() -> None:
     """Public API to invalidate the hot cache.
 
-    CONCEPT:ORCH-1.2 — Hot Cache Layer
+    CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Hot Cache Layer
 
     Call this after any operation that changes the registry state:
     MCP reload, pipeline ingestion, TeamConfig promotion, or
@@ -2755,7 +2755,7 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
             "MATCH (a:Agent) RETURN a.name AS name, a.description AS descriptionription, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
         )
         for row in agent_rows:
-            # CONCEPT:ORCH-1.2: Normalize legacy prompt/mcp to unified specialist
+            # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Normalize legacy prompt/mcp to unified specialist
             _raw_type = row.get("agent_type", "specialist")
             _agent_type = _raw_type if _raw_type == "a2a" else "specialist"
             agents.append(
@@ -2802,7 +2802,7 @@ def _synthesize_partition_agents(
 ) -> list[MCPAgent]:
     """Synthesize partition-based agents from tool tags.
 
-    CONCEPT:ORCH-1.2 — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
+    CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
     """
     partitions: dict[str, list[MCPToolInfo]] = {}
     for t in tools:
@@ -2861,7 +2861,7 @@ def _synthesize_partition_agents(
 def get_discovery_registry() -> MCPAgentRegistryModel:
     """Load the unified agent discovery registry (cached).
 
-    CONCEPT:ORCH-1.2 — Hot Cache Layer
+    CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Hot Cache Layer
 
     Returns the registry from the in-memory cache.  On first call,
     populates the cache from the Knowledge Graph.  Subsequent calls
@@ -2880,7 +2880,7 @@ def get_relevant_specialists(
 ) -> list[MCPAgent]:
     """Return the top-N adaptive_agent_router most relevant to a query.
 
-    CONCEPT:ORCH-1.2 — Hot Cache Layer
+    CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Hot Cache Layer
 
     Uses KG discovery results (hybrid search + tool matching) to filter
     the full specialist list down to the most relevant agents for a
@@ -3068,7 +3068,7 @@ _PHASE_MAP: dict[str, str] = {
     "council_advisor_complete": "COUNCIL",
     "council_reviewer_complete": "COUNCIL",
     "council_completed": "COUNCIL",
-    # ── KG-Driven Graph Materialization (CONCEPT:ORCH-1.4) ─────────────
+    # ── KG-Driven Graph Materialization (CONCEPT:AU-ORCH.adapter.kg-graph-materialization) ─────────────
     "kg_query_start": "KG_BRIDGE",
     "kg_query_complete": "KG_BRIDGE",
     "kg_template_resolved": "KG_BRIDGE",
@@ -3251,7 +3251,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.
-                    # CONCEPT:OS-5.1 — Secrets & Authentication
+                    # CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
                     if "AGENT_USER_TOKEN" not in cfg["env"]:
                         _user_token = os.environ.get("AGENT_USER_TOKEN")
                         if not _user_token:
@@ -3270,7 +3270,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                     modified = True
 
             # Centralized Knowledge Graph Coordination Protocol
-            # CONCEPT:KG-1.0
+            # CONCEPT:AU-KG.coordination.centralized-kg-coordination-protocol
             coordinated_kg_server = None
             if "agent-utilities-kg" in mcp_servers:
                 from agent_utilities.core.config import DEFAULT_VALIDATION_MODE

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Spawn an adapter backend and normalise its stream.
+"""CONCEPT:AU-ORCH.adapter.spawn-adapter-normalise-stream — Spawn an adapter backend and normalise its stream.
 
 Bridges an :class:`AdapterDefinition` to a real subprocess: builds argv, delivers the prompt (argv or
 stdin per ``prompt_delivery``), runs it, and normalises stdout via the stream-format handler into

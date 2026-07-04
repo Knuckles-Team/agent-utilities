@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Alpha Factor Library."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Alpha Factor Library."""
 
 import pandas as pd
 import pytest

@@ -19,7 +19,7 @@ the :class:`EditLedger` makes each edit a **durable ``object_edit`` KG node**
 reachable it degrades to an in-memory + file-serializable store so the
 persistence logic is always exercised, never faked.
 
-CONCEPT:KG-2.43
+CONCEPT:AU-KG.ontology.edit-ledger-writeback
 """
 
 import json
@@ -75,7 +75,7 @@ class EditType(StrEnum):
 
 
 class Edit(BaseModel):
-    """One durable, structured edit over an object. CONCEPT:KG-2.43.
+    """One durable, structured edit over an object. CONCEPT:AU-KG.ontology.edit-ledger-writeback.
 
     An ``Edit`` is the atomic unit of the ledger. It records *who* changed
     *what* on *which object*, with a complete ``before``/``after`` snapshot so
@@ -179,7 +179,7 @@ def _probe_store(facade: Any) -> Any:
 class EditLedger:
     """Durable, per-object edit history backed by KG ``object_edit`` nodes.
 
-    CONCEPT:KG-2.43 — the Foundry *object-edits* primitive over the epistemic KG.
+    CONCEPT:AU-KG.ontology.edit-ledger-writeback — the Foundry *object-edits* primitive over the epistemic KG.
 
     The ledger:
 
@@ -220,7 +220,7 @@ class EditLedger:
         # In-memory durable mirror keyed by object_id, insertion-ordered.
         self._edits: list[Edit] = []
         # Optional write-back router; when attached, every recorded edit is
-        # pushed to the registered source datasources (CONCEPT:KG-2.43).
+        # pushed to the registered source datasources (CONCEPT:AU-KG.ontology.edit-ledger-writeback).
         self._writeback: Any = None
 
     def attach_writeback(self, router: Any) -> None:
@@ -384,7 +384,7 @@ class EditLedger:
     def history(self, object_id: str) -> list[Edit]:
         """Return this object's edits in applied order (oldest first).
 
-        CONCEPT:KG-2.43 — the per-object *edit history / audit trail*.
+        CONCEPT:AU-KG.ontology.edit-ledger-writeback — the per-object *edit history / audit trail*.
         """
         edits = [e for e in self._edits if e.object_id == object_id]
         return sorted(edits, key=lambda e: e.timestamp)

@@ -8,7 +8,7 @@
 >
 > **Method.** Code-grounded: every verdict cites the concrete file:function it maps onto.
 > Sources are ingested into the KG (`research/papers/`, job `job-0a915501`); the graph-native
-> assimilation pass (dedup → gap → synergy → rank, CONCEPT:KG-2.7) will be reconciled against
+> assimilation pass (dedup → gap → synergy → rank, CONCEPT:AU-KG.query.vendor-agnostic-traversal) will be reconciled against
 > this hand-authored map once document enrichment completes. This document is the
 > human-readable comparative; the KG assimilation is the automated cross-check.
 >
@@ -72,7 +72,7 @@ land as AHE-3.1 reward-primitive hardening for the day we do, not as live-path w
 
 - **GRPO (2402.03300) / REINFORCE++ (2501.03262).** The critic-free group/global-relative
   advantage `A = (r − μ)/σ` is exactly `training_signals.batch_normalized_advantage()`
-  (CONCEPT:AHE-3.1). On the kernel side, `epistemic-graph` already exposes the same primitive as
+  (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort). On the kernel side, `epistemic-graph` already exposes the same primitive as
   `FinanceClient.cross_sectional_rank()` (within-batch normalization) and `rolling_zscore()`.
   **No gap** — these papers are the reference point our reward math is built on. Merit: keep them
   as the documented baseline and ensure `batch_normalized_advantage` exposes both *group* and
@@ -126,14 +126,14 @@ land as AHE-3.1 reward-primitive hardening for the day we do, not as live-path w
   agent-step (not just final answer). This is the **best fit for our architecture** because we are
   agentic: it maps directly onto `reward_decomposition.py` (step-level credit), the reward-EMA
   routing in `capability_index.designate()`/`record_outcome()`, and `SubagentLifecyclePolicy`
-  fan-out. **Merge point / proposal:** a new AHE-3.x concept "Agent-Step Policy Optimization" —
+  fan-out. **Merge point / proposal:** a new AU-AHE.optimization.telemetry-optimization concept "Agent-Step Policy Optimization" —
   entropy-gated branching at tool/decision steps + step-advantage write-back into the capability
   reward-EMA. Live-path: the router already records outcomes; ARPO upgrades *when* and *at what
   granularity* it branches and credits.
 - **VPO (2605.22817) — SECOND.** Train for *diverse* solution sets under reward vectors to improve
   test-time best@k / pass@k. We scale test-time compute (`reasoning_effort`) and fan out
   (`SubagentLifecyclePolicy`, `rlm/` parallel sub-calls) but optimize for a single best, not for
-  diversity. **Merge point / proposal:** an AHE-3.x "Test-Time Diversity" concept — reward-vector-
+  diversity. **Merge point / proposal:** an AU-AHE.optimization.telemetry-optimization "Test-Time Diversity" concept — reward-vector-
   driven diverse sampling in the subagent fan-out; `epistemic-graph::personalized_pagerank()`
   (seed-diverse propagation) is a natural kernel for diversity scoring.
 - **EP-GRPO (2605.04960).** Track entropy change across reasoning steps ("progress") to reweight
@@ -152,14 +152,14 @@ land as AHE-3.1 reward-primitive hardening for the day we do, not as live-path w
 
 Ranked by leverage **for our agentic/KG architecture** (not for a base-model trainer):
 
-1. **AHE-3.x — Agent-Step Policy Optimization (ARPO).** Entropy-gated branching at tool/decision
+1. **AU-AHE.optimization.telemetry-optimization — Agent-Step Policy Optimization (ARPO).** Entropy-gated branching at tool/decision
    steps + agent-step advantage write-back into capability reward-EMA. Touches
    `reward_decomposition.py`, `capability_index.py`, `routing/strategies/policy.py`,
    `trace_distiller.py`. **Highest fit — live-path on the router we already run.**
-2. **AHE-3.x — Test-Time Diversity (VPO).** Reward-vector-driven diverse subagent fan-out for
+2. **AU-AHE.optimization.telemetry-optimization — Test-Time Diversity (VPO).** Reward-vector-driven diverse subagent fan-out for
    best@k/pass@k. Touches `harness/reasoning_effort.py`, `SubagentLifecyclePolicy`, `rlm/` fan-out;
    `epistemic-graph::personalized_pagerank` as the diversity kernel.
-3. **AHE-3.x — Preference-Corpus Reliability (RAPPO + TI-DPO + InSPO + DPO).** A first-class
+3. **AU-AHE.optimization.telemetry-optimization — Preference-Corpus Reliability (RAPPO + TI-DPO + InSPO + DPO).** A first-class
    `PreferencePair` export from `eval_corpus.py`/`trace_distiller.py` with (a) RAPPO ambiguous-pair
    filtering, (b) TI-DPO token-importance weights, (c) InSPO reflective conditioning. Turns our
    distilled traces into a clean DPO-ready corpus. **Cheap, broadly enabling.**

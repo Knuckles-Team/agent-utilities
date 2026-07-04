@@ -1,4 +1,4 @@
-# CONCEPT:KG-2.62 - Elastic per-tenant L1 engine pool: a bounded warm set of tenant-graph engine clients with LRU eviction (cold tenants snapshotted/dropped) and hydrate-on-miss layered over the KG-2.58 shard routing
+# CONCEPT:AU-KG.sharding.elastic-over-kg-shard - Elastic per-tenant L1 engine pool: a bounded warm set of tenant-graph engine clients with LRU eviction (cold tenants snapshotted/dropped) and hydrate-on-miss layered over the KG-2.58 shard routing
 """Bounded, warm pool of per-tenant engine clients with LRU eviction.
 
 KG-2.58 routes each tenant to a named graph on a (statically configured) shard;

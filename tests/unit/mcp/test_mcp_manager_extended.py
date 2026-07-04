@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.0"""
+"""CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
 
 """Coverage push for agent_utilities.mcp_agent_manager.

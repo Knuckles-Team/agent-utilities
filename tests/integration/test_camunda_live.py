@@ -1,4 +1,4 @@
-"""Live end-to-end test of the Camunda inbound path (CONCEPT:KG-2.9/KG-2.53).
+"""Live end-to-end test of the Camunda inbound path (CONCEPT:AU-KG.ingest.enterprise-source-extractor/KG-2.53).
 
 Runs the real camunda-mcp client against a live Camunda 7 Engine REST endpoint
 and asserts the extractor lifts BusinessProcess/BusinessTask/FLOWS_TO structure

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Native database traversal tools for agents (CONCEPT:ECO-4.33).
+"""Native database traversal tools for agents (CONCEPT:AU-ECO.toolkit.database-traversal-tools).
 
-Gives an agent (including RLM-driven recursive agents, CONCEPT:ORCH-1.1) the
+Gives an agent (including RLM-driven recursive agents, CONCEPT:AU-ORCH.planning.recursion-nesting-depth) the
 ability to *natively traverse* a relational/NoSQL database — list tables, inspect
 schema, and run live read queries — over the existing :class:`UniversalConnector`
-(CONCEPT:KG-2.9), which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle,
+(CONCEPT:AU-KG.ingest.enterprise-source-extractor), which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle,
 SQLite, and MongoDB**. This is a capability Onyx does not have (Onyx ships zero
 database connectors); here it is both an *ingestion* source (the ``database``
 document-source connector, ECO-4.25) and an *interactive* agent tool.
@@ -61,7 +61,7 @@ def _connect(dsn: str, kind: str | None):
 
 
 async def db_tables(ctx: RunContext[AgentDeps], dsn: str, kind: str = "") -> str:
-    """List the tables/collections of a database (CONCEPT:ECO-4.33).
+    """List the tables/collections of a database (CONCEPT:AU-ECO.toolkit.database-traversal-tools).
 
     Args:
         ctx: The agent run context.
@@ -86,7 +86,7 @@ async def db_tables(ctx: RunContext[AgentDeps], dsn: str, kind: str = "") -> str
 
 
 async def db_schema(ctx: RunContext[AgentDeps], dsn: str, kind: str = "") -> str:
-    """Return the schema (tables → columns) of a database (CONCEPT:ECO-4.33).
+    """Return the schema (tables → columns) of a database (CONCEPT:AU-ECO.toolkit.database-traversal-tools).
 
     Args:
         ctx: The agent run context.
@@ -127,7 +127,7 @@ async def db_query(
     kind: str = "",
     limit: int = 200,
 ) -> str:
-    """Run a read-only query and return rows (CONCEPT:ECO-4.33).
+    """Run a read-only query and return rows (CONCEPT:AU-ECO.toolkit.database-traversal-tools).
 
     Lets an agent natively traverse a database. By default only read queries are
     permitted; mutating statements are rejected unless ``DB_TOOLS_ALLOW_WRITE=1``.

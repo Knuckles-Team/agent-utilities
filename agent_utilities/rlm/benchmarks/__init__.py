@@ -1,6 +1,6 @@
 """RLM long-context benchmark harness.
 
-CONCEPT:AHE-3.32 — Long-Context RLM Benchmark Harness and Paper-Comparison Scoreboard
+CONCEPT:AU-AHE.rlm.long-context-benchmark — Long-Context RLM Benchmark Harness and Paper-Comparison Scoreboard
 
 A reproducible harness that runs agent-utilities' RLM and baseline scaffolds over the
 long-context tasks from Zhang et al. (2025, "Recursive Language Models", arXiv:2512.24601):

@@ -1,6 +1,6 @@
 """
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 Document Update Pipeline for Knowledge Graph.
 
 Handle document updates with cascading sync across all storage layers,

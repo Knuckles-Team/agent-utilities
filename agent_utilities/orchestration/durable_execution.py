@@ -1,5 +1,5 @@
 """
-Durable Execution Engine (CONCEPT:ECO-4.0 / ORCH-1.36 / OS-5.16)
+Durable Execution Engine (CONCEPT:AU-ECO.messaging.native-backend-abstraction / ORCH-1.36 / OS-5.16)
 
 Provides fault-tolerant, resumable state execution by persisting execution
 checkpoints to a durable, crash-safe store — by default the same embedded
@@ -7,7 +7,7 @@ SQLite substrate :mod:`agent_utilities.core.sessions` uses for session/turn
 recovery. SQLite is chosen over the L1 graph deliberately: the in-memory
 epistemic_graph tier is a *cache* (rebuilt on restart), whereas durable
 execution must survive process death. With ``state_db_uri`` set
-(CONCEPT:OS-5.16) checkpoints live on the shared Postgres instead, so any
+(CONCEPT:AU-OS.state.unified-durable-state-externalization) checkpoints live on the shared Postgres instead, so any
 host in the fleet can resume another host's execution.
 
 Durability guarantees:
@@ -79,7 +79,7 @@ def _default_db_path() -> Path:
 
 
 class CheckpointStore(Protocol):
-    """Backend seam for durable checkpoints (CONCEPT:OS-5.16)."""
+    """Backend seam for durable checkpoints (CONCEPT:AU-OS.state.unified-durable-state-externalization)."""
 
     def save_checkpoint(
         self,
@@ -198,7 +198,7 @@ class SQLiteCheckpointStore:
 
 
 class PostgresCheckpointStore:
-    """Shared-Postgres checkpoints (CONCEPT:OS-5.16) over the ONE state pool."""
+    """Shared-Postgres checkpoints (CONCEPT:AU-OS.state.unified-durable-state-externalization) over the ONE state pool."""
 
     def __init__(self, pool: Any | None = None):
         from agent_utilities.core.state_store import ensure_state_schema, state_pool

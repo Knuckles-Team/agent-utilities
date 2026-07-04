@@ -1,6 +1,6 @@
 """`_engine_vector_search` ranks via the engine ANN — never an O(N) Python scan.
 
-CONCEPT:KG-2.250 — the hand-orchestrated hybrid retriever's vector arm is
+CONCEPT:AU-KG.compute.kg-2 — the hand-orchestrated hybrid retriever's vector arm is
 collapsed onto the engine. The vector neighbourhood comes from ONE cross-modal
 unified plan (`graph.query_unified`, the engine sequencing filter + vector `Rank`
 in one costed round-trip); on a lean engine built without the `query` feature it

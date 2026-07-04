@@ -18,11 +18,11 @@
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.3 | Unified Retrieval (EvaluationCorpus) | 0.78 | KG-2 |
+| KG-2.3 | Unified Retrieval (EvaluationCorpus) | 0.78 | EG-KG.compute.backend |
 | AHE-3.4 | Query Decomposition / eval | 0.74 | AHE-3 |
 | AHE-3.2 | Agentic Evolution | 0.70 | AHE-3 |
-| KG-2.6 | Retrieval Quality Gate (nDCG) | 0.69 | KG-2 |
-| KG-2.12 | Memory-First Retrieval | 0.66 | KG-2 |
+| KG-2.6 | Retrieval Quality Gate (nDCG) | 0.69 | EG-KG.compute.backend |
+| KG-2.12 | Memory-First Retrieval | 0.66 | EG-KG.compute.backend |
 
 ### Extension Analysis
 
@@ -33,8 +33,8 @@
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:AHE-3.12`
-- **Augments Pillar**: AHE (+KG-2 retrieval)
+- **Proposed ID**: `CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness`
+- **Augments Pillar**: AHE (+EG-KG.compute.backend retrieval)
 - **15-Phase Pipeline Integration**: Governance phase (validation gate).
 - **Justification**: Distinct, reusable evaluation surface measuring the memory-first stack end-to-end against an external benchmark; not expressible as a retrieval or evolution concept alone.
 

@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.33 — Local (host-subprocess) workspace backend: the zero-infra floor.
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Local (host-subprocess) workspace backend: the zero-infra floor.
 
 Mirrors the role :class:`~agent_utilities.rlm.sandboxes.local_backend.LocalSandbox` plays for the
 RLM tier — always available, no isolation. The runtime works out-of-the-box (no Docker daemon)

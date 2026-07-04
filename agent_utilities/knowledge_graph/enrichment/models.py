@@ -1,4 +1,4 @@
-"""Typed entities produced by the KG enrichment pipeline (CONCEPT:KG-2.8).
+"""Typed entities produced by the KG enrichment pipeline (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 These are backend-agnostic value objects. The pipeline serialises them to graph
 nodes/edges via the standard ``GraphBackend`` interface — no backend-specific
@@ -75,7 +75,7 @@ class EnrichmentEdge(BaseModel):
     """A typed relationship between two enrichment entities.
 
     ``props`` carries optional scalar edge properties (e.g. the ``condition``
-    expression on a BPMN sequence-flow ``FLOWS_TO`` edge, CONCEPT:KG-2.53);
+    expression on a BPMN sequence-flow ``FLOWS_TO`` edge, CONCEPT:AU-KG.ontology.descriptive-process-world-gains);
     empty for the common property-less case.
     """
 
@@ -89,7 +89,7 @@ class Concept(BaseModel):
     """A key idea/technique/claim extracted from a document or codebase.
 
     Concepts are the universal bridge across ingestion categories — the same
-    Concept can be MENTIONED by a paper and REALIZED by code. (CONCEPT:KG-2.8)
+    Concept can be MENTIONED by a paper and REALIZED by code. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
 
     id: str
@@ -162,7 +162,7 @@ class Document(BaseModel):
     content_hash: str = ""
     # Full verbatim body text — retained so the document is faithfully
     # re-materialisable from the KG (e.g. distilled back into a skill-graph).
-    # (CONCEPT:KG-2.7 — standardized document ingestion contract.)
+    # (CONCEPT:AU-KG.ingest.standardized-document-ingestion — standardized document ingestion contract.)
     content: str = ""
     metadata: dict = Field(default_factory=dict)
     concept_ids: list[str] = Field(default_factory=list)
@@ -199,7 +199,7 @@ class GraphNode(BaseModel):
 
     ``type`` is the label; ``props`` the remaining (scalar) properties. This is
     the uniform shape every enterprise/source extractor emits so new sources need
-    no changes to shared pipeline/writer code. (CONCEPT:KG-2.9)
+    no changes to shared pipeline/writer code. (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
     """
 
     id: str

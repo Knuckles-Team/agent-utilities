@@ -4,15 +4,15 @@ The median ingestion is healthy; the TAIL blows up on edge cases:
 
   * a single BIG repo (thousands of files) is one task → one graph → one shard
     writer, pinning a worker for ~13 min (codebase p95=650s/max=797s) — fixed by
-    splitting it into K shard-routed sub-tasks (CONCEPT:KG-2.287);
+    splitting it into K shard-routed sub-tasks (CONCEPT:AU-KG.ingest.subtask-routing-key);
   * a connector / maint task with no per-task bound hangs (456s / 761s) and
     starves a worker — fixed by a per-lane soft timeout that cancels → routes the
-    task through the KG-2.113 retry→backoff→dead_letter machinery (CONCEPT:KG-2.286);
+    task through the KG-2.113 retry→backoff→dead_letter machinery (CONCEPT:AU-KG.compute.lane-bound-task);
   * the profiler reported only per-lane percentiles, so the specific outliers were
-    invisible — fixed by surfacing the slowest-N tasks + p99 (CONCEPT:KG-2.288);
+    invisible — fixed by surfacing the slowest-N tasks + p99 (CONCEPT:AU-KG.compute.p99-latency-metric);
   * under heavy ingestion the host worker pool was fully consumed, starving
     interactive/MCP work — fixed by a HARD interactive reservation no ingestion
-    lane can spend (CONCEPT:KG-2.289).
+    lane can spend (CONCEPT:AU-KG.compute.interactive-lane-floor).
 """
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ class TestHungTaskTimeout:
 
     def test_fail_or_retry_dead_letters_a_repeatedly_timing_out_task(self):
         # Proves the cancel→retry machinery terminates: on the final attempt the
-        # task is dead-lettered, not retried forever (CONCEPT:KG-2.113 reuse).
+        # task is dead-lettered, not retried forever (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task reuse).
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
         obj.backend = MagicMock()
         # 3rd attempt (attempts already 2, max 3) → dead_letter.

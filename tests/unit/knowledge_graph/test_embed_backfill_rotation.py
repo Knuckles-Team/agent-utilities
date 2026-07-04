@@ -1,4 +1,4 @@
-"""Per-channel embedding backfill round-robin + capacity fan-out (CONCEPT:KG-2.144).
+"""Per-channel embedding backfill round-robin + capacity fan-out (CONCEPT:AU-KG.compute.per-channel-embedding-backfill).
 
 A single ``WHERE embedding IS NULL LIMIT n`` FIFO lets one huge channel (822K
 codebase ``Code`` chunks) starve a small url/doc crawl's chunks that share the
@@ -182,7 +182,7 @@ def test_blank_text_rows_are_dropped():
     assert items == [("b", "real")]
 
 
-# --- capacity fan-out of the embed call (CONCEPT:KG-2.144 / KG-2.143) --------
+# --- capacity fan-out of the embed call (CONCEPT:AU-KG.compute.per-channel-embedding-backfill / KG-2.143) --------
 def test_backfill_embed_fn_fans_out_to_capacity(monkeypatch):
     """The backfill's ``make_embed_fn`` runs up to ``capacity`` embed BATCHES
     concurrently (scaling with vLLM instances), order-preserving."""

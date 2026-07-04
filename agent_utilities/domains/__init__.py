@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Multi-domain root module for agent-utilities.
 
-CONCEPT:KG-2.6 — Multi-Domain Architecture
+CONCEPT:AU-KG.domains.multi-domain-architecture — Multi-Domain Architecture
 
 This module houses all domain-specific integrations and provides a
 domain registry for the ServiceRegistry and KGTeamComposer to discover

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:OS-5.0 — Watchdog File Trigger System.
+"""CONCEPT:AU-OS.host.file-watcher-trigger — Watchdog File Trigger System.
 
 Monitors the project workspace for file changes and maps them to
 autonomous graph execution queries.  This enables the agent ecosystem
@@ -16,12 +16,12 @@ Architecture:
       for dependency drift detection.
 
 Integrates with:
-    - CONCEPT:OS-5.2 (CognitiveScheduler): Triggers run at LOW priority
-    - CONCEPT:OS-5.2 (ResourceOptimizer): Budget-capped execution
-    - CONCEPT:OS-5.2 (AgentRegistry): Monitors registry directory changes
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (CognitiveScheduler): Triggers run at LOW priority
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (ResourceOptimizer): Budget-capped execution
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (AgentRegistry): Monitors registry directory changes
     - ``systems-manager``: Package audit via pip inspection
 
-See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.0
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:AU-OS.host.file-watcher-trigger
 """
 
 
@@ -112,7 +112,7 @@ DEFAULT_TRIGGERS: list[TriggerRule] = [
 
 @dataclass
 class FileWatcher:
-    """CONCEPT:OS-5.0 — Watchdog-triggered autonomous graph execution.
+    """CONCEPT:AU-OS.host.file-watcher-trigger — Watchdog-triggered autonomous graph execution.
 
     Monitors a project directory for file changes and maps them to
     graph execution queries via configurable trigger rules.
@@ -152,7 +152,7 @@ class FileWatcher:
                 last = self._last_triggered.get(rule.pattern, 0)
                 if now - last < rule.cooldown:
                     logger.debug(
-                        f"[CONCEPT:OS-5.0] Trigger for '{rule.pattern}' on cooldown "
+                        f"[CONCEPT:AU-OS.host.file-watcher-trigger] Trigger for '{rule.pattern}' on cooldown "
                         f"({int(rule.cooldown - (now - last))}s remaining)"
                     )
                     return None
@@ -167,7 +167,7 @@ class FileWatcher:
                 }
                 self._pending_queries.append(trigger)
                 logger.info(
-                    f"[CONCEPT:OS-5.0] File trigger matched: '{rel_path}' → "
+                    f"[CONCEPT:AU-OS.host.file-watcher-trigger] File trigger matched: '{rel_path}' → "
                     f"'{rule.pattern}' (priority: {rule.priority})"
                 )
                 return trigger
@@ -220,10 +220,10 @@ class FileWatcher:
             if proc.returncode == 0 and proc.stdout.strip():
                 result["outdated"] = json.loads(proc.stdout)[:20]  # Cap at 20
                 logger.info(
-                    f"[CONCEPT:OS-5.0] Found {len(result['outdated'])} outdated packages"
+                    f"[CONCEPT:AU-OS.host.file-watcher-trigger] Found {len(result['outdated'])} outdated packages"
                 )
         except Exception as e:
-            logger.debug(f"[CONCEPT:OS-5.0] pip outdated check failed: {e}")
+            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip outdated check failed: {e}")
 
         # Check for vulnerabilities (requires pip-audit)
         try:
@@ -240,10 +240,10 @@ class FileWatcher:
                     result["vulnerabilities"] = vulns[:20]
         except FileNotFoundError:
             logger.debug(
-                "[CONCEPT:OS-5.0] pip-audit not installed — skipping vuln scan"
+                "[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit not installed — skipping vuln scan"
             )
         except Exception as e:
-            logger.debug(f"[CONCEPT:OS-5.0] pip-audit check failed: {e}")
+            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit check failed: {e}")
 
         return result
 
@@ -264,7 +264,7 @@ class FileWatcher:
             if proc.returncode == 0 and proc.stdout.strip():
                 return json.loads(proc.stdout)
         except Exception as e:
-            logger.debug(f"[CONCEPT:OS-5.0] pip list failed: {e}")
+            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip list failed: {e}")
         return []
 
     # ── Polling-based watcher (fallback when watchdog is unavailable) ─

@@ -1,4 +1,4 @@
-"""Tests for ontology grounding of extracted facts (CONCEPT:KG-2.74)."""
+"""Tests for ontology grounding of extracted facts (CONCEPT:AU-KG.backend.mirror-health-repair)."""
 
 from __future__ import annotations
 

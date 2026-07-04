@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Research Artifact Generator.
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Research Artifact Generator.
 
 Validates:
 - ResearchArtifact and DigestArtifact models
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.adaptation.research_artifacts import (
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestResearchArtifactModel:
     """Test ResearchArtifact model."""
 
@@ -47,7 +47,7 @@ class TestResearchArtifactModel:
         assert len(art.methods) == 2
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestDigestArtifactModel:
     """Test DigestArtifact model."""
 
@@ -58,7 +58,7 @@ class TestDigestArtifactModel:
         assert digest.markdown == ""
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestArtifactGeneratorNoEngine:
     """Test generator behavior without KG engine."""
 
@@ -68,7 +68,7 @@ class TestArtifactGeneratorNoEngine:
         assert art.title == "Unknown"
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestArtifactGeneratorWithEngine:
     """Test generator with mocked KG engine."""
 
@@ -126,7 +126,7 @@ class TestArtifactGeneratorWithEngine:
         app_text = " ".join(art.potential_applications)
         assert any(
             concept in app_text
-            for concept in ["OS-5", "ECO-4", "AHE-3", "ORCH-1", "KG-2"]
+            for concept in ["OS-5", "AU-ECO.connector.plane-provisioning-auth", "AHE-3", "ORCH-1", "EG-KG.compute.backend"]
         )
 
     def test_generate_digest(self):
@@ -185,7 +185,7 @@ class TestArtifactGeneratorWithEngine:
         assert (tmp_path / path.split("/")[-1]).exists()
 
 
-@pytest.mark.concept("KG-2.7")
+@pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 class TestContributionExtraction:
     """Test internal extraction methods."""
 

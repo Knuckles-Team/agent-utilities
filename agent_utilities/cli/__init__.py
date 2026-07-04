@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.11 (+ OS-5.1/5.2 extension) — Unified dev-lifecycle CLI.
+"""CONCEPT:AU-OS.observability.run-wide-correlation-id (+ OS-5.1/5.2 extension) — Unified dev-lifecycle CLI.
 
 Assimilated from open-design's ``tools-dev``: one entry point with ``start/stop/status/logs/inspect/run``
 subcommands, ``--namespace`` isolation (all state under ``$TMPDIR/agent-utilities/<namespace>/``), and
@@ -81,26 +81,26 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--project", default="")
 
     # ── Claude Code harness (claude_harness package) ──
-    # CONCEPT:OS-5.41 — the PreToolUse dynamic gate body (reads the event on stdin).
+    # CONCEPT:AU-OS.deployment.dynamic-two-fail-closed — the PreToolUse dynamic gate body (reads the event on stdin).
     sub.add_parser("harness-gate")
-    # CONCEPT:OS-5.40 — write the governance-derived permission fence.
+    # CONCEPT:AU-OS.deployment.governance-derived-claude-code — write the governance-derived permission fence.
     hf = sub.add_parser("harness-fence")
     hf.add_argument(
         "--target", default=None, help="Claude config dir (default ~/.claude)."
     )
     hf.add_argument("--policy", default=None, help="ActionPolicy YAML override.")
     hf.add_argument("--dry-run", action="store_true")
-    # CONCEPT:ECO-4.47 — drive the Loop engine unattended + write a morning summary.
+    # CONCEPT:AU-AHE.harness.overnight-loop-driver — drive the Loop engine unattended + write a morning summary.
     sr = sub.add_parser("sleep-run")
     sr.add_argument("--max-cycles", type=int, default=6)
     sr.add_argument("--max-topics", type=int, default=5)
     sr.add_argument("--workspace", default=None)
     sr.add_argument("--no-commit", action="store_true")
 
-    # CONCEPT:OS-5.77 — the unified install path. `install` materializes every provider
+    # CONCEPT:AU-OS.governance.concept-2 — the unified install path. `install` materializes every provider
     # contribution (skills + prompts + ontologies, incl. the hub's OWN) into the ONE XDG
     # data tree the runtime reads from, then (unless --no-toolkit) also installs the AU
-    # skill toolkit into the calling agent tool(s) — the CONCEPT:OS-5.52 behavior.
+    # skill toolkit into the calling agent tool(s) — the CONCEPT:AU-OS.deployment.agent-factory-autoload behavior.
     # `install-skills` is kept as a backward-compatible alias.
     def _add_install_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -159,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
-    # CONCEPT:ECO-4.42 — client-side chat/session ingestion for Claude + Antigravity
+    # CONCEPT:AU-ECO.mcp.client-side-chat-session — client-side chat/session ingestion for Claude + Antigravity
     # (and every other detected agent). `--upload` parses THIS host's local logs and
     # pushes them to a REMOTE engine via the graph-os `ingest_sessions` upload action
     # (the remote-engine path); default `collect` sinks into a local engine.
@@ -183,7 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--all", action="store_true", help="re-parse every file (default: changed only)"
     )
 
-    # CONCEPT:OS-5.42 — atomic concept-ID reservation (offline/worktree entry point).
+    # CONCEPT:AU-OS.governance.atomic-concept-id-reservation — atomic concept-ID reservation (offline/worktree entry point).
     cp = sub.add_parser("concept", help="reserve/list/release/reconcile concept ids")
     cp.add_argument(
         "concept_action",
@@ -236,13 +236,13 @@ def _sleep_run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _install(args: argparse.Namespace) -> dict[str, Any]:
-    """Unified install (CONCEPT:OS-5.77) — materialize the XDG tree + the skill toolkit.
+    """Unified install (CONCEPT:AU-OS.governance.concept-2) — materialize the XDG tree + the skill toolkit.
 
     1. Materialize every provider contribution (skills + prompts + ontologies, incl. the
        hub's OWN) into the one XDG data tree the runtime reads from
        (:func:`agent_utilities.core.unified_install.install_unified`, overwrite-on-reinstall).
     2. Unless ``--no-toolkit``, also install the AU skill toolkit into the detected agent
-       tool(s) — the backward-compatible CONCEPT:OS-5.52 behavior.
+       tool(s) — the backward-compatible CONCEPT:AU-OS.deployment.agent-factory-autoload behavior.
     """
     from agent_utilities.core.unified_install import install_unified
 
@@ -253,7 +253,7 @@ def _install(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
-    """Install the agent-utilities skill toolkit into agent tool(s) (CONCEPT:OS-5.52).
+    """Install the agent-utilities skill toolkit into agent tool(s) (CONCEPT:AU-OS.deployment.agent-factory-autoload).
 
     Thin delegate to the universal-skills installer (the single source of truth for
     skill discovery/placement). With no ``--tool``/``--path`` it installs into every
@@ -308,7 +308,7 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
-    """Parse local agent chat logs and ingest them (CONCEPT:ECO-4.42).
+    """Parse local agent chat logs and ingest them (CONCEPT:AU-ECO.mcp.client-side-chat-session).
 
     ``--upload`` parses THIS host's logs and pushes them to a remote engine over MCP
     (the remote-engine path — Claude + Antigravity + every other detected agent);
@@ -345,7 +345,7 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
     if action == "reconcile":
         return ca.reconcile(repo_root=repo_root)
     if action == "resolve":
-        # CONCEPT:OS-5.76 — canonicalize a flat/dotted id → its 3-level form + aliases.
+        # CONCEPT:AU-OS.governance.concept-id-canonicalization — canonicalize a flat/dotted id → its 3-level form + aliases.
         from agent_utilities.governance import concept_hierarchy as ch
 
         if not args.concept_id:

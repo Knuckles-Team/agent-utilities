@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Assimilation MCP action + public pass entrypoint (VU-9).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from agent_utilities.knowledge_graph.research.loop_controller import (
     run_assimilation_pass,
 )
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:
@@ -57,14 +57,14 @@ def _nodes():
         "f1": {
             "type": "capability",
             "name": "exec-rag planner",
-            "concept_ids": ["KG-2.12"],
+            "concept_ids": ["AU-KG.retrieval.memory-first-retrieval"],
             "research_sources": ["arxiv:pyrag"],
             "status": "open",
         },
         "f2": {
             "type": "capability",
             "name": "social swarm",
-            "concept_ids": ["ORCH-1.32"],
+            "concept_ids": ["AU-ORCH.dispatch.kg-governed-agent-swarm"],
             "research_sources": ["arxiv:mass"],
             "status": "open",
         },

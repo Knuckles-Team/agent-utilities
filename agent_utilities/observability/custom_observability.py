@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Custom Observability Module.
 
-CONCEPT:OS-5.1 — Telemetry & Observability
+CONCEPT:AU-OS.config.secrets-authentication — Telemetry & Observability
 
 This module provides instrumentation for OpenTelemetry (OTel) tracing
 via Logfire, routing all telemetry to Langfuse's OTLP ingestion endpoint.
@@ -94,7 +94,7 @@ _otel_initialized = False
 def _generate_otlp_auth_header(public_key: str, secret_key: str) -> str:
     """Generate a Basic Auth header value from Langfuse public/secret key pair.
 
-    CONCEPT:OS-5.1 — OTel Authentication
+    CONCEPT:AU-OS.config.secrets-authentication — OTel Authentication
 
     Langfuse's OTLP endpoint expects HTTP Basic Auth where:
         username = public_key
@@ -119,7 +119,7 @@ def _create_otlp_span_processor(
 ) -> Any | None:
     """Create an OTel BatchSpanProcessor with OTLPSpanExporter for Langfuse.
 
-    CONCEPT:OS-5.1 — OTLP Span Export Pipeline
+    CONCEPT:AU-OS.config.secrets-authentication — OTLP Span Export Pipeline
 
     This creates the actual export pipeline that sends spans from Logfire
     to Langfuse's OTLP ingestion endpoint. The ``BatchSpanProcessor``
@@ -196,7 +196,7 @@ def setup_otel(
 ):
     """Setup OpenTelemetry tracing via Logfire, exporting to Langfuse OTLP.
 
-    CONCEPT:OS-5.1 — Full OTel Pipeline Setup
+    CONCEPT:AU-OS.config.secrets-authentication — Full OTel Pipeline Setup
 
     This is the primary entry point for initializing the observability pipeline.
     It configures:
@@ -355,7 +355,7 @@ def setup_otel(
 def verify_otel_pipeline() -> dict[str, Any]:
     """Verify the OTel → Langfuse pipeline is operational.
 
-    CONCEPT:OS-5.1 — Pipeline Health Check
+    CONCEPT:AU-OS.config.secrets-authentication — Pipeline Health Check
 
     Tests connectivity to the Langfuse OTLP endpoint and returns
     a diagnostic report.
@@ -403,7 +403,7 @@ def verify_otel_pipeline() -> dict[str, Any]:
 def get_otel_status_summary() -> str:
     """Get a human-readable summary of the OTel pipeline status.
 
-    CONCEPT:OS-5.1 — Diagnostics
+    CONCEPT:AU-OS.config.secrets-authentication — Diagnostics
 
     Returns:
         Multi-line string summarizing the pipeline health.

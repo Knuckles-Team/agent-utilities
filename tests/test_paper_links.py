@@ -1,4 +1,4 @@
-"""Tests for research-paper link extraction + roundup detection (CONCEPT:KG-2.7)."""
+"""Tests for research-paper link extraction + roundup detection (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
 from __future__ import annotations
 

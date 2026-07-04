@@ -1,4 +1,4 @@
-"""Concrete stream adapter tests (CONCEPT:KG-2.6).
+"""Concrete stream adapter tests (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Fully offline: a fake aiokafka consumer / NATS subscription is injected so no
 broker or optional dependency is required.

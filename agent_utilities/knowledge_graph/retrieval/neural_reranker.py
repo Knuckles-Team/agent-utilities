@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Neural cross-encoder relevance scorer for ScoreGate / reranking.
 
-CONCEPT:KG-2.85 — Adaptive Chunk Selection (neural cross-encoder half)
+CONCEPT:AU-KG.retrieval.unset-dependency-free — Adaptive Chunk Selection (neural cross-encoder half)
 
 This module supplies the *real* cross-encoder relevance signal that
 :mod:`agent_utilities.knowledge_graph.retrieval.score_gate` fuses against the
@@ -75,7 +75,7 @@ def _compose_query(query: str, instruction: str) -> str:
 
 
 class NeuralCrossEncoderReranker:
-    """Real cross-encoder relevance scorer satisfying the RerankScorer protocol (CONCEPT:KG-2.85).
+    """Real cross-encoder relevance scorer satisfying the RerankScorer protocol (CONCEPT:AU-KG.retrieval.unset-dependency-free).
 
     Wraps a sentence-transformers CrossEncoder (or a compatible injected model) that scores a
     (query, passage) PAIR jointly — strictly more faithful than the lexical proxy. The model dep
@@ -180,7 +180,7 @@ class NeuralCrossEncoderReranker:
 
 class RemoteRerankScorer:
     """RerankScorer that scores a (query, passage) pair on a REMOTE vLLM ``/v1/rerank``
-    endpoint — no local model, no torch/GPU baseline pinned (CONCEPT:KG-2.85). Keeps the
+    endpoint — no local model, no torch/GPU baseline pinned (CONCEPT:AU-KG.retrieval.unset-dependency-free). Keeps the
     per-pair ``score`` Protocol; a transient endpoint error degrades to 0.0 so retrieval
     never breaks (the caller still has the first-stage order)."""
 

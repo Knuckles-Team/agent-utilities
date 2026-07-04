@@ -1,4 +1,4 @@
-"""Logprob-weighted G-Eval (CONCEPT:AHE-3.65) — CI-safe with a mocked endpoint.
+"""Logprob-weighted G-Eval (CONCEPT:AU-AHE.harness.ahe-2) — CI-safe with a mocked endpoint.
 
 Asserts the probability-weighted score math over the score token's top-logprobs and that
 the chain-of-thought rubric is generated once and cached. Live discrimination

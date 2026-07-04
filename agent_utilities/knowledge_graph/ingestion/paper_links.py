@@ -1,4 +1,4 @@
-"""Extract research-paper links from web/markdown content (CONCEPT:KG-2.7).
+"""Extract research-paper links from web/markdown content (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Turns a page like a "latest papers" research roundup into a list of downloadable
 :class:`PaperRef`s (arXiv ids, DOIs, direct PDF urls), and decides whether a page

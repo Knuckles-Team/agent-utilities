@@ -1,4 +1,4 @@
-"""wger write-back sink (CONCEPT:KG-2.9).
+"""wger write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Logs KG-derived wellness facts back into wger: weight entries, body
 measurements, and workout sessions (the coaching-loop write twin of the wger

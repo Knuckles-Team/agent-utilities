@@ -101,7 +101,7 @@ async def router_step(
         logger.error("Router: Max planning loops exceeded. Aborting.")
         return "error_recovery"
 
-    # CONCEPT:ORCH-1.68 — a direct-completion / lean turn is answered OUTSIDE this graph by
+    # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / lean turn is answered OUTSIDE this graph by
     # ``agent_runner._run_direct_completion`` (the planner's ``direct_complete`` shape, or the
     # structural classifier for a shape-less caller, short-circuits _execute_graph before the
     # graph is even built). The router therefore only ever runs for a real multi-step turn and
@@ -122,7 +122,7 @@ async def router_step(
             )
 
     # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context.
-    # CONCEPT:ORCH-1.68 — run this several-round-trip discovery bundle only when the job's
+    # CONCEPT:AU-ORCH.execution.direct-completion-shape — run this several-round-trip discovery bundle only when the job's
     # shape calls for it; a lean shape skips it.
     _shape = getattr(deps, "execution_shape", None)
     discovery_context = ""
@@ -133,14 +133,14 @@ async def router_step(
             "[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery..."
         )
 
-        # CONCEPT:ORCH-1.65 — the pre-LLM discovery below is several SYNCHRONOUS engine
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the pre-LLM discovery below is several SYNCHRONOUS engine
         # round-trips (tool lookup, hybrid search, policy/process discovery). Running them
         # directly on the event loop stalled the async reply path. Run the whole bundle ONCE
         # in a worker thread via ``to_thread`` so the loop stays free. The keyword tool lookup
         # was also an N+1 — ``find_agent_for_tool`` once PER query word — now collapsed to a
         # single de-duplicated pass over the unique keyword set.
         #
-        # NOTE (CONCEPT:ORCH-1.62 P2, future optimization): this whole bundle could collapse to
+        # NOTE (CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2, future optimization): this whole bundle could collapse to
         # a single engine ``discover(query, k)`` round-trip (see
         # docs/architecture/non-blocking-execution.md §8) returning matched agents + hybrid hits
         # + policy/process matches in one Rust call, so the router's pre-LLM discovery is one
@@ -156,7 +156,7 @@ async def router_step(
                 agents = ke.find_agent_for_tool(word)
                 if agents:
                     _matched.update(agents)
-            # 1b. CONCEPT:KG-2.1 — KG-driven designation (ANN capability index).
+            # 1b. CONCEPT:AU-KG.memory.tiered-memory-caching — KG-driven designation (ANN capability index).
             try:
                 from .routing.enrichers.capability_designation import (
                     designate_specialists,
@@ -231,7 +231,7 @@ async def router_step(
                 f"Router: Knowledge Graph discovery found {len(matched_agents)} tool-matched agents and {len(hybrid_results)} hybrid results."
             )
 
-        # CONCEPT:AHE-3.3 — Check for matching TeamConfig before LLM planning
+        # CONCEPT:AU-AHE.harness.team-config-precheck — Check for matching TeamConfig before LLM planning
         if deps.knowledge_engine:
             try:
                 from ..core.registry.kg_adapter import RegistryMixin
@@ -239,13 +239,13 @@ async def router_step(
                 if isinstance(deps.knowledge_engine, RegistryMixin) and hasattr(
                     deps.knowledge_engine, "find_matching_team_config"
                 ):
-                    # CONCEPT:ORCH-1.65 — sync KG round-trip; run off the event loop.
+                    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — sync KG round-trip; run off the event loop.
                     matching_teams = await asyncio.to_thread(
                         deps.knowledge_engine.find_matching_team_config,
                         ctx.state.query,
                         1,
                     )
-                    # R2 (CONCEPT:AHE-3.3): reuse decision owned by the team_reuse
+                    # R2 (CONCEPT:AU-AHE.harness.team-config-precheck): reuse decision owned by the team_reuse
                     # strategy (single source of truth).
                     from .routing.strategies.team_reuse import select_reusable_team
 
@@ -282,7 +282,7 @@ async def router_step(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
 
-        # CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+        # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
         # Check for AgentTemplate nodes before falling back to LLM planning
         if deps.knowledge_engine:
             try:
@@ -296,7 +296,7 @@ async def router_step(
                 )
                 if kg_result.specialist_configs:
                     logger.info(
-                        "[CONCEPT:ORCH-1.4] KG graph materialized with %d steps. "
+                        "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KG graph materialized with %d steps. "
                         "Using KG-driven topology.",
                         len(kg_result.specialist_configs),
                     )
@@ -340,7 +340,7 @@ async def router_step(
                     f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
                 )
 
-        # R4 (CONCEPT:KG-2.1) Self-Model proficiency + R5 ACO pheromone affinities —
+        # R4 (CONCEPT:AU-KG.memory.tiered-memory-caching) Self-Model proficiency + R5 ACO pheromone affinities —
         # context formatting owned by the self_model enricher (single source).
         if deps.knowledge_engine:
             try:
@@ -352,7 +352,7 @@ async def router_step(
                 discovery_context += self_model_context(current)
             except Exception as e:
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
-    # CONCEPT:ORCH-1.37 (perf) — DIRECT-DISPATCH FAST PATH.
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — DIRECT-DISPATCH FAST PATH.
     # When the task resolves to a single connected MCP server (the common single-server
     # deployment), skip the planner + memory_selection + verifier entirely: build an agent
     # with just that server's toolset and run it ONCE. Collapses the ~5-call
@@ -376,13 +376,13 @@ async def router_step(
                 "skipping planner/verifier.",
                 _srv,
             )
-            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:ORCH-1.39
+            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             _direct_agent = Agent(
                 model=deps.agent_model,
                 system_prompt=(
                     f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
                     f"the user's request directly and return exactly the data requested."
-                    f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.39
+                    f"{invoker_context_section(ctx.state)}"  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
                 ),
                 toolsets=_scoped_ts,
             )
@@ -390,7 +390,7 @@ async def router_step(
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
-                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.39 budget
+                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
             )
             emit_graph_event(
                 deps.event_queue,
@@ -458,13 +458,13 @@ async def router_step(
                     f"[LAYER:GRAPH:ROUTER] Specialist tags loaded (count: {len(specialist_tags)}). Tags: {list(specialist_tags.keys())}"
                 )
 
-        # CONCEPT:ORCH-1.2 — Filtered specialist injection for prompt bloat reduction
+        # CONCEPT:AU-ORCH.routing.filtered-specialist-injection — Filtered specialist injection for prompt bloat reduction
         relevant = get_relevant_specialists(
             ctx.state.query, engine=deps.knowledge_engine, top_n=7
         )
 
-        # R7 (CONCEPT:KG-2.1) — Reward-Driven Optimization (pheromone filtering) and
-        # R8 (CONCEPT:AHE-3.x) — Telemetry-Driven Optimization (anomaly pruning).
+        # R7 (CONCEPT:AU-KG.memory.tiered-memory-caching) — Reward-Driven Optimization (pheromone filtering) and
+        # R8 (CONCEPT:AU-AHE.optimization.telemetry-optimization) — Telemetry-Driven Optimization (anomaly pruning).
         # Both filters are owned by the optimization strategy (single source).
         from .routing.strategies.optimization import (
             filter_by_pheromone,
@@ -499,13 +499,13 @@ async def router_step(
         except Exception as e:
             logger.debug(f"Telemetry-driven routing optimization failed: {e}")
 
-        # R6 (CONCEPT:ORCH-1.2) — filtered specialist injection (prompt-bloat reduction).
+        # R6 (CONCEPT:AU-ORCH.routing.filtered-specialist-injection) — filtered specialist injection (prompt-bloat reduction).
         step_info = format_specialist_step_info(relevant, specialist_tags)
         logger.info(
             f"Router: Specialists count: {len(specialist_tags)}, Context length: {len(agent_context)}"
         )
 
-        # R9 (CONCEPT:ORCH-1.1): subtask-spec + wide-search instructions — owned by
+        # R9 (CONCEPT:AU-ORCH.routing.transition-state-checkpoint): subtask-spec + wide-search instructions — owned by
         # the llm_planner strategy (single source of truth).
         from .routing.strategies.llm_planner import (
             subtask_and_widesearch_instructions,
@@ -540,7 +540,7 @@ async def router_step(
                 config=rlm_config,
                 graph_deps=ctx.deps,
             )
-            # R10 (CONCEPT:ORCH-1.12) — RLM planning + fallback parser. The
+            # R10 (CONCEPT:AU-ORCH.execution.predict-rlm-runtime) — RLM planning + fallback parser. The
             # instruction text and JSON->GraphPlan parse are owned by the
             # llm_planner strategy (single source); the async RLM run + re-parse
             # agent stay here.
@@ -564,15 +564,15 @@ async def router_step(
                 parse_res = await router_agent.run(f"Text to parse:\n{rlm_result}")
                 plan_output = parse_res.output
         else:
-            # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
-            # CONCEPT:AHE-3.4 — KG-Native Agentic Task Detection
-            # CONCEPT:AHE-3.4 — Topological Reasoning Detection
+            # CONCEPT:AU-KG.memory.tiered-memory-caching — Adaptive Model Routing (Planner Path)
+            # CONCEPT:AU-AHE.evaluation.backtest-harness — KG-Native Agentic Task Detection
+            # CONCEPT:AU-AHE.evaluation.backtest-harness — Topological Reasoning Detection
 
             query_length = len(ctx.state.query.split())
             is_complex = False
             requires_reasoning = False
 
-            # R11 (CONCEPT:AHE-3.4) — text-heuristic complexity detection, owned by
+            # R11 (CONCEPT:AU-AHE.evaluation.backtest-harness) — text-heuristic complexity detection, owned by
             # the llm_planner strategy (single source). Topology/quant escalation
             # below stays in the router (depends on live KG state).
             from .routing.strategies.llm_planner import is_complex_query
@@ -589,7 +589,7 @@ async def router_step(
             # KG-Native Topological overrides
             if deps.knowledge_engine:
                 try:
-                    # CONCEPT:AHE-3.4 Agentic detection
+                    # CONCEPT:AU-AHE.evaluation.backtest-harness Agentic detection
                     task_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query + " TradingPipeline RiskScoringOntology",
                         top_k=2,
@@ -600,10 +600,10 @@ async def router_step(
                     ):
                         is_complex = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.4 — Detected complex topological subgraphs. Escalate to complex model."
+                            "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected complex topological subgraphs. Escalate to complex model."
                         )
 
-                    # CONCEPT:AHE-3.4 Reasoning detection
+                    # CONCEPT:AU-AHE.evaluation.backtest-harness Reasoning detection
                     math_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query
                         + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
@@ -617,12 +617,12 @@ async def router_step(
                     ):
                         requires_reasoning = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.4 — Detected mathematical/quantitative topology. Escalate to reasoning model."
+                            "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected mathematical/quantitative topology. Escalate to reasoning model."
                         )
                 except Exception as e:
                     logger.warning(f"Topological routing detection failed: {e}")
 
-            # CONCEPT:OS-5.0 — Topological Session Persistence
+            # CONCEPT:AU-OS.safety.doom-loop-detection — Topological Session Persistence
             if ctx.state.pinned_model_id:
                 from ..core.model_factory import create_model
 
@@ -634,7 +634,7 @@ async def router_step(
                 from ..core.model_factory import create_model
 
                 _super = config.super_chat_model
-                # CONCEPT:ORCH-1.68 — no hard-coded remote model; an unset super-model falls
+                # CONCEPT:AU-ORCH.execution.direct-completion-shape — no hard-coded remote model; an unset super-model falls
                 # back to the local default (``create_model(None)``), never an unreachable
                 # ``o3-mini`` the homelab cannot serve.
                 reasoning_model_id = _super.id if _super else None
@@ -652,7 +652,7 @@ async def router_step(
                 from ..core.model_factory import create_model
 
                 _lite2 = config.lite_chat_model
-                # CONCEPT:ORCH-1.68 — local default when no lite model is configured.
+                # CONCEPT:AU-ORCH.execution.direct-completion-shape — local default when no lite model is configured.
                 adaptive_model = create_model(model_id=_lite2.id if _lite2 else None)
                 logger.info(
                     "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."
@@ -810,7 +810,7 @@ async def dispatcher_step(
     # maximum allowed node transitions.
     ctx.state.node_transitions += 1
 
-    # CONCEPT:ORCH-1.3 — Execution Budget (Cost Governor) enforcement
+    # CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget (Cost Governor) enforcement
     import time
 
     budget = ctx.state.execution_budget
@@ -877,7 +877,7 @@ async def dispatcher_step(
         ctx.state.error = str(e)
         return "error_recovery"
 
-    # CONCEPT:OS-5.0 — Doom Loop Detection at transition boundary
+    # CONCEPT:AU-OS.safety.doom-loop-detection — Doom Loop Detection at transition boundary
     try:
         from ..security.execution_stability_engine import DoomLoopDetector
 
@@ -896,7 +896,7 @@ async def dispatcher_step(
     except Exception as e:
         logger.debug("Doom loop detection skipped: %s", e)
 
-    # CONCEPT:ORCH-1.1 — State checkpoint at transition boundary.
+    # CONCEPT:AU-ORCH.routing.transition-state-checkpoint — State checkpoint at transition boundary.
     # Routes through the consolidated CheckpointManager (KG backend). The old
     # graph/state_checkpoint.StateCheckpointer was merged into core/checkpoint
     # (Plan 03 Step 8); the prior import silently failed, dropping this
@@ -924,7 +924,7 @@ async def dispatcher_step(
 
     # Context enrichment: route to memory_selection on the first entry so historical context
     # is available before any plan steps execute — UNLESS the job's shape says this is a lean
-    # turn that does not need pre-LLM context gathering (CONCEPT:ORCH-1.68). memory_selection
+    # turn that does not need pre-LLM context gathering (CONCEPT:AU-ORCH.execution.direct-completion-shape). memory_selection
     # gathers workspace/KG context; ``run_discovery`` is the shape's "gather context for this
     # job" signal, so a job the planner shaped as not needing it skips the node entirely.
     _shape = getattr(ctx.deps, "execution_shape", None)
@@ -1035,7 +1035,7 @@ async def dispatcher_step(
             parallel=False,
         )
 
-        # CONCEPT:ORCH-1.0 — Stigmergy Signal Board injection
+        # CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Stigmergy Signal Board injection
         # If prior adaptive_agent_router left signals, emit them so downstream
         # adaptive_agent_router and the UI are aware of cross-node observations.
         if ctx.state.signal_board:
@@ -1261,7 +1261,7 @@ async def expert_executor_step(
                     if filtered_tools:
                         domain_tools = filtered_tools
 
-                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:ORCH-1.39
+                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
                     ctx.state, domain_tools, domain_toolsets
                 )
                 dynamic_agent = Agent(
@@ -1282,7 +1282,7 @@ async def expert_executor_step(
                     ctx.deps, domain_toolsets, state=ctx.state
                 )
 
-                # CONCEPT:ORCH-1.37/1.38 — bound requests + enforce the invoker's token budget.
+                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
                 async with dynamic_agent.run_stream(
                     f"Task context: {step.description}",
                     deps=_agent_deps,
@@ -1343,7 +1343,7 @@ async def expert_executor_step(
             break
 
         except Exception as e:
-            # CONCEPT:ORCH-1.21 — an expert step that fails by calling a remote MCP tool
+            # CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — an expert step that fails by calling a remote MCP tool
             # raises an anyio ``BaseExceptionGroup`` whose ``str()`` is the opaque
             # "unhandled errors in a TaskGroup" (or empty). Flatten to the real leaf
             # cause(s) so the node-failure log is actionable (e.g. the portainer 401 /

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.13 — Background Learning Engine.
+"""CONCEPT:AU-KG.memory.background-learning-engine — Background Learning Engine.
 
 Covers relative-date resolution, defensive edit parsing, targeted ADD/UPDATE/DELETE application
 as bi-temporal mutations (with a fake engine), bounded backoff, and the async sync barrier.
@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.memory.learning_engine import (
 # ── pure helpers ──────────────────────────────────────────────────────────────
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_resolve_relative_dates_absolute():
     now = "2026-06-04T12:00:00+00:00"
     assert "2026-06-03" in resolve_relative_dates("I did it yesterday", now=now)
@@ -31,7 +31,7 @@ def test_resolve_relative_dates_absolute():
     assert resolve_relative_dates("recently moved", now=now) == "recently moved"
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_parse_memory_edits_actions_envelope_and_skips_bad_rows():
     raw = (
         'noise {"actions": [{"action": "ADD", "content": "User name is Sam"}, '
@@ -41,7 +41,7 @@ def test_parse_memory_edits_actions_envelope_and_skips_bad_rows():
     assert [e.action for e in edits] == ["ADD", "DELETE"]
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_parse_memory_edits_garbage_returns_empty():
     assert parse_memory_edits("no json here") == []
 
@@ -63,7 +63,7 @@ class _FakeEngine:
         self.nodes[mid] = node
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_apply_add_stamps_bitemporal_and_type():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -88,7 +88,7 @@ def test_apply_add_stamps_bitemporal_and_type():
     assert node.storage_time == "2026-06-04T12:00:00+00:00"  # type: ignore[attr-defined]
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_apply_update_supersedes_content_and_stamps():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -108,7 +108,7 @@ def test_apply_update_supersedes_content_and_stamps():
     assert eng.nodes["m1"].event_time == "2026-06-04T00:00:00+00:00"  # type: ignore[attr-defined]
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_apply_delete_is_soft_and_preserves_node():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -122,7 +122,7 @@ def test_apply_delete_is_soft_and_preserves_node():
     assert eng.nodes["m1"].valid_to == "2026-06-04T12:00:00+00:00"  # type: ignore[attr-defined]
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 def test_apply_update_missing_node_is_skipped():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
@@ -133,7 +133,7 @@ def test_apply_update_missing_node_is_skipped():
 # ── async: backoff + sync barrier ───────────────────────────────────────────────
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 @pytest.mark.asyncio
 async def test_with_backoff_retries_then_succeeds():
     calls = {"n": 0}
@@ -149,7 +149,7 @@ async def test_with_backoff_retries_then_succeeds():
     assert calls["n"] == 3
 
 
-@pytest.mark.concept(id="KG-2.13")
+@pytest.mark.concept(id="AU-KG.memory.background-learning-engine")
 @pytest.mark.asyncio
 async def test_schedule_and_await_pending_drains_tasks():
     eng = _FakeEngine()

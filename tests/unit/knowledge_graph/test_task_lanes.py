@@ -1,4 +1,4 @@
-"""Functional task lanes — fair scheduling + observability (CONCEPT:ORCH-1.75)."""
+"""Functional task lanes — fair scheduling + observability (CONCEPT:AU-ORCH.execution.two-level-fair-rotation)."""
 
 from __future__ import annotations
 

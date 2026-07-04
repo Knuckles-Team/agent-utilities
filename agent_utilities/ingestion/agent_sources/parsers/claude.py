@@ -1,4 +1,4 @@
-"""Claude Code session parser (CONCEPT:ECO-4.38).
+"""Claude Code session parser (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 Reads ``~/.claude/projects/<encoded-cwd>/<session>.jsonl``. Each file is one
 session; lines are typed records (user/assistant/system/...). Token usage comes

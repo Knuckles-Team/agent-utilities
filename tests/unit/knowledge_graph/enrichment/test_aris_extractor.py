@@ -1,4 +1,4 @@
-"""ARIS source extractor tests (CONCEPT:KG-2.9, EPC step lift KG-2.53).
+"""ARIS source extractor tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor, EPC step lift KG-2.53).
 
 Uses an injected fake ARIS client (no network) to assert model-level typing and
 the EPC step lift: functions/rule operators → BusinessTask, events collapsed,

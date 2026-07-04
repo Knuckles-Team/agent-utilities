@@ -1,4 +1,4 @@
-"""Tests for engine HMAC secret resolution (CONCEPT:OS-5.14).
+"""Tests for engine HMAC secret resolution (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
 The launcher must be secure by default: a per-install secret is generated
 once, persisted with 0600 perms under the XDG data dir, shared by every
@@ -32,7 +32,7 @@ def _cfg(**overrides):
     return cfg
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_secret_generated_persisted_with_0600(data_dir):
     secret = _load_or_create_engine_secret()
     path = data_dir / "engine_secret"
@@ -42,20 +42,20 @@ def test_secret_generated_persisted_with_0600(data_dir):
     assert (os.stat(path).st_mode & 0o777) == 0o600
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_secret_is_stable_across_calls(data_dir):
     first = _load_or_create_engine_secret()
     second = _load_or_create_engine_secret()
     assert first == second
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_existing_secret_file_wins(data_dir):
     (data_dir / "engine_secret").write_text("pre-shared-secret\n")
     assert _load_or_create_engine_secret() == "pre-shared-secret"
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_resolve_uses_configured_secret_verbatim(data_dir):
     secret, insecure = resolve_engine_auth(_cfg(graph_service_auth_secret="configured"))
     assert (secret, insecure) == ("configured", False)
@@ -63,7 +63,7 @@ def test_resolve_uses_configured_secret_verbatim(data_dir):
     assert not (data_dir / "engine_secret").exists()
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_resolve_generates_persisted_secret_by_default(data_dir):
     secret, insecure = resolve_engine_auth(_cfg())
     assert insecure is False
@@ -71,7 +71,7 @@ def test_resolve_generates_persisted_secret_by_default(data_dir):
     assert (data_dir / "engine_secret").read_text().strip() == secret
 
 
-@pytest.mark.concept("CONCEPT:OS-5.14")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_insecure_opt_out(data_dir):
     secret, insecure = resolve_engine_auth(_cfg(kg_engine_insecure=True))
     assert (secret, insecure) == (None, True)

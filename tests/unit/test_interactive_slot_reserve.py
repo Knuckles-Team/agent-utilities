@@ -1,4 +1,4 @@
-"""Reserved interactive inference slot (CONCEPT:ORCH-1.59).
+"""Reserved interactive inference slot (CONCEPT:AU-ORCH.execution.reserved-inference-slots).
 
 One capacity knob (``KG_LLM_CONCURRENCY``) with 1 slot always reserved for the interactive
 path (messaging responder + graph-os-spawned pydantic-ai agents, which share the default

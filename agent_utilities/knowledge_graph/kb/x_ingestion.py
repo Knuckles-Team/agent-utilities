@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """X Content Ingestion Bridge.
 
-CONCEPT:ECO-4.0 — Social Content Ingestion
+CONCEPT:AU-ECO.connector.social-content-ingestion — Social Content Ingestion
 
 Bridges the X search tools (``x_search``, ``browse_x_post``) to the
 Universal Knowledge Classifier and the Knowledge Graph. Handles:

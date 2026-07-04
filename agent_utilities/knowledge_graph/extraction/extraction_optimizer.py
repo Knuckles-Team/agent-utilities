@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Self-supervised optimization of the fact-extraction prompt.
 
-CONCEPT:AHE-3.44 — DSPy optimization of the KG extraction prompt against a
+CONCEPT:AU-AHE.optimization.dspy-optimization-kg-extraction — DSPy optimization of the KG extraction prompt against a
 *self-supervised* quality metric — no human labels required.
 
 The extraction prompt (``FACT_EXTRACTION_PROMPT``) is large and hand-tuned. Its quality
@@ -32,7 +32,7 @@ def _norm_entity(name: str) -> str:
 
 
 def canonical_consistency(facts: Sequence[Any]) -> float:
-    """Fraction of entity mentions that use a *consistent* surface form (CONCEPT:AHE-3.44).
+    """Fraction of entity mentions that use a *consistent* surface form (CONCEPT:AU-AHE.optimization.dspy-optimization-kg-extraction).
 
     Entities that differ only by casing/whitespace (``"Acme Corp"`` vs ``"acme  corp"``)
     are fragmentation — the same real entity under multiple surface forms. Returns
@@ -59,7 +59,7 @@ def extraction_quality(
     dedup_threshold: float = 0.90,
     dedup_weight: float = 0.6,
 ) -> dict[str, float]:
-    """Self-supervised quality of an extracted fact set (CONCEPT:AHE-3.44).
+    """Self-supervised quality of an extracted fact set (CONCEPT:AU-AHE.optimization.dspy-optimization-kg-extraction).
 
     Combines two label-free signals:
 
@@ -129,7 +129,7 @@ def optimize_extraction_prompt(
 ) -> dict[str, Any] | None:
     """DSPy-optimize the extraction prompt against :func:`extraction_quality`.
 
-    CONCEPT:AHE-3.44. Wraps extraction as a DSPy module (``document → facts_json``) whose
+    CONCEPT:AU-AHE.optimization.dspy-optimization-kg-extraction. Wraps extraction as a DSPy module (``document → facts_json``) whose
     metric parses the predicted facts and scores them self-supervised. Best-effort: returns
     ``None`` when DSPy/an LLM is unavailable or ``documents`` is empty (so it is safe to
     call from a daemon tick or the optimize-component surface). Never raises.

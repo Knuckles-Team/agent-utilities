@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OKF-CIS curation harness (CONCEPT:OS-5.77) — the stage between plan and apply.
+"""OKF-CIS curation harness (CONCEPT:AU-OS.governance.concept-2) — the stage between plan and apply.
 
 ``emit``  : read migration_plan.yaml, pass clean entries through, and split the
             needs-curation entries into per-pillar batch JSON files (collision

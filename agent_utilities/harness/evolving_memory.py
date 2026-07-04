@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Graph-native CRUD evolving-memory store.
 
-CONCEPT:KG-2.1 — Unified Memory Manager
+CONCEPT:AU-KG.memory.memory-lifecycle-manager — Unified Memory Manager
 
 One self-curating CRUD memory substrate shared across orchestration, evolution,
 and search — the "build-once" convergence of three research plans
@@ -75,7 +75,7 @@ class MemoryRecord(BaseModel):
 
 
 class EvolvingMemoryStore:
-    """Persist, reconcile, and resolve typed memory records (CONCEPT:KG-2.1)."""
+    """Persist, reconcile, and resolve typed memory records (CONCEPT:AU-KG.memory.memory-lifecycle-manager)."""
 
     def __init__(self, engine: Any = None, embedder: Any = None) -> None:
         self.engine = engine

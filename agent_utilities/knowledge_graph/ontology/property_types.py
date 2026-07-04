@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Ontology PropertyType registry — typed data primitives for ontology objects.
 
-CONCEPT:KG-2.47 — Ontology Property Types.
+CONCEPT:AU-KG.ontology.ontology-property-types — Ontology Property Types.
 
 Palantir Foundry doc matched: *object-link-types / type-reference* and the
 ontology *data-types* page, whose property base/complex type set is documented
@@ -54,7 +54,7 @@ KG = "http://knuckles.team/kg#"
 GEO = "http://www.opengis.net/ont/geosparql#"
 
 # Default embedding dimensionality — ties to create_embedding_model()'s 768
-# default and config.kg_embedding_dim (CONCEPT:KG-2.47).
+# default and config.kg_embedding_dim (CONCEPT:AU-KG.ontology.ontology-property-types).
 try:
     DEFAULT_VECTOR_DIM: int = int(config.kg_embedding_dim or "768")
 except (TypeError, ValueError):  # pragma: no cover - defensive
@@ -74,7 +74,7 @@ except (TypeError, ValueError):  # pragma: no cover - defensive
 class PropertyType(BaseModel):
     """A single ontology data-type with validation, OWL IRI and storage hint.
 
-    CONCEPT:KG-2.47 — Ontology Property Types.
+    CONCEPT:AU-KG.ontology.ontology-property-types — Ontology Property Types.
 
     Palantir doc matched: ontology *data-types* ("inspired by RDF, OWL and
     XSD"). Each instance binds a logical property type name to (a) a Python
@@ -441,7 +441,7 @@ def _coerce_marking(value: Any) -> dict[str, Any]:
 
     A marking is a set of marking ids gating row/column access. Normalises to
     ``{marking_ids: [...]}`` — ties into the platform's security model and the
-    ``permissions_kernel`` / ``secured_reads`` ACL fabric (CONCEPT:KG-2.47).
+    ``permissions_kernel`` / ``secured_reads`` ACL fabric (CONCEPT:AU-KG.ontology.ontology-property-types).
     """
     ids: list[str]
     if isinstance(value, str):
@@ -796,7 +796,7 @@ def list_property_types() -> list[str]:
 def column_type_for(type_ref: str | PropertyType) -> str:
     """Map a property type (ref or instance) to a ``schema_definition`` column type.
 
-    CONCEPT:KG-2.47 — bridges the ontology type vocabulary onto the exact
+    CONCEPT:AU-KG.ontology.ontology-property-types — bridges the ontology type vocabulary onto the exact
     Ladybug/epistemic-graph column-type strings consumed by
     ``agent_utilities.models.knowledge_graph.TableDefinition.columns``. Pass the
     returned string straight into a ``TableDefinition`` column map.

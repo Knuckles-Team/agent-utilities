@@ -1,6 +1,6 @@
 """Ecosystem Package — Agent Configuration, Hooks, and Plugin Distribution.
 
-CONCEPT:ECO-4.0 — Ecosystem Management
+CONCEPT:AU-ECO.interop.ecosystem-management — Ecosystem Management
 
 Provides the infrastructure for managing agent configurations, lifecycle
 hooks, plugin bundles, and permission policies across the ecosystem.

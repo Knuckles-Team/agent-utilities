@@ -84,7 +84,7 @@ tokens.
 
 A jwt-enforcing child rejects calls without a bearer token. Give the multiplexer one
 service identity so it mints + attaches a Keycloak token to every remote child
-(CONCEPT:OS-5.32). One-time setup (use your realm/host, not the placeholders):
+(CONCEPT:AU-OS.identity.so-jwt-protected-children). One-time setup (use your realm/host, not the placeholders):
 
 1. **Keycloak confidential client** (`keycloak-client-onboarder`, or admin API): create
    client `mcp-multiplexer` with **Service Accounts enabled** + an **audience mapper**

@@ -1,6 +1,6 @@
 """Unit + live-path tests for the dynamic KV-cache-layering policy.
 
-CONCEPT:ORCH-1.105 — verifies (1) the :class:`KVCacheLayeringPolicy`
+CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy — verifies (1) the :class:`KVCacheLayeringPolicy`
 cache-worthiness verdict across the one-off / long-prefix / multi-turn / large-
 context signals, (2) that :func:`fold_kv_hint` folds the per-request
 ``kv_transfer_params={"lmcache.skip_save": ...}`` control into ``extra_body``

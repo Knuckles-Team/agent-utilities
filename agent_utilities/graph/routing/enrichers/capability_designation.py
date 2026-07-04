@@ -1,4 +1,4 @@
-"""KG-driven specialist designation (Plan 08 Synergy 1, CONCEPT:KG-2.1).
+"""KG-driven specialist designation (Plan 08 Synergy 1, CONCEPT:AU-KG.memory.tiered-memory-caching).
 
 Wires the L2 ``CapabilityIndex`` into the live router. Instead of the O(n)
 keyword scan, this builds (and caches on the engine) an ANN capability index
@@ -42,7 +42,7 @@ def _callable_nodes_with_embeddings(engine: Any) -> list[dict[str, Any]]:
     backend = getattr(engine, "backend", None)
     backend_embeddings = getattr(backend, "_embeddings", {}) or {}
 
-    # Release-channel gate (CONCEPT:OS-5.13): resolve the active channel once;
+    # Release-channel gate (CONCEPT:AU-OS.scaling.resolve-active-channel-once): resolve the active channel once;
     # callable nodes tagged with a higher channel (e.g. ``edge``) are excluded
     # from the designation index unless the active channel admits them. On the
     # default ``stable`` channel only stable components are routable.

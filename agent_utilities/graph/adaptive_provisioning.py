@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Adaptive Tool Provisioning (CONCEPT:ECO-4.0).
+"""Adaptive Tool Provisioning (CONCEPT:AU-ECO.toolkit.adaptive-tool-provisioning).
 
 Dynamically provisions MCP tools, API clients, and native functions into
 an execution context strictly based on real-time Knowledge Graph lookups.
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class AdaptiveProvisioner:
     """Provisions tools and capabilities dynamically at runtime.
 
-    CONCEPT:ECO-4.0 — Adaptive Tool Provisioning
+    CONCEPT:AU-ECO.toolkit.adaptive-tool-provisioning — Adaptive Tool Provisioning
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):

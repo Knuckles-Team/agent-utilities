@@ -12,8 +12,8 @@
   takes `kind="code"` only when `extract_embedded_files` (line 148) finds a `files`/`files_json`
   list; the deployed loop (`golden_loop.py:_synthesize_team` / auto_merge promotion) never
   populates it, so every live proposal falls to the `kind="sdd_plan"` prose skeleton (line 416).
-- [x] **New CONCEPT:AHE-3.22 justified** — the *genotypic-RSI generator* is a distinct capability
-  from the AHE-3.21 materializer (which assumes the diff exists) and AHE-3.18 gap-intake; it is
+- [x] **New CONCEPT:AU-AHE.harness.single-file-code-synthesis justified** — the *genotypic-RSI generator* is a distinct capability
+  from the AHE-3.21 materializer (which assumes the diff exists) and AU-AHE.harness.failure-evolution gap-intake; it is
   the missing producer of the diff, not a new pipeline.
 - [x] **Wire-First confirmed** — 1 generator hop inserted inside `synthesize_change_set`, before the
   prose branch; `EvolveAgent` already proposes `ComponentEdit{component_type, file_path, diff_content}`
@@ -28,7 +28,7 @@
 **As** the deployed golden loop, **I want** a promoted proposal whose target component is known
 to be turned into an actual single-file edit, **so that** self-improvement emits code, not only a spec.
 - **AC1**: `synthesize_change_set` accepts an optional code-generator seam (default: `EvolveAgent`);
-  when a proposal carries a resolvable `file_path` + `component_type` (from AHE-3.18 attribution) and
+  when a proposal carries a resolvable `file_path` + `component_type` (from AU-AHE.harness.failure-evolution attribution) and
   has no embedded `files`, the generator reads that file and returns one `{path, content}` edit, which
   is set on the proposal's `files` so the **existing** `kind="code"` branch is taken unchanged.
 - **AC2**: the generated change is **constrained to a single, component-attributed file** (v1 limit);

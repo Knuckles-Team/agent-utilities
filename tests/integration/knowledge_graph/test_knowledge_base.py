@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 """Tests for the Knowledge Base (KB) graph extension.
 

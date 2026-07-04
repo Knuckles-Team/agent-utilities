@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-"""Token-Aware Context Compaction (CONCEPT:KG-2.1).
+"""Token-Aware Context Compaction (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
 Intelligent context window management that replaces naive truncation
 with strategy-based compaction.  Adapted from Goose's
@@ -33,7 +33,7 @@ Key differences from Goose:
 * **KG-native episode persistence** — compaction summaries are stored
   as ``EpisodeNode`` snapshots in the Knowledge Graph, enabling
   cross-session context continuity via ``MemoryRetriever``
-  (CONCEPT:KG-2.1).
+  (CONCEPT:AU-KG.memory.tiered-memory-caching).
 * **Backward compatibility** — ``prune_large_messages()`` in
   ``chat_persistence.py`` is kept as an alias.
 """
@@ -104,7 +104,7 @@ class CompactionStrategy(StrEnum):
     DROP_MIDDLE = "drop_middle"
     PROGRESSIVE = "progressive"
     MEMENTO_BLOCKS = (
-        "memento_blocks"  # CONCEPT:KG-2.20 — semantic-boundary block segmentation
+        "memento_blocks"  # CONCEPT:AU-KG.memory.mementified-context — semantic-boundary block segmentation
     )
 
 
@@ -145,7 +145,7 @@ class CompactedResult(BaseModel):
 class ContextCompactor:
     """Intelligent context window compaction engine.
 
-    CONCEPT:KG-2.1 — Token-Aware Context Compaction
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Token-Aware Context Compaction
 
     Adapted from Goose's ``compact_messages()`` (Rust) with three
     strategies for reducing token usage while preserving semantic
@@ -176,7 +176,7 @@ class ContextCompactor:
                 this fraction of max_tokens (default 0.8).
             tool_summary_max_length: Max characters for tool output summaries
                 in ``summarize_tools`` strategy.
-            degradation_factor: CONCEPT:KG-2.1 (Root Theorem) ``D`` in the quality
+            degradation_factor: CONCEPT:AU-KG.memory.tiered-memory-caching (Root Theorem) ``D`` in the quality
                 budget ``F(P) = 1 − D·P/quality_budget`` — how fast fidelity decays
                 with cumulative processed tokens ``P``.
             fidelity_floor: Compact once estimated fidelity drops below this (the
@@ -193,7 +193,7 @@ class ContextCompactor:
         self._processed_tokens = 0
 
     def fidelity(self, processed_tokens: int | None = None) -> float:
-        """Estimated fidelity ``F(P) = max(0, 1 − D·P/budget)`` (CONCEPT:KG-2.1)."""
+        """Estimated fidelity ``F(P) = max(0, 1 − D·P/budget)`` (CONCEPT:AU-KG.memory.tiered-memory-caching)."""
         p = self._processed_tokens if processed_tokens is None else processed_tokens
         return max(0.0, 1.0 - self.degradation_factor * p / self.quality_budget)
 
@@ -207,7 +207,7 @@ class ContextCompactor:
         return self.fidelity()
 
     def divergence_report(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """Homeostatic footprint vs naive-append telemetry (CONCEPT:KG-2.1).
+        """Homeostatic footprint vs naive-append telemetry (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         A rising ``divergence`` (1 − current_footprint/naive_cumulative) means
         compaction is keeping the window far below the naive append baseline.
@@ -227,7 +227,7 @@ class ContextCompactor:
         """Check if compaction is recommended.
 
         Triggers on the capacity threshold (usage > ``auto_compaction_ratio`` of
-        ``max_tokens``) OR the CONCEPT:KG-2.1 fidelity gate (cumulative-context
+        ``max_tokens``) OR the CONCEPT:AU-KG.memory.tiered-memory-caching fidelity gate (cumulative-context
         fidelity below ``fidelity_floor``). The fidelity gate is dormant until
         :meth:`record_processed` has accumulated tokens, so capacity-only callers
         are unaffected.
@@ -293,7 +293,7 @@ class ContextCompactor:
     ) -> CompactedResult:
         """Segment into semantic blocks and replace older completed blocks with compact notes.
 
-        CONCEPT:KG-2.20 — the LLM-free compactor path. Uses ``segment_into_blocks`` (semantic-boundary
+        CONCEPT:AU-KG.memory.mementified-context — the LLM-free compactor path. Uses ``segment_into_blocks`` (semantic-boundary
         segmentation) and replaces each evicted block with a single structured placeholder instead of
         dropping the middle blindly. The capability layer (``MementoCompaction``) does the same
         segmentation but compresses each evicted block with an LLM into a dense memento; this method is
@@ -553,7 +553,7 @@ class ContextCompactor:
     ) -> dict[str, Any]:
         """Create a KG-persistable EpisodeNode from a compaction result.
 
-        CONCEPT:KG-2.1 — Tiered Memory
+        CONCEPT:AU-KG.memory.tiered-memory-caching — Tiered Memory
 
         Compaction summaries are stored as episodic snapshots to enable
         cross-session context recall via ``MemoryRetriever``.
@@ -586,7 +586,7 @@ class ContextCompactor:
     ) -> str | None:
         """Persist a compaction result as a Summary node in the KG.
 
-        CONCEPT:KG-2.1 — LCM DAG-Based Summarization
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM DAG-Based Summarization
 
         Creates a Summary node linked to the source messages via SUMMARIZES
         edges. The original messages are preserved (lossless). This is the
@@ -668,7 +668,7 @@ class ContextCompactor:
     ) -> str | None:
         """Build the next level of the summary DAG by summarizing summaries.
 
-        CONCEPT:KG-2.1 — LCM Escalated Summarization
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Escalated Summarization
 
         Finds un-escalated Summary nodes at the current highest level,
         groups them into batches, and creates a higher-level Summary that
@@ -738,7 +738,7 @@ class ContextCompactor:
     def get_summary_dag(thread_id: str, engine: Any = None) -> dict[str, Any]:
         """Traverse the summary DAG for a thread.
 
-        CONCEPT:KG-2.1 — LCM Summary Chain Retrieval
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Summary Chain Retrieval
 
         Returns a structured view of all summaries with their source links,
         organized by level. This is the read-path counterpart to
@@ -803,7 +803,7 @@ class ContextCompactor:
 class ContextOperator(StrEnum):
     """Atomic context operations for elastic context orchestration.
 
-    CONCEPT:KG-2.1 — Derived from LongSeeker (arXiv:2605.05191v1).
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Derived from LongSeeker (arXiv:2605.05191v1).
 
     Five atomic operators for reshaping working context:
     - SKIP: Mark a message as irrelevant, exclude from future processing
@@ -863,7 +863,7 @@ class OperatorResult(BaseModel):
 class AgentContextManager:
     """Elastic context orchestration with 5 atomic operators.
 
-    CONCEPT:KG-2.1 — Derived from LongSeeker's Context-ReAct paradigm.
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Derived from LongSeeker's Context-ReAct paradigm.
 
     Provides fine-grained control over working context using atomic
     operations that preserve important evidence, summarize resolved
@@ -1147,7 +1147,7 @@ class AgentContextManager:
     ) -> dict[str, Any]:
         """Compact a conversation thread's messages into summary DAG nodes.
 
-        CONCEPT:KG-2.1 — LCM Thread Compaction (Unified Entry Point)
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Thread Compaction (Unified Entry Point)
 
         This is the single entry point for all thread compaction. It:
         1. Retrieves messages from the KG for the thread
@@ -1241,7 +1241,7 @@ class AgentContextManager:
     ) -> dict[str, Any]:
         """Drill down from a Summary node to recover original messages.
 
-        CONCEPT:KG-2.1 — LCM Expand (maps to lossless-claw's lcm_expand)
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Expand (maps to lossless-claw's lcm_expand)
 
         Traverses the SUMMARIZES edges up to max_depth levels to recover
         the original raw messages. Works at any level of the DAG.
@@ -1295,7 +1295,7 @@ class AgentContextManager:
     ) -> list[dict[str, Any]]:
         """Full-text search across Summary and Message nodes.
 
-        CONCEPT:KG-2.1 — LCM Grep (maps to lossless-claw's lcm_grep)
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Grep (maps to lossless-claw's lcm_grep)
 
         Searches content across both raw messages and their summaries,
         with optional partition filtering. Returns results with context
@@ -1334,7 +1334,7 @@ class AgentContextManager:
     def describe_summary(summary_id: str, engine: Any = None) -> dict[str, Any]:
         """Show a Summary node's metadata and direct children.
 
-        CONCEPT:KG-2.1 — LCM Describe (maps to lossless-claw's lcm_describe)
+        CONCEPT:AU-KG.memory.tiered-memory-caching — LCM Describe (maps to lossless-claw's lcm_describe)
 
         Returns the summary's content, level, strategy, and a list of
         its direct children (messages or lower-level summaries).
@@ -1402,7 +1402,7 @@ CONSOLIDATION_THRESHOLDS = {
 
 
 class MemoryEntry(BaseModel):
-    """A memory entry with timescale-aware decay (CONCEPT:KG-2.1)."""
+    """A memory entry with timescale-aware decay (CONCEPT:AU-KG.memory.tiered-memory-caching)."""
 
     memory_id: str
     content: str
@@ -1430,7 +1430,7 @@ class MemoryEntry(BaseModel):
 
 
 class TimescaleMemoryStore:
-    """Multi-tier memory with consolidation (CONCEPT:KG-2.1)."""
+    """Multi-tier memory with consolidation (CONCEPT:AU-KG.memory.tiered-memory-caching)."""
 
     def __init__(self, half_lives: dict | None = None, decay_floor: float = 0.01):
         self.half_lives = half_lives or dict(DEFAULT_HALF_LIVES)
@@ -1649,7 +1649,7 @@ logger = logging.getLogger(__name__)
 
 
 class SemanticCompactor:
-    """Semantic Compactor for Knowledge Graph trace nodes (CONCEPT:KG-2.7)."""
+    """Semantic Compactor for Knowledge Graph trace nodes (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
     def __init__(self, engine: Any, compute_engine: Any = None) -> None:
         self.engine = engine
@@ -1781,7 +1781,7 @@ class SemanticCompactor:
             return 0
 
 
-# CONCEPT:KG-2.20 — the Memento compressor (MEMENTO_SYSTEM_PROMPT, compress_to_memento,
+# CONCEPT:AU-KG.memory.mementified-context — the Memento compressor (MEMENTO_SYSTEM_PROMPT, compress_to_memento,
 # _persist_memento, get_recent_mementos) was strangled out of this module into
 # ``memento_compressor.py`` (its canonical home, which observer.py/memory_engine.py already
 # imported). Import memento helpers from ``.memento_compressor``, not from here.

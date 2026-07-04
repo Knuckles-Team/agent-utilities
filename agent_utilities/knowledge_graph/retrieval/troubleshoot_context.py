@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Cross-layer error diagnosis over the live deployment (CONCEPT:KG-2.297).
+"""Cross-layer error diagnosis over the live deployment (CONCEPT:AU-KG.retrieval.kg-4).
 
 The ``troubleshoot`` provider of the context plane (KG-2.136): answers *"this
 agent run failed / this service is unreachable / this container keeps crashing —

@@ -1,11 +1,11 @@
-"""Voice-note transcription for messaging (CONCEPT:ECO-4.68).
+"""Voice-note transcription for messaging (CONCEPT:AU-ECO.messaging.whisper-transcription).
 
 When a user sends a voice note / audio instead of text, transcribe it to text with the
 audio-transcriber's Whisper backend and feed the transcript into the normal message flow —
 so you can just talk to the agent. Best-effort + opt-out (``MESSAGING_VOICE=0``); the model
 loads lazily once and transcription runs off the event loop.
 
-CONCEPT:ECO-4.68 — Voice input → transcript via Whisper
+CONCEPT:AU-ECO.messaging.whisper-transcription — Voice input → transcript via Whisper
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ async def transcribe_voice(url: str) -> str:
             text = await asyncio.to_thread(_sync_transcribe, path)
             if text:
                 logger.info(
-                    "[CONCEPT:ECO-4.68] Transcribed voice note (%d chars).", len(text)
+                    "[CONCEPT:AU-ECO.messaging.whisper-transcription] Transcribed voice note (%d chars).", len(text)
                 )
             return text
         finally:
@@ -103,5 +103,5 @@ async def transcribe_voice(url: str) -> str:
             except OSError:
                 pass
     except Exception as e:  # noqa: BLE001
-        logger.warning("[CONCEPT:ECO-4.68] voice transcription failed: %s", e)
+        logger.warning("[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed: %s", e)
         return ""

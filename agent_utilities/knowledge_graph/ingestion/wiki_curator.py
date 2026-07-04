@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.19 — Self-Curating Wiki (delta-skip continuous ingest).
+"""CONCEPT:AU-KG.ingest.wiki-delta-ingest — Self-Curating Wiki (delta-skip continuous ingest).
 
 Assimilated from memory-os (ClaudioDrews/memory-os@a4ca094, scripts/wiki_continuous_ingest.py): a
 self-curating knowledge vault whose markdown pages are continuously ingested into the graph, but
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def file_hash(path: Path) -> str:
-    """SHA-256 of a file's bytes (CONCEPT:KG-2.19 delta detection)."""
+    """SHA-256 of a file's bytes (CONCEPT:AU-KG.ingest.wiki-delta-ingest delta detection)."""
     h = hashlib.sha256()
     h.update(Path(path).read_bytes())
     return h.hexdigest()
@@ -109,7 +109,7 @@ def curate_wiki(
     state_path: str | Path | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """CLI/graph_ingest entry point: continuously curate a wiki dir into the graph (CONCEPT:KG-2.19).
+    """CLI/graph_ingest entry point: continuously curate a wiki dir into the graph (CONCEPT:AU-KG.ingest.wiki-delta-ingest).
 
     Changed pages are routed through ``IngestionEngine.ingest`` (reusing concept/entity extraction
     + KG-2.8 delta hashing); ``SynthesisEngine`` then auto-curates promotions.

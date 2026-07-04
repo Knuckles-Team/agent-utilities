@@ -34,8 +34,8 @@ the max of the resulting infrastructure:
 
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
-| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the live scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:ORCH-1.45) |
-| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the live tenant-partitioned engine sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:KG-2.58) |
+| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the live scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
+| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the live tenant-partitioned engine sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
 A deployment can be huge on one axis and tiny on another (e.g. 1M dormant
@@ -132,7 +132,7 @@ single-shard floor):
   latency) that this first-order model intentionally ignores. Treat 1M as an
   engineering target to validate, and 100M as an order-of-magnitude sketch only.
 
-## Queue-driven dispatch stage (IMPLEMENTED — CONCEPT:ORCH-1.45)
+## Queue-driven dispatch stage (IMPLEMENTED — CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch)
 
 The "Workers" column above used to be aspirational on the active-concurrency
 axis: agent turns executed only inside the in-process asyncio scheduler
@@ -142,7 +142,7 @@ accepted them. That stage is now implemented:
 - agent turns ride the session-keyed `agent_turns` queue
   (`AGENT_DISPATCH_BACKEND=queue`; transport follows `TASK_QUEUE_BACKEND`);
 - any host running `agent-dispatch-worker` claims and executes them against the
-  shared state store (OS-5.16), so "Workers = ceil(active / 25)" maps to a
+  shared state store (AU-OS.state.unified-durable-state-externalization), so "Workers = ceil(active / 25)" maps to a
   **stateless dispatch-worker fleet** spread across "Nodes", not to one
   process's coroutine cap;
 - `AGENT_TURNS_PARTITIONS` bounds fleet-wide session concurrency on Kafka the

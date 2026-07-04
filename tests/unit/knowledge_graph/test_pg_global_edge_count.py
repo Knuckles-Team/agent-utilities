@@ -5,7 +5,7 @@ transpiler to plan from, so it would transpile to UNKNOWN/[]. The tiered backend
 routes unanchored relationship reads to the durable tier, so PostgreSQLBackend
 answers the global edge metric directly from ``kg_edges`` — and defers (so the
 transpiler still handles them) the moment the pattern constrains its endpoints.
-(CONCEPT:KG-2.7 P1)
+(CONCEPT:AU-KG.query.vendor-agnostic-traversal P1)
 """
 
 from __future__ import annotations

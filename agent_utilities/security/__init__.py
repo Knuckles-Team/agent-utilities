@@ -6,10 +6,10 @@ repetition detection, and policy-based guardrails.
 Modules:
     - ``tool_guard``: Tool-level sensitivity detection and approval gating
     - ``guardrails``: Policy engine with content filtering and cost budgets
-    - ``threat_defense_engine``: Pattern-based prompt injection detection (CONCEPT:OS-5.1)
-    - ``execution_stability_engine``: Tool call loop detection (CONCEPT:OS-5.1)
-    - ``permissions_kernel``: Role-based tool authorization (CONCEPT:OS-5.1)
-    - ``sandboxed_executor``: Process-isolated code execution sandbox (CONCEPT:OS-5.6)
+    - ``threat_defense_engine``: Pattern-based prompt injection detection (CONCEPT:AU-OS.config.secrets-authentication)
+    - ``execution_stability_engine``: Tool call loop detection (CONCEPT:AU-OS.config.secrets-authentication)
+    - ``permissions_kernel``: Role-based tool authorization (CONCEPT:AU-OS.config.secrets-authentication)
+    - ``sandboxed_executor``: Process-isolated code execution sandbox (CONCEPT:AU-OS.observability.deterministic-replay)
 """
 
 from agent_utilities.security.browser_auth import (
@@ -75,7 +75,7 @@ __all__ = [
     "BaseLoopbackCallbackHandler",
     "BaseLoopbackCallbackServer",
     "generate_pkce",
-    # credential_provider (CONCEPT:OS-5.38) + source_credentials (CONCEPT:OS-5.39)
+    # credential_provider (CONCEPT:AU-OS.deployment.universal-outbound-credentialprovider) + source_credentials (CONCEPT:AU-OS.config.source-credential-registry)
     "CredentialProvider",
     "get_credential_provider",
     "SourceCredential",
@@ -94,18 +94,18 @@ __all__ = [
     "PolicyEngine",
     "PolicyResult",
     "PolicyViolation",
-    # threat_defense_engine (CONCEPT:OS-5.1)
+    # threat_defense_engine (CONCEPT:AU-OS.config.secrets-authentication)
     "PromptInjectionPolicy",
     "PromptInjectionScanner",
     "RiskLevel",
     "ScanResult",
     "SecurityFindingNode",
-    # execution_stability_engine (CONCEPT:OS-5.1)
+    # execution_stability_engine (CONCEPT:AU-OS.config.secrets-authentication)
     "RepetitionGuard",
     "RepetitionPolicy",
     "RepetitionResult",
     "RepetitionVerdict",
-    # execution_stability_engine (CONCEPT:ORCH-1.3) — agent-run retry loops
+    # execution_stability_engine (CONCEPT:AU-ORCH.execution.execution-budget-caps) — agent-run retry loops
     # verified by shell SuccessChecks; for HTTP/in-process retry use
     # orchestration.resilience.ResiliencePolicy instead.
     "RetryConfig",
@@ -116,7 +116,7 @@ __all__ = [
     "flag_mcp_tool_definitions",
     "is_safe_tool",
     "is_sensitive_tool",
-    # sandboxed_executor (CONCEPT:OS-5.6)
+    # sandboxed_executor (CONCEPT:AU-OS.observability.deterministic-replay)
     "SandboxedExecutor",
     "SandboxLimits",
     "SandboxResult",

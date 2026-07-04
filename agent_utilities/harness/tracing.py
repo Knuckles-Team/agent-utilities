@@ -1,6 +1,6 @@
 """Native Langfuse Tracing Decorators.
 
-CONCEPT:OS-5.1 — Instrumentation Decorators
+CONCEPT:AU-OS.config.secrets-authentication — Instrumentation Decorators
 
 Provides ``@trace`` and ``@generation`` decorators that emit structured
 traces and spans to Langfuse via the batch ingestion API. These decorators
@@ -62,7 +62,7 @@ _current_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar
     "_current_session_id", default=None
 )
 
-# Always-on KG-native trace sink (CONCEPT:OS-5.68). The daemon/orchestrator injects a
+# Always-on KG-native trace sink (CONCEPT:AU-OS.config.model-factory-passthrough). The daemon/orchestrator injects a
 # facade-backed ``KGTraceBackend`` ONCE at startup via ``set_kg_trace_sink``; when set,
 # every traced call also persists a Trace/Span/Generation node so traces are
 # graph-queryable — independent of any Langfuse key. Left ``None`` in a bare process
@@ -135,7 +135,7 @@ def _tracing_model_cls() -> Any:
 def wrap_model_for_tracing(model: Any) -> Any:
     """Wrap a pydantic-ai ``Model`` so EVERY LLM request persists a ``GenerationNode``
     (model/tokens/cost/latency) to the KG trace sink — the always-on per-call capture
-    (CONCEPT:OS-5.68). Returns the model UNCHANGED when no sink is installed (zero
+    (CONCEPT:AU-OS.config.model-factory-passthrough). Returns the model UNCHANGED when no sink is installed (zero
     overhead) or WrapperModel is unavailable. Non-streaming requests only; streaming
     delegates untouched."""
     if _kg_trace_sink is None:
@@ -153,7 +153,7 @@ def wrap_model_for_tracing(model: Any) -> Any:
 def set_session_id(session_id: str) -> None:
     """Set the current Langfuse session ID for trace grouping.
 
-    CONCEPT:OS-5.1 — Session Management
+    CONCEPT:AU-OS.config.secrets-authentication — Session Management
 
     All traces emitted within this context will be grouped under
     the given session ID in Langfuse.
@@ -191,7 +191,7 @@ def trace(
 ):
     """Decorator for native Langfuse tracing with proper nesting.
 
-    CONCEPT:OS-5.1 — Trace Instrumentation
+    CONCEPT:AU-OS.config.secrets-authentication — Trace Instrumentation
 
     If a parent trace exists in context, this creates a child span.
     Otherwise, it creates a new top-level trace. This enables automatic
@@ -355,7 +355,7 @@ def generation(
 ):
     """Decorator for LLM generation tracing.
 
-    CONCEPT:OS-5.1 — Generation Tracing
+    CONCEPT:AU-OS.config.secrets-authentication — Generation Tracing
 
     Creates a ``generation-create`` event in Langfuse that tracks
     model name, token usage, and latency for LLM calls.
@@ -386,7 +386,7 @@ def _iso_timestamp(ts: float) -> str:
 def _safe_serialize(data: Any, max_length: int = 10000) -> Any:
     """Safely serialize data for Langfuse, truncating large payloads.
 
-    CONCEPT:OS-5.1 — Safe Serialization
+    CONCEPT:AU-OS.config.secrets-authentication — Safe Serialization
 
     Prevents trace ingestion failures from non-serializable or
     excessively large payloads.
@@ -423,7 +423,7 @@ def _emit_trace(
 ) -> None:
     """Emit a trace event to Langfuse via the batch ingestion API.
 
-    CONCEPT:OS-5.1 — Trace Emission
+    CONCEPT:AU-OS.config.secrets-authentication — Trace Emission
 
     Creates properly nested trace→span hierarchy in Langfuse:
     - Root calls create ``trace-create`` events
@@ -446,7 +446,7 @@ def _emit_trace(
         session_id: Optional session ID for grouping.
         is_root: Whether this is a root trace (vs child span).
     """
-    # Always-on KG-native sink (CONCEPT:OS-5.68): persist a Trace/Span/Generation node
+    # Always-on KG-native sink (CONCEPT:AU-OS.config.model-factory-passthrough): persist a Trace/Span/Generation node
     # independent of Langfuse, so every traced call is graph-queryable. Best-effort —
     # a sink failure never breaks the traced function.
     sink = _kg_trace_sink

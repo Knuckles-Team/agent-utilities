@@ -2,10 +2,10 @@ from __future__ import annotations
 
 """Tests for code_health per-repo baseline deltas.
 
-CONCEPT:CE-039 — Baseline-aware new-vs-resolved deltas in the code-health sweep.
-CONCEPT:KG-2.248 — baselines are engine-only (``:CodeHealthBaseline`` nodes on the
+CONCEPT:AU-KG.maintenance.baseline-vs-resolved-deltas — Baseline-aware new-vs-resolved deltas in the code-health sweep.
+CONCEPT:AU-KG.maintenance.only-no-file-cache — baselines are engine-only (``:CodeHealthBaseline`` nodes on the
 one engine authority, no local file cache), so these drive a real engine backend
-bound to the conftest ``engine_graph`` ephemeral tenant (CONCEPT:KG-2.238).
+bound to the conftest ``engine_graph`` ephemeral tenant (CONCEPT:AU-KG.memory.provides-real-ephemeral-one).
 """
 
 import pytest

@@ -1,4 +1,4 @@
-"""Fuseki ontology-publish daemon tick (CONCEPT:KG-2.52).
+"""Fuseki ontology-publish daemon tick (CONCEPT:AU-KG.ontology.authoritative-tbox).
 
 The bundled ontology modules are pushed to an optional Apache Jena Fuseki
 triplestore by a maintenance-scheduler tick gated on ``KG_FUSEKI_PUBLISH``
@@ -6,7 +6,7 @@ triplestore by a maintenance-scheduler tick gated on ``KG_FUSEKI_PUBLISH``
 tick registration gating, the publisher invocation with an injected
 publisher, and the real Fuseki transport against a mocked ``requests.put``.
 
-@pytest.mark.concept("KG-2.52")
+@pytest.mark.concept("AU-KG.ontology.authoritative-tbox")
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.core.ontology_publisher import (
     publish_ontology_to_fuseki,
 )
 
-pytestmark = pytest.mark.concept("KG-2.52")
+pytestmark = pytest.mark.concept("AU-KG.ontology.authoritative-tbox")
 
 
 def _maint_specs():

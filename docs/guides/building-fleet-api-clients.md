@@ -1,6 +1,6 @@
 # Building Fleet API Clients
 
-**CONCEPT:ECO-4.35 — Fleet HTTP Client Library** (`agent_utilities.http`)
+**CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library** (`agent_utilities.http`)
 
 The consolidation audit found a ~95%-identical `api_client_base.py` duplicated
 across 10+ connector repos (kafka-mcp, portainer-agent, okta-agent,
@@ -79,7 +79,7 @@ for user in client.paginate(
 ```
 
 - `cursor` — cursor param + dotted response path (`cursor_param`,
-  `cursor_path`); semantics match the KG-2.59 `mcp_tool` connector so
+  `cursor_path`); semantics match the AU-KG.ingest.mcp-tool-connector `mcp_tool` connector so
   configurations translate 1:1 (the implementations stay parallel — see the
   `agent_utilities/http/pagination.py` module docstring for why).
 - `page` — `page_param`/`page_size_param`, stops on a short page.
@@ -116,7 +116,7 @@ operators enable it explicitly, as dockerhub-api and okta-agent do.
 Two retry mechanisms exist in agent-utilities. They are **not** redundant —
 they retry different things:
 
-| | `ResiliencePolicy` (ORCH-1.36) | `RetryManager`/`RetryConfig` (ORCH-1.3) |
+| | `ResiliencePolicy` (AU-ORCH.execution.retry-predicate-raised-treating) | `RetryManager`/`RetryConfig` (ORCH-1.3) |
 |---|---|---|
 | Retries | one **in-process callable** | a whole **agent execution** |
 | Verified by | the exception raised | shell `SuccessCheck` commands |

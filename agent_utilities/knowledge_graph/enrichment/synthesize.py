@@ -1,4 +1,4 @@
-"""KG-driven orchestration SYNTHESIS engine (CONCEPT:KG-2.10 S4c).
+"""KG-driven orchestration SYNTHESIS engine (CONCEPT:AU-KG.enrichment.a2a-capability-extraction S4c).
 
 Where ``orchestration.py`` (S4b) defines the artifact specs and their graph
 serialisation, this layer *produces* those specs from the knowledge graph: given
@@ -114,7 +114,7 @@ def synthesize_agent(
     injected LLM to assemble an agent, grounding tool/skill choices in the
     candidates where possible. When ``models`` (the KG-known model registry) is
     given, the right model is chosen for ``complexity`` ("light" routing vs
-    "normal"/"super" heavy) and recorded on the agent. (CONCEPT:KG-2.10)
+    "normal"/"super" heavy) and recorded on the agent. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     results = capability_search(goal, limit) or []
     by_type = _candidates_by_type(results)
@@ -173,7 +173,7 @@ def synthesize_team(
 
     One LLM call splits the goal into a lead + member sub-goals; each member is
     then built via :func:`synthesize_agent`. The returned ``TeamSpec`` defaults
-    its hierarchy to every non-lead member reporting to the lead. (CONCEPT:KG-2.10)
+    its hierarchy to every non-lead member reporting to the lead. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     obj = _loads_obj(llm_fn(_TEAM_PROMPT.format(goal=goal, max_members=max_members)))
     lead = str(obj.get("lead") or "").strip()
@@ -224,7 +224,7 @@ def evolve_prompts(needs: list[dict], llm_fn: LLMFn) -> list[PromptSpec]:
 
     Each need is ``{"name", "problem", "prior_prompt_id"?}``. The LLM drafts new
     content; when a ``prior_prompt_id`` is given, the resulting ``PromptSpec``
-    records it via ``evolved_from`` for lineage. (CONCEPT:KG-2.10)
+    records it via ``evolved_from`` for lineage. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     specs: list[PromptSpec] = []
     for need in needs:
@@ -263,7 +263,7 @@ def persist_synthesis(backend: Any, *specs: Any) -> tuple[int, int]:
 
     Each spec is converted via its matching ``*_to_batch`` from
     ``orchestration.py`` and written via ``registry.write_batch``. Returns the
-    total ``(nodes_written, edges_written)``. (CONCEPT:KG-2.10)
+    total ``(nodes_written, edges_written)``. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     total_n = total_e = 0
     for spec in specs:

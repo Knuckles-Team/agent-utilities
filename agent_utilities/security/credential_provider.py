@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Universal outbound credential provider — "give me credentials for source X".
 
-CONCEPT:OS-5.38 — Universal Outbound CredentialProvider
+CONCEPT:AU-OS.deployment.universal-outbound-credentialprovider — Universal Outbound CredentialProvider
 
 This is the **inverse** of the secrets store
 (:mod:`agent_utilities.security.secrets_client`): callers ask for a credential **by

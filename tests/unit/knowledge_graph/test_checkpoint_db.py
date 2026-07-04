@@ -4,7 +4,7 @@ Regression: the live ``TieredGraphBackend`` (and the epistemic/Postgres
 backends) route ``execute()`` through the Cypher engine, so the old raw
 ``execute("CHECKPOINT;")`` fallback misparsed that string and blocked
 indefinitely on the engine — deadlocking every task worker after each
-``_update_task_status``. (CONCEPT:KG-2.8)
+``_update_task_status``. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
 """
 
 from __future__ import annotations
@@ -34,20 +34,20 @@ class _SqliteBackend:
         return True
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_checkpoint_db_skips_backend_without_wal_checkpoint():
     stub = SimpleNamespace(backend=_GraphBackend())
     # No exception, and crucially no execute() call (which would block forever).
     TaskManagerMixin._checkpoint_db(stub)
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_checkpoint_db_uses_wal_checkpoint_when_present():
     be = _SqliteBackend()
     TaskManagerMixin._checkpoint_db(SimpleNamespace(backend=be))
     assert be.checkpointed is True
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_checkpoint_db_tolerates_missing_backend():
     TaskManagerMixin._checkpoint_db(SimpleNamespace(backend=None))

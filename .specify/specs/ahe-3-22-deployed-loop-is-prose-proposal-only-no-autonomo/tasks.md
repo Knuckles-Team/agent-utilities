@@ -23,7 +23,7 @@ Wire-first: extend the existing promotion→ChangeSet hop before adding any modu
 - [ ] **T5 — Live-path test.** Add `tests/unit/knowledge_graph/research/test_ahe_3_22_code_synthesis.py`
   (`@pytest.mark.concept(id="AHE-3.22")`): stub generator → assert `kind="code"` with the attributed
   path; un-attributed proposal → still `kind="sdd_plan"`; failing diff → not publishable.
-- [ ] **T6 — Concept + docs + gates.** Tag `CONCEPT:AHE-3.22` in the seam; run
+- [ ] **T6 — Concept + docs + gates.** Tag `CONCEPT:AU-AHE.harness.single-file-code-synthesis` in the seam; run
   `scripts/build_concepts_yaml.py` and `scripts/check_concepts.py`; extend
   `docs/guides/autonomous-evolution.md` with the single-file v1 constraint and the safety envelope.
 - [ ] **T7 — Finish.** `pre-commit run --all-files` green (fix all, incl. pre-existing); commit in a

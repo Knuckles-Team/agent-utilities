@@ -3,8 +3,8 @@ from __future__ import annotations
 
 """CLI for the Cross-Agent Observational Memory Bridge.
 
-CONCEPT:KG-2.1 -- Observational Memory Bridge
-CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
+CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
+CONCEPT:AU-ECO.messaging.native-backend-abstraction -- Cross-Agent Memory Hook Installer
 
 Provides subcommands for memory materialization, startup context generation,
 transcript observation, reflection, hook installation, and diagnostics.
@@ -126,7 +126,7 @@ def cmd_reflect(args: argparse.Namespace) -> None:
 
 
 def cmd_learn(args: argparse.Namespace) -> None:
-    """Extract targeted memory edits from a transcript and apply them (CONCEPT:KG-2.13)."""
+    """Extract targeted memory edits from a transcript and apply them (CONCEPT:AU-KG.memory.targeted-add-update-delete)."""
     import json as _json
 
     from agent_utilities.knowledge_graph.memory.learning_engine import run_learner
@@ -144,7 +144,7 @@ def cmd_learn(args: argparse.Namespace) -> None:
 
 
 def cmd_hygiene(args: argparse.Namespace) -> None:
-    """Run a memory-hygiene pass (CONCEPT:KG-2.17)."""
+    """Run a memory-hygiene pass (CONCEPT:AU-KG.memory.decay-scanner-merge)."""
     import json as _json
 
     from agent_utilities.knowledge_graph.memory.hygiene import run_hygiene
@@ -316,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("reflect", help="Run reflection cycle")
     p.add_argument("--dry-run", action="store_true", help="Print without persisting")
 
-    # learn (CONCEPT:KG-2.13 — targeted ADD/UPDATE/DELETE learner)
+    # learn (CONCEPT:AU-KG.memory.targeted-add-update-delete — targeted ADD/UPDATE/DELETE learner)
     p = sub.add_parser(
         "learn", help="Extract targeted memory edits from a transcript and apply them"
     )
@@ -329,7 +329,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Print edits without persisting"
     )
 
-    # hygiene (CONCEPT:KG-2.17 — decay scanner + semantic merge)
+    # hygiene (CONCEPT:AU-KG.memory.decay-scanner-merge — decay scanner + semantic merge)
     p = sub.add_parser(
         "hygiene",
         help="Run a memory-hygiene pass: archive stale memory + merge near-duplicates",

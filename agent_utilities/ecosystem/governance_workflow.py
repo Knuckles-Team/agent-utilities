@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Governance Workflow — Unified Policy Enforcement Pipeline.
 
-CONCEPT:ECO-4.22 — Governance Workflow Pipeline
+CONCEPT:AU-OS.governance.governance-workflow-pipeline — Governance Workflow Pipeline
 
 Orchestrates the full governance lifecycle across the ecosystem:
 
@@ -191,7 +191,7 @@ _AUTO_APPROVE_THRESHOLD = 0.4
 class GovernanceWorkflow:
     """Unified governance pipeline for ecosystem mutations.
 
-    CONCEPT:ECO-4.22 — Governance Workflow Pipeline
+    CONCEPT:AU-OS.governance.governance-workflow-pipeline — Governance Workflow Pipeline
 
     Usage::
 

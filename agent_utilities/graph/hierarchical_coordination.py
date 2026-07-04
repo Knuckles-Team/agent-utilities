@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Hierarchical / federated coordination for large collectives.
 
-CONCEPT:ORCH-1.53 — a hierarchical federated coordination protocol that runs consensus within agent neighborhoods and rolls up only cluster representatives, bounding interaction density so a collective coordinates at thousands of agents instead of O(N) global aggregation
+CONCEPT:AU-ORCH.dispatch.hierarchical-coordination — a hierarchical federated coordination protocol that runs consensus within agent neighborhoods and rolls up only cluster representatives, bounding interaction density so a collective coordinates at thousands of agents instead of O(N) global aggregation
 
 The paper (§5.4) sets the bar at coordinating collectives at *vast* scale, where capability
 "may scale with population size and interaction density". AU's coordination protocols

@@ -12,7 +12,7 @@ wire protocol uses numbered line prefixes:
 * ``8:``  — Sideband annotation data (graph events, tool calls)
 * ``9:``  — Tool call start/progress information
 
-CONCEPT:ORCH-1.0 Graph Orchestration
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations Graph Orchestration
 """
 
 

@@ -1,4 +1,4 @@
-"""CISO Assistant write-back sink tests (CONCEPT:KG-2.111).
+"""CISO Assistant write-back sink tests (CONCEPT:AU-KG.enrichment.ciso-2).
 
 Exercises the unified, fail-closed, dry-run-first write-back core with the
 CISO Assistant sink: KG-derived governance entities → CISO objects via the

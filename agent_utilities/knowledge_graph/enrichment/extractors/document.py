@@ -1,4 +1,4 @@
-"""Document metadata + concept extraction (CONCEPT:KG-2.8 Phase 3).
+"""Document metadata + concept extraction (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 3).
 
 Extracts a typed ``Document`` (paper/email/BRD/SOW/book/...) with type-aware
 metadata, plus the ``Concept`` nodes it mentions (LLM, injectable). Concepts are
@@ -270,7 +270,7 @@ def extract_intelligence(
 ) -> tuple[list[Any], list[EnrichmentEdge]]:
     """LLM-extract Insight/Fact/Framework/Playbook nodes + DERIVED_FROM edges.
 
-    Turns a call/doc into reusable operating intelligence (CONCEPT:KG-2.8). Each
+    Turns a call/doc into reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Each
     returned node carries ``source_ids=[source_id]``; edges link ``source_id``
     (the document/conversation) to each derived node via ``DERIVED_FROM``.
     """

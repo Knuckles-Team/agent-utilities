@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.32 — live RLM benchmark + 10M-token stress (requires an LLM endpoint).
+"""CONCEPT:AU-AHE.rlm.long-context-benchmark — live RLM benchmark + 10M-token stress (requires an LLM endpoint).
 
 Gated by the ``live`` marker (skipped by the default ``-m "not live"``). Run explicitly with a
 configured model endpoint:  ``pytest -m live tests/unit/rlm/test_ahe_3_32_benchmark_live.py``.

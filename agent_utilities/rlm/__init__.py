@@ -1,9 +1,9 @@
 """Recursive Language Models (RLM) Module.
 
-CONCEPT:ORCH-1.1 — RLM Execution
+CONCEPT:AU-ORCH.execution.rlm-execution — RLM Execution
 """
 
-from .client import RLM, RLMResponse  # CONCEPT:ORCH-1.54 — drop-in completion surface
+from .client import RLM, RLMResponse  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — drop-in completion surface
 from .config import RLMConfig
 
 __all__ = ["RLMConfig", "RLM", "RLMResponse"]

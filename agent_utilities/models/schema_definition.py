@@ -120,7 +120,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # Continuous Ingestion Nodes — CONCEPT:KG-2.0
+        # Continuous Ingestion Nodes — CONCEPT:AU-KG.query.object-graph-mapper
         TableDefinition(
             name="DiffEntry",
             columns={
@@ -137,7 +137,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # Observability and Telemetry Nodes — CONCEPT:AHE-3.x
+        # Observability and Telemetry Nodes — CONCEPT:AU-AHE.optimization.telemetry-optimization
         TableDefinition(
             name="ExecutionSummary",
             columns={
@@ -335,7 +335,7 @@ SCHEMA = GraphSchemaDefinition(
                 "name": "STRING",
                 "file_path": "STRING",
                 # Code-symbol attributes the code-nav surface projects/queries
-                # (CONCEPT:KG-2.9g). Declared columns so schema-backed Kuzu can
+                # (CONCEPT:AU-KG.backend.declared-columns-so-schema). Declared columns so schema-backed Kuzu can
                 # return them — otherwise they fold into ``metadata`` JSON and a
                 # ``RETURN c.line`` errors the whole query on Ladybug.
                 "line": "STRING",
@@ -775,7 +775,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
+        # KG-Driven Graph Materialization (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
         TableDefinition(
             name="AgentTemplate",
             columns={
@@ -815,7 +815,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # Evolution Cycle Tracking (CONCEPT:KG-2.5)
+        # Evolution Cycle Tracking (CONCEPT:AU-KG.compute.spectral-cluster-navigator)
         TableDefinition(
             name="EvolutionCycle",
             columns={
@@ -1189,7 +1189,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # --- AHE (Agentic Harness Engineering) Nodes (CONCEPT:AHE-3.0) ---
+        # --- AHE (Agentic Harness Engineering) Nodes (CONCEPT:AU-AHE.harness.harness-evolution) ---
         TableDefinition(
             name="ChangeManifest",
             columns={
@@ -1690,7 +1690,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # ── Infrastructure Discovery Nodes (CONCEPT:OS-5.1) ────────────────
+        # ── Infrastructure Discovery Nodes (CONCEPT:AU-OS.config.secrets-authentication) ────────────────
         # Runtime-agnostic container and orchestration nodes
         TableDefinition(
             name="Container",
@@ -2340,7 +2340,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # CONCEPT:ORCH-1.22 — Workflow Persistence & Replay
+        # CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Persistence & Replay
         TableDefinition(
             name="WorkflowDefinition",
             columns={
@@ -4025,7 +4025,7 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "Organization", "to": "FinancialTransaction"},
             ],
         ),
-        # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
+        # KG-Driven Graph Materialization (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
         RelDefinition(
             type="USES_PROMPT",
             connections=[
@@ -4101,7 +4101,7 @@ SCHEMA = GraphSchemaDefinition(
             type="PREDICTED_IMPACT",
             connections=[{"from": "GeopoliticalEntity", "to": "GeopoliticalEntity"}],
         ),
-        # CONCEPT:ORCH-1.22 — Workflow Persistence & Replay Relationships
+        # CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflow Persistence & Replay Relationships
         RelDefinition(
             type="HAS_STEP",
             connections=[{"from": "WorkflowDefinition", "to": "WorkflowStep"}],
@@ -4118,7 +4118,7 @@ SCHEMA = GraphSchemaDefinition(
             type="DERIVED_FROM",
             connections=[{"from": "WorkflowDefinition", "to": "RunTrace"}],
         ),
-        # ── Infrastructure Topology Relationships (CONCEPT:OS-5.1) ─────────
+        # ── Infrastructure Topology Relationships (CONCEPT:AU-OS.config.secrets-authentication) ─────────
         RelDefinition(
             type="RUNS_ON",
             connections=[

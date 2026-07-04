@@ -1,4 +1,4 @@
-"""Markdown → Telegram-HTML rendering (CONCEPT:ECO-4.0 entrypoint rendering)."""
+"""Markdown → Telegram-HTML rendering (CONCEPT:AU-ECO.messaging.native-backend-abstraction entrypoint rendering)."""
 
 from __future__ import annotations
 

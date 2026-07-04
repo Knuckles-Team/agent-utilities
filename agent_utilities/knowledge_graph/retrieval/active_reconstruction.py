@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Active memory reconstruction over the knowledge graph.
 
-CONCEPT:KG-2.275 — assimilated from MRAgent: "Memory is Reconstructed, Not
+CONCEPT:AU-KG.retrieval.assimilated-from-mragent — assimilated from MRAgent: "Memory is Reconstructed, Not
 Retrieved: Graph Memory for LLM Agents" (arXiv:2606.06036, Ji/Li/Hooi, NUS).
 
 MRAgent's contribution is *active reconstruction*: instead of one-shot top-k

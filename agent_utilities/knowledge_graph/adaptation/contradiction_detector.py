@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Explicit node-vs-node contradiction / friction detection.
 
-CONCEPT:KG-2.83
+CONCEPT:AU-KG.research.explicit-node-node-contradiction
 
 Adopts the "Building a Second Brain" *night-shift Critic* role: when a new note
 is filed against an existing belief, a good second brain does not silently
@@ -274,7 +274,7 @@ def _severity_for(similarity: float) -> str:
 
 
 class ContradictionDetector:
-    """Explicit node↔node contradiction/friction surface (CONCEPT:KG-2.83).
+    """Explicit node↔node contradiction/friction surface (CONCEPT:AU-KG.research.explicit-node-node-contradiction).
 
     The night-shift Critic: given a candidate claim and the existing belief set,
     surface every existing belief that is topically similar yet opposes the

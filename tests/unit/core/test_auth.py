@@ -1,6 +1,6 @@
 """Tests for the JWT and API Key authentication module.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
 Covers:
 - API key verification (valid, invalid, disabled)
@@ -49,7 +49,7 @@ def _make_config(**overrides):
 class TestVerifyApiKey:
     """Tests for API key verification."""
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_api_key_disabled_returns_none(self):
         """When ENABLE_API_AUTH=False, returns None (allow through)."""
@@ -58,7 +58,7 @@ class TestVerifyApiKey:
             result = await verify_api_key_only(api_key="anything")
             assert result is None
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_api_key_valid(self):
         """Valid API key returns auth info dict."""
@@ -68,7 +68,7 @@ class TestVerifyApiKey:
             assert result is not None
             assert result["auth_type"] == "api_key"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_api_key_invalid_returns_none(self):
         """Invalid API key returns None (not authenticated, but doesn't reject yet)."""
@@ -77,7 +77,7 @@ class TestVerifyApiKey:
             result = await verify_api_key_only(api_key="wrong-key")
             assert result is None
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_api_key_none_returns_none(self):
         """No API key provided returns None."""
@@ -95,7 +95,7 @@ class TestVerifyApiKey:
 class TestDecodeJWT:
     """Tests for JWT token decoding logic."""
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_valid_token(self):
         """Decoding a valid JWT with matching claims succeeds."""
         from joserfc import jwt as joserfc_jwt
@@ -120,7 +120,7 @@ class TestDecodeJWT:
         assert claims["sub"] == "user123"
         assert claims["iss"] == "https://auth.example.com"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_expired_token_raises(self):
         """Expired tokens raise HTTPException with 401."""
         from fastapi import HTTPException
@@ -146,7 +146,7 @@ class TestDecodeJWT:
             )
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_issuer_raises(self):
         """Token with wrong issuer raises HTTPException."""
         from fastapi import HTTPException
@@ -175,7 +175,7 @@ class TestDecodeJWT:
             )
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_audience_raises(self):
         """Token with wrong audience raises HTTPException."""
         from fastapi import HTTPException
@@ -204,7 +204,7 @@ class TestDecodeJWT:
             )
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_bad_signature_raises(self):
         """Token signed with a different key raises HTTPException."""
         from fastapi import HTTPException
@@ -231,7 +231,7 @@ class TestDecodeJWT:
             )
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_no_issuer_audience_check(self):
         """Decoding without issuer/audience validation succeeds."""
         from joserfc import jwt as joserfc_jwt
@@ -251,7 +251,7 @@ class TestDecodeJWT:
         claims = _decode_jwt(token, jwks, issuer=None, audience=None)
         assert claims["sub"] == "user123"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_audience_list_valid(self):
         """Token with audience as list containing expected value succeeds."""
         from joserfc import jwt as joserfc_jwt
@@ -284,7 +284,7 @@ class TestDecodeJWT:
 class TestVerifyCredentials:
     """Tests for the combined API key + JWT verification."""
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_no_auth_configured_allows_through(self):
         """When no auth is configured, all requests are allowed."""
@@ -296,7 +296,7 @@ class TestVerifyCredentials:
             )
             assert result is None
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_valid_api_key_accepted(self):
         """Valid API key is accepted when JWT is not configured."""
@@ -310,7 +310,7 @@ class TestVerifyCredentials:
             assert result is not None
             assert result["auth_type"] == "api_key"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_invalid_credentials_raises(self):
         """Invalid credentials raise 401."""
@@ -325,7 +325,7 @@ class TestVerifyCredentials:
                 )
             assert exc_info.value.status_code == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_no_credentials_when_auth_required_raises(self):
         """No credentials at all when auth is configured raises 401."""
@@ -347,28 +347,28 @@ class TestVerifyCredentials:
 class TestCORSConfig:
     """Tests for CORS and TrustedHost configuration reading."""
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_allowed_origins_parsed_from_config(self):
         """ALLOWED_ORIGINS config is split into a list."""
         origins_str = "https://app.example.com,https://admin.example.com"
         parsed = [o.strip() for o in origins_str.split(",")]
         assert parsed == ["https://app.example.com", "https://admin.example.com"]
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_allowed_origins_default_to_wildcard(self):
         """When ALLOWED_ORIGINS is None, default to ['*']."""
         origins = None
         result = [o.strip() for o in origins.split(",")] if origins else ["*"]
         assert result == ["*"]
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_allowed_hosts_parsed_from_config(self):
         """ALLOWED_HOSTS config is split into a list."""
         hosts_str = "api.example.com,*.example.com"
         parsed = [h.strip() for h in hosts_str.split(",")]
         assert parsed == ["api.example.com", "*.example.com"]
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_origins_with_whitespace_trimmed(self):
         """Whitespace around origins is trimmed."""
         origins_str = " https://a.com , https://b.com "

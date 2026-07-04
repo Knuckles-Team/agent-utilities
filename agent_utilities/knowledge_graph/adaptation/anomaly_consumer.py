@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""PerformanceAnomaly consumer (CONCEPT:AHE-3.19 — Performance Anomaly Consumer).
+"""PerformanceAnomaly consumer (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer — Performance Anomaly Consumer).
 
 ``PerformanceAnomaly`` nodes are written from several paths — the
 kg-report-persister skill, ``ExecutionSummary`` flows, the failure analyzer —

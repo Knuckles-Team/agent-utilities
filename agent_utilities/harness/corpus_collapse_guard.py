@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Model-collapse / synthetic-degeneration guard for self-generated corpora.
 
-CONCEPT:SAFE-1.4 — a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate
+CONCEPT:AU-OS.safety.model-collapse-guard-self — a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate
 
 The paper (§5.5/§7.4) warns that *naive iterated training on self-generated data leads
 to a plateau and even degeneration* (Shumailov 2024). AU already detects collapse in the

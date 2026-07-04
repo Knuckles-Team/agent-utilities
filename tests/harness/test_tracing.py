@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:OS-5.1 — Langfuse Tracing Decorators.
+"""Tests for CONCEPT:AU-OS.config.secrets-authentication — Langfuse Tracing Decorators.
 
 Validates the @trace decorator behavior including:
 - Sync/async function decoration
@@ -24,7 +24,7 @@ def mock_langfuse_config(monkeypatch):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_sync_trace_decorator(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Sync function tracing emits properly."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Sync function tracing emits properly."""
 
     @trace(name="test_sync_function")
     def my_sync_func(x):
@@ -42,7 +42,7 @@ def test_sync_trace_decorator(mock_emit, mock_langfuse_config):
 @pytest.mark.asyncio
 @patch("agent_utilities.harness.tracing._emit_trace")
 async def test_async_trace_decorator(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Async function tracing emits properly."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Async function tracing emits properly."""
 
     @trace(name="test_async_function")
     async def my_async_func(x):
@@ -59,7 +59,7 @@ async def test_async_trace_decorator(mock_emit, mock_langfuse_config):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_trace_decorator_disabled(mock_emit, monkeypatch):
-    """CONCEPT:OS-5.1 — Tracing is no-op without Langfuse keys."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Tracing is no-op without Langfuse keys."""
     monkeypatch.setattr(config, "langfuse_secret_key", None)
 
     @trace(name="test_disabled")
@@ -75,7 +75,7 @@ def test_trace_decorator_disabled(mock_emit, monkeypatch):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_trace_nesting_propagation(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Nested traces share parent trace_id."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Nested traces share parent trace_id."""
 
     @trace(name="outer_trace")
     def outer():
@@ -103,7 +103,7 @@ def test_trace_nesting_propagation(mock_emit, mock_langfuse_config):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_trace_error_handling(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Errors are captured in trace output."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Errors are captured in trace output."""
 
     @trace(name="error_function")
     def failing_func():
@@ -120,7 +120,7 @@ def test_trace_error_handling(mock_emit, mock_langfuse_config):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_trace_with_tags(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Tags are passed through to trace emission."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Tags are passed through to trace emission."""
 
     @trace(name="tagged_function", tags=["test", "unit"])
     def tagged_func():
@@ -135,7 +135,7 @@ def test_trace_with_tags(mock_emit, mock_langfuse_config):
 
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_session_id_in_trace(mock_emit, mock_langfuse_config):
-    """CONCEPT:OS-5.1 — Session ID flows into trace events."""
+    """CONCEPT:AU-OS.config.secrets-authentication — Session ID flows into trace events."""
     set_session_id("test-session-abc")
 
     @trace(name="session_func")

@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.11 WASM Micro-Agent execution tests."""
+"""CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel WASM Micro-Agent execution tests."""
 
 import pytest
 

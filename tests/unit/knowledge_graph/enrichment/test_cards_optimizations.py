@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.8 — card-generation cost controls (batching, persistent cache,
+"""CONCEPT:EG-KG.storage.nonblocking-checkpoint — card-generation cost controls (batching, persistent cache,
 trivial-skip, per-language prompt)."""
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from agent_utilities.knowledge_graph.enrichment.models import CodeEntity
 
 @pytest.fixture()
 def card_store(engine_graph):
-    """A :class:`CardStore` on the REAL ephemeral engine tenant (CONCEPT:KG-2.244).
+    """A :class:`CardStore` on the REAL ephemeral engine tenant (CONCEPT:AU-KG.backend.cache-lives-as).
 
     The card cache is engine-only (no SQLite), so its persistent-store behaviour is
     proven against the actual shipped database via the conftest ``engine_graph``
-    fixture (CONCEPT:KG-2.238) bound through an ``EpistemicGraphBackend``.
+    fixture (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) bound through an ``EpistemicGraphBackend``.
     """
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,

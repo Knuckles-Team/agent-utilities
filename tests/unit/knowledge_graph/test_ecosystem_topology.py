@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Tests for Ecosystem Topology Builder.
 
-CONCEPT:ECO-4.0 — Ecosystem Topology Map
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Ecosystem Topology Map
 
 Validates package discovery, dependency graph construction,
 impact radius computation, MCP categorization, and KG persistence.
@@ -120,7 +120,7 @@ def builder(workspace: Path) -> EcosystemTopologyBuilder:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestPackageDiscovery:
     """Tests for pyproject.toml scanning and metadata extraction."""
 
@@ -194,7 +194,7 @@ class TestPackageDiscovery:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestDependencyGraph:
     """Tests for inter-package dependency graph construction."""
 
@@ -223,7 +223,7 @@ class TestDependencyGraph:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestImpactRadius:
     """Tests for transitive impact radius computation."""
 
@@ -257,7 +257,7 @@ class TestImpactRadius:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestMCPCoverage:
     """Tests for frontend-to-MCP server coverage mapping."""
 
@@ -275,7 +275,7 @@ class TestMCPCoverage:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestCategoryGroups:
     """Tests for intelligent package category grouping."""
 
@@ -294,7 +294,7 @@ class TestCategoryGroups:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("ECO-4.7")
+@pytest.mark.concept("AU-OS.deployment.infra-orchestration")
 class TestTopologyReport:
     """Tests for markdown report generation."""
 

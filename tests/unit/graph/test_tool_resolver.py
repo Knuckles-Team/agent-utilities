@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Tool gap-fill resolver for workflow materialization (a-keystone).
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 """
 
 import pytest
 
 from agent_utilities.graph.tool_resolver import resolve_agent_tools, resolve_tools
 
-pytestmark = pytest.mark.concept("ECO-4.0")
+pytestmark = pytest.mark.concept("AU-ECO.messaging.native-backend-abstraction")
 
 
 def test_all_available_pass_through():

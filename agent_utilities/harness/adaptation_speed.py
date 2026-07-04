@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Adaptation-speed metric — the SAI primary measure of specialization.
 
-CONCEPT:AHE-3.27 — per-task adaptation-speed instrumentation (time-to-target +
+CONCEPT:AU-AHE.harness.per-task-adaptation-speed — per-task adaptation-speed instrumentation (time-to-target +
 sample-complexity + learning-AUC) that measures *how fast* a specialization run
 reaches a target capability, rather than only its final quality.
 

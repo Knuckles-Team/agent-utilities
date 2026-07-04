@@ -1,5 +1,5 @@
 """
-Price-Action Pattern Classifier — CONCEPT:KG-2.6
+Price-Action Pattern Classifier — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Implements the four-pattern price-action framework and maps each to a
 momentum-vs-mean-reversion edge label that a PATTERN_ANALYST swarm role
@@ -47,7 +47,7 @@ def _signal_engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numpy kernel when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())

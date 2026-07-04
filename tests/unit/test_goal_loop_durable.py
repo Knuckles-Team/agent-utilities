@@ -1,4 +1,4 @@
-"""Goal loop durable-effect wiring (CONCEPT:OS-5.16).
+"""Goal loop durable-effect wiring (CONCEPT:AU-OS.state.unified-durable-state-externalization).
 
 The ORCH-5.0 goal loop wraps each iteration's validation command in a durable
 action keyed by ``{goal_id}:{iteration}``. A crash-and-resume — or simply a

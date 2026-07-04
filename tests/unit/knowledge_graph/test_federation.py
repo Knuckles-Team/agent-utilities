@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Unit tests for External Graph Federation mixin.
 
-CONCEPT:KG-2.1 — External Graph Federation
+CONCEPT:AU-KG.memory.tiered-memory-caching — External Graph Federation
 """
 
 from unittest.mock import MagicMock, patch

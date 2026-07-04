@@ -19,12 +19,12 @@ single object that composes the ontology primitives. It holds the six
 | `value_types` | `dict[str, ValueType]` | KG-2.39 | Constrained semantic types → SHACL/OWL, gate writes. |
 | `interfaces` | `InterfaceRegistry` | KG-2.38 | Abstract shapes, conformance, programmatic targeting. |
 | `links` | `LinkTypeRegistry` | KG-2.26 | Typed links + reified M:N junction objects. |
-| `function_registry` / `functions` | `FunctionRegistry` / `FunctionRuntime` | KG-2.41 | Typed, versioned, audited Functions (PLAIN/ON_OBJECTS/QUERY). |
+| `function_registry` / `functions` | `FunctionRegistry` / `FunctionRuntime` | AU-KG.ontology.default-runtime-bound-import | Typed, versioned, audited Functions (PLAIN/ON_OBJECTS/QUERY). |
 | `derived_registry` / `derived` | `DerivedPropertyRegistry` / `DerivedPropertyEngine` | KG-2.40 | Read-time computed props (FUNCTION/CYPHER/SPARQL/EMBEDDING). |
 | `edits` | `EditLedger` | KG-2.43 | Durable bitemporal edit ledger + revert + writeback. |
-| `index_funnel` | `ObjectIndexFunnel` | KG-2.44 | Batch + streaming index sync into the live `CapabilityIndex`. |
+| `index_funnel` | `ObjectIndexFunnel` | AU-KG.ontology.batch-incremental-sync-live | Batch + streaming index sync into the live `CapabilityIndex`. |
 | (factories) | `ObjectSet` | KG-2.45 | Static/dynamic object sets, search-around, aggregate, pivot. |
-| (functions) | permissioning helpers | KG-2.46 | Markings, redaction, restricted views, entailment propagation. |
+| (functions) | permissioning helpers | AU-KG.ontology.redact-object-materialize-restricted | Markings, redaction, restricted views, entailment propagation. |
 | (method) | `DocumentProcessor` | KG-2.48 | Media → chunk → embed → first-class `Chunk` objects. |
 
 The **verbs** live alongside in `knowledge_graph/actions/` (`OntologyAction`,
@@ -82,7 +82,7 @@ Thin handlers reaching the live `kg.ontology`:
 `ontology_property_types`, `ontology_value_types`, `ontology_interface`,
 `ontology_function`, `ontology_derive`, `ontology_link_materialize`,
 `ontology_sampling_profile` (list/describe/resolve/set/evolve/owl — task-aware LLM
-sampling profiles, CONCEPT:KG-2.94, see
+sampling profiles, CONCEPT:AU-KG.ontology.sampling-profile-coupling, see
 [Task-Aware Sampling Profiles](sampling_profiles.md)) (plus
 edit / permissioning / document-processing handlers in the same registration block).
 
@@ -123,12 +123,12 @@ flowchart TB
         VT["value_types<br/>KG-2.39"]
         IF["interfaces<br/>KG-2.38"]
         LK["links / junctions<br/>KG-2.26"]
-        FN["functions runtime<br/>KG-2.41"]
+        FN["functions runtime<br/>AU-KG.ontology.default-runtime-bound-import"]
         DP["derived properties<br/>KG-2.40"]
         ED["edit ledger<br/>KG-2.43"]
-        IX["index funnel<br/>KG-2.44"]
+        IX["index funnel<br/>AU-KG.ontology.batch-incremental-sync-live"]
         OS["object sets<br/>KG-2.45"]
-        PM["permissioning<br/>KG-2.46"]
+        PM["permissioning<br/>AU-KG.ontology.redact-object-materialize-restricted"]
         DOC["document processing<br/>KG-2.48"]
         ACT["actions (verbs)<br/>KG-2.25 / KG-2.42"]
     end

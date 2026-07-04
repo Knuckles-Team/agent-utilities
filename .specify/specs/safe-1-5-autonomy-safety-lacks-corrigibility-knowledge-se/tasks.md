@@ -1,6 +1,6 @@
 # Tasks: Corrigibility + Knowledge-Seeking Objective Primitives (SAFE-1.5)
 
-Wire-first, ordered. Reuse the ORCH-5.0 goal loop and OS-5.24 ActionPolicy — do not rebuild either.
+Wire-first, ordered. Reuse the AU-ORCH.session.durable-session-autonomous-goal goal loop and OS-5.24 ActionPolicy — do not rebuild either.
 
 1. **Confirm the seams** (read-only): `agent_utilities/models/goal.py` (`GoalSpec`, `GoalIteration`,
    `GoalCheckpoint`, `GoalResult`, `GoalStatus`), `agent_utilities/orchestration/durable_execution.py`
@@ -10,7 +10,7 @@ Wire-first, ordered. Reuse the ORCH-5.0 goal loop and OS-5.24 ActionPolicy — d
 
 2. **Add the corrigibility controller** — a `CorrigibilityController` with `request_shutdown()` /
    `should_yield()` (new `orchestration/corrigibility.py`, or fold into `models/goal.py`). Tag
-   `# CONCEPT:SAFE-1.5`. Generalize the wasm epoch-interrupt semantics to the goal loop level.
+   `# CONCEPT:AU-OS.safety.irreversibility-aversion`. Generalize the wasm epoch-interrupt semantics to the goal loop level.
 
 3. **Wire it into the live loop** — at the top of each `GoalIteration` the loop calls `should_yield()`;
    on yield it persists a `GoalCheckpoint` via `DurableExecutionManager` and returns
@@ -18,7 +18,7 @@ Wire-first, ordered. Reuse the ORCH-5.0 goal loop and OS-5.24 ActionPolicy — d
 
 4. **Add the opt-in knowledge-seeking objective** — `info_gain_reward(before, after)` (expected
    uncertainty reduction over the KG belief) and a `GoalSpec.objective` field defaulting to the current
-   behavior; the reward is computed only when `objective == "knowledge_seeking"`. Tag `# CONCEPT:SAFE-1.5`.
+   behavior; the reward is computed only when `objective == "knowledge_seeking"`. Tag `# CONCEPT:AU-OS.safety.irreversibility-aversion`.
 
 5. **Route irreversible actions through the existing cap** — when an action is marked `irreversible=True`,
    call the OS-5.24 `ActionPolicy` blast-radius path (`_blast_exceeded`); do not add a new gate.

@@ -1,6 +1,6 @@
 """The parametrized backend matrix for the conformance suite.
 
-CONCEPT:KG-2.0 / KG-2.7 — one ``backend_under_test`` parameter per supported
+CONCEPT:AU-KG.query.object-graph-mapper / KG-2.7 — one ``backend_under_test`` parameter per supported
 backend, built through the production ``create_backend`` factory against the
 ephemeral fixtures defined in ``tests/integration/conftest.py``.
 

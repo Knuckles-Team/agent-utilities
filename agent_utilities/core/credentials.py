@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 — Three-tier credential resolution (env > file > none).
+"""CONCEPT:AU-ORCH.adapter.three-tier-credential-resolution — Three-tier credential resolution (env > file > none).
 
 Assimilated from open-design's ``media-config`` resolution order: a provider's API key/base-url is
 resolved from the process environment first (CI/Docker/systemd), then a JSON config file (packaged or

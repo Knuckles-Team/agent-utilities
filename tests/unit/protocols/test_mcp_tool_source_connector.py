@@ -1,4 +1,4 @@
-"""Tests for the universal MCP-tool ingestion source (CONCEPT:KG-2.59).
+"""Tests for the universal MCP-tool ingestion source (CONCEPT:AU-KG.ingest.mcp-tool-connector).
 
 Offline + deterministic: the MCP transport is an in-process FastMCP server
 handed to the connector via the injected ``client`` target — the same
@@ -135,12 +135,12 @@ def make_objectstore_server() -> FastMCP:
 # ── registration + config validation ─────────────────────────────────────────
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_mcp_tool_source_registered():
     assert "mcp_tool" in list_sources()
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_config_validation():
     with pytest.raises(ValueError, match="tool"):
         build_connector("mcp_tool", {"server": "x"})
@@ -154,7 +154,7 @@ def test_config_validation():
         build_connector("mcp_tool", {"preset": "nope"})
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_presets_are_data():
     assert {"sql-table", "sql-query", "objectstore-prefix", "servicenow-table"} <= set(
         list_tool_presets()
@@ -165,7 +165,7 @@ def test_presets_are_data():
         assert get_tool_preset(name) == preset
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_enterprise_presets_build_with_verified_shape():
     # github-mcp + okta-mcp: source-control and identity, grounded in each
     # agent's actual list tool + response envelope (not guessed).
@@ -200,7 +200,7 @@ def test_enterprise_presets_build_with_verified_shape():
     assert (kc.id_field, kc.title_field, kc.text_field) == ("id", "username", "email")
 
 
-@pytest.mark.concept("ECO-4.46")
+@pytest.mark.concept("AU-ECO.connector.mcp-tool-connector")
 def test_pulselink_presets_build_with_uniform_shape():
     # PulseLink open-web/social sources: every source is the SAME flat field map
     # over pulse_search/pulse_list's {documents:[...], next_cursor} envelope.
@@ -238,7 +238,7 @@ def test_pulselink_presets_build_with_uniform_shape():
 # ── sql-mcp shapes ───────────────────────────────────────────────────────────
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_sql_query_keyset_sweep_zips_columns_rows():
     conn = build_connector(
         "mcp_tool",
@@ -265,7 +265,7 @@ def test_sql_query_keyset_sweep_zips_columns_rows():
     assert "body" not in docs[0].metadata["record"]  # text not duplicated
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_sql_table_bootstrap_discovers_columns_and_polls_incrementally():
     conn = build_connector(
         "mcp_tool",
@@ -294,7 +294,7 @@ def test_sql_table_bootstrap_discovers_columns_and_polls_incrementally():
     assert again.checkpoint.watermark == "2026-03-01"
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_sql_table_rejects_unsafe_identifiers():
     with pytest.raises(ValueError, match="identifier"):
         conn = build_connector(
@@ -311,7 +311,7 @@ def test_sql_table_rejects_unsafe_identifiers():
 # ── objectstore shapes ───────────────────────────────────────────────────────
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_objectstore_prefix_sweep_list_get_detail():
     conn = build_connector(
         "mcp_tool",
@@ -329,7 +329,7 @@ def test_objectstore_prefix_sweep_list_get_detail():
     assert docs[0].updated_at == "2026-01-01T00:00:00Z"
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_poll_resumes_cursor_state_across_batches():
     conn = build_connector(
         "mcp_tool",
@@ -358,7 +358,7 @@ def test_poll_resumes_cursor_state_across_batches():
 # ── generic mapping behaviors ────────────────────────────────────────────────
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_acl_fields_map_to_external_access():
     server = FastMCP("acl-server")
 
@@ -398,7 +398,7 @@ def test_acl_fields_map_to_external_access():
     assert docs["r2"].external_access.is_public is True
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_page_pagination_offset_exhaustion_and_max_records():
     server = FastMCP("paged")
     all_rows = [{"id": str(i), "text": f"row {i}"} for i in range(7)]
@@ -426,7 +426,7 @@ def test_page_pagination_offset_exhaustion_and_max_records():
     assert len(capped) == 4
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_args_params_style_for_non_fleet_servers():
     server = FastMCP("flat")
 
@@ -447,7 +447,7 @@ def test_args_params_style_for_non_fleet_servers():
     assert [d.id for d in conn.load()] == ["x"]
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_tool_failure_raises_typed_error():
     server = FastMCP("broken")
 
@@ -460,7 +460,7 @@ def test_tool_failure_raises_typed_error():
         list(conn.load())
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_missing_server_in_mcp_config_is_typed(monkeypatch, tmp_path):
     cfg = tmp_path / "mcp_config.json"
     cfg.write_text(json.dumps({"mcpServers": {}}))
@@ -470,7 +470,7 @@ def test_missing_server_in_mcp_config_is_typed(monkeypatch, tmp_path):
         list(conn.load())
 
 
-# ── mealie recipes doc-preset (CONCEPT:KG-2.59) ───────────────────────────────
+# ── mealie recipes doc-preset (CONCEPT:AU-KG.ingest.mcp-tool-connector) ───────────────────────────────
 
 
 def make_mealie_server(page_size: int = 2) -> FastMCP:
@@ -495,7 +495,7 @@ def make_mealie_server(page_size: int = 2) -> FastMCP:
     return server
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_mealie_preset_builds_with_verified_shape():
     assert "mealie-recipes" in list_tool_presets()
     conn = build_connector("mcp_tool", {"preset": "mealie-recipes"})
@@ -511,7 +511,7 @@ def test_mealie_preset_builds_with_verified_shape():
     )
 
 
-@pytest.mark.concept("KG-2.59")
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_mealie_recipes_sweep_paginates_pages():
     conn = build_connector(
         "mcp_tool",

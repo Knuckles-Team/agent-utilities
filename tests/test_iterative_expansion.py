@@ -1,4 +1,4 @@
-"""Unit tests for the ADORE-style iterative query expander (CONCEPT:KG-2.88).
+"""Unit tests for the ADORE-style iterative query expander (CONCEPT:AU-KG.query.adore-concept-expansion).
 
 Fully deterministic: a fake corpus + keyword-overlap retriever + keyword judge +
 fixed-pseudo-passage reformulator. No LLM, no network.

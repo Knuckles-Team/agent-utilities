@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 — create_model(provider="custom") via the proxy (follow-up #2).
+"""CONCEPT:AU-ORCH.adapter.byok-provider-proxy — create_model(provider="custom") via the proxy (follow-up #2).
 
 Verifies the custom/proxy provider builds an OpenAI-compatible model at the resolved base_url, is
 gated by the SSRF egress guard (internal-IP base_url rejected), and requires a base_url.
@@ -10,7 +10,7 @@ import pytest
 
 from agent_utilities.core.model_factory import create_model
 
-pytestmark = pytest.mark.concept(id="ORCH-1.34")
+pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.byok-provider-proxy")
 
 
 def test_custom_provider_requires_base_url(monkeypatch):

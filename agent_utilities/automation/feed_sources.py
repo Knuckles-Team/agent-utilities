@@ -1,4 +1,4 @@
-"""Unified feed-source bridge + first-class feed registry (CONCEPT:KG-2.121/2.122).
+"""Unified feed-source bridge + first-class feed registry (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122).
 
 Two jobs, one place:
 
@@ -48,7 +48,7 @@ def _run(coro: Any) -> Any:
 def scholarx_feed_documents(
     categories: list[str] | None = None, days: int = 1
 ) -> list[SourceDocument]:
-    """ScholarX arXiv RSS items as unified ``SourceDocument``s (CONCEPT:KG-2.121).
+    """ScholarX arXiv RSS items as unified ``SourceDocument``s (CONCEPT:AU-KG.ingest.rss-feed-connector).
 
     No-op (``[]``) when ScholarX is not installed. The ``origin.streamId`` is set to
     ``scholarx:arxiv`` so ``WorldModelPipelineRunner._is_research`` routes each item
@@ -108,7 +108,7 @@ def scholarx_feed_documents(
     return out
 
 
-# ── First-class feed registry (presets → KG, CONCEPT:KG-2.122) ───────────────
+# ── First-class feed registry (presets → KG, CONCEPT:AU-KG.compute.first-class-rss-atom) ───────────────
 def _feed_node_id(source_system: str, key: str) -> str:
     safe = str(key).replace(":", "-").replace("/", "-")
     return f"feed:{source_system}:{safe[:160]}"
@@ -126,7 +126,7 @@ def upsert_feed_source(
 ) -> str:
     """Materialize one configured feed as a durable :FeedSource/:RssFeed node.
 
-    The long-missing "presets→KG" wiring (CONCEPT:KG-2.122): a feed is a first-class
+    The long-missing "presets→KG" wiring (CONCEPT:AU-KG.compute.first-class-rss-atom): a feed is a first-class
     KG citizen, not just declarative config. Returns the node id.
     """
     node_id = _feed_node_id(source_system, key)
@@ -186,7 +186,7 @@ def register_feed_nodes(
 
 
 def remove_feed_source(engine: Any, *, key: str, source_system: str = "rss") -> bool:
-    """Tombstone a registered feed by its url/key (CONCEPT:KG-2.122). Best-effort."""
+    """Tombstone a registered feed by its url/key (CONCEPT:AU-KG.compute.first-class-rss-atom). Best-effort."""
     backend = getattr(engine, "backend", None)
     if backend is None:
         return False

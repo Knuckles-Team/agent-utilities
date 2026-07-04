@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 from unittest.mock import MagicMock
 

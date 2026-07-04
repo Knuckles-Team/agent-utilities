@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Adapter registry + non-blocking PATH detection.
+"""CONCEPT:AU-ORCH.adapter.adapter-registry-path-detection — Adapter registry + non-blocking PATH detection.
 
 Loads :class:`AdapterDefinition` objects and probes which are available on the host, mirroring
 open-design's ``runtimes/registry.ts`` + ``detection.ts``. Detection is best-effort and never raises:

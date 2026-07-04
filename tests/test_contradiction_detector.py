@@ -1,11 +1,11 @@
-"""Explicit node-vs-node contradiction / friction detector (CONCEPT:KG-2.83).
+"""Explicit node-vs-node contradiction / friction detector (CONCEPT:AU-KG.research.explicit-node-node-contradiction).
 
 Covers the night-shift Critic contract: opposition detection (antonym + negation
 flips), topical gating, friction emission for similar-and-opposing pairs only,
 similarity-scaled severity, symmetric-pair dedup in all-pairs scans, injected
 similarity_fn usage, and full determinism. No LLM, no network.
 
-@pytest.mark.concept("KG-2.83")
+@pytest.mark.concept("AU-KG.research.explicit-node-node-contradiction")
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.adaptation.contradiction_detector import (
     opposes,
 )
 
-pytestmark = pytest.mark.concept("KG-2.83")
+pytestmark = pytest.mark.concept("AU-KG.research.explicit-node-node-contradiction")
 
 
 # ── opposes() ────────────────────────────────────────────────────────────

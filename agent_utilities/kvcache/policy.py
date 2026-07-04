@@ -1,10 +1,10 @@
 """Dynamic, context-aware KV-cache-layering policy — per-execution cache-worthiness.
 
-CONCEPT:ORCH-1.105 — Dynamic context-aware per-execution KV-cache-layering cache-worthiness policy
+CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy — Dynamic context-aware per-execution KV-cache-layering cache-worthiness policy
 
 A per-call decision engine that decides, for EACH LLM chat execution, whether its
 KV-cache is worth **storing** into the decoupled LMCache layer (L1 CPU + L2 epistemic-graph, see ``kvcache/remote_backend.py`` /
-``CONCEPT:KG-2.306``) rather than a hard, global on/off. The intelligence: reserve
+``CONCEPT:AU-KG.backend.kvcache-vllm-connector``) rather than a hard, global on/off. The intelligence: reserve
 the KV store cost (and cache pollution) for executions that are actually reused,
 and skip it for one-off short single-shot prompts.
 
@@ -67,7 +67,7 @@ _REUSE_HEAVY_ROLES: frozenset[str] = frozenset(
 class KVCacheDecision(BaseModel):
     """The per-execution verdict from :class:`KVCacheLayeringPolicy`.
 
-    CONCEPT:ORCH-1.105. ``skip_save`` is the enforced lever (``lmcache.skip_save``);
+    CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy. ``skip_save`` is the enforced lever (``lmcache.skip_save``);
     everything else is provenance so the decision is explainable and testable.
     """
 
@@ -152,7 +152,7 @@ def _history_text_and_turns(message_history: Any) -> tuple[str, int]:
 
 
 class KVCacheLayeringPolicy:
-    """Scores an LLM execution's KV-cache-worthiness (CONCEPT:ORCH-1.105).
+    """Scores an LLM execution's KV-cache-worthiness (CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy).
 
     Thresholds are read live from :func:`agent_utilities.core.config.setting` at
     construction (so ``config.json`` / monkeypatched env apply), and may be
@@ -316,7 +316,7 @@ def fold_kv_hint(
 ) -> ModelSettings:
     """Return ``settings`` with this execution's KV-cache hint folded into extra_body.
 
-    CONCEPT:ORCH-1.105 — the live seam. Takes the per-call base ``ModelSettings``
+    CONCEPT:AU-ORCH.optimization.kvcache-worthiness-policy — the live seam. Takes the per-call base ``ModelSettings``
     (dict-shaped), runs :class:`KVCacheLayeringPolicy`, and dict-merges
     ``{"kv_transfer_params": {"lmcache.skip_save": <bool>}}`` into ``extra_body``
     WITHOUT disturbing any pre-existing knob (reasoning_effort, priority, top_k...).

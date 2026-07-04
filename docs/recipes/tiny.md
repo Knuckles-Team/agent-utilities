@@ -21,7 +21,7 @@ vLLM/Ollama endpoint).
 |---|---|
 | agent-utilities | pip/uv install, in-process |
 | Knowledge graph | the **epistemic-graph engine authority** — one embedded engine, durable on disk (`--persist-dir`), no mirrors |
-| Engine lifecycle | auto-spun-up as a **shared local daemon, reference-counted** (CONCEPT:OS-5.63): the ONE resolver autostarts a detached engine on first use and it self-stops ~60s after the last client disconnects. Set `engine_lifecycle=persistent` for a **long-living** engine that never auto-stops (warm, like a local service). A remote engine (enterprise) is inherently persistent. |
+| Engine lifecycle | auto-spun-up as a **shared local daemon, reference-counted** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): the ONE resolver autostarts a detached engine on first use and it self-stops ~60s after the last client disconnects. Set `engine_lifecycle=persistent` for a **long-living** engine that never auto-stops (warm, like a local service). A remote engine (enterprise) is inherently persistent. |
 | **OWL/RDF + reasoning** | **on by default** — local OWL-RL inference (epistemic-graph) over the LPG, no external triplestore |
 | **SPARQL** | **local endpoint** at `GET/POST {gateway}/api/sparql` (rdflib materialization + engine `GetTriples` fast path) — zero external deps |
 | graph-os MCP | optional, `uv run graph-os` (stdio) |

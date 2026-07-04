@@ -1,4 +1,4 @@
-# Self-Curating Wiki (CONCEPT:KG-2.19)
+# Self-Curating Wiki (CONCEPT:EG-KG.query.wire-protocol)
 
 ## Overview
 

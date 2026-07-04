@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Live-path test: UnifiedExecutionEngine dispatches to an adapter.
+"""CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch — Live-path test: UnifiedExecutionEngine dispatches to an adapter.
 
 Asserts the *existing* engine entry point (``run(manifest)``) actually invokes the adapter layer when
 a runtime is requested (Wire-First), and preserves prior behaviour when it is not.
@@ -18,7 +18,7 @@ from agent_utilities.core.execution.adapters import (
 from agent_utilities.core.execution.engine import UnifiedExecutionEngine
 from agent_utilities.models.execution_manifest import AgentSpec, ExecutionManifest
 
-pytestmark = pytest.mark.concept(id="ORCH-1.33")
+pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.multi-cli-adapter-dispatch")
 
 
 def _manifest(**meta) -> ExecutionManifest:

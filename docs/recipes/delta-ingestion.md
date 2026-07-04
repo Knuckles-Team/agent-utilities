@@ -4,7 +4,7 @@
 > new environment from scratch, so every connector re-ingests only what changed and
 > a background daemon keeps the graph fresh. This recipe ties together the
 > **backend wiring**, the **content-hash write-delta**, the **fleet sweep
-> schedule**, and the **host daemon**. (CONCEPT:KG-2.9)
+> schedule**, and the **host daemon**. (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
 This page is **Claude-runnable**: hand it to Claude in a fresh environment and it
 can configure delta ingestion end-to-end. It extends — not duplicates —

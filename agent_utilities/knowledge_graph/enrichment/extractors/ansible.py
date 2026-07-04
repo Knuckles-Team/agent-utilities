@@ -1,4 +1,4 @@
-"""Ansible Tower/AWX source extractor — managed-host inventory (CONCEPT:KG-2.9).
+"""Ansible Tower/AWX source extractor — managed-host inventory (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps Tower hosts into the uniform ExtractionBatch as :Server (joining the same
 infra/CMDB plane), stamped ``externalToolId`` + ``domain="ansible"``. The action

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Moat trace analytics (CONCEPT:KG-2.257) — the observability queries Opik CANNOT do.
+"""Moat trace analytics (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot) — the observability queries Opik CANNOT do.
 
 Because traces, online-scores, assertion verdicts, generations, and prompt versions are
 all FIRST-CLASS KG nodes (not opaque ClickHouse rows), the engine can graph-reason over

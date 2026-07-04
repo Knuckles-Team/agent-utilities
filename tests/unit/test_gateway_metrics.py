@@ -1,4 +1,4 @@
-"""Tests for the Python-tier gateway Prometheus metrics (CONCEPT:OS-5.23).
+"""Tests for the Python-tier gateway Prometheus metrics (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
 Covers: the no-op fallback contract (prometheus_client is an optional
 extra), exposition rendering, the route-TEMPLATE label discipline (bounded

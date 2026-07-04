@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Cross-source feature dedup (VU-2).
 
-CONCEPT:KG-2.7
+CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
 
 from agent_utilities.knowledge_graph.assimilation import dedup_features
 
-pytestmark = pytest.mark.concept("KG-2.7")
+pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
 class _Graph:

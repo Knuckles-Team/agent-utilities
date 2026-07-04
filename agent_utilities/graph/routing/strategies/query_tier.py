@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cost-Based Query Router.
 
-CONCEPT:KG-2.7 — Intelligent Query Routing
+CONCEPT:AU-KG.query.intelligent-routing — Intelligent Query Routing
 
 Routes graph queries to the optimal execution tier based on query
 classification and cost estimation:

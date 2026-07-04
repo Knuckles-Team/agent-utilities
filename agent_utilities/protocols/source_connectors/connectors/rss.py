@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Native RSS/Atom feed document-source connector (zero-infra).
 
-CONCEPT:KG-2.121 — native zero-infra RSS/Atom feed extractor and unified feed source.
+CONCEPT:AU-KG.ingest.rss-feed-connector — native zero-infra RSS/Atom feed extractor and unified feed source.
 Point it at one or more feed URLs and it yields each entry as a
 :class:`SourceDocument`, with NO
 external service required (unlike the FreshRSS feeder, which aggregates many feeds
@@ -38,7 +38,7 @@ FetchFn = Callable[[str], str]
 _SEEN_CAP = 5000
 #: Per-feed HTTP fetch timeout (seconds). A feed slower than this in a sweep is
 #: skipped rather than stalling the whole pass; with concurrent fetch the sweep's
-#: wall-clock is bounded by this, not by N×timeout. (CONCEPT:KG-2.121)
+#: wall-clock is bounded by this, not by N×timeout. (CONCEPT:AU-KG.ingest.rss-feed-connector)
 _FEED_FETCH_TIMEOUT_S = 20.0
 #: Max feeds fetched concurrently per sweep (bounds sockets/threads; the sweep
 #: scales to many feeds without a serial stall — the 2000-reviews/hr path).
@@ -58,7 +58,7 @@ def _default_fetch(url: str) -> str:
         url,
         # Bounded per-feed so one slow feed can't stall a multi-feed sweep; feeds
         # are fetched concurrently (see RssConnector._all_documents), so the sweep's
-        # wall-clock is ~the slowest single feed, not the sum. (CONCEPT:KG-2.121)
+        # wall-clock is ~the slowest single feed, not the sum. (CONCEPT:AU-KG.ingest.rss-feed-connector)
         timeout=_FEED_FETCH_TIMEOUT_S,
         follow_redirects=True,
         headers={"User-Agent": "agent-utilities-rss/1.0"},
@@ -106,7 +106,7 @@ def _entry_text(entry) -> str:
 
 @register_source("rss")
 class RssConnector(LoadConnector, PollConnector):
-    """Fetch + parse arbitrary RSS/Atom feeds into documents (CONCEPT:KG-2.121).
+    """Fetch + parse arbitrary RSS/Atom feeds into documents (CONCEPT:AU-KG.ingest.rss-feed-connector).
 
     Config:
         feed_urls: One URL or a list of feed URLs (required).
@@ -196,7 +196,7 @@ class RssConnector(LoadConnector, PollConnector):
         sweep. Each ``_entries`` call is bounded by the per-feed fetch timeout and
         degrades to ``[]`` on error, so the whole pass costs ~the slowest single
         feed (× ceil(N / concurrency)) instead of the serial sum — the throughput
-        unlock for many-feed sweeps (the 2000-reviews/hr path). (CONCEPT:KG-2.121)"""
+        unlock for many-feed sweeps (the 2000-reviews/hr path). (CONCEPT:AU-KG.ingest.rss-feed-connector)"""
         urls = self.feed_urls
         if len(urls) <= 1:
             return self._entries(urls[0]) if urls else []
@@ -222,7 +222,7 @@ class RssConnector(LoadConnector, PollConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Emit only entries newer than the prior watermark AND not already seen.
 
-        Dual guard (CONCEPT:KG-2.121): the publish-date watermark is the primary
+        Dual guard (CONCEPT:AU-KG.ingest.rss-feed-connector): the publish-date watermark is the primary
         delta; the seen-id belt catches feeds with missing or identical dates so a
         re-poll never re-emits an unchanged entry.
         """

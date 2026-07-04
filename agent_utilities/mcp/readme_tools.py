@@ -1,4 +1,4 @@
-"""Auto-generate the MCP tools table in an agent package's README (CONCEPT:ECO-4.82).
+"""Auto-generate the MCP tools table in an agent package's README (CONCEPT:AU-ECO.mcp.tool-mode-standardization).
 
 Every fleet connector exposes its surface through ``get_mcp_instance()`` and the
 shared ``register_tool_surface`` wiring, so the live server is the single source of

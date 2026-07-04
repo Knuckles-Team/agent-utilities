@@ -6,7 +6,7 @@ Validates that :func:`run_graph_iter` correctly uses ``graph.iter()``
 for step-by-step execution and yields properly structured events
 including node transitions, sideband draining, and state snapshots.
 
-CONCEPT:ORCH-1.0 Graph Orchestration
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations Graph Orchestration
 """
 
 

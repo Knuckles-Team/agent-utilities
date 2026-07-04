@@ -1,5 +1,5 @@
 """
-Signal Fusion — CONCEPT:KG-2.6
+Signal Fusion — CONCEPT:AU-KG.research.research-pipeline-runner
 Combines disparate signals (technical, fundamental, sentiment, on-chain)
 into a unified directional conviction using Bayesian inference.
 Inspired by AI-Trader minimal information paradigm.
@@ -43,7 +43,7 @@ class BayesianSignalFusion:
     ) -> int:
         """Seed fusion sources from stored MicrostructureSignal priors.
 
-        CONCEPT:EE-033 — closes the priors→weights loop. ``signals`` is an
+        CONCEPT:AU-AHE.assimilation.microstructure-signal-fusion — closes the priors→weights loop. ``signals`` is an
         iterable of records (``MicrostructureSignalNode`` instances or plain
         mappings) carrying ``directional_accuracy``, ``standalone_sharpe``, and
         ``pbo``. Each surviving signal is registered with
@@ -130,7 +130,7 @@ class BayesianSignalFusion:
 
 class AlphaCombinationEngine:
     """
-    11-Step Alpha Combination Engine — CONCEPT:KG-2.6
+    11-Step Alpha Combination Engine — CONCEPT:AU-KG.research.research-pipeline-runner
     Combines N signals using an information-theoretic approach to remove shared variance.
     """
 
@@ -188,7 +188,7 @@ class AlphaCombinationEngine:
 
 class LaplaceEnsembleFusion:
     """
-    Ensemble Probability Pipeline — CONCEPT:KG-2.6
+    Ensemble Probability Pipeline — CONCEPT:AU-KG.research.research-pipeline-runner
     Converts raw ensemble models (like 31 GFS runs or parallel orderbook snapshots)
     into a highly calibrated, bounded probability using Laplace smoothing.
     """

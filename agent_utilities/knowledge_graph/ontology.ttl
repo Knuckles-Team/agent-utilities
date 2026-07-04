@@ -29,6 +29,7 @@ unlinked domain ontologies. Adding a new domain ontology means adding its file A
 an import edge here; scripts/check_ontology.py enforces both. See
 docs/architecture/ontology_library.md for the full module catalog and roles.""" ;
     owl:imports <http://knuckles.team/kg/a2a>,
+        <http://knuckles.team/kg/concepts>,
         <http://knuckles.team/kg/action>,
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/banking>,

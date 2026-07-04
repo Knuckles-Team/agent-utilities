@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.24 — Live Refreshable Artifact models + bounded-JSON + safe interpolation.
+"""CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact models + bounded-JSON + safe interpolation.
 
 Assimilated from open-design's Live Artifact spec (specs/2026-04-29-live-artifacts): an output is a
 ``template`` + bounded ``data`` + ``provenance`` triad. Interpolation is **injection-safe** —
@@ -133,7 +133,7 @@ class Provenance(BaseModel):
 class LiveArtifact(BaseModel):
     """A refreshable artifact: template + data + provenance, bound to a KG source.
 
-    CONCEPT:KG-2.24 — Live Refreshable Artifact.
+    CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact.
     """
 
     artifact_id: str = Field(default_factory=lambda: f"artifact:{uuid.uuid4().hex[:8]}")

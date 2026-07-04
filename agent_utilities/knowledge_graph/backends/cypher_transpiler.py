@@ -111,7 +111,7 @@ def _sanitize_param(v: Any) -> Any:
       Postgres array, which is what ``STRING[]`` → ``TEXT[]`` columns expect.
       json.dumps'ing it ("[...]") made PG reject it ("malformed array literal" —
       PG array literals are "{...}"). A list containing dict/list can't be
-      array-adapted, so JSON-encode those. (CONCEPT:KG-2.9 write-path hardening.)
+      array-adapted, so JSON-encode those. (CONCEPT:AU-KG.ingest.enterprise-source-extractor write-path hardening.)
     """
     if isinstance(v, str):
         return v.replace("\x00", "") if "\x00" in v else v
@@ -282,7 +282,7 @@ def transpile(
         # Case B: general single-hop TRAVERSAL — endpoint ids unknown but both
         # labels present. Join the per-label node tables through ``kg_edges``.
         # (Case A below handles the "edge between two known ids" lookup.)
-        # CONCEPT:KG-2.7 — vendor-agnostic traversal on the durable store.
+        # CONCEPT:AU-KG.query.vendor-agnostic-traversal — vendor-agnostic traversal on the durable store.
         labels_ok = bool(s_label and t_label) and (
             not known_tables or (s_label in known_tables and t_label in known_tables)
         )
@@ -508,12 +508,12 @@ def transpile(
                 # WHERE clause (and thus its ``%s`` placeholders), so the bound
                 # params must be repeated once per table — otherwise psycopg
                 # raises "the query has N placeholders but 1 parameters were
-                # passed" (the id-by-label fan-out bug). (CONCEPT:KG-2.7)
+                # passed" (the id-by-label fan-out bug). (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
                 sql = _union_all_tables(node_tables, sel_cols, where_sql)
                 # Params repeat once per UNION branch — branches span node_tables
                 # (the property-shaped subset), so multiply by len(node_tables), NOT
                 # len(known_tables); otherwise the placeholder/param counts diverge
-                # ("N placeholders but M parameters"). (CONCEPT:KG-2.9)
+                # ("N placeholders but M parameters"). (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
                 where_vals = where_vals * len(node_tables)
 
         # ORDER BY
@@ -562,7 +562,7 @@ def _build_traversal(
     Joins the per-label node tables (``"L1"`` / ``"L2"``) through the relational
     edge table. Supports ``RETURN count(...)`` (incl. ``DISTINCT``), ``alias.col``
     projections, and ``LIMIT``. Returns ``None`` for unsupported RETURN shapes so
-    the caller can fall through. (CONCEPT:KG-2.7)
+    the caller can fall through. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     """
     m_ret = _RETURN_CLAUSE.search(cypher)
     ret_raw = m_ret.group(1).strip() if m_ret else ""
@@ -656,7 +656,7 @@ def _build_where(
     # DELETE t``). Returning early here dropped that filter and produced an empty
     # WHERE (``DELETE FROM "Task" WHERE`` → syntax error → swallowed L3 mirror
     # failure → durable row never deleted). The inline-property block below scans
-    # the full Cypher, so it must run even without a WHERE clause. (CONCEPT:KG-2.7)
+    # the full Cypher, so it must run even without a WHERE clause. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     where_raw = where_match.group(1).strip() if where_match else ""
     sql_parts = []
     values: list[Any] = []

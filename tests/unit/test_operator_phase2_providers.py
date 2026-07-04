@@ -1,6 +1,6 @@
 """Phase-2 context providers + connector coverage.
 
-CONCEPT:KG-2.138 (deploy provider), KG-2.139 (entity provider), OS-5.48 (connectors).
+CONCEPT:AU-KG.retrieval.kg-2 (deploy provider), KG-2.139 (entity provider), OS-5.48 (connectors).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class _NoRoutes:
         return []
 
 
-@pytest.mark.concept("KG-2.138")
+@pytest.mark.concept("AU-KG.retrieval.kg-2")
 def test_deploy_status_reports_canonical_and_restart_honesty():
     res = deploy_status(_NoRoutes(), query="run_agent", intent="status")
     assert res["status"] == "ok" and res["domain"] == "deploy"
@@ -51,14 +51,14 @@ class _CensusEngine:
         return []
 
 
-@pytest.mark.concept("KG-2.139")
+@pytest.mark.concept("AU-KG.retrieval.kg-3")
 def test_entity_health_census():
     res = entity_context(_CensusEngine(), query="", intent="health", domain="entity")
     assert "15535" in res["answer"] and "Code=15535" in res["answer"]
     assert res["capability_id"] == "entity:entity:health"
 
 
-@pytest.mark.concept("KG-2.139")
+@pytest.mark.concept("AU-KG.retrieval.kg-3")
 def test_entity_focus_named_type():
     res = entity_context(
         _CensusEngine(), query="show Document nodes", intent="list", domain="entity"
@@ -67,7 +67,7 @@ def test_entity_focus_named_type():
     assert any(c.get("name") == "intro" for c in res["citations"])
 
 
-@pytest.mark.concept("KG-2.139")
+@pytest.mark.concept("AU-KG.retrieval.kg-3")
 def test_entity_unknown_domain_degrades():
     class Empty:
         def query_cypher(self, c, p):
@@ -79,7 +79,7 @@ def test_entity_unknown_domain_degrades():
     assert "no 'tickets' entities" in res["answer"]
 
 
-@pytest.mark.concept("KG-2.139")
+@pytest.mark.concept("AU-KG.retrieval.kg-3")
 def test_plane_routes_enterprise_domains_to_entity():
     domains = {d["domain"] for d in context_plane.list_context_domains()}
     assert {"deploy", "entity", "tickets", "deploys", "process"} <= domains
@@ -91,7 +91,7 @@ def test_plane_routes_enterprise_domains_to_entity():
 
 
 # ── OS-5.48 connector coverage ────────────────────────────────────────────────
-@pytest.mark.concept("OS-5.48")
+@pytest.mark.concept("AU-OS.deployment.connector-coverage-check")
 def test_enumerate_expected_connectors_includes_delta_handlers():
     expected = enumerate_expected_connectors()
     # the delta-handler set is always present (gitlab/jira/confluence/…)
@@ -99,7 +99,7 @@ def test_enumerate_expected_connectors_includes_delta_handlers():
     assert "fleet" not in expected  # excluded
 
 
-@pytest.mark.concept("OS-5.48")
+@pytest.mark.concept("AU-OS.deployment.connector-coverage-check")
 def test_assess_connector_coverage_flags_dark_and_stale():
     expected = ["gitlab", "jira", "confluence"]
     fresh = {

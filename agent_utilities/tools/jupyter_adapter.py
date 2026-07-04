@@ -1,5 +1,5 @@
 """
-Jupyter Kernel Adapter (CONCEPT:ECO-4.0)
+Jupyter Kernel Adapter (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
 Provides an isolated Jupyter kernel executor for dynamic code generation,
 acting as a safe sandbox for quantitative analysis and backtesting.

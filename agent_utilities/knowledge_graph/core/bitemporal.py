@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.11 — Bi-Temporal Memory Core.
+"""CONCEPT:AU-KG.temporal.bi-temporal-memory-layers — Bi-Temporal Memory Core.
 
 Pure, dependency-free helpers implementing Quarq Agent's *Temporal Truth Protocol*
 (agent-oss/agent.py:2370-2477, 3114-3161) as **structural graph metadata** rather than

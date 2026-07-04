@@ -1,4 +1,4 @@
-"""Read-path permission/tenancy/audit enforcement tests (CONCEPT:KG-2.6)."""
+"""Read-path permission/tenancy/audit enforcement tests (CONCEPT:AU-KG.research.research-pipeline-runner)."""
 
 from __future__ import annotations
 

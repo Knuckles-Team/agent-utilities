@@ -29,7 +29,7 @@ as provenance in the KG — impossible in a one-CLI-per-project daemon.
 | ORCH-1.2 | Specialist Routing & Discovery | 0.58 | ORCH-1 |
 | ORCH-1.27 | Role-Specialized Model Routing | 0.55 | ORCH-1 |
 | ORCH-1.0 | Core Orchestration Engine | 0.49 | ORCH-1 |
-| ECO-4.6 | Dynamic Capability Ingestion & Discovery | 0.44 | ECO-4 |
+| AU-ECO.mcp.toolkit-live-discovery | Dynamic Capability Ingestion & Discovery | 0.44 | AU-ECO.connector.plane-provisioning-auth |
 | OS-5.5 | Massive Scale Architecture & Sandbox | 0.31 | OS-5 |
 
 > Confirm with a live `kg_search` before committing the marker; estimates above are from the curated
@@ -42,7 +42,7 @@ as provenance in the KG — impossible in a one-CLI-per-project daemon.
 - **New Concept Required?**: Yes.
 
 ### New Concept Proposal
-- **Proposed ID**: `CONCEPT:ORCH-1.33`
+- **Proposed ID**: `CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch`
 - **Augments Pillar**: ORCH
 - **15-Phase Pipeline Integration**: Phase 3 (Execute) — adapter resolution + dispatch at step execution time.
 - **Justification**: Adds the *runtime backend* axis (which CLI/process runs a step) distinct from *which specialist* (ORCH-1.2) and *which model tier* (ORCH-1.27). The declarative `AdapterDefinition` + PATH detection has no existing home.
@@ -69,7 +69,7 @@ C4Context
 1. **ORCH**: `engine.run(manifest)` → `registry.resolve(step.runtime)` → `AdapterDefinition.build_args()` → spawn subprocess → `stream_handler(format).normalize()` → canonical events.
 2. **KG**: writes a `RunProvenance` node (adapter id, version, model, args hash) via `graph_write`.
 3. **AHE**: per-adapter success/latency feeds the eval engine (skill/adapter fitness later).
-4. **ECO**: detection results discoverable via existing capability discovery (ECO-4.6); adapters are config, not code changes.
+4. **ECO**: detection results discoverable via existing capability discovery (AU-ECO.mcp.toolkit-live-discovery); adapters are config, not code changes.
 5. **OS**: spawn governed by tool_guard + (E2) sidecar isolation; credentials via the 3-tier resolver (ORCH-1.34).
 
 ## Risk Assessment

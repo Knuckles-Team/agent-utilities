@@ -1,4 +1,4 @@
-"""Self-registering source-extractor registry (CONCEPT:KG-2.9).
+"""Self-registering source-extractor registry (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Enables **conflict-free parallel development** of enterprise/source extractors:
 each source (infra, servicenow, leanix, erpnext, grafana, …) lives in its own
@@ -76,7 +76,7 @@ def write_batch(
     graph on a SPARQL mirror just like hydration sources. Omit ``source`` for
     internal-fact batches (finance/synthesize) to leave them untagged.
     """
-    # Delegate to the ONE materialization core (CONCEPT:KG-2.9): convert the typed
+    # Delegate to the ONE materialization core (CONCEPT:AU-KG.ingest.enterprise-source-extractor): convert the typed
     # ExtractionBatch to standardized entity/relationship dicts and write them
     # through the same path ``ingest_external_batch`` uses. This is what gives the
     # materialize/extractor fleet the content-hash write-delta + UNWIND batching

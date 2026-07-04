@@ -1,4 +1,4 @@
-"""Native AgentBus agent-tools + capability injection (CONCEPT:ECO-4.88).
+"""Native AgentBus agent-tools + capability injection (CONCEPT:AU-ECO.bus.agent-bus-awareness).
 
 Every spawned agent inherits bus awareness (the prompt blurb) and the in-process bus_* tools,
 so the orchestrator and swarm sub-agents coordinate over the bus natively.

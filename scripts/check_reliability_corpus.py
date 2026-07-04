@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reliability eval-corpus gate (CONCEPT:AHE-3.1).
+"""Reliability eval-corpus gate (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
 Proves the reliability scorer suite has teeth: runs the seed corpus
 (:data:`agent_utilities.harness.reliability_corpus.SEED_CASES`) through the real

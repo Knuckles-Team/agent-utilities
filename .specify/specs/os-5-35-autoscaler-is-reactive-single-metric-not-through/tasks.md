@@ -27,7 +27,7 @@ is declared.
 - [ ] In `FleetAutoscaler._evaluate_service`, call the planner, put the chosen `tier` in the
   `scale_service` `ActionRequest.params` + `reason`, and surface it in `ServiceEvaluation` /
   the `AutoscaleEvaluation` audit row. Reuse the existing OS-5.24 policy gate, FleetActuator
-  seam and OS-5.27 deploy-watch — no new actuation/gate.
+  seam and AU-OS.config.health-gated-deploy-rollback deploy-watch — no new actuation/gate.
 
 ## T5 — Close the dispatch "future work" note  [docs/code] (US-2)
 - [ ] Update the `agent_utilities/orchestration/agent_dispatch.py` header note: affinity-aware
@@ -40,6 +40,6 @@ is declared.
   injected signal provider + fake spec, no live engine/hardware.
 
 ## T7 — Artifacts  [docs] (NFR)
-- [ ] `CONCEPT:OS-5.35` marker on the new code; `python scripts/build_concepts_yaml.py`;
+- [ ] `CONCEPT:AU-OS.scaling.cost-aware-autoscaling` marker on the new code; `python scripts/build_concepts_yaml.py`;
   `python scripts/check_concepts.py`; OS-5.35 section in `docs/architecture/fleet_autonomy.md`;
   CHANGELOG entry; OS-5 pillar count in README/AGENTS regenerated; `pre-commit run --all-files`.

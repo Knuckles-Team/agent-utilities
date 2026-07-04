@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Agent-package connector presets + Onyx connector-parity catalog.
 
-CONCEPT:ECO-4.29 — declarative catalog driving the MCP fleet adapter.
+CONCEPT:AU-ECO.connector.package-manifest-catalog — declarative catalog driving the MCP fleet adapter.
 
 Two tables:
 

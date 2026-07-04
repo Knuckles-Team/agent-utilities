@@ -1,4 +1,4 @@
-"""Spec ↔ ticket ↔ agent linking (CONCEPT:KG-2.9)."""
+"""Spec ↔ ticket ↔ agent linking (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

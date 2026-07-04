@@ -1,6 +1,6 @@
 # Scoring Methodology & Retrieval Semantics
 
-> **CONCEPT:KG-2.3** — Graph Integrity & Retrieval
+> **CONCEPT:AU-KG.memory.auto-similarity-memory-graph** — Graph Integrity & Retrieval
 
 This document defines how the Knowledge Graph scores, ranks, and retrieves results across all search operations.
 
@@ -93,7 +93,7 @@ Finds structurally similar concepts using the graph topology. Used for Extend-Be
 
 ### `memory`
 
-Searches tiered memory nodes with optional Ebbinghaus time-decay scoring (CONCEPT:KG-2.1).
+Searches tiered memory nodes with optional Ebbinghaus time-decay scoring (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
 ### `discover`
 
@@ -108,7 +108,7 @@ Cross-references query against all ingested content with innovation signal extra
 
 ## Ebbinghaus Time-Decay Scoring
 
-**CONCEPT:KG-2.1** — Research: MEMO Survey (2504.01990v2) §3.2
+**CONCEPT:AU-KG.memory.tiered-memory-caching** — Research: MEMO Survey (2504.01990v2) §3.2
 
 Applied during memory recall to weight recent/frequently-accessed memories higher.
 
@@ -178,7 +178,7 @@ graph_search(mode="discover", query="<your concept or feature topic>", top_k=50)
 
 ## Research Assimilation Tracking
 
-**CONCEPT:KG-2.6** — Research Intelligence
+**CONCEPT:AU-KG.research.research-pipeline-runner** — Research Intelligence
 
 ### Assimilation Lifecycle
 

@@ -1,4 +1,4 @@
-"""Okta + Keycloak identity: extract + write-back (CONCEPT:KG-2.9)."""
+"""Okta + Keycloak identity: extract + write-back (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

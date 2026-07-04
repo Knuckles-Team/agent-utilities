@@ -1,4 +1,4 @@
-"""Non-blocking staged ingestion pipeline (CONCEPT:KG-2.267).
+"""Non-blocking staged ingestion pipeline (CONCEPT:AU-KG.ingest.staged).
 
 Roadmap item **C** of ``reports/north-star-agent-compute-architecture-2026-06-27.md``:
 decompose the inline ``fetch → parse → enrich → write → reason`` ingestion job into

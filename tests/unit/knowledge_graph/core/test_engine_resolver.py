@@ -1,4 +1,4 @@
-"""Engine-resolution matrix (CONCEPT:OS-5.63).
+"""Engine-resolution matrix (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
 
 One resolver, every entrypoint inherits it. The resolver decides — by ONE
 precedence, remote → share-running-local → autostart-shared-supervised — how a

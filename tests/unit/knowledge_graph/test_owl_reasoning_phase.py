@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:KG-2.2"""
+"""CONCEPT:AU-KG.ingest.engineering-rules"""
 
 """Unit tests for OWL Reasoning Pipeline Phase."""
 

@@ -6,7 +6,7 @@ production-grade cluster. It also documents how the two MCP servers (`graph-os`
 and `mcp-multiplexer`) are run as standard **stdio** or **streamable-http**
 servers, and where the REST API lives.
 
-> **CONCEPT:ECO-4.0 / OS-5.x** — MCP standardized interfaces + Agent OS deploy.
+> **CONCEPT:AU-ECO.messaging.native-backend-abstraction / OS-5.x** — MCP standardized interfaces + Agent OS deploy.
 
 ---
 
@@ -121,7 +121,7 @@ mcp-multiplexer --config mcp_config.json --transport streamable-http --host 0.0.
 multiplexer skips itself and any `disabled` server to avoid recursion.
 
 **Eager vs. dynamic (`MCP_MULTIPLEXER_MODE`).** The default `eager` mode mounts
-every child's tools up front. `dynamic` mode (CONCEPT:ECO-4.36) boots with only the
+every child's tools up front. `dynamic` mode (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) boots with only the
 meta-tools `find_tools` / `load_tools` / `unload_tools` and lazily mounts child tools
 at runtime via FastMCP `tools/list_changed` — use it when the aggregated fleet would
 otherwise blow past a client's tool-count limit.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agent Manager Dashboard — Single-Pane Governance View.
 
-CONCEPT:ECO-4.22 — Agent Manager Dashboard
+CONCEPT:AU-ECO.ui.agent-manager-dashboard — Agent Manager Dashboard
 
 Provides a CLI and programmatic interface for the "agent manager" role —
 a hybrid PM/engineer function dedicated to managing the agent ecosystem.
@@ -110,7 +110,7 @@ class DashboardReport:
 class AgentManagerDashboard:
     """Single-pane governance dashboard for agent ecosystem management.
 
-    CONCEPT:ECO-4.22 — Agent Manager Dashboard
+    CONCEPT:AU-ECO.ui.agent-manager-dashboard — Agent Manager Dashboard
 
     Usage::
 

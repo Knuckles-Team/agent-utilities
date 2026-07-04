@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tool Registry Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module provides a centralized system for registering agent tools. It handles
 the aggregation of various domain-specific toolsets (workspace, memory, git, etc.)
@@ -71,16 +71,16 @@ def register_agent_tools(
     DEFAULT_GIT_TOOLS = to_boolean(string=setting("GIT_TOOLS", "True"))
     DEFAULT_BROWSER_TOOLS = to_boolean(string=setting("BROWSER_TOOLS", "True"))
     DEFAULT_DEVELOPER_TOOLS = to_boolean(string=setting("DEVELOPER_TOOLS", "True"))
-    # CONCEPT:OS-5.2 — X/Grok social search needs xAI credentials (optional
+    # CONCEPT:AU-OS.config.xai-social-credentials — X/Grok social search needs xAI credentials (optional
     # infra, like MEDIA_TOOLS/DB_TOOLS). Default OFF; enable with X_TOOLS=1.
     DEFAULT_X_TOOLS = to_boolean(string=setting("X_TOOLS", "False"))
-    # CONCEPT:ECO-4.30/4.31 — media generation + transcription tools. Default OFF
+    # CONCEPT:AU-ECO.toolkit.media-gateway-failure-path/4.31 — media generation + transcription tools. Default OFF
     # (the services are optional infra); enable with MEDIA_TOOLS=1.
     DEFAULT_MEDIA_TOOLS = to_boolean(string=setting("MEDIA_TOOLS", "False"))
-    # CONCEPT:ECO-4.33 — native database traversal tools (live query/introspect over
+    # CONCEPT:AU-ECO.toolkit.database-traversal-tools — native database traversal tools (live query/introspect over
     # postgres/mysql-mariadb/mssql/oracle/sqlite/mongo). Default OFF; enable DB_TOOLS=1.
     DEFAULT_DB_TOOLS = to_boolean(string=setting("DB_TOOLS", "False"))
-    # CONCEPT:ORCH-1.47 / KG-2.65 — knowledge-grounded SWE tools (code-intelligence
+    # CONCEPT:AU-ORCH.execution.swe-agent-system-prompt / KG-2.65 — knowledge-grounded SWE tools (code-intelligence
     # + dev-workspace actions). Default OFF; the swe_engineer agent enables it.
     DEFAULT_SWE_TOOLS = to_boolean(string=setting("SWE_TOOLS", "False"))
     DEFAULT_COMPUTER_USE_TOOLS = to_boolean(
@@ -204,15 +204,15 @@ def register_agent_tools(
     _safe_tool(invoke_specialized_agent)
     _safe_tool(list_available_agents)
     _safe_tool(share_reasoning)
-    # CONCEPT:ECO-4.53 — universal agent reach_user tool over the messaging reach service
+    # CONCEPT:AU-ECO.messaging.universal-agent-reach-user — universal agent reach_user tool over the messaging reach service
     _safe_tool(reach_user)
-    # CONCEPT:ECO-4.88 — universal AgentBus tools: every agent (orchestrator + every spawned
+    # CONCEPT:AU-ECO.bus.universal-bus-tools — universal AgentBus tools: every agent (orchestrator + every spawned
     # swarm sub-agent) can natively coordinate with peers over the bus (join/peers/send/check).
     _safe_tool(bus_join)
     _safe_tool(bus_peers)
     _safe_tool(bus_send)
     _safe_tool(bus_check)
-    # CONCEPT:ECO-4.61 — KG as a first-class shared layer: every agent can search/recall/
+    # CONCEPT:AU-ECO.toolkit.shared-kg-layer — KG as a first-class shared layer: every agent can search/recall/
     # query the ONE shared graph by default (search runs over the continuously OWL-reasoned
     # graph). Opt out with AGENT_KG_TOOLS=0. Requires a tool-capable model to be used.
     if to_boolean(string=setting("AGENT_KG_TOOLS", "True")):
@@ -223,17 +223,17 @@ def register_agent_tools(
     for tool in onboarding_tools:
         _safe_tool(tool)
 
-    # 10. Media Generation + Transcription Tools (CONCEPT:ECO-4.30/4.31)
+    # 10. Media Generation + Transcription Tools (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path/4.31)
     if DEFAULT_MEDIA_TOOLS:
         for tool in media_tools:
             _safe_tool(tool)
 
-    # 11. Native Database Traversal Tools (CONCEPT:ECO-4.33)
+    # 11. Native Database Traversal Tools (CONCEPT:AU-ECO.toolkit.database-traversal-tools)
     if DEFAULT_DB_TOOLS:
         for tool in db_tools:
             _safe_tool(tool)
 
-    # 11b. SWE Tools (CONCEPT:ORCH-1.47 / KG-2.65) — the knowledge-grounded
+    # 11b. SWE Tools (CONCEPT:AU-ORCH.execution.swe-agent-system-prompt / KG-2.65) — the knowledge-grounded
     # software-engineering surface: code-intelligence graph queries
     # (find_definition/who_calls/impacted_tests/...) + developer-workspace
     # actions (run_command/edit_file/run_tests) that execute in deps.workspace
@@ -242,7 +242,7 @@ def register_agent_tools(
     if DEFAULT_SWE_TOOLS:
         register_swe_tools(agent, _safe_tool=_safe_tool)
 
-    # 11b. Computer-Use Tools (CONCEPT:ORCH-1.85) — GUI capture + click/type on a
+    # 11b. Computer-Use Tools (CONCEPT:AU-ORCH.execution.computer-use-agent) — GUI capture + click/type on a
     # gui-sandbox desktop via deps.workspace's ComputerUseDriver (ECO-4.93). Default
     # OFF (opt-in like SWE); needs a provisioned sandbox + the [computer-use] extra.
     # The tools no-op safely when no workspace/driver is attached.
@@ -317,7 +317,7 @@ def register_agent_tools(
 
 
 def register_swe_tools(agent: Agent[Any, Any], _safe_tool: Any = None) -> None:
-    """Register the knowledge-grounded SWE tool group on ``agent`` (CONCEPT:ORCH-1.47 / KG-2.65).
+    """Register the knowledge-grounded SWE tool group on ``agent`` (CONCEPT:AU-ORCH.execution.swe-agent-system-prompt / KG-2.65).
 
     Shared by :func:`register_agent_tools` (the ``SWE_TOOLS`` gate) and the lean
     ``orchestration.swe_agent.build_swe_agent`` path, so the SWE surface is defined once. The
