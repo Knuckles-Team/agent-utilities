@@ -68,3 +68,38 @@ def test_prefix_is_applied_to_mounted_routes():
     paths = _mounted_paths(prefix="/api")
     for path in kg_server.ACTION_TOOL_ROUTES.values():
         assert ("/api" + path) in paths
+
+
+# ── Third leg: MCP verb ⇄ kg-* skill coverage (CONCEPT:OS-5.80) ──────────────
+# Beyond REST⇄MCP parity, every graph-os verb must also be wrapped by a
+# discoverable ``kg-*`` skill (and no skill may reference a dead verb), so the
+# operator-facing skill suite can never silently drift from the tool surface. The
+# contract itself lives in ``agent_utilities.mcp.skill_coverage`` (shared by the
+# ``kg-coverage-doctor`` skill CLI); this test is its CI/pre-commit enforcement.
+
+
+def test_every_verb_has_a_wrapping_kg_skill():
+    from agent_utilities.mcp import skill_coverage
+
+    report = skill_coverage.compute_coverage()
+    assert not report.uncovered, (
+        "graph-os verbs with no wrapping kg-* skill: "
+        f"{report.uncovered}. Author a kg-<slug> skill (slug = verb minus "
+        "'graph_', '_'→'-'), fold it into an existing skill's `wraps:` list, or "
+        "add it to skill_coverage.INTENTIONALLY_UNSKILLED with a reason."
+    )
+
+
+def test_no_orphan_kg_skills():
+    from agent_utilities.mcp import skill_coverage
+
+    report = skill_coverage.compute_coverage()
+    assert not report.orphans, (
+        "kg-* skills whose slug/`wraps:` points at a non-existent verb: "
+        f"{report.orphans}. Fix the slug/wraps, or tag the skill "
+        "`tier: meta|surface` if it is not a verb wrapper."
+    )
+    assert not report.bad_tiers, (
+        f"kg-* skills with an invalid `tier:` value: {report.bad_tiers}. "
+        "Use one of core|modality|meta|surface."
+    )
