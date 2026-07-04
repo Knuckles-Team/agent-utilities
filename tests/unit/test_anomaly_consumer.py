@@ -1,6 +1,6 @@
 """PerformanceAnomaly consumer (CONCEPT:AHE-3.19).
 
-PerformanceAnomaly nodes were written (kg-report-persister skill,
+PerformanceAnomaly nodes were written (kg-persist-report skill,
 ExecutionSummary flows, the failure analyzer) but had no consumer. The
 consumer pass scans unconsumed anomalies, clusters by (target, type), files
 failure_gap topics via the failure analyzer's shared gap-topic path, and

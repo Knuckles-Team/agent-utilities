@@ -5,7 +5,7 @@
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
-> **Skills (universal-skills):** `skill-graph-builder` (`generate_skill.py --from-kg`), `web-crawler` (`crawl.py --ingest-kg`), `knowledge-graph-ingest`
+> **Skills (universal-skills):** `skill-graph-builder` (`generate_skill.py --from-kg`), `web-crawler` (`crawl.py --ingest-kg`), `kg-ingest`
 
 ## Why
 

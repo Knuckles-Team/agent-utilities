@@ -1,5 +1,5 @@
 ---
-name: knowledge-graph-ingest
+name: kg-ingest
 description: >-
   Bulk ingests the workspace projects, ScholarX documents, and conversation logs into the Knowledge Graph,
   AND fans a single "full ingest" trigger across every ingestion path at once — workspace codebase +
@@ -11,6 +11,8 @@ description: >-
   cloning parallel git URLs if requested, and firing off the ingestion pipeline across all sources/lanes.
 license: MIT
 tags: [knowledge-graph, ingestion, workspace, bulk, git, conversations, backup, rss, freshrss, connectors, fleet]
+tier: core
+wraps: [graph_ingest, source_sync, source_drain, source_connector, document_process]
 metadata:
   author: Genius
   version: '2.1.0'
