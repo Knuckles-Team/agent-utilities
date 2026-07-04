@@ -15,7 +15,7 @@ metadata:
 
 # kg-broker
 
-`graph_broker` (CONCEPT:KG-2.310) is action-routed 1:1 over the engine broker surface (exchanges + queues + streams), distinct from the agent-to-agent `kg-bus`. Set `action` to the broker method: `declare_exchange` (+`exchange_type`), `declare_queue`, `bind` (`queue`+`exchange`[+`routing_key`]), `publish` (`exchange`+`routing_key`+`payload`), `consume` (`queue`[+max_messages,ack via `params_json`]), `stats`/`list_queues`/`list_exchanges`. Degrades cleanly when the engine build has no broker.
+`graph_broker` (CONCEPT:AU-KG.coordination.engine-message-broker) is action-routed 1:1 over the engine broker surface (exchanges + queues + streams), distinct from the agent-to-agent `kg-bus`. Set `action` to the broker method: `declare_exchange` (+`exchange_type`), `declare_queue`, `bind` (`queue`+`exchange`[+`routing_key`]), `publish` (`exchange`+`routing_key`+`payload`), `consume` (`queue`[+max_messages,ack via `params_json`]), `stats`/`list_queues`/`list_exchanges`. Degrades cleanly when the engine build has no broker.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_broker"])`, then `graph_broker(action="publish", exchange="ex", routing_key="k", payload="hi")`.

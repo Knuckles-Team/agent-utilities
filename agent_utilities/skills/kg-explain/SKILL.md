@@ -15,7 +15,7 @@ metadata:
 
 # kg-explain
 
-`graph_explain` (CONCEPT:KG-2.136) routes `target='domain:intent'` to the right provider and returns a cited answer. Domains: `code`, `ops` (live task-queue), `deploy` (is my change live, KG-2.138), `entity`/`tickets`/`deploys`/`process` (KG-2.139). `action='explain'` for the answer, `action='context'` for a synthesized context bundle, `target='domains'` to list providers.
+`graph_explain` (CONCEPT:AU-KG.retrieval.route-question-its-domain) routes `target='domain:intent'` to the right provider and returns a cited answer. Domains: `code`, `ops` (live task-queue), `deploy` (is my change live, AU-KG.retrieval.kg-2), `entity`/`tickets`/`deploys`/`process` (AU-KG.retrieval.kg-3). `action='explain'` for the answer, `action='context'` for a synthesized context bundle, `target='domains'` to list providers.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_explain"])`, then `graph_explain(action="explain", target="ops:why")`.

@@ -9234,6 +9234,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/asof-valid-t-sources> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.asof-valid-t-sources" ;
+    :flatId "EG-384" ;
+    skos:prefLabel "asof valid t sources" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/ast-code-analysis> a :GovernedConcept ;
     :dottedId "EG-KG.compute.ast-code-analysis" ;
     :flatId "KG-2.21" ;
@@ -9444,6 +9451,104 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg" ;
+    :flatId "EG-373" ;
+    skos:prefLabel "eg" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-178> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-178" ;
+    :flatId "EG-380" ;
+    skos:prefLabel "eg 178" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-179> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-179" ;
+    :flatId "EG-382" ;
+    skos:prefLabel "eg 179" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-180> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-180" ;
+    :flatId "EG-383" ;
+    skos:prefLabel "eg 180" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-181> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-181" ;
+    :flatId "EG-391" ;
+    skos:prefLabel "eg 181" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-182> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-182" ;
+    :flatId "EG-393" ;
+    skos:prefLabel "eg 182" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-183> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-183" ;
+    :flatId "EG-394" ;
+    skos:prefLabel "eg 183" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-184> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-184" ;
+    :flatId "EG-395" ;
+    skos:prefLabel "eg 184" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-185> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-185" ;
+    :flatId "EG-396" ;
+    skos:prefLabel "eg 185" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-186> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-186" ;
+    :flatId "EG-397" ;
+    skos:prefLabel "eg 186" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-187> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-187" ;
+    :flatId "EG-398" ;
+    skos:prefLabel "eg 187" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-188> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-188" ;
+    :flatId "EG-402" ;
+    skos:prefLabel "eg 188" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-189> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-189" ;
+    :flatId "EG-404" ;
+    skos:prefLabel "eg 189" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/eg-190> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.eg-190" ;
+    :flatId "EG-405" ;
+    skos:prefLabel "eg 190" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/exchange-execution> a :GovernedConcept ;
     :dottedId "EG-KG.compute.exchange-execution" ;
     :flatId "KG-2.20e" ;
@@ -9462,6 +9567,13 @@
     :dottedId "EG-KG.compute.fork-detached-graph" ;
     :flatId "EG-308" ;
     skos:prefLabel "fork detached graph" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/fuse-stage-now-dispatches> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.fuse-stage-now-dispatches" ;
+    :flatId "EG-418" ;
+    skos:prefLabel "fuse stage now dispatches" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -9511,6 +9623,13 @@
     :dottedId "EG-KG.compute.hierarchical-summary-tier-eg" ;
     :flatId "EG-220" ;
     skos:prefLabel "hierarchical summary tier eg" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/highest-roi-proof-from> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.highest-roi-proof-from" ;
+    :flatId "EG-400" ;
+    skos:prefLabel "highest roi proof from" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -9682,6 +9801,20 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/negative-vector-component-parses> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.negative-vector-component-parses" ;
+    :flatId "EG-417" ;
+    skos:prefLabel "negative vector component parses" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/no-embedder-bound-op> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.no-embedder-bound-op" ;
+    :flatId "EG-411" ;
+    skos:prefLabel "no embedder bound op" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/node-similarity> a :GovernedConcept ;
     :dottedId "EG-KG.compute.node-similarity" ;
     :flatId "EG-144" ;
@@ -9700,6 +9833,13 @@
     :dottedId "EG-KG.compute.off-reactor-dispatch" ;
     :flatId "KG-2.8" ;
     skos:prefLabel "off reactor dispatch" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/one-plan-fuses-four> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.one-plan-fuses-four" ;
+    :flatId "EG-385" ;
+    skos:prefLabel "one plan fuses four" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -9759,6 +9899,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/reason-scholarlywork-sources> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.reason-scholarlywork-sources" ;
+    :flatId "EG-389" ;
+    skos:prefLabel "reason scholarlywork sources" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/rehydrated-seed-set> a :GovernedConcept ;
     :dottedId "EG-KG.compute.rehydrated-seed-set" ;
     :flatId "EG-308" ;
@@ -9815,6 +9962,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/scan-event-seeds-stream> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.scan-event-seeds-stream" ;
+    :flatId "EG-388" ;
+    skos:prefLabel "scan event seeds stream" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/scene-graph-primitives> a :GovernedConcept ;
     :dottedId "EG-KG.compute.scene-graph-primitives" ;
     :flatId "EG-087" ;
@@ -9826,6 +9980,13 @@
     :dottedId "EG-KG.compute.semantic-embedding-store-hnsw" ;
     :flatId "KG-2.22b" ;
     skos:prefLabel "semantic embedding store hnsw" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/series-name-its> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.series-name-its" ;
+    :flatId "EG-381" ;
+    skos:prefLabel "series name its" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -9864,6 +10025,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/spatialscan-packed-hilbert-r> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.spatialscan-packed-hilbert-r" ;
+    :flatId "EG-386" ;
+    skos:prefLabel "spatialscan packed hilbert r" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/stream-retention-trim> a :GovernedConcept ;
     :dottedId "EG-KG.compute.stream-retention-trim" ;
     :flatId "EG-283" ;
@@ -9885,6 +10053,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/systematically-exercise> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.systematically-exercise" ;
+    :flatId "EG-401" ;
+    skos:prefLabel "systematically exercise" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/tensor-gpu-distance> a :GovernedConcept ;
     :dottedId "EG-KG.compute.tensor-gpu-distance" ;
     :flatId "EG-351" ;
@@ -9892,10 +10067,24 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/tensorscan-frame-seeds> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.tensorscan-frame-seeds" ;
+    :flatId "EG-387" ;
+    skos:prefLabel "tensorscan frame seeds" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
 <http://knuckles.team/kg/concept/EG/KG/compute/test-quality-metrics> a :GovernedConcept ;
     :dottedId "EG-KG.compute.test-quality-metrics" ;
     :flatId "KG-2.8" ;
     skos:prefLabel "test quality metrics" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/trailing-aggregate-selector-lowers> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.trailing-aggregate-selector-lowers" ;
+    :flatId "EG-414" ;
+    skos:prefLabel "trailing aggregate selector lowers" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -9910,6 +10099,13 @@
     :dottedId "EG-KG.compute.trajectory-step-ids" ;
     :flatId "EG-099" ;
     skos:prefLabel "trajectory step ids" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
+<http://knuckles.team/kg/concept/EG/KG/compute/tsscan-series-window-60s> a :GovernedConcept ;
+    :dottedId "EG-KG.compute.tsscan-series-window-60s" ;
+    :flatId "EG-413" ;
+    skos:prefLabel "tsscan series window 60s" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> .
@@ -10851,6 +11047,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/ontology> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/ontology> .
+<http://knuckles.team/kg/concept/EG/KG/ontology/string-type-iri-class> a :GovernedConcept ;
+    :dottedId "EG-KG.ontology.string-type-iri-class" ;
+    :flatId "EG-376" ;
+    skos:prefLabel "string type iri class" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/ontology> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/ontology> .
 <http://knuckles.team/kg/concept/EG/KG/ontology/sub-select> a :GovernedConcept ;
     :dottedId "EG-KG.ontology.sub-select" ;
     :flatId "EG-051" ;
@@ -10925,6 +11128,13 @@
     :dottedId "EG-KG.query.apollo-federation-subgraph" ;
     :flatId "EG-295" ;
     skos:prefLabel "apollo federation subgraph" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/bind-server-side-text> a :GovernedConcept ;
+    :dottedId "EG-KG.query.bind-server-side-text" ;
+    :flatId "EG-412" ;
+    skos:prefLabel "bind server side text" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
@@ -11194,6 +11404,20 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/eg-8> a :GovernedConcept ;
+    :dottedId "EG-KG.query.eg-8" ;
+    :flatId "EG-377" ;
+    skos:prefLabel "eg 8" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/eg-9> a :GovernedConcept ;
+    :dottedId "EG-KG.query.eg-9" ;
+    :flatId "EG-379" ;
+    skos:prefLabel "eg 9" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
 <http://knuckles.team/kg/concept/EG/KG/query/eg-extend-read-side> a :GovernedConcept ;
     :dottedId "EG-KG.query.eg-extend-read-side" ;
     :flatId "EG-062" ;
@@ -11226,6 +11450,13 @@
     :dottedId "EG-KG.query.extended-cross-modal" ;
     :flatId "EG-362" ;
     skos:prefLabel "extended cross modal" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/facade-reconcile-hook> a :GovernedConcept ;
+    :dottedId "EG-KG.query.facade-reconcile-hook" ;
+    :flatId "EG-419" ;
+    skos:prefLabel "facade reconcile hook" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
@@ -11509,6 +11740,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/per-surface-parity> a :GovernedConcept ;
+    :dottedId "EG-KG.query.per-surface-parity" ;
+    :flatId "EG-378" ;
+    skos:prefLabel "per surface parity" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
 <http://knuckles.team/kg/concept/EG/KG/query/pgvector-binary-wire> a :GovernedConcept ;
     :dottedId "EG-KG.query.pgvector-binary-wire" ;
     :flatId "EG-115" ;
@@ -11527,6 +11765,13 @@
     :dottedId "EG-KG.query.pgvector-text-input" ;
     :flatId "EG-115" ;
     skos:prefLabel "pgvector text input" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/pgwire-leg> a :GovernedConcept ;
+    :dottedId "EG-KG.query.pgwire-leg" ;
+    :flatId "EG-406" ;
+    skos:prefLabel "pgwire leg" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
@@ -11632,6 +11877,13 @@
     :dottedId "EG-KG.query.real-pgvector-ann-top" ;
     :flatId "EG-313" ;
     skos:prefLabel "real pgvector ann top" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/reason-iri-parses-angle> a :GovernedConcept ;
+    :dottedId "EG-KG.query.reason-iri-parses-angle" ;
+    :flatId "EG-375" ;
+    skos:prefLabel "reason iri parses angle" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
@@ -11800,6 +12052,13 @@
     :dottedId "EG-KG.query.txn-cross-modal-ryow" ;
     :flatId "EG-359" ;
     skos:prefLabel "txn cross modal ryow" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
+<http://knuckles.team/kg/concept/EG/KG/query/txn-tsdb-read-your> a :GovernedConcept ;
+    :dottedId "EG-KG.query.txn-tsdb-read-your" ;
+    :flatId "EG-374" ;
+    skos:prefLabel "txn tsdb read your" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/query> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/query> .
@@ -12356,6 +12615,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/storage> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/storage> .
+<http://knuckles.team/kg/concept/EG/KG/storage/eg> a :GovernedConcept ;
+    :dottedId "EG-KG.storage.eg" ;
+    :flatId "EG-403" ;
+    skos:prefLabel "eg" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/storage> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/storage> .
 <http://knuckles.team/kg/concept/EG/KG/storage/eg-iceberg-avro-manifest> a :GovernedConcept ;
     :dottedId "EG-KG.storage.eg-iceberg-avro-manifest" ;
     :flatId "EG-333" ;
@@ -12720,6 +12986,13 @@
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .
+<http://knuckles.team/kg/concept/EG/KG/txn/isolation-ryow-begin-set> a :GovernedConcept ;
+    :dottedId "EG-KG.txn.isolation-ryow-begin-set" ;
+    :flatId "EG-372" ;
+    skos:prefLabel "isolation ryow begin set" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .
 <http://knuckles.team/kg/concept/EG/KG/txn/lock-hold-span> a :GovernedConcept ;
     :dottedId "EG-KG.txn.lock-hold-span" ;
     :flatId "EG-011" ;
@@ -12738,6 +13011,13 @@
     :dottedId "EG-KG.txn.occ-graph-core" ;
     :flatId "KG-2.180" ;
     skos:prefLabel "occ graph core" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .
+<http://knuckles.team/kg/concept/EG/KG/txn/one-transaction-stage-five> a :GovernedConcept ;
+    :dottedId "EG-KG.txn.one-transaction-stage-five" ;
+    :flatId "EG-390" ;
+    skos:prefLabel "one transaction stage five" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .
@@ -12780,6 +13060,13 @@
     :dottedId "EG-KG.txn.serializable-mutation-gate" ;
     :flatId "EG-045" ;
     skos:prefLabel "serializable mutation gate" ;
+    skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
+    skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
+    :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .
+<http://knuckles.team/kg/concept/EG/KG/txn/serializable-txn-captures-predicate> a :GovernedConcept ;
+    :dottedId "EG-KG.txn.serializable-txn-captures-predicate" ;
+    :flatId "EG-392" ;
+    skos:prefLabel "serializable txn captures predicate" ;
     skos:inScheme <http://knuckles.team/kg/scheme/EG> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/txn> ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/txn> .

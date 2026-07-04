@@ -17,8 +17,8 @@ metadata:
 
 This skill fronts three verbs:
 - **`graph_sessions`** — manage durable sessions: `list`, `get`, `delete`, `reply` (`user_reply` to a `session_id`), `cancel`.
-- **`usage_query`** — usage/cost analytics (CONCEPT:ECO-4.41): `summary`, `by_model`/`by_project`/`by_agent`, `tools`, `activity`, `sessions`/`session_detail`/`top_sessions`, `search`, `traces`, `series` (filter by date/project/agent/model).
-- **`ingest_sessions`** — ingest agent chat/session history (CONCEPT:ECO-4.42): `collect` (auto-detect local agents), `upload` (pre-parsed `bundles_json` to a remote engine), `paths` (explicit files).
+- **`usage_query`** — usage/cost analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): `summary`, `by_model`/`by_project`/`by_agent`, `tools`, `activity`, `sessions`/`session_detail`/`top_sessions`, `search`, `traces`, `series` (filter by date/project/agent/model).
+- **`ingest_sessions`** — ingest agent chat/session history (CONCEPT:AU-ECO.mcp.client-side-chat-session): `collect` (auto-detect local agents), `upload` (pre-parsed `bundles_json` to a remote engine), `paths` (explicit files).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_sessions"])` (or `usage_query` / `ingest_sessions`), then call it.

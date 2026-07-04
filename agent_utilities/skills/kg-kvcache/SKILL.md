@@ -14,7 +14,7 @@ metadata:
 
 # kg-kvcache
 
-`graph_kvcache` (CONCEPT:KG-2.310, via the KG-2.306 EpistemicGraphKVBackend) is the engine's content-addressed KV-cache. Actions: `get` (`key`→base64 block bytes or miss), `put` (`key`+`value_b64`→stored bool), `contains`/`exists` (`key`→bool), `stats` (occupancy + dedup counters). The connector degrades every transport error to a cache miss, so it never raises.
+`graph_kvcache` (CONCEPT:AU-KG.coordination.engine-message-broker, via the KG-2.306 EpistemicGraphKVBackend) is the engine's content-addressed KV-cache. Actions: `get` (`key`→base64 block bytes or miss), `put` (`key`+`value_b64`→stored bool), `contains`/`exists` (`key`→bool), `stats` (occupancy + dedup counters). The connector degrades every transport error to a cache miss, so it never raises.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_kvcache"])`, then `graph_kvcache(action="stats")`.

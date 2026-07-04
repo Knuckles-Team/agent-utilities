@@ -14,7 +14,7 @@ metadata:
 
 # kg-secret
 
-`graph_secret` (CONCEPT:OS-5.66) manages the `__secrets__` store (values sealed by encryption-at-rest; key names + metadata stay queryable). Actions: `set` (`key`+`value` [+`metadata`], GOVERNED by ActionPolicy `secret.set`), `get` (`key`→value or null), `list` (key names only, never values), `delete` (GOVERNED by `secret.delete`). The enterprise OpenBao/Vault backend is used transparently when configured.
+`graph_secret` (CONCEPT:AU-OS.identity.encrypted-secret-store) manages the `__secrets__` store (values sealed by encryption-at-rest; key names + metadata stay queryable). Actions: `set` (`key`+`value` [+`metadata`], GOVERNED by ActionPolicy `secret.set`), `get` (`key`→value or null), `list` (key names only, never values), `delete` (GOVERNED by `secret.delete`). The enterprise OpenBao/Vault backend is used transparently when configured.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_secret"])`, then `graph_secret(action="get", key="openai/api_key")`.

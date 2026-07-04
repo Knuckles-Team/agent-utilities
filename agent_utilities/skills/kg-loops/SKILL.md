@@ -15,7 +15,7 @@ metadata:
 
 # kg-loops
 
-`graph_loops` (CONCEPT:KG-2.78) is one entrypoint for Loops of kind `research|develop|skill`. Actions: `submit` (objective + kind [+ validation_cmd/end_state for develop, skill_ref for skill]), `list`, `run` (advance all active Loops one cycle), `drive` (run ONE Loop by id to completion, durably/resumable), `cancel`, `prioritize`. Transparency + steering: `state` (live EvolutionState — stage + why, saturation, open-gaps trend, velocity, backlog), `specs` (SpecProposal backlog), `review` (approve|edit|reject a distilled spec before it develops).
+`graph_loops` (CONCEPT:AU-KG.research.these-properties-carry) is one entrypoint for Loops of kind `research|develop|skill`. Actions: `submit` (objective + kind [+ validation_cmd/end_state for develop, skill_ref for skill]), `list`, `run` (advance all active Loops one cycle), `drive` (run ONE Loop by id to completion, durably/resumable), `cancel`, `prioritize`. Transparency + steering: `state` (live EvolutionState — stage + why, saturation, open-gaps trend, velocity, backlog), `specs` (SpecProposal backlog), `review` (approve|edit|reject a distilled spec before it develops).
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_loops"])`, then `graph_loops(action="state")`.

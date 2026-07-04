@@ -15,7 +15,7 @@ metadata:
 
 # kg-fork
 
-`graph_fork` (CONCEPT:KG-2.323) fans out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-on-write sandboxes). Provide `branches_json` (a JSON list of per-branch snippets) OR `code`+`n` (same snippet across n branches); `vars_json` seeds the shared namespace forked into every branch; `sandbox` optionally pins a rung (`forkserver|container_fork|firecracker`), else the cheapest available warm-fork rung is used. Degrades cleanly (structured `unavailable`) when no warm-fork rung exists on this host.
+`graph_fork` (CONCEPT:AU-KG.coordination.warm-fork-fanout) fans out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-on-write sandboxes). Provide `branches_json` (a JSON list of per-branch snippets) OR `code`+`n` (same snippet across n branches); `vars_json` seeds the shared namespace forked into every branch; `sandbox` optionally pins a rung (`forkserver|container_fork|firecracker`), else the cheapest available warm-fork rung is used. Degrades cleanly (structured `unavailable`) when no warm-fork rung exists on this host.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_fork"])`, then `graph_fork(code="result = x*2", n=4, vars_json='{"x":10}')`.

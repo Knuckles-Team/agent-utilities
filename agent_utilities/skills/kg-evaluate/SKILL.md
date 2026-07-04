@@ -15,7 +15,7 @@ metadata:
 
 # kg-evaluate
 
-`graph_evaluate` covers evaluation, gates and world-model reasoning. Actions: `evaluate`/`evaluate_alpha` (score outputs), `evaluate_harness`, `guard_corpus`, `harness_gate` (formal no-regression SHACL gate, AHE-3.53), `check_constraints`, `specialize` (SAI specialization cycle, AHE-3.29), `world_model_rollout` (KG-2.73b), `latent_efficiency_benchmark`, `evolve_model`, `forecast`, `causal`, `invariant`.
+`graph_evaluate` covers evaluation, gates and world-model reasoning. Actions: `evaluate`/`evaluate_alpha` (score outputs), `evaluate_harness`, `guard_corpus`, `harness_gate` (formal no-regression SHACL gate, AHE-3.53), `check_constraints`, `specialize` (SAI specialization cycle, AU-AHE.harness.sai-controller), `world_model_rollout` (KG-2.73b), `latent_efficiency_benchmark`, `evolve_model`, `forecast`, `causal`, `invariant`.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_evaluate"])`, then `graph_evaluate(action="harness_gate", ...)`.

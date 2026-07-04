@@ -14,7 +14,7 @@ metadata:
 
 # kg-promql
 
-`graph_promql` (CONCEPT:KG-2.310) queries engine metrics with PromQL. `action='instant'` (single evaluation at `time`, default now) or `action='range'` (over `start`..`end` at `step`). Extra engine kwargs via `params_json`. Degrades cleanly when the engine build has no metrics surface.
+`graph_promql` (CONCEPT:AU-KG.coordination.engine-message-broker) queries engine metrics with PromQL. `action='instant'` (single evaluation at `time`, default now) or `action='range'` (over `start`..`end` at `step`). Extra engine kwargs via `params_json`. Degrades cleanly when the engine build has no metrics surface.
 
 ## Invoke
 - **MCP:** `load_tools(tools=["graph_promql"])`, then `graph_promql(query="up", action="instant")`.
