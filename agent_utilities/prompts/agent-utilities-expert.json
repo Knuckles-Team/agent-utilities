@@ -35,7 +35,7 @@
   "skills": [
     "agent-utilities",
     "kg-ingest",
-    "kg-delegation-router",
+    "kg-delegate",
     "agent-utilities-evolution",
     "agent-package-builder",
     "agent-os-genesis"

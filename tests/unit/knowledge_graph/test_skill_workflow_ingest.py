@@ -256,7 +256,7 @@ def test_ingest_one_returns_skipped_on_repeat(corpus):
 
 def test_live_ingest_into_memory_engine_discoverable_by_name(corpus):
     """The ingested workflow is retrievable from a real engine the way
-    ``execute_workflow`` / ``kg-delegation-router`` look it up: a
+    ``execute_workflow`` / ``kg-delegate`` look it up: a
     ``WorkflowDefinition`` queryable by ``name`` with its ``WorkflowStep`` DAG.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine

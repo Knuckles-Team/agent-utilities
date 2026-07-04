@@ -14,7 +14,7 @@ orchestrator had nothing to dispatch. This module closes that gap: it parses
 each ``SKILL.md`` and lands a ``WorkflowDefinition`` (+ ``WorkflowStep`` DAG +
 ``Skill`` links) in the **exact** shape
 :class:`~agent_utilities.knowledge_graph.workflow_store.WorkflowStore` writes,
-so ``graph_orchestrate action=execute_workflow`` / the ``kg-delegation-router``
+so ``graph_orchestrate action=execute_workflow`` / the ``kg-delegate``
 skill can discover them by ``name`` and dispatch them.
 
 Node / edge shape (mirrors ORCH-1.22 ``WorkflowStore`` + ORCH-1.41 compiler)::

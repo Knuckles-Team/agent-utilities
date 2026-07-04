@@ -166,7 +166,7 @@ docs, the `agent-utilities` skill-graph) first.
 - **Model:** prefers the local fleet model `qwen/qwen3.6-27b`; the adaptive
   model-router (ORCH-1.79) has the final say.
 - **Skills it leans on** (declared in the prompt): `agent-utilities` (the platform's own
-  skill-graph), `kg-ingest`, `kg-delegation-router`,
+  skill-graph), `kg-ingest`, `kg-delegate`,
   `agent-utilities-evolution`, `agent-package-builder`, `agent-os-genesis`.
 
 ## Operating notes — when to use it vs a specific skill/workflow
