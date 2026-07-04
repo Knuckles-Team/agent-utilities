@@ -45,7 +45,7 @@ sources); agents/teams/prompts are typed nodes with capability cards + embedding
 synthesis is the distill pattern (KG query → rank → LLM compose → write artifact);
 OWL inference fills reachability/coverage/gaps. Existing assets to reuse:
 `agent-spawner`/`agent-builder`/`skill-workflow-builder` skills,
-`kg-delegation-router` (graph_orchestrate execute_agent/execute_workflow),
+`kg-delegate` (graph_orchestrate execute_agent/execute_workflow),
 `capability_index`/`facade.designate`, autonomous‑contribution TeamConfigs.
 
 ## Sub‑streams

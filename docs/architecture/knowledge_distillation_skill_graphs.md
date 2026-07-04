@@ -196,7 +196,7 @@ a Claude-executable `## Execution` section (run independent steps in parallel,
 dependents after), and a standard delegation footer:
 
 > If graph-os is reachable, offload the whole DAG via `graph_orchestrate
-> action=execute_workflow` (or the kg-delegation-router skill); otherwise execute
+> action=execute_workflow` (or the kg-delegate skill); otherwise execute
 > steps natively in dependency order.
 
 **Wiring (default-ON, propose-only).** The distiller runs as the `distill_skills`

@@ -1082,4 +1082,4 @@ Every step honors the Step 0 **run plan**: a capability marked `use-existing` sk
 its deploy sub-step and runs only wiring; `skip` is omitted entirely; the
 `orchestrator` selects the Step 5 provisioner branch.
 
-**Execution:** If graph-os is reachable, offload the whole DAG via `graph_orchestrate action=execute_workflow` (or the `kg-delegation-router` skill) for true parallel/swarm execution. Otherwise execute the steps natively in dependency order: run steps with no unmet `depends_on` in parallel, then their dependents.
+**Execution:** If graph-os is reachable, offload the whole DAG via `graph_orchestrate action=execute_workflow` (or the `kg-delegate` skill) for true parallel/swarm execution. Otherwise execute the steps natively in dependency order: run steps with no unmet `depends_on` in parallel, then their dependents.

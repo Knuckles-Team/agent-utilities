@@ -11,7 +11,7 @@ graph-os orchestrator had **nothing to dispatch**. This pipeline closes that gap
 
 ## Why it exists
 
-The "Claude drives, graph-os runs" offload (`kg-delegation-router` /
+The "Claude drives, graph-os runs" offload (`kg-delegate` /
 `graph_orchestrate action=execute_workflow`) reads `WorkflowDefinition` nodes
 from the KG and dispatches them. For that to work, the on-disk workflow corpus
 must first be *in* the KG, in the exact node/edge shape the orchestrator reads.
