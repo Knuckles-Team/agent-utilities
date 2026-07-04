@@ -20,7 +20,7 @@ Design (anti-sprawl, anti-drift):
   generic dispatcher that resolves the engine client and calls
   ``getattr(client.<domain>, action)(**params)``. The action set per domain is
   DISCOVERED by introspecting the client sub-client class — no hand-maintained
-  method list to rot (CONCEPT:KG-2.278).
+  method list to rot (CONCEPT:AU-KG.compute.engine-surface-manifest).
 - Every tool gets its REST twin registered into ``ACTION_TOOL_ROUTES`` in the SAME
   call, so the surface-parity gate stays green and ``_mount_rest_routes`` mounts
   ``POST /engine/<domain>`` automatically.
@@ -31,8 +31,8 @@ Design (anti-sprawl, anti-drift):
   :data:`ENGINE_DOMAINS` by the graph-os verbose builder + the action manifest
   generator (``scripts/gen_graphos_manifest.py``).
 
-CONCEPT:ECO-4.99 — Full engine API + MCP surface (REST + MCP in lockstep)
-CONCEPT:KG-2.278 — Engine surface manifest (client-introspection source of truth)
+CONCEPT:AU-ECO.mcp.full-api-mcp-surface — Full engine API + MCP surface (REST + MCP in lockstep)
+CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (client-introspection source of truth)
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _discover_domains() -> dict[str, list[str]]:
 
 
 # The declarative engine-surface manifest (source of truth for the tools AND the
-# verbose action manifest generator). CONCEPT:KG-2.278.
+# verbose action manifest generator). CONCEPT:AU-KG.compute.engine-surface-manifest.
 ENGINE_DOMAINS: dict[str, list[str]] = _discover_domains()
 
 
@@ -136,7 +136,7 @@ _CLIENTS: dict[str, Any] = {}
 def _client_for(graph: str) -> Any:
     """Return a cached ``SyncEpistemicGraphClient`` bound to ``graph``.
 
-    Connects via the centralized resolver (CONCEPT:OS-5.63 ``client_connect_kwargs``)
+    Connects via the centralized resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision ``client_connect_kwargs``)
     so a remote/sharded/insecure deployment is honoured. Connect-only — never
     autostarts an engine; if the engine is down, ``connect`` raises and the caller
     surfaces a clean error.
@@ -228,7 +228,7 @@ def register_engine_tools(mcp) -> None:
     per engine client sub-client, each with its ``/engine/<domain>`` REST twin.
 
     REGISTERED_TOOLS + ACTION_TOOL_ROUTES are populated in lockstep so the
-    surface-parity gate stays green. CONCEPT:ECO-4.99.
+    surface-parity gate stays green. CONCEPT:AU-ECO.mcp.full-api-mcp-surface.
     """
     for domain, methods in ENGINE_DOMAINS.items():
         tool_name = f"engine_{domain}"
@@ -240,7 +240,7 @@ def register_engine_tools(mcp) -> None:
             + (f" ({blurb})" if blurb else "")
             + ". Action-routed 1:1 over the epistemic_graph client: set 'action' to "
             f"the method name and 'params_json' to its JSON kwargs. Actions: "
-            f"{', '.join(sorted(methods))}. (CONCEPT:ECO-4.99)"
+            f"{', '.join(sorted(methods))}. (CONCEPT:AU-ECO.mcp.full-api-mcp-surface)"
         )
         mcp.tool(
             name=tool_name, description=description, tags=["graph-os", "engine", domain]

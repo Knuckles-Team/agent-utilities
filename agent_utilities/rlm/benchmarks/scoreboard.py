@@ -1,4 +1,4 @@
-"""Render benchmark results next to the paper's published numbers (CONCEPT:AHE-3.32).
+"""Render benchmark results next to the paper's published numbers (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 ``PAPER_RESULTS`` holds the headline figures from Zhang et al. (2025, arXiv:2512.24601) so the
 scoreboard shows our accuracy/cost beside theirs with an explicit delta — turning "we have the

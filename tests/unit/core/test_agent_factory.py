@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.2"""
+"""CONCEPT:AU-ORCH.adapter.hot-cache-invalidation"""
 
 
 """Coverage push for agent_utilities.agent_factory.

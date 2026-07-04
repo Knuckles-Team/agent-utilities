@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for Schema Pack models and pre-built domain profiles.
 
-CONCEPT:KG-2.2 — Schema Packs
+CONCEPT:AU-KG.ingest.engineering-rules — Schema Packs
 """
 
 

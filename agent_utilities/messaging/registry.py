@@ -1,4 +1,4 @@
-"""Messaging Backend Registry with Entry-Point Discovery (CONCEPT:ECO-4.0).
+"""Messaging Backend Registry with Entry-Point Discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Provides ``MessagingRegistry`` — a singleton that discovers, instantiates,
 and manages messaging backends via Python entry-points. This follows the
@@ -13,7 +13,7 @@ Discovery Flow::
     4. ``registry.create_backend("discord")`` loads the backend class
     5. Backend is instantiated with config and ready to connect
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
 See Also:
     - ``graph/plugin_registry.py`` for the dynamic tool hydration pattern.
@@ -41,7 +41,7 @@ _ENV_PREFIX = "MESSAGING_"
 class MessagingRegistry:
     """Singleton registry for discovering and managing messaging backends.
 
-    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
     Discovers installed backends via ``importlib.metadata.entry_points``
     and provides factory methods to create configured instances.
@@ -91,7 +91,7 @@ class MessagingRegistry:
     def _discover(self) -> None:
         """Scan entry-points for installed messaging backends.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Reads the ``agent_utilities.messaging`` entry-point group to find
         all installed backend classes. This is lazy — no backend code is
@@ -108,22 +108,22 @@ class MessagingRegistry:
             for ep in group_eps:
                 self._entry_points[ep.name] = ep
                 logger.debug(
-                    "[CONCEPT:ECO-4.0] Discovered messaging backend: %s → %s",
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discovered messaging backend: %s → %s",
                     ep.name,
                     ep.value,
                 )
         except Exception as e:
-            logger.debug("[CONCEPT:ECO-4.0] Entry-point discovery failed: %s", e)
+            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Entry-point discovery failed: %s", e)
 
         if self._entry_points:
             logger.info(
-                "[CONCEPT:ECO-4.0] Discovered %d messaging backends: %s",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discovered %d messaging backends: %s",
                 len(self._entry_points),
                 ", ".join(sorted(self._entry_points)),
             )
         else:
             logger.debug(
-                "[CONCEPT:ECO-4.0] No messaging backends discovered. "
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] No messaging backends discovered. "
                 "Install with: pip install agent-utilities[messaging-discord]"
             )
 
@@ -153,7 +153,7 @@ class MessagingRegistry:
     ) -> Any:
         """Create a new backend instance.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Loads the backend class from the entry-point and instantiates it
         with the provided or auto-detected configuration.
@@ -196,7 +196,7 @@ class MessagingRegistry:
         self._instances[backend_id] = instance
 
         logger.info(
-            "[CONCEPT:ECO-4.0] Created messaging backend: %s (%s)",
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Created messaging backend: %s (%s)",
             backend_id,
             backend_cls.__name__,
         )
@@ -216,7 +216,7 @@ class MessagingRegistry:
     def create_all_enabled(self) -> dict[str, Any]:
         """Create backend instances for all platforms with env-var tokens.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Scans environment variables to find configured platforms and
         auto-creates backend instances for each.
@@ -232,13 +232,13 @@ class MessagingRegistry:
                     instance = self.create_backend(backend_id, config=config)
                     created[backend_id] = instance
                 except (ImportError, ValueError) as e:
-                    logger.warning("[CONCEPT:ECO-4.0] Skipping %s: %s", backend_id, e)
+                    logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Skipping %s: %s", backend_id, e)
         return created
 
     def _auto_config(self, backend_id: str) -> MessagingConfig:
         """Build a MessagingConfig from environment variables.
 
-        CONCEPT:ECO-4.0
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
         Convention: ``MESSAGING_<PLATFORM>_TOKEN``, ``MESSAGING_<PLATFORM>_APP_ID``, etc.
         Also checks platform-native env vars (e.g., ``DISCORD_BOT_TOKEN``).

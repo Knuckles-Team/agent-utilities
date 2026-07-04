@@ -1,4 +1,4 @@
-"""Unit tests for the unified ingestion representation (CONCEPT:KG-2.9).
+"""Unit tests for the unified ingestion representation (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The UNWIND path now groups by REAL node/edge type (per-type MERGE) instead of
 flattening to :DomainEntity/:EXTERNAL_LINK. Tests the label-safety + grouping

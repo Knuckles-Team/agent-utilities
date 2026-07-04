@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the W1 population-drift monitor and VariantPool wiring.
 
-CONCEPT:AHE-3.2
+CONCEPT:AU-AHE.harness.evolutionary-aggregation
 """
 
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from agent_utilities.graph.population_drift import (
     wasserstein1,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.2")
+pytestmark = pytest.mark.concept("AU-AHE.harness.evolutionary-aggregation")
 
 
 # --- wasserstein1 ----------------------------------------------------------

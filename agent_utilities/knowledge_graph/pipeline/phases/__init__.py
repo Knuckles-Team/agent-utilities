@@ -39,7 +39,7 @@ PHASES = [
     decision_evolution_phase,
 ]
 
-# Bulk-ingest "structural" profile (CONCEPT:KG-2.7 — throughput). Per-artifact runs
+# Bulk-ingest "structural" profile (CONCEPT:AU-KG.query.vendor-agnostic-traversal — throughput). Per-artifact runs
 # extract only the local symbol graph (dependency-closed: memory→scan→parse→embedding).
 # The expensive GLOBAL phases — registry (loads the whole discovery registry), resolve,
 # mro, reference, communities, centrality, owl_reasoning, sync — are deferred to a SINGLE

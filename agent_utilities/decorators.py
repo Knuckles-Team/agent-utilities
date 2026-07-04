@@ -1,7 +1,7 @@
 """Backward-compatibility shim for ``agent_utilities.decorators``.
 
 The ``require_auth`` decorator was moved to ``agent_utilities.core.decorators``
-during the CONCEPT:OS-5.1 refactoring. This module re-exports it to avoid breaking
+during the CONCEPT:AU-OS.config.secrets-authentication refactoring. This module re-exports it to avoid breaking
 downstream consumers that import from the legacy path.
 
 .. deprecated:: 0.3.0

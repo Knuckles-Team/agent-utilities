@@ -1,5 +1,5 @@
 """
-Risk Management Engine — CONCEPT:KG-2.6
+Risk Management Engine — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides a risk-first guard pipeline with VaR calculation, stress testing,
 and pre-trade validation integrated with KG provenance.
@@ -34,7 +34,7 @@ def _risk_engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numeric-kernel shim when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())

@@ -1,6 +1,6 @@
 # Spec: Wire ranking synergy
 
-> Materialized by the evolution→branch bridge (CONCEPT:AHE-3.21) from promoted proposal `proposal:policy-1`. Concepts: n/a
+> Materialized by the evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge) from promoted proposal `proposal:policy-1`. Concepts: n/a
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 

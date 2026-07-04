@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def daemon_role() -> str:
-    """Resolve this process's KG background-daemon role (CONCEPT:KG-2.8 / OS-5.0).
+    """Resolve this process's KG background-daemon role (CONCEPT:AU-KG.coordination.embedder-breaker / OS-5.0).
 
     The KG runs ONE consolidated background daemon (queue drain + graph writer +
     task workers + maintenance scheduler + file-watch poll). This selects who
@@ -73,7 +73,7 @@ def _pdf_file_extractor() -> dict[str, Any]:
     behind it. PyMuPDF (``fitz``) extracts the same file in ~0.2s and is a C
     extension that releases the GIL during parsing, so it neither stalls nor
     serializes other workers. Returns an empty mapping (default reader) if the
-    PyMuPDF reader isn't installed. (CONCEPT:KG-2.8)
+    PyMuPDF reader isn't installed. (CONCEPT:AU-KG.coordination.embedder-breaker)
     """
     try:
         from llama_index.readers.file import PyMuPDFReader
@@ -140,7 +140,7 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
 
 
 def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
-    """Map a priority spec to a discrete claim bucket 0..3 (CONCEPT:KG-2.113).
+    """Map a priority spec to a discrete claim bucket 0..3 (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
     Accepts an int bucket, a numeric string, or the legacy ``priority`` string
     (``critical``/``high``/``normal``/``background``/``low``). Out-of-range ints
@@ -173,7 +173,7 @@ def _kg_dev_mode() -> bool:
     One switch replaces the per-daemon ``KG_*_DAEMON`` env toggles (which all
     defaulted on): production runs every daemon; dev can silence the lot. Read
     via ``AgentConfig`` so there's a single typed source of truth, not scattered
-    ``os.environ`` reads. (CONCEPT:KG-2.8 / config discipline)
+    ``os.environ`` reads. (CONCEPT:AU-KG.coordination.embedder-breaker / config discipline)
     """
     try:
         from agent_utilities.core.config import config
@@ -187,7 +187,7 @@ def compute_ingest_worker_count(configured: int | None = None) -> int:
     """Autosize the ingest worker pool for THIS host (CPU + memory bounded).
 
     The single sizing policy shared by the in-process task workers and the
-    decoupled ``kg-ingest`` consumer pool (CONCEPT:KG-2.57): ~36% of the cores,
+    decoupled ``kg-ingest`` consumer pool (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): ~36% of the cores,
     capped by available memory at ~3 GB per heavy worker, floor of 2. An
     explicit ``configured`` value (``KG_INGESTION_WORKERS``) wins outright.
     """
@@ -221,11 +221,11 @@ def compute_ingest_worker_count(configured: int | None = None) -> int:
 # ``KG_EMBED_BACKFILL_BATCH`` env was read in two places with CONFLICTING
 # defaults (256 vs 512) for two genuinely different knobs — a config bug. They
 # are now two named constants: the per-tick node budget and the per-query DB
-# fetch size. (CONCEPT:KG-2.8 / config discipline)
+# fetch size. (CONCEPT:AU-KG.coordination.embedder-breaker / config discipline)
 _EMBED_BACKFILL_BUDGET = 256
 _EMBED_BACKFILL_FETCH = 512
 
-# PerformanceAnomaly consumer cadence (CONCEPT:AHE-3.19): a bounded, LLM-free
+# PerformanceAnomaly consumer cadence (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer): a bounded, LLM-free
 # scan, so a fixed moderate interval suffices — no env knob needed.
 _ANOMALY_CONSUMER_INTERVAL = 900.0
 
@@ -237,19 +237,19 @@ _EVOLUTION_INTERVAL = 3600.0
 _RECONCILE_INTERVAL = 900.0
 _ENRICH_INTERVAL = 20.0
 _FILE_WATCH_INTERVAL = 30.0
-# Fast cadence for the reactive autoscale poll (CONCEPT:KG-2.253): it only does a
+# Fast cadence for the reactive autoscale poll (CONCEPT:AU-KG.compute.reactive-push): it only does a
 # cheap non-blocking ``:Task`` change-feed poll and short-circuits when nothing
 # changed, so it can run far more often than the slow ``_tick_fleet_autoscaler``
 # safety-net interval — turning "scale on the change" from minutes into seconds.
 _AUTOSCALE_REACTIVE_INTERVAL = 5.0
 _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
-# Warm-fork parent + dev-workspace idle reap (CONCEPT:OS-5.58). Background; never preempts work.
+# Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 
-# Embedder circuit-breaker (CONCEPT:KG-2.8): when the embedding endpoint is down
+# Embedder circuit-breaker (CONCEPT:AU-KG.coordination.embedder-breaker): when the embedding endpoint is down
 # (e.g. the GPU host power-cycles → vLLM 502s), the backfill tick must NOT keep
 # calling it every 30s across N tables (each with client-side retries) — that
 # retry-storm pegs the daemon and makes the whole KG surface time out. After this
@@ -263,7 +263,7 @@ _TASK_MAX_REQUEUE = 3
 _USAGE_SYNC_INTERVAL = 900.0
 _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
 
-# CONCEPT:KG-2.113 — Hardened priority and scheduled task queue with retry and dead-letter.
+# CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task — Hardened priority and scheduled task queue with retry and dead-letter.
 # Priority is a discrete
 # integer *bucket* (0=critical .. 3=background) rather than a numeric field,
 # because the L1 graph interpreter strips ORDER BY and supports only equality —
@@ -277,7 +277,7 @@ _DEFAULT_PRIO_BUCKET = _PRIO_NORMAL
 # Max candidate rows a single claim attempt will CAS before giving up (returning
 # idle). Each miss means a peer host won that row via the engine CAS, so we re-
 # select and try the next pending candidate. Bounds the contention sweep so a
-# burst of competing workers can't spin. (CONCEPT:KG-2.141)
+# burst of competing workers can't spin. (CONCEPT:AU-KG.compute.user-override-prompt-library)
 _CLAIM_MAX_RETRIES = 8
 # App-level retry: a task that *raises* (vs. a host crash, handled by the reaper)
 # is retried with exponential backoff by re-scheduling it for a future minute,
@@ -298,7 +298,7 @@ _TERMINAL_TASK_STATUS = frozenset({"completed", "failed", "cancelled", "dead_let
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env
 # knobs (replacing KG_ENRICH_BATCH / KG_ENRICH_MAX_BATCHES).
 #
-# CONCEPT:KG-2.153 — the per-TICK chunk is sized to drain the ``cards_pending``
+# CONCEPT:AU-KG.ontology.capability-card-backfill-lane — the per-TICK chunk is sized to drain the ``cards_pending``
 # backlog at scale, not just trickle it. Each tick re-checks the foreground
 # throttle BETWEEN batches and yields promptly, so a large MAX_BATCHES never
 # blocks interactive work — it only bounds how much ONE enrichment-lane task
@@ -325,7 +325,7 @@ class SQLiteTaskQueue(QueueBackend):
         Tables are (re)created on every connect (cheap ``IF NOT EXISTS``) so the
         queue self-heals if its db file is deleted/recreated/corrupted after
         init — otherwise every method would fail forever with
-        ``no such table: staging`` once the file is gone. (CONCEPT:KG-2.7)
+        ``no such table: staging`` once the file is gone. (CONCEPT:AU-KG.compute.registered-edge-type)
         """
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         with conn:
@@ -471,7 +471,7 @@ class GraphEngineProtocol(Protocol):
 class TaskManagerMixin(GraphEngineProtocol):
     """Mixin for native persistent Task Queues in the Intelligence Graph.
 
-    CONCEPT:KG-2.0 - Persistent Task Tracking
+    CONCEPT:AU-KG.compute.persistent-task-tracking - Persistent Task Tracking
     """
 
     def __init__(self, *args, **kwargs):
@@ -481,7 +481,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Task claiming is now arbitrated by the engine compare-and-set (it holds
         # the graph write lock for the flip), so the former in-process
         # ``_claim_lock`` and the Postgres advisory ``state_claim_guard`` are no
-        # longer needed to serialize the claim. (CONCEPT:KG-2.141)
+        # longer needed to serialize the claim. (CONCEPT:AU-KG.compute.user-override-prompt-library)
 
         # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
         try:
@@ -496,9 +496,9 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         queue_db_path = data_dir() / "kg_task_queue.db"
 
-        # Queue selection is ONE explicit, fail-loud path (CONCEPT:KG-2.55):
+        # Queue selection is ONE explicit, fail-loud path (CONCEPT:AU-KG.backend.selectable-queue-backend):
         # TASK_QUEUE_BACKEND=sqlite|postgres|kafka, default auto (postgres when
-        # STATE_DB_URI is set — CONCEPT:OS-5.16/KG-2.54 — else sqlite). An
+        # STATE_DB_URI is set — CONCEPT:AU-OS.state.unified-durable-state-externalization/KG-2.54 — else sqlite). An
         # explicitly selected kafka/postgres queue that is unreachable raises
         # TaskQueueUnavailable here instead of silently degrading.
         from .queue_backend import create_task_queue
@@ -510,7 +510,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         import sys
 
-        # ── Role-gated background daemon (CONCEPT:KG-2.8 / OS-5.0) ───────────
+        # ── Role-gated background daemon (CONCEPT:AU-KG.coordination.embedder-breaker / OS-5.0) ───────────
         # The KG runs ONE consolidated daemon. ``client`` processes (the MCP
         # server, CLI, one-shot scripts, and tests) spawn NOTHING — they enqueue
         # work to the durable queue that the ``host`` daemon (the API gateway)
@@ -522,7 +522,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         _test_or_staging = bool(
             setting("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv
         )
-        # Singleton election (CONCEPT:KG-2.8 / OS-5.9): only the flock holder runs
+        # Singleton election (CONCEPT:AU-KG.coordination.embedder-breaker / OS-5.9): only the flock holder runs
         # the consolidated daemon. ``auto`` self-heals to ``client`` when a host
         # already holds the lock; an explicit ``host`` that loses raises
         # KGHostAlreadyRunning (descriptive). Test/staging never elect or lock —
@@ -545,7 +545,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             return
 
         # Continuous queue drainers that actually move ingested data.
-        # Kafka mode (CONCEPT:KG-2.57): the ``kg-ingest`` consumer group owns
+        # Kafka mode (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): the ``kg-ingest`` consumer group owns
         # the whole task lifecycle (Task node is created AT CLAIM TIME by the
         # consuming worker), so the submission drain — which would race the
         # group for the same messages just to mint a node — does not run.
@@ -564,11 +564,11 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         # KG background daemons are always on in production; the single
         # KG_DEV_MODE switch disables the whole set (it replaced the per-daemon
-        # KG_*_DAEMON env toggles). (CONCEPT:KG-2.8 / config discipline)
+        # KG_*_DAEMON env toggles). (CONCEPT:AU-KG.coordination.embedder-breaker / config discipline)
         if _kg_dev_mode():
             return
 
-        # Single consolidated maintenance scheduler (CONCEPT:KG-2.8): runs ALL
+        # Single consolidated maintenance scheduler (CONCEPT:AU-KG.coordination.embedder-breaker): runs ALL
         # periodic KG jobs (analysis, compaction, evolution, enrichment, AND the
         # SDD/skills/scholarx file-watch scan — see ``_maintenance_jobs``) in ONE
         # throttled thread behind one shared foreground gate. No separate file
@@ -589,7 +589,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         self._embed_backfill_thread.start()
 
-    # ── Control-plane backend routing (CONCEPT:KG-2.148) ─────────────────
+    # ── Control-plane backend routing (CONCEPT:AU-KG.backend.schedule-on-control-graph) ─────────────────
     # The scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
     # writes are CONTROL plane and must run on the isolated ``__control__`` engine
     # graph's write lock, NOT ``__commons__``'s — which sustained content
@@ -604,7 +604,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _control(self) -> Any:
         """The control-plane backend (``__control__``), or ``self.backend``.
 
-        CONCEPT:KG-2.148 — single accessor so every control-plane call site
+        CONCEPT:AU-KG.backend.schedule-on-control-graph — single accessor so every control-plane call site
         routes through the isolated control graph when available and falls back
         cleanly to the shared content backend when it isn't.
         """
@@ -616,7 +616,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Run a CONTROL-PLANE Cypher read/write against ``__control__``.
 
         Mirrors ``query_cypher`` but targets the isolated control backend
-        (CONCEPT:KG-2.148). Used for :Task / :Schedule / queue / claim ops so
+        (CONCEPT:AU-KG.backend.schedule-on-control-graph). Used for :Task / :Schedule / queue / claim ops so
         they never block on the content-ingestion write lock.
         """
         ctrl = self._control
@@ -625,7 +625,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return []
 
     def unified_daemon_status(self) -> dict[str, Any]:
-        """Status of the single consolidated background daemon (CONCEPT:KG-2.8).
+        """Status of the single consolidated background daemon (CONCEPT:AU-KG.coordination.embedder-breaker).
 
         Reports this process's role and which daemon threads are alive, so the
         API gateway can surface one '/daemon/status' view instead of scattered
@@ -662,8 +662,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 status["queue_depth"] = q.get_queue_size()
         except Exception:  # noqa: BLE001
             pass
-        # Engine shard topology + per-shard reachability (CONCEPT:KG-2.58 /
-        # CONCEPT:OS-5.28)
+        # Engine shard topology + per-shard reachability (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw /
+        # CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
         # The flock host role above governs only the LOCAL engine; remote
         # shards are probed (short transport-level connect) and reported
         # here, never managed.
@@ -682,7 +682,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         Kept as a no-op so existing callers (e.g. the MCP server) don't spawn a
         second watcher thread. The scan runs only in the daemon ``host``/``auto``
-        process. (CONCEPT:KG-2.6 / KG-2.8)
+        process. (CONCEPT:AU-KG.research.research-pipeline-runner / KG-2.8)
         """
         logger.debug(
             "start_sdd_watcher() is a no-op; file-watch runs as the 'file_watch' "
@@ -690,7 +690,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
 
     def _tick_kg_analysis(self) -> None:
-        """One autonomous-analysis tick (CONCEPT:KG-2.4).
+        """One autonomous-analysis tick (CONCEPT:AU-KG.compute.cross-pillar-synergy).
 
         Schedules a relevance sweep hourly, then selects the highest-degree
         stale ``Concept`` for background deep analysis. Run by the consolidated
@@ -700,7 +700,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         RELEVANCE_SWEEP_INTERVAL = 3600.0  # 60 minutes
         now = time.time()
-        # CONCEPT:ECO-4.72 — do NOT fire the heavy relevance sweep immediately on every
+        # CONCEPT:AU-ECO.messaging.debounce-relevance-sweep — do NOT fire the heavy relevance sweep immediately on every
         # restart (the prior 0.0 default did): co-located with the messaging router, a
         # startup sweep saturates the process and starves the inbound reply loop. Defer the
         # first sweep by one full interval after start.
@@ -795,10 +795,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug(f"Primary codebase detection failed: {e}")
         return None
 
-    # ── Consolidated maintenance scheduler (CONCEPT:KG-2.8) ──────────────
+    # ── Consolidated maintenance scheduler (CONCEPT:AU-KG.coordination.embedder-breaker) ──────────────
 
     def _maintenance_jobs(self) -> list[tuple[str, float, Any]]:
-        """Inline plumbing the maintenance thread runs DIRECTLY (CONCEPT:OS-5.44).
+        """Inline plumbing the maintenance thread runs DIRECTLY (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
         Everything else recurring (analysis, the self-evolution loop, enrichment,
         evolution, the fleet ticks, usage/file/hygiene/tenant-gc sweeps, and the
@@ -821,7 +821,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def _register_maintenance_schedules(self) -> None:
         """Register the former fixed-interval maintenance ticks as durable
-        ``:Schedule`` nodes so the unified scheduler enqueues them (CONCEPT:OS-5.44).
+        ``:Schedule`` nodes so the unified scheduler enqueues them (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
         Each becomes an ``interval`` schedule whose ``scheduled_job`` runs the
         engine ``_tick_<ref>`` method (``kind: maint``) — or, for the
@@ -844,7 +844,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         def _maint(name, ref, interval, *, enabled=True, prio=3, task_type=None):
             # Always upsert the node (with ``enabled`` reflecting the config gate)
             # so toggling a flag off across a restart disables the schedule too.
-            # CONCEPT:KG-2.153 — ``task_type`` lets a high-volume maint job run in
+            # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — ``task_type`` lets a high-volume maint job run in
             # its OWN functional lane (default ``scheduled_job`` = the maint lane).
             specs.append(
                 ScheduleSpec(
@@ -859,12 +859,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
 
         _maint("analysis", "kg_analysis", 120.0, enabled=bool(DEFAULT_KG_MODEL_ID))
-        # Self-evolution Loop engine cycle (CONCEPT:KG-2.78), OPT-IN via KG_LOOP=1;
+        # Self-evolution Loop engine cycle (CONCEPT:AU-KG.research.these-properties-carry), OPT-IN via KG_LOOP=1;
         # runs _tick_loop as a task at research priority.
         _maint(
             "loop_cycle", "loop", _cfg.kg_loop_interval, enabled=_cfg.kg_loop, prio=2
         )
-        # ScholarX RSS research-feed screen (CONCEPT:KG-2.114): grade incoming RSS
+        # ScholarX RSS research-feed screen (CONCEPT:AU-KG.research.scholarx-rss-research-feed): grade incoming RSS
         # items, skip already-seen, enqueue prioritized full-paper fetch+ingest.
         # Default-ON (no-ops without ScholarX); KG_RESEARCH_FEED=0 disables.
         specs.append(
@@ -919,7 +919,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             _cfg.fleet_autoscaler_interval,
             enabled=_cfg.fleet_autoscaler,
         )
-        # CONCEPT:KG-2.253 — reactive push half of OS-5.29: a fast, cheap poll of the
+        # CONCEPT:AU-KG.compute.reactive-push — reactive push half of OS-5.29: a fast, cheap poll of the
         # engine's ``:Task`` change-feed that evaluates only on a queue-depth change.
         # Same opt-in gate as the autoscaler; the slow tick above is the safety net.
         _maint(
@@ -938,7 +938,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
             ),
         )
-        # CONCEPT:KG-2.153 — OWL capability-card backfill runs in its OWN
+        # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — OWL capability-card backfill runs in its OWN
         # ``enrichment`` lane (task_type ``enrichment_backfill``), NOT the
         # best-effort maint lane. Previously it rode ``scheduled_job`` and so was
         # capped at the maint floor (1 worker shared with ~17 ticks), leaving ~85k
@@ -968,10 +968,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
         _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
-        # Goals-as-contracts SLA watch (CONCEPT:ORCH-1.78): escalate breached goals.
+        # Goals-as-contracts SLA watch (CONCEPT:AU-ORCH.session.escalate-breached-goals): escalate breached goals.
         # Default-on; no-ops when no goals carry an sla_seconds.
         _maint("goal_sla", "goal_sla", 300.0)
-        # Warm-fork parent + dev-workspace idle reap (CONCEPT:OS-5.58). Default-on;
+        # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Default-on;
         # no-ops when no warm parents / idle workspaces exist.
         _maint("warm_parent_reap", "warm_parent_reap", _WARM_PARENT_REAP_INTERVAL)
 
@@ -984,7 +984,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
     def _tick_warm_parent_reap(self) -> None:
-        """Reap idle warm-fork parents + idle dev-workspace containers (CONCEPT:OS-5.58).
+        """Reap idle warm-fork parents + idle dev-workspace containers (CONCEPT:AU-OS.host.so-they-are-idle).
 
         Background maintenance: closes warm parents (forkserver processes, warmed containers,
         microVMs) idle past the registry TTL, and adopts the previously-orphaned
@@ -1010,7 +1010,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.debug("dev-workspace reap skipped: %s", e)
         try:
-            # CONCEPT:ORCH-1.94 — stateless backstop: sweep warm-fork sandbox containers the
+            # CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — stateless backstop: sweep warm-fork sandbox containers the
             # in-memory registry can no longer see (orphaned by a daemon restart) by label + age.
             from agent_utilities.rlm.sandboxes.container_fork_backend import (
                 reap_orphaned_sandboxes,
@@ -1072,7 +1072,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("usage_pricing_refresh skipped: %s", e)
 
     def _tick_hygiene(self) -> None:
-        """One memory-hygiene pass (CONCEPT:KG-2.17).
+        """One memory-hygiene pass (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
         Archives stale AI-generated memory by closing its bi-temporal ``valid_to`` (never deletes;
         alerts high-confidence stale items) and merges near-duplicates. Run by the consolidated
@@ -1094,11 +1094,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("hygiene tick error: %s", e)
 
     def _tick_fleet_reconciler(self) -> None:
-        """One desired-state fleet reconcile pass (CONCEPT:OS-5.25).
+        """One desired-state fleet reconcile pass (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 
         Diffs the fleet registry (+ optional desired-state override) against
         the pluggable FleetObserver and converges each divergence through the
-        ActionPolicy decision point (CONCEPT:OS-5.24) and the FleetActuator
+        ActionPolicy decision point (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) and the FleetActuator
         seam; also drains human-granted ActionApproval entries. Storm-guarded
         (FLEET_RECONCILER_MAX_ACTIONS per tick); leader-only via the
         consolidated maintenance scheduler.
@@ -1121,14 +1121,14 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("fleet_reconciler tick error: %s", e)
 
     def _tick_fleet_autoscaler(self) -> None:
-        """One reactive autoscale pass (CONCEPT:OS-5.29).
+        """One reactive autoscale pass (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
 
         For each registry service with a ``scaling:`` block: read its load
         signal through the pluggable ScalingSignalProvider, target-track a
         desired replica count within the declared min/max bounds (step-capped,
         cooldown/flap-guarded against the durable action ledger), diff against
         the FleetObserver and propose ``scale_service`` through the
-        ActionPolicy decision point (CONCEPT:OS-5.24) + FleetActuator seam;
+        ActionPolicy decision point (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) + FleetActuator seam;
         scale-ups get an OS-5.27 deploy watch. Leader-only via the
         consolidated maintenance scheduler.
         """
@@ -1150,7 +1150,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("fleet_autoscaler tick error: %s", e)
 
     def _fleet_autoscale_subscription(self) -> Any:
-        """Lazily-built reactive control-plane ``:Task`` change-feed (CONCEPT:KG-2.253).
+        """Lazily-built reactive control-plane ``:Task`` change-feed (CONCEPT:AU-KG.compute.reactive-push).
 
         One subscription per daemon process, cached on the engine, so the reactive
         autoscale tick fires on the engine's pushed ``:Task`` change-event (the
@@ -1207,7 +1207,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         Unique across process restarts (hostname + pid + boot second), so a task
         claimed by a now-dead host is distinguishable from one claimed by the live
         host. Cached on the engine singleton, so every worker thread + the reaper in
-        this process share one value. (CONCEPT:KG-2.8)
+        this process share one value. (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
         tok = getattr(self, "_host_token_cache", None)
         if tok is None:
@@ -1219,7 +1219,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return tok
 
     def _tick_task_reaper(self) -> None:
-        """Requeue zombie/stuck 'running' tasks (CONCEPT:KG-2.8 ingestion durability).
+        """Requeue zombie/stuck 'running' tasks (CONCEPT:AU-KG.coordination.embedder-breaker ingestion durability).
 
         A task is marked 'running' when a worker claims it; if that worker/host
         process dies mid-task (crash / SIGKILL / redeploy) the Task is stranded in
@@ -1249,7 +1249,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             _multi_host = postgres_state_enabled()
 
-            # CONCEPT:KG-2.148 — the reaper scans + resets :Task on the CONTROL
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the reaper scans + resets :Task on the CONTROL
             # plane (__control__), never the content graph.
             rows = self._control_cypher(
                 "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
@@ -1286,7 +1286,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # unstamped task needs a known age past the hand-off grace to avoid
                 # racing any malformed-but-fresh claim.
                 #
-                # Multi-host (CONCEPT:OS-5.16/KG-2.54): with ``state_db_uri`` set,
+                # Multi-host (CONCEPT:AU-OS.state.unified-durable-state-externalization/KG-2.54): with ``state_db_uri`` set,
                 # N hosts legitimately run workers, so a foreign token is NOT
                 # proof of a dead worker — another live host may be processing
                 # it. The reaper (leader-only) then degrades to conservative
@@ -1341,7 +1341,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "MATCH (t:Task {id: $id, status: 'running'}) SET t.status = 'pending', t.metadata = $meta",
                     {"id": tid, "meta": _encode_metadata(meta)},
                 )
-                # Kafka mode (CONCEPT:KG-2.57): nothing polls 'pending' :Task
+                # Kafka mode (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): nothing polls 'pending' :Task
                 # nodes — the kg-ingest consumer group drives processing from
                 # the topic — so a reaped orphan is RE-PUBLISHED for re-claim.
                 # The claim is idempotent (status-checked), so a duplicate
@@ -1385,17 +1385,17 @@ class TaskManagerMixin(GraphEngineProtocol):
         ``ready`` = every dep ``completed``; ``broken`` = a dep reached a
         terminal non-completed state (failed/dead_letter/cancelled) so the
         dependent must never run on a broken precondition; ``waiting``
-        otherwise. (CONCEPT:KG-2.113)
+        otherwise. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
         if not deps:
             return "ready"
         # Per-dep id-scoped equality queries: the L1 graph interpreter refuses an
         # unscoped ``WHERE t.id IN [...]`` (full-graph scan), so we look each dep
-        # up by id (deps are few). (CONCEPT:KG-2.113)
+        # up by id (deps are few). (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         broken = {"failed", "dead_letter", "cancelled"}
         all_done = True
         for dep in deps:
-            # CONCEPT:KG-2.148 — dependency :Task lookups are CONTROL plane.
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — dependency :Task lookups are CONTROL plane.
             rows = self._control_cypher(
                 "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": dep}
             )
@@ -1415,7 +1415,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         ``depends_on``). This per-minute, leader-only sweep is the ONE place an
         eta/dependency comparison happens — in Python over the small
         scheduled/blocked set — so the worker claim stays pure equality.
-        (CONCEPT:KG-2.113)
+        (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
         from .host_lock import effective_daemon_role
 
@@ -1425,7 +1425,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             now = time.time()
             promoted = 0
             cancelled = 0
-            # CONCEPT:KG-2.148 — the promotion sweep reads + flips :Task on the
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the promotion sweep reads + flips :Task on the
             # CONTROL plane (__control__), isolated from content ingestion.
             # scheduled → pending once eta is due (or eta missing/garbled → now).
             rows = self._control_cypher(
@@ -1480,7 +1480,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("promotion_sweep tick error: %s", e)
 
     def _tick_file_watch(self) -> None:
-        """One SDD/skills/scholarx/config file-watch scan (CONCEPT:KG-2.6 / OS-5.0).
+        """One SDD/skills/scholarx/config file-watch scan (CONCEPT:AU-KG.research.research-pipeline-runner / OS-5.0).
 
         Replaces the former dedicated ``KGPlanWatcherThread``: a single
         synchronous ``run_watcher_scan`` pass, run by the consolidated
@@ -1499,7 +1499,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def _record_queue_telemetry(self, queue_size: int) -> None:
         """Publish ingest queue depth (+ Kafka consumer lag) as Prometheus
-        gauges on the OS-5.23 gateway metrics registry (CONCEPT:KG-2.57).
+        gauges on the OS-5.23 gateway metrics registry (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
         No-op-cheap: without ``prometheus_client`` the gauges are shared no-ops.
         Sampled by the maintenance scheduler on the leader host (the process
@@ -1530,9 +1530,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         Replaces the former per-job daemon threads (analysis / compaction /
         evolution / enrichment). One backend-readiness check and one
         foreground-throttle gate guard every job, so background work uniformly
-        yields the GPU/LLM to interactive runs. (CONCEPT:KG-2.7 / KG-2.8)
+        yields the GPU/LLM to interactive runs. (CONCEPT:AU-KG.compute.registered-edge-type / KG-2.8)
 
-        Tick classification (CONCEPT:OS-5.17): every job in this scheduler is
+        Tick classification (CONCEPT:AU-OS.state.cross-host-daemon-leadership): every job in this scheduler is
         **leader-only** — whole-graph/singleton passes (analysis, golden loop,
         failure ingest, anomaly consumer, fuseki publish, compaction, evolution,
         durable reconcile, enrichment, SDD/file watch, hygiene, task reaper)
@@ -1540,7 +1540,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         With ``state_db_uri`` set, a Postgres advisory lock elects exactly one
         leader fleet-wide; followers idle here and still contribute **per-host**
         capacity (task workers + submission/graph-writer queue drains, whose
-        claims are cross-host atomic — CONCEPT:KG-2.54). Under the SQLite
+        claims are cross-host atomic — CONCEPT:AU-KG.ingest.cross-host-safe-kg). Under the SQLite
         default ``is_leader()`` is always true (flock already enforces a single
         per-host daemon).
         """
@@ -1565,13 +1565,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(10.0)
                     continue
 
-                # Leader-only gate (CONCEPT:OS-5.17): non-leader hosts skip all
+                # Leader-only gate (CONCEPT:AU-OS.state.cross-host-daemon-leadership): non-leader hosts skip all
                 # singleton maintenance ticks and re-check for fail-over.
                 if not leadership.is_leader():
                     time.sleep(10.0)
                     continue
 
-                # Backpressure visibility (CONCEPT:KG-2.57): sample the durable
+                # Backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sample the durable
                 # submission-queue depth every pass so depth (and, for Kafka,
                 # kg-ingest consumer lag) lands on the OS-5.23 gateway Prometheus
                 # registry — including under load, exactly when it matters most.
@@ -1583,7 +1583,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         pass
 
                 # This loop now runs ONLY queue PLUMBING — the scheduler (which
-                # also collapses stale ticks, CONCEPT:OS-5.53), the task reaper,
+                # also collapses stale ticks, CONCEPT:AU-OS.state.stale-tick-collapse), the task reaper,
                 # and the promotion sweep. Unlike the heavy job *bodies* they
                 # enqueue (which run in the worker pool under the background
                 # throttle), the plumbing feeds and heals the queue, so it MUST
@@ -1613,7 +1613,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Lazy, process-wide persistent card cache (keyed by ast_hash) so identical
         code is LLM-summarised once across runs/repos. Best-effort → ``None`` on
         failure. Engine-only: routes to ``:CardCache`` nodes on the one engine
-        authority (no SQLite fallback). (CONCEPT:KG-2.8/KG-2.244)
+        authority (no SQLite fallback). (CONCEPT:AU-KG.coordination.embedder-breaker/KG-2.244)
         """
         store = getattr(self, "_card_store_inst", None)
         if store is None:
@@ -1630,7 +1630,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """One Phase-2 enrichment tick: backfill LLM capability cards onto
         structurally-ingested ``Code`` nodes whose ``summary`` is still empty.
 
-        CONCEPT:KG-2.8. Cards are cached by ``ast_hash`` so unchanged code is
+        CONCEPT:AU-KG.coordination.embedder-breaker. Cards are cached by ``ast_hash`` so unchanged code is
         never re-summarised; only non-empty summaries are written back (so a
         transient LLM outage doesn't poison nodes). Drains up to
         ``KG_ENRICH_MAX_BATCHES`` batches per tick, re-checking the foreground
@@ -1678,7 +1678,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Card summaries are a structured extraction task — route to the
                 # LITE chat model by default (markedly faster than the heavy KG
                 # model, which is what saturated the engine on a full backfill).
-                # ``KG_CARD_MODEL=heavy`` forces the heavy model. (CONCEPT:KG-2.8)
+                # ``KG_CARD_MODEL=heavy`` forces the heavy model. (CONCEPT:AU-KG.coordination.embedder-breaker)
                 from agent_utilities.core.config import setting
 
                 use_heavy = setting("KG_CARD_MODEL", "lite").lower() == "heavy"
@@ -1702,7 +1702,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Respect the global background throttle: skip this tick if foreground
             # (interactive) work is active, and cap concurrent background LLM load
             # via the shared semaphore so card backfill can't saturate the engine
-            # (CONCEPT:KG-2.7). The per-batch foreground check above stays as a
+            # (CONCEPT:AU-KG.compute.registered-edge-type). The per-batch foreground check above stays as a
             # fast-path; this adds the concurrency cap shared with other daemons.
             from agent_utilities.core.background_throttle import get_throttle
 
@@ -1751,7 +1751,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _embed_circuit_open(self, now: float) -> bool:
         """True while the embedder circuit breaker is OPEN (skip embed work).
 
-        CONCEPT:KG-2.8 — keeps a down embedder from being retry-stormed.
+        CONCEPT:AU-KG.coordination.embedder-breaker — keeps a down embedder from being retry-stormed.
         """
         return getattr(self, "_embed_cb_open_until", 0.0) > now
 
@@ -1772,7 +1772,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 _EMBED_CB_COOLDOWN,
             )
 
-    # CONCEPT:KG-2.144 — Per-channel embedding backfill: round-robin unembedded
+    # CONCEPT:AU-KG.compute.per-channel-embedding-backfill — Per-channel embedding backfill: round-robin unembedded
     # nodes by source_system + fan out to embedding capacity, so a tiny url/doc
     # crawl's chunks aren't FIFO-starved behind millions of codebase chunks.
     # Per-table source-rotation cursors: which channel leads next tick.
@@ -1784,7 +1784,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Pull up to ``take`` NULL-embedding ``(id, text)`` rows from ``tbl``,
         round-robin across ingestion *channels* (``source_system``).
 
-        CONCEPT:KG-2.144 — a single ``WHERE embedding IS NULL LIMIT n`` FIFO lets
+        CONCEPT:AU-KG.compute.per-channel-embedding-backfill — a single ``WHERE embedding IS NULL LIMIT n`` FIFO lets
         one huge channel (822K codebase ``Code`` chunks) starve a small url/doc
         crawl's chunks that share the table. Instead, for a table that carries a
         ``source_system`` column we find the distinct channels with unembedded
@@ -1858,7 +1858,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         tables, but the structural codebase pass and concept extraction create
         nodes WITHOUT embeddings. This embeds unembedded rows incrementally in
         bounded batches with the configured model, behind the shared foreground
-        gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:KG-2.8)
+        gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
         l3 = getattr(self.backend, "l3", self.backend)
         conn_factory = getattr(l3, "_conn", None)
@@ -1944,7 +1944,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return total
 
     def _tick_loop(self) -> None:
-        """One propose-only self-evolution cycle (CONCEPT:KG-2.7).
+        """One propose-only self-evolution cycle (CONCEPT:AU-KG.compute.registered-edge-type).
 
         Runs ``LoopController.run_one_cycle`` (intake active Loops →
         acquire related sources → ADDRESSES resolve → optional distill/synthesize
@@ -1968,7 +1968,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.error("loop tick error: %s", e)
 
     def _world_model_subscription(self) -> Any:
-        """Lazily-built reactive ``WorldModelTransition`` change-feed (CONCEPT:KG-2.253).
+        """Lazily-built reactive ``WorldModelTransition`` change-feed (CONCEPT:AU-KG.compute.reactive-push).
 
         One subscription per daemon process, cached on the engine, so the SAI tick
         consumes the engine's pushed change-events instead of re-scanning the whole
@@ -1986,9 +1986,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         return sub
 
     def _tick_sai_factory(self) -> None:
-        """One SAI-factory world-model specialization cycle (CONCEPT:AHE-3.29).
+        """One SAI-factory world-model specialization cycle (CONCEPT:AU-AHE.harness.sai-controller).
 
-        REACTIVE (CONCEPT:KG-2.253): instead of re-querying the ENTIRE
+        REACTIVE (CONCEPT:AU-KG.compute.reactive-push): instead of re-querying the ENTIRE
         ``WorldModelTransition`` history every tick, poll the engine's change-feed
         subscription and only re-specialize when the engine pushed a NEW transition
         since the last tick (the change that caused it) — or on cold-start
@@ -2039,7 +2039,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         ``ExecutionSummary`` / ``PerformanceAnomaly`` nodes and synthetic
         ``failure_gap`` ``Concept`` topics, then — when new gaps appear — runs one
         golden-loop cycle whose auto-merge is gated by a regression check bound to
-        those failures. Opt-in via KG_FAILURE_EVOLUTION (CONCEPT:AHE-3.18).
+        those failures. Opt-in via KG_FAILURE_EVOLUTION (CONCEPT:AU-AHE.harness.failure-evolution).
         """
         try:
             from ..adaptation.failure_analyzer import run_failure_ingest
@@ -2078,7 +2078,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _tick_anomaly_consumer(self) -> None:
         """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
 
-        One bounded consumer pass (CONCEPT:AHE-3.19): clusters fresh anomalies
+        One bounded consumer pass (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer): clusters fresh anomalies
         by target + type, files one failure_gap Concept per cluster through the
         failure analyzer's shared gap-topic path (so the golden loop's intake
         remediates them), and stamps every scanned anomaly ``consumed``.
@@ -2101,7 +2101,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _tick_scheduler(self) -> None:
         """Evaluate every durable ``:Schedule`` and ENQUEUE the jobs that are due.
 
-        The ONE scheduler tick (CONCEPT:OS-5.44): it reads the durable
+        The ONE scheduler tick (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): it reads the durable
         ``:Schedule`` registry (seeded from ``deploy/schedules.yml`` plus the
         former fixed-interval maintenance ticks registered programmatically) and
         for every due schedule enqueues a ``scheduled_job`` ``:Task`` onto the
@@ -2128,7 +2128,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.
 
-        One bounded distribution pass (CONCEPT:KG-2.52): merges every shipped
+        One bounded distribution pass (CONCEPT:AU-KG.ontology.authoritative-tbox): merges every shipped
         ``ontology*.ttl`` module and PUTs it to the configured Fuseki dataset
         via :func:`publish_ontology_to_fuseki`, so an optional enterprise
         triplestore stays in sync with the authoritative ontology. Opt-in via
@@ -2157,7 +2157,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.error("fuseki_publish tick error: %s", e)
 
     def _embedding_backfill_loop(self) -> None:
-        """Dedicated drain loop for vector-embedding backfill (CONCEPT:KG-2.8).
+        """Dedicated drain loop for vector-embedding backfill (CONCEPT:AU-KG.coordination.embedder-breaker).
 
         Runs independently of the periodic maintenance scheduler so it is NOT
         blocked behind slow LLM ticks: it embeds a batch, and if work remains
@@ -2165,7 +2165,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         fully embedded it idles at a long interval. Yields to interactive runs
         via the shared foreground throttle.
 
-        Leader-only (CONCEPT:OS-5.17): two hosts would select the same
+        Leader-only (CONCEPT:AU-OS.state.cross-host-daemon-leadership): two hosts would select the same
         unembedded batch and duplicate embedding work, so only the fleet
         leader drains it.
         """
@@ -2207,7 +2207,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 time.sleep(idle)
 
     def _tick_tenant_gc(self) -> None:
-        """Drop leaked per-job community-detection tenants (CONCEPT:KG-2.8).
+        """Drop leaked per-job community-detection tenants (CONCEPT:AU-KG.coordination.embedder-breaker).
 
         Structural ingest runs community detection in an ephemeral
         ``{graph}__enrich_comm_{uuid}`` tenant and deletes it in a ``finally`` — but
@@ -2250,7 +2250,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
 
     def _tick_reconcile_durable(self) -> None:
-        """Autoheal the L1→L2 durable mirror (CONCEPT:KG-2.8).
+        """Autoheal the L1→L2 durable mirror (CONCEPT:AU-KG.coordination.embedder-breaker).
 
         Backfills any nodes/edges present in the L1 compute graph but missing from
         the durable Postgres tier, so the two stores converge after an L1-only run,
@@ -2286,7 +2286,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.warning("durable reconcile tick failed: %s", e)
 
     def _tick_compaction(self) -> None:
-        """One LCM compaction tick (CONCEPT:KG-2.1).
+        """One LCM compaction tick (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         Finds ``Thread`` nodes with more than ``COMPACTION_THRESHOLD``
         uncompacted messages and delegates to ``ElasticContextManager``. Run by
@@ -2329,7 +2329,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.warning(f"Compaction: failed to compact {thread_id}: {e}")
 
     def _tick_evolution(self) -> None:
-        """One research-evolution cycle tick (CONCEPT:KG-2.5).
+        """One research-evolution cycle tick (CONCEPT:AU-KG.retrieval.per-item-relevance-ranking).
 
         Scans unresolved research topics, counts scorable items against the
         primary codebase, logs an ``EvolutionCycle`` node, and triggers the
@@ -2418,7 +2418,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.warning(f"Evolution: failed to log cycle node: {e}")
 
         # 5. Telemetry/failure ingestion now runs as its own dedicated maintenance
-        # job (``failure_ingest`` → _tick_failure_ingest, CONCEPT:AHE-3.18), opt-in
+        # job (``failure_ingest`` → _tick_failure_ingest, CONCEPT:AU-AHE.harness.failure-evolution), opt-in
         # via KG_FAILURE_EVOLUTION. The previous inline ``telemetry_ingestion``
         # workflow sweep referenced a workflow that was never defined (it raised
         # ValueError every cycle), so it has been removed in favor of that tick.
@@ -2560,7 +2560,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 job_id = task_data["job_id"]
                 props = task_data["props"]
 
-                # CONCEPT:KG-2.148 — the :Task node is CONTROL plane: write it to
+                # CONCEPT:AU-KG.backend.schedule-on-control-graph — the :Task node is CONTROL plane: write it to
                 # the isolated ``__control__`` graph (via the control backend) so
                 # task creation never blocks behind sustained content ingestion on
                 # ``__commons__``'s write lock.
@@ -2599,7 +2599,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         job_id: str | None = None,
         extra_meta: dict[str, Any] | None = None,
     ) -> str:
-        """Submit a background task to the unified durable queue (CONCEPT:KG-2.113).
+        """Submit a background task to the unified durable queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
         ``priority`` picks a claim bucket (0=critical .. 3=background, or the
         legacy ``high``/``normal`` strings). ``scheduled_for`` (a unix ts in the
@@ -2612,7 +2612,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Statuses that still represent un-finished work for dedupe + the
         # promotion sweep: pending/running plus the new delayed/blocked lanes.
         if not skip_dedupe:
-            # CONCEPT:KG-2.148 — :Task dedupe read is CONTROL plane → __control__.
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task dedupe read is CONTROL plane → __control__.
             existing = self._control_cypher(
                 "MATCH (t:Task) WHERE t.status IN "
                 "['pending', 'running', 'scheduled', 'blocked'] "
@@ -2659,10 +2659,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             "status": status,
             "metadata": encoded_meta,
             "prio_bucket": prio_bucket,
-            # CONCEPT:ORCH-1.75 — stamp the functional lane (top-level, queryable) so the
+            # CONCEPT:AU-ORCH.execution.two-level-fair-rotation — stamp the functional lane (top-level, queryable) so the
             # worker can claim fairly per-lane and we can surface per-lane congestion.
             "lane": lane_for_task_type(task_type),
-            # CONCEPT:ORCH-1.76 — stamp the task TYPE top-level too, so claiming can rotate
+            # CONCEPT:AU-ORCH.scheduling.task-type-stamping — stamp the task TYPE top-level too, so claiming can rotate
             # fairly across types WITHIN a lane (a fast diff/document not stuck behind codebase).
             "tkind": task_type,
         }
@@ -2706,7 +2706,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> bool:
         """Split a too-large whole-repo codebase task into shard-routed sub-tasks.
 
-        CONCEPT:KG-2.287 — the big-repo tail fix. A whole-repo ``codebase`` task for
+        CONCEPT:AU-KG.ingest.subtask-routing-key — the big-repo tail fix. A whole-repo ``codebase`` task for
         a repo above :data:`~...repo_split.SPLIT_MIN_FILES` files is fanned out into
         K balanced sub-tasks, each scoped to a file bucket (``only_files``) and routed
         to its own per-shard graph (``code:<repo>__s<i>``), so the buckets commit in
@@ -2812,7 +2812,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         Used to gate recursive ``deep_analysis`` fan-out: while a bulk codebase
         ingest is draining, ``deep_analysis`` (0-node, recursive, blocking-LLM)
         runs flat (no fan-out) so it can't flood the queue ahead of structural
-        ingest. (CONCEPT:KG-2.7 / KG-2.8)
+        ingest. (CONCEPT:AU-KG.compute.registered-edge-type / KG-2.8)
         """
         try:
             rows = self._control_cypher(
@@ -2831,7 +2831,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return False
 
     def ingest_queue_depth(self) -> int:
-        """Uniform ingest backlog depth across queue backends (CONCEPT:KG-2.57).
+        """Uniform ingest backlog depth across queue backends (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
         ``queued-but-not-yet-claimed`` (the selected backend's queue size — for
         Kafka that is the ``kg-ingest`` consumer-group lag, for SQLite/Postgres
@@ -2914,7 +2914,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Role gate: ``client`` processes never run task workers — the host
         # daemon (the singleton flock holder) drains the shared queue. Uses the
         # *effective* role so an ``auto`` process that lost the host election also
-        # behaves as a client. (CONCEPT:KG-2.8 / OS-5.9)
+        # behaves as a client. (CONCEPT:AU-KG.coordination.embedder-breaker / OS-5.9)
         from .host_lock import effective_daemon_role
 
         if effective_daemon_role() == "client":
@@ -2944,7 +2944,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._workers_running = True
 
         if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
-            # CONCEPT:KG-2.57 — Kafka mode: the host's worker pool joins the
+            # CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer — Kafka mode: the host's worker pool joins the
             # ``kg-ingest`` consumer group instead of polling :Task nodes, so
             # it shares partitions (and per-key ordering) with any decoupled
             # `kg-ingest-worker` processes added for scale-out.
@@ -2978,16 +2978,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         and supports only equality. A final untyped sweep picks up legacy nodes
         that predate ``prio_bucket`` and carry only the ``priority`` string. This
         single path works on both the SQLite default and pg-age (equality only),
-        so priority + reordering hold everywhere. (CONCEPT:KG-2.113)
+        so priority + reordering hold everywhere. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
 
-        CONCEPT:ORCH-1.75/1.76 — TWO-LEVEL fair rotation: rotate which functional lane gets
+        CONCEPT:AU-ORCH.execution.two-level-fair-rotation/1.76 — TWO-LEVEL fair rotation: rotate which functional lane gets
         first dibs each claim (so a backed-up lane can't head-of-line-block another — codebase
         ingestion was starved 75-pending/0-run), AND within the chosen lane rotate across its
         task TYPES (so a fast ``diff``/``document`` is not stuck behind a big ``codebase`` batch
         sharing the ingestion lane). Inside a (lane,type) the priority buckets still order work;
         lane-stamped-but-untyped and fully-legacy tasks fall through to the broader sweeps.
 
-        CONCEPT:ORCH-1.81 — ``admit(lane, task_type) -> bool`` is the reserved-worker admission
+        CONCEPT:AU-ORCH.dispatch.worker-scheduling — ``admit(lane, task_type) -> bool`` is the reserved-worker admission
         gate: rotation proposes the candidate, ``admit`` decides whether THIS free worker may
         claim that lane/type *now* (hot-spare reservation, per-lane min coverage, codebase cap).
         A denied (lane, type) is skipped so the rotation can offer a lane that needs coverage;
@@ -3004,7 +3004,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # denied at least one real (lane, type) and admitted none, the worker is
         # being held back as a spare, so the lane-less LEGACY sweeps must NOT grab a
         # task and spend that spare. With no admit (None), nothing is ever denied,
-        # so legacy sweeps run exactly as before. (CONCEPT:ORCH-1.81)
+        # so legacy sweeps run exactly as before. (CONCEPT:AU-ORCH.dispatch.worker-scheduling)
         denied_any = False
 
         def _ok(lane: str, task_type: str) -> bool:
@@ -3037,7 +3037,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if not _ok(lane, tk):
                         continue
                     for bucket in _PRIORITY_BUCKETS:
-                        # CONCEPT:KG-2.148 — :Task claim selection is CONTROL plane.
+                        # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task claim selection is CONTROL plane.
                         rows = self._control_cypher(
                             "MATCH (t:Task {status: 'pending', tkind: $tk, prio_bucket: $b}) "
                             "RETURN t.id as id, t.metadata as meta LIMIT 1",
@@ -3084,7 +3084,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return rows[0] if rows else None
 
     def lane_metrics(self) -> dict[str, Any]:
-        """Per-lane congestion snapshot (CONCEPT:ORCH-1.75): pending depth + in-flight per
+        """Per-lane congestion snapshot (CONCEPT:AU-ORCH.execution.two-level-fair-rotation): pending depth + in-flight per
         functional lane, so congestion is VISIBLE before it starves work — the observability
         that was missing when codebase ingestion silently sat at 75-pending/0-running. Returns
         ``{lane: {pending, running, model_role}}`` + a ``lane_less`` bucket for un-stamped tasks.
@@ -3095,7 +3095,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
 
         def _count(where: str, params: dict[str, Any]) -> int:
-            # CONCEPT:KG-2.148 — lane congestion counts read :Task on __control__.
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — lane congestion counts read :Task on __control__.
             rows = self._control_cypher(
                 f"MATCH (t:Task {{{where}}}) RETURN count(t) as c", params
             )
@@ -3162,7 +3162,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         }
         return out
 
-    # -- Reserved-worker fair scheduler (CONCEPT:ORCH-1.81) ------------------
+    # -- Reserved-worker fair scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling) ------------------
     def _worker_registry(self):
         """Lazy in-process worker→(lane, type) registry for admission control.
 
@@ -3185,7 +3185,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             reg = WorkerRegistry()
             self._worker_reg = reg
             self._sched_config = scheduler_config_from_env(wc)
-            # CONCEPT:KG-2.281 — resolve the ENGINE's real durable shard-writer
+            # CONCEPT:AU-KG.compute.resolve — resolve the ENGINE's real durable shard-writer
             # width K once, from the engine that owns the redb backend (it may be a
             # remote box with a different cpu count than this scheduling host in
             # split-storage). Cached inside worker_scheduler so the codebase
@@ -3248,7 +3248,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _claim_next_task(
         self, worker_id: str | None = None
     ) -> tuple[str, dict[str, Any]] | None:
-        """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.141).
+        """Claim the next runnable Task and stamp ownership (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
         Atomicity is now arbitrated by the engine's compare-and-set, which holds
         the graph write lock for the flip — so a row is claimed exactly once
@@ -3259,7 +3259,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         CAS that returns ``False`` means another worker won that row — we skip to
         the next candidate. The ownership stamp (live host token + claim_unix)
         is what the zombie reaper uses to requeue a dead host's work. Returns
-        ``(job_id, stamped_meta)`` or ``None`` when idle. (CONCEPT:KG-2.113)
+        ``(job_id, stamped_meta)`` or ``None`` when idle. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
         # ORCH-1.81: build this claim's admission gate from the live worker→lane
         # registry. Composes WITH the rotation+CAS: rotation proposes a candidate,
@@ -3285,7 +3285,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             meta["claimed_by"] = self._get_host_token()
             meta["claim_unix"] = time.time()
             encoded_meta = _encode_metadata(meta)
-            # CONCEPT:KG-2.148 — the claim CAS (status: pending→running) is the
+            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the claim CAS (status: pending→running) is the
             # hottest control-plane write; route it to the isolated __control__
             # graph so claims hold a write lock that content ingestion never
             # touches. Falls back to self.backend when no control backend exists.
@@ -3336,7 +3336,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     # client event loop + engine and starving the ingest worker
                     # (profiled: 24% of daemon CPU in poll query_cypher vs 10% in the
                     # actual ingest). A new task then waits at most one backoff to be
-                    # claimed — fine while a multi-minute ingest drains. (CONCEPT:KG-2.7)
+                    # claimed — fine while a multi-minute ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
                     from agent_utilities.core.background_throttle import get_throttle
 
                     time.sleep(15.0 if get_throttle().should_yield_background else 2.0)
@@ -3393,12 +3393,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Run ONE already-claimed task to completion (the shared worker body).
 
         Used by both the in-process graph-polling workers and the decoupled
-        ``kg-ingest`` Kafka consumers (CONCEPT:KG-2.57) so the processing logic
+        ``kg-ingest`` Kafka consumers (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer) so the processing logic
         exists exactly once. Heavy task types (parse storms / background LLM /
         analysis) run through the shared background throttle so they yield to
         interactive (foreground) work and stay within the global concurrency
         cap — a bulk ingest can no longer consume the engine's whole in-flight
-        budget and starve live queries (CONCEPT:KG-2.7 read/ingest plane
+        budget and starve live queries (CONCEPT:AU-KG.compute.registered-edge-type read/ingest plane
         isolation). Lightweight types (diff/conversation/…) run unthrottled.
         """
         _HEAVY_TASK_TYPES = {
@@ -3413,19 +3413,19 @@ class TaskManagerMixin(GraphEngineProtocol):
             "background_research",
             "relevance_sweep",
             "skill_workflows",
-            # Async session-bundle upload (CONCEPT:KG-2.272): each session fans out
+            # Async session-bundle upload (CONCEPT:AU-KG.ingest.drain-session-bundle): each session fans out
             # to many usage-store rows, so it drains under the background throttle.
             "session_upload",
             # Scheduled jobs (source syncs, loop cycles, the RSS feed screen) run
             # under the background throttle so a heavy cycle yields to foreground
-            # work like any other background task. (CONCEPT:OS-5.44)
+            # work like any other background task. (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
             "scheduled_job",
             # Full-paper download + ingest enqueued by the RSS feed screen.
             "research_paper_fetch",
             # Cohort barrier finalize → assimilation pass + feature matrix (KG-2.172).
             "cohort_synthesize",
         }
-        # CONCEPT:KG-2.286 — bound EVERY claimed task by its lane's soft timeout so a
+        # CONCEPT:AU-KG.compute.lane-bound-task — bound EVERY claimed task by its lane's soft timeout so a
         # hung task (a connector with no per-call timeout, a wedged maint tick) frees
         # its worker FAST instead of pinning it until the reaper's 2h absolute cap.
         #
@@ -3447,7 +3447,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         outcome: dict[str, BaseException] = {}
 
         def _run_body() -> None:
-            # CONCEPT:KG-2.293 — tag this task's whole execution with its resource
+            # CONCEPT:AU-KG.compute.task-priority-tag — tag this task's whole execution with its resource
             # PriorityClass (derived from the SAME lane taxonomy as the worker
             # AdmissionPolicy), so every shared-LLM call it makes inherits the class:
             # an ingestion task's enrichment calls run as BACKGROUND_INGESTION and
@@ -3478,7 +3478,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             # thread can't leak a slot forever (it merely over-subscribes by one
             # transiently, which the reaper/dead-letter then resolves).
             #
-            # CONCEPT:KG-2.153 — ``enrichment_backfill`` is deliberately NOT in
+            # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — ``enrichment_backfill`` is deliberately NOT in
             # ``_HEAVY_TASK_TYPES``, so it falls to the ``else`` branch below and runs
             # WITHOUT this outer permit: ``_tick_enrichment`` acquires the
             # background_slot PER BATCH (released between batches) so the dedicated
@@ -3516,7 +3516,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> dict[str, int]:
         """Persist an enqueued session-bundle upload into the usage store.
 
-        CONCEPT:KG-2.272 — the ``ingest_sessions`` MCP/REST handler enqueues large
+        CONCEPT:AU-KG.ingest.drain-session-bundle — the ``ingest_sessions`` MCP/REST handler enqueues large
         uploads as a ``session_upload`` task with the bundles on the Task node's
         metadata payload (same shape as ``kg_memory``); this runs on the host
         worker, off the request path. ``record_bundle`` is idempotent (replaces
@@ -3554,10 +3554,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Execute the ingestion logic."""
         try:
             if task_type in ("scheduled_job", "enrichment_backfill"):
-                # A recurring job enqueued by the unified scheduler (CONCEPT:OS-5.44).
+                # A recurring job enqueued by the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
                 # ``enrichment_backfill`` is the same dispatch, only landed in the
                 # dedicated enrichment lane so it isn't capped at the maint floor
-                # (CONCEPT:KG-2.153).
+                # (CONCEPT:AU-KG.ontology.capability-card-backfill-lane).
                 # The payload (the dispatch descriptor) rides on the task metadata;
                 # run it through the single dispatcher and let the schedule's own
                 # failure backoff govern cadence (so we do NOT route a job failure
@@ -3594,7 +3594,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 return
             if task_type == "research_paper_fetch":
                 # A high-graded RSS item: download the full paper and ingest it
-                # (CONCEPT:KG-2.114). Enqueued by the RSS feed screen with a
+                # (CONCEPT:AU-KG.research.scholarx-rss-research-feed). Enqueued by the RSS feed screen with a
                 # grade-derived priority, so the best papers are fetched first.
                 from agent_utilities.automation.research_pipeline import (
                     ResearchPipelineRunner,
@@ -3615,7 +3615,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         paper.get("title", ""),
                         paper.get("abstract", ""),
                         paper.get("authors", []),
-                        # honor a pre-downloaded PDF (CONCEPT:KG-2.194) so a cohort
+                        # honor a pre-downloaded PDF (CONCEPT:AU-KG.research.so-cohort) so a cohort
                         # ingests the full paper TEXT as an Article, not an abstract.
                         pdf_path=paper.get("pdf_path") or None,
                         source_url=paper.get("url", ""),
@@ -3635,7 +3635,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 return
             if task_type == "kg_memory":
-                # CONCEPT:KG-2.130 — a memory write offloaded from a SERVING process. The
+                # CONCEPT:AU-KG.compute.offloaded-memory-write — a memory write offloaded from a SERVING process. The
                 # host performs the embed+write here (inline, _local=True so it never
                 # re-enqueues), isolating heavy ingestion from the serving/read plane.
                 rows = self._control_cypher(
@@ -3701,7 +3701,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
             elif task_type == "content_url":
-                # Content-aware URL ingest OFF the request path (CONCEPT:KG-2.7):
+                # Content-aware URL ingest OFF the request path (CONCEPT:AU-KG.compute.registered-edge-type):
                 # route through the unified IngestionEngine DOCUMENT path so the page
                 # is fetched via the resolver (ArchiveBox→crawl4ai→requests) and a
                 # research roundup auto-acquires the papers it cites. The real URL
@@ -3750,7 +3750,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             elif task_type == "feed_ingest":
                 # Async full-ingest of a relevance-gated feed article OFF the sweep
-                # path (CONCEPT:KG-2.121). The world-model gate enqueues; the worker
+                # path (CONCEPT:AU-KG.ingest.rss-feed-connector). The world-model gate enqueues; the worker
                 # pool drains these in parallel, so "reviews" (the sweep) scale
                 # independently of "ingest" (chunk + embed + contextual-enrich),
                 # and ingest scales 1→N with the model-concurrency controller. The
@@ -3806,7 +3806,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
 
             elif task_type == "feed_sweep":
-                # The RSS/FreshRSS sweep run OFF the request path (CONCEPT:KG-2.121).
+                # The RSS/FreshRSS sweep run OFF the request path (CONCEPT:AU-KG.ingest.rss-feed-connector).
                 # The sweep is the "review" producer: it fetches (concurrently),
                 # runs the world-model gate, and ENQUEUES per-article worldview/
                 # research tasks. It does NOT ride the 300s MCP call — graph_feeds
@@ -3839,7 +3839,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
 
             elif task_type == "skill_workflows":
-                # CONCEPT:KG-2.97 — ingest the universal-skills workflow corpus as
+                # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus as
                 # dispatchable WorkflowDefinition DAGs, OFF the request path. The
                 # per-node durable writes (~150s for ~315 workflows) exceed the MCP
                 # 300s call ceiling, so the action enqueues this job and returns a
@@ -3926,7 +3926,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 # While a bulk codebase ingest is draining, run deep_analysis flat
                 # (no recursive fan-out) so its 0-node, blocking-LLM jobs don't
-                # flood the queue ahead of structural ingest. (CONCEPT:KG-2.7)
+                # flood the queue ahead of structural ingest. (CONCEPT:AU-KG.compute.registered-edge-type)
                 if max_depth > 0 and self._bulk_ingest_active():
                     logger.info(
                         "deep_analysis: bulk ingest active — capping max_depth to 0 "
@@ -3981,7 +3981,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             elif is_codebase or task_type == "codebase":
                 # Unified path: the async worker and the synchronous MCP/engine
                 # callers share ONE implementation — the structural
-                # EnrichmentPipeline via IngestionEngine (CONCEPT:KG-2.8). The
+                # EnrichmentPipeline via IngestionEngine (CONCEPT:AU-KG.coordination.embedder-breaker). The
                 # old per-repo subprocess (`--maintain --stage-to-queue`) is
                 # gone; LLM enrichment is deferred to the background card daemon.
                 from ..ingestion.engine import (
@@ -3995,8 +3995,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # (15s wall-clock + iteration cap, epistemic-graph KG-2.16) and
                 # loads its scratch tenant in one batch round-trip, so it can no
                 # longer hang or stall a bulk load — the old KG_INGEST_FEATURES /
-                # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:KG-2.7)
-                # Forward a caller-scoped file subset (CONCEPT:KG-2.150): the
+                # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:AU-KG.compute.registered-edge-type)
+                # Forward a caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): the
                 # agent-utilities self-ingest scopes a DIRTY tree to its
                 # git-status-modified files via ``only_files`` on the task
                 # metadata; pass it through so the ingest engine parses only those.
@@ -4005,7 +4005,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 cb_meta = _decode_metadata(cb_rows[0]["m"]) if cb_rows else {}
 
-                # CONCEPT:KG-2.287 — big-repo tail: if this is a whole-repo task for a
+                # CONCEPT:AU-KG.ingest.subtask-routing-key — big-repo tail: if this is a whole-repo task for a
                 # repo large enough to pin one worker/shard for minutes, fan it out
                 # into K shard-routed sub-tasks instead of ingesting inline. Returns
                 # True when it fanned out (this parent is done); the children run in
@@ -4017,7 +4017,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 only_files = cb_meta.get("only_files")
                 if isinstance(only_files, list) and only_files:
                     cb_manifest_meta["only_files"] = only_files
-                # CONCEPT:KG-2.287 — a split sub-task carries its own routing key so
+                # CONCEPT:AU-KG.ingest.subtask-routing-key — a split sub-task carries its own routing key so
                 # its structural writes land on a distinct per-shard graph
                 # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
                 route_repo = cb_meta.get("route_repo")
@@ -4051,7 +4051,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
             elif task_type == "connector_sync":
-                # CONCEPT:ORCH-1.77 — one external connector's delta sync, run as a LANED task
+                # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
                 # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
                 # connector so they fan out in PARALLEL instead of one slow connector
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
@@ -4076,7 +4076,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     },
                 )
             elif task_type == "connector_drain":
-                # CONCEPT:KG-2.301 — ONE paginated page of a chunked full-corpus drain. The
+                # CONCEPT:AU-KG.ontology.single-source-full-drain — ONE paginated page of a chunked full-corpus drain. The
                 # Task carries drain_id/source/mode top-level + the resumable connector
                 # checkpoint in its metadata blob; ``run_drain_page`` drains this page, ingests
                 # it, and self-continues by enqueuing the NEXT page-task while the cursor has
@@ -4108,12 +4108,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                     {"target": str(target), "type": task_type, **drain_res},
                 )
             elif task_type == "fleet_event_triage":
-                # Fleet-event triage (CONCEPT:OS-5.15): 'target' is the
+                # Fleet-event triage (CONCEPT:AU-OS.config.fleet-event-ingress): 'target' is the
                 # FleetEvent node id enqueued by the gateway's
                 # POST /api/fleet/events webhook receiver, not a filesystem
                 # path. Correlates the event to known KG entities and files a
                 # failure_gap topic when severity warrants. Remediation
-                # playbooks (CONCEPT:OS-5.26) register on the dispatch seam
+                # playbooks (CONCEPT:AU-OS.host.remediation-playbooks) register on the dispatch seam
                 # here, so wherever triage runs they are live.
                 from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
                     triage_fleet_event,
@@ -4130,7 +4130,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     {"target": str(target), "type": task_type, **result},
                 )
             elif task_type == "deploy_watch":
-                # Health-gated deploy watch (CONCEPT:OS-5.27): 'target' is the
+                # Health-gated deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback): 'target' is the
                 # watched service name; the watch spec (window, deadline,
                 # rollback params) rides on this Task node, so a watch
                 # requeued by the zombie reaper resumes against its ORIGINAL
@@ -4179,7 +4179,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._fail_or_retry_task(job_id, str(e), {"type": task_type})
 
             elif task_type == "cohort_synthesize":
-                # Self-polling barrier gate for a research cohort (CONCEPT:KG-2.172):
+                # Self-polling barrier gate for a research cohort (CONCEPT:AU-KG.coordination.research-cohort-barrier):
                 # once every member task is terminal (completed OR failed — a poison
                 # member never wedges the cohort) or the deadline passes, run the
                 # assimilation pass + materialize the feature matrix over whatever was
@@ -4233,7 +4233,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         self._fail_or_retry_task(job_id, str(e), {"type": task_type})
 
             elif task_type == "session_upload":
-                # CONCEPT:KG-2.272 — drain a remote session-bundle upload that the
+                # CONCEPT:AU-KG.ingest.drain-session-bundle — drain a remote session-bundle upload that the
                 # ``ingest_sessions`` MCP/REST handler enqueued (its synchronous
                 # record_bundle loop blew past the 60s MCP window). Body extracted
                 # to a helper so it is unit-testable without a live worker loop.
@@ -4259,7 +4259,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     # any file beneath a dot-dir (``.local``) as hidden, excluding
                     # everything → "No files found" despite PDFs present.
                     # recursive=False skips the ``.metadata`` sidecar dir;
-                    # required_exts limits to real documents. (CONCEPT:KG-2.8)
+                    # required_exts limits to real documents. (CONCEPT:AU-KG.coordination.embedder-breaker)
                     docs = SimpleDirectoryReader(
                         input_dir=str(target),
                         recursive=False,
@@ -4283,7 +4283,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # ``get_text_embedding`` is one network round-trip to the embedding
                 # service, and doing it inside this loop made a single PDF take
                 # minutes. We gather first, then embed the whole document in one
-                # batched call below. (CONCEPT:KG-2.8 ingestion throughput; see
+                # batched call below. (CONCEPT:AU-KG.coordination.embedder-breaker ingestion throughput; see
                 # [[epistemic-graph-transport]] — batch over the wire, never per-element.)
                 pending: list[tuple[str, str, int, dict[str, Any]]] = []
                 for idx, doc in enumerate(docs):
@@ -4370,7 +4370,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             error_tb = traceback.format_exc()
             logger.error(f"Task {job_id} failed: {error_tb}")
             # App-level failure: retry with backoff, then dead-letter past the cap
-            # (CONCEPT:KG-2.113). The reaper's crash-requeue is a separate path.
+            # (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task). The reaper's crash-requeue is a separate path.
             self._fail_or_retry_task(
                 job_id,
                 error_msg,
@@ -4391,13 +4391,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         repository. Computes composite relevance scores and persists as
         RELEVANCE_SCORED edges in the KG.
 
-        CONCEPT:KG-2.5 — Per-Item Relevance Ranking
+        CONCEPT:AU-KG.retrieval.per-item-relevance-ranking — Per-Item Relevance Ranking
         """
         # Defer while a bulk ingest is in flight: this sweep scores every paper +
         # repo (heavy queries + embeddings) and, as a worker-pool task, runs
         # CONCURRENTLY with ingest on the single-writer engine. It's periodic, so
         # skipping a cycle is cheap — the maintenance scheduler re-enqueues it once
-        # the ingest drains. (CONCEPT:KG-2.7)
+        # the ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
         try:
             from agent_utilities.core.background_throttle import get_throttle
 
@@ -4779,7 +4779,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 },
             )
 
-            # Create RELEVANCE_SCORED edge (CONCEPT:KG-2.7 — registered edge type)
+            # Create RELEVANCE_SCORED edge (CONCEPT:AU-KG.compute.registered-edge-type — registered edge type)
             from ...models.knowledge_graph import RegistryEdgeType
 
             self.link_nodes(
@@ -4805,7 +4805,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> list[dict]:
         """Query pre-computed relevance rankings from the KG.
 
-        CONCEPT:KG-2.5 — Per-Item Relevance Ranking
+        CONCEPT:AU-KG.retrieval.per-item-relevance-ranking — Per-Item Relevance Ranking
         """
         try:
             results = self.query_cypher(
@@ -4887,7 +4887,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> None:
         """Update a task's status and metadata using base64-encoded JSON.
 
-        CONCEPT:KG-2.148 — :Task status/metadata is CONTROL plane → __control__.
+        CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task status/metadata is CONTROL plane → __control__.
         """
         if not self.backend:
             return
@@ -4903,7 +4903,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         if status in ("completed", "failed"):
             metadata.setdefault("completed_at", datetime.now(UTC).isoformat())
-            # Central per-job duration (CONCEPT:KG-2.8 metrics) — computed from
+            # Central per-job duration (CONCEPT:AU-KG.coordination.embedder-breaker metrics) — computed from
             # started_at (stamped at claim time) so every category gets timing
             # without editing each completion site.
             started = metadata.get("started_at")
@@ -4932,11 +4932,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         it for a future minute (``status='scheduled'`` + ``due_bucket``), then
         dead-lettered once it exhausts ``max_attempts``. The two counters are
         deliberately separate: ``attempts`` answers "does this task reliably
-        throw?", ``reaper_resets`` answers "did its host die?". (CONCEPT:KG-2.113)
+        throw?", ``reaper_resets`` answers "did its host die?". (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
         if not self.backend:
             return
-        # CONCEPT:KG-2.148 — :Task retry/dead-letter is CONTROL plane → __control__.
+        # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task retry/dead-letter is CONTROL plane → __control__.
         rows = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
         )
@@ -4981,7 +4981,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
 
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
-        """Per-category ingest metrics from completed Task nodes (CONCEPT:KG-2.8).
+        """Per-category ingest metrics from completed Task nodes (CONCEPT:AU-KG.coordination.embedder-breaker).
 
         Powers the MCP ``graph_ingest`` jobs/job_status breakdown so polling shows
         time/nodes/edges/failures per content type — the same view the harness
@@ -5042,7 +5042,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def profile_report(
         self, window_sec: int = 86400, group_by: str = "lane"
     ) -> dict[str, Any]:
-        """Per-lane / per-stage latency + cost profile from Task nodes (CONCEPT:OS-5.55).
+        """Per-lane / per-stage latency + cost profile from Task nodes (CONCEPT:AU-OS.observability.per-lane-latency-metrics).
 
         Where ``aggregate_ingest_metrics`` sums per content TYPE, this groups by a
         chosen dimension — ``lane`` (the functional task lane), ``type`` (the task
@@ -5097,7 +5097,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         groups: dict[str, dict[str, Any]] = {}
         starts: list[float] = []
         ends: list[float] = []
-        # CONCEPT:KG-2.288 — per-TASK tail: keep each task's identity+duration so the
+        # CONCEPT:AU-KG.compute.p99-latency-metric — per-TASK tail: keep each task's identity+duration so the
         # report can name the slowest-N outliers (the p95/max offenders), not just
         # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
         # hung connector VISIBLE as a specific task, not a lane statistic.
@@ -5145,7 +5145,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             dur = float(meta.get("duration_ms", 0) or 0)
             if dur > 0:
                 grp["_durations"].append(dur)
-                # CONCEPT:KG-2.288 — record the per-task tail entry.
+                # CONCEPT:AU-KG.compute.p99-latency-metric — record the per-task tail entry.
                 tail_tasks.append(
                     {
                         "id": r.get("id"),
@@ -5191,7 +5191,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             grp["total_ms"] = round(sum(durs), 1)
             grp["p50_ms"] = round(_pct(durs, 50), 1)
             grp["p95_ms"] = round(_pct(durs, 95), 1)
-            # CONCEPT:KG-2.288 — surface p99 alongside p95/max so a thin tail (a
+            # CONCEPT:AU-KG.compute.p99-latency-metric — surface p99 alongside p95/max so a thin tail (a
             # few outliers) is distinguishable from a fat one at the lane level.
             grp["p99_ms"] = round(_pct(durs, 99), 1)
             grp["max_ms"] = round(durs[-1], 1) if durs else 0.0
@@ -5208,7 +5208,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         total_ms = sum(g["total_ms"] for g in groups.values())
         wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0
-        # CONCEPT:KG-2.288 — the slowest-N tasks overall: the concrete outliers a
+        # CONCEPT:AU-KG.compute.p99-latency-metric — the slowest-N tasks overall: the concrete outliers a
         # profiling run hunts (the big-repo pin, the hung connector/maint tick).
         tail_tasks.sort(key=lambda t: t["duration_ms"], reverse=True)
         slowest_n = 10
@@ -5231,7 +5231,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         query and **blocked indefinitely on the engine** — deadlocking every
         task worker after each ``_update_task_status`` (the live
         ``TieredGraphBackend`` wasn't in the old skip-list). There is nothing to
-        WAL-checkpoint on those backends, so they are skipped. (CONCEPT:KG-2.8)
+        WAL-checkpoint on those backends, so they are skipped. (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
         wal = getattr(self.backend, "wal_checkpoint", None)
         if not callable(wal):
@@ -5360,7 +5360,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         Removes it from the worker poll and the reaper's view without deleting the
         record (audit trail). A 'running' task's in-flight thread isn't interrupted,
-        but the task is never re-claimed or requeued. (CONCEPT:KG-2.8 queue control)
+        but the task is never re-claimed or requeued. (CONCEPT:AU-KG.coordination.embedder-breaker queue control)
         """
         if not job_id:
             return {"status": "error", "error": "job_id required"}
@@ -5375,7 +5375,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         return {"status": "success", "job_id": job_id, "prev_status": rows[0].get("s")}
 
     def clear_tasks(self, status: str = "completed") -> dict:
-        """Delete Task nodes from the queue by status filter (CONCEPT:KG-2.8 queue control).
+        """Delete Task nodes from the queue by status filter (CONCEPT:AU-KG.coordination.embedder-breaker queue control).
 
         ``status`` ∈ pending|running|completed|failed|cancelled|zombie|all.
         ``zombie`` deletes only 'running' tasks NOT owned by the live host token
@@ -5434,7 +5434,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         }
 
     def prioritize_task(self, job_id: str, priority: str | int = "high") -> dict:
-        """Re-prioritize a task by setting its claim bucket (CONCEPT:KG-2.113).
+        """Re-prioritize a task by setting its claim bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
         Accepts a numeric bucket (0=critical .. 3=background) or a named level
         (``critical``/``high``/``normal``/``background``). The worker claim

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Research Schema Pack — academic/scientific domain profile.
 
-CONCEPT:KG-2.37 — Research-State Domain Pack
+CONCEPT:AU-KG.research.research-state-domain-pack — Research-State Domain Pack
 
 Optimized for research agents managing papers, claims, methods, datasets, evidence,
 and hypotheses. This is the flagship Schema-Pack 2.0 profile: it
@@ -11,12 +11,12 @@ profile that realises the "academic literature state" use case from the gbrain
 schema-pack discussion (garrytan/gbrain#587).
 
 It wires every Schema-Pack 2.0 capability at once:
-  - zero-LLM ``link_inference`` for supports/weakens/cites/uses-dataset (CONCEPT:KG-2.33),
-  - ``relational_verbs`` so "which papers support X" walks typed edges (CONCEPT:KG-2.34),
-  - ``recency_decay`` + ``source_trust`` + ``autocut`` (CONCEPT:KG-2.22),
+  - zero-LLM ``link_inference`` for supports/weakens/cites/uses-dataset (CONCEPT:AU-KG.research.zero-llm-pack-link),
+  - ``relational_verbs`` so "which papers support X" walks typed edges (CONCEPT:AU-KG.retrieval.relational-intent-retrieval),
+  - ``recency_decay`` + ``source_trust`` + ``autocut`` (CONCEPT:EG-KG.compute.rust-native-training-loss),
   - ``owl_object_properties`` for SUPPORTS_BELIEF transitive and
     CITES_SOURCE/CITED_BY_PAPER inverse — so multi-hop support chains and citation
-    back-edges are inferred for free via the OWL closure cycle (CONCEPT:KG-2.36).
+    back-edges are inferred for free via the OWL closure cycle (CONCEPT:AU-KG.ontology.pack-owl-closure).
 Uses CONTEXT_ONLY backlink boost to preserve discovery of novel/low-citation papers.
 """
 

@@ -2,7 +2,7 @@
 
 ## What this demonstrates
 
-Three complete, ready-to-load ActionPolicy files (CONCEPT:OS-5.24) for three
+Three complete, ready-to-load ActionPolicy files (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) for three
 autonomy postures — **locked-down**, **supervised**, and
 **scoped-autonomous** — plus the decision flow they drive: fail-closed
 decisions, the durable `ActionDecision` audit ledger, the `ActionApproval`
@@ -24,7 +24,7 @@ identically — `tests/unit/test_action_policy.py` asserts the parity).
 
 Any rung of the [deployment ladder](../guides/deployment-configurations.md)
 that runs the gateway/daemon. The policy file is consulted by every autonomy
-producer — remediation playbooks (OS-5.26), the fleet reconciler (OS-5.25),
+producer — remediation playbooks (AU-OS.host.remediation-playbooks), the fleet reconciler (AU-OS.config.desired-state-fleet-reconciler),
 the autoscaler (OS-5.29) — through one call:
 
 ```python
@@ -110,14 +110,14 @@ Self-healing and self-scaling inside guard rails:
 - `scale_service`: `auto_notify` around the clock (load does not respect
   maintenance windows), 4/service/hour, blast cap 2 services/hour — this is
   the rule the OS-5.29 autoscaler's proposals hit;
-- `rollback_service`: `auto_notify` (the OS-5.27 deploy watch must be able
+- `rollback_service`: `auto_notify` (the AU-OS.config.health-gated-deploy-rollback deploy watch must be able
   to roll back at 03:00), once per service per hour;
 - `deploy_service`: `auto_notify` for `staging-*` **only inside
   `02:00-05:00` UTC** — outside the window the same proposal is downgraded
   to `queue_approval`; production deploys always queue;
 - `redeploy_stack` / `stop_service`: `forbidden` — destructive operations
   are never autonomous;
-- `options: {watch_scale_down: true}`: scale-downs also get an OS-5.27
+- `options: {watch_scale_down: true}`: scale-downs also get an AU-OS.config.health-gated-deploy-rollback
   health watch.
 
 ## 3. Observed decisions (smoke run)
@@ -211,7 +211,7 @@ Expected grant response:
 {"status": "success", "result": {"approval_id": "action_approval:1f2a3b4c5d6e", "decision": "approved"}}
 ```
 
-The fleet reconciler's tick (CONCEPT:OS-5.25, `FLEET_RECONCILER=1`) executes
+The fleet reconciler's tick (CONCEPT:AU-OS.config.desired-state-fleet-reconciler, `FLEET_RECONCILER=1`) executes
 granted entries through the actuator seam.
 
 ## 5. Runtime KG overrides

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Build an evidence-graph workspace from the live epistemic graph.
 
-CONCEPT:KG-2.70 — evidence-subgraph construction
+CONCEPT:AU-KG.retrieval.evidence-subgraph-construction — evidence-subgraph construction
 
 The live adapter for FORT-Searcher's graph-initialization + graph-construction
 stages (arXiv:2606.12087, §3.1.1–3.1.2). Where FORT re-mines Wikidata cycles per

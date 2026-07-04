@@ -33,9 +33,9 @@ flowchart LR
     SRV -->|"tools, URL, command"| CONFIG["ORCH-1.21: Config Builder"]
     RES -->|"type, capabilities"| CONFIG
     SEM -->|"best match"| CONFIG
-    CONFIG -->|"tag_prompts + mcp_toolsets"| GRAPH["ORCH-1.20: create_graph_agent()"]
+    CONFIG -->|"tag_prompts + mcp_toolsets"| GRAPH["AU-ORCH.execution.service-registry-initialization: create_graph_agent()"]
     GRAPH -->|"materialized graph"| RUN["ORCH-1.21: run_graph() → LM Studio"]
-    RUN -->|"GraphResponse"| TRACE["OS-5.4: KG: RunTrace provenance"]
+    RUN -->|"GraphResponse"| TRACE["AU-OS.governance.wasm-micro-agent-sandbox: KG: RunTrace provenance"]
 ```
 
 ## Execution Lifecycle
@@ -92,7 +92,7 @@ graph_orchestrate(
 
 ## Related Concepts
 
-- **ORCH-1.20**: KG Graph Factory — materializes pydantic-graph from KG templates
-- **ECO-4.6**: Agent Toolkit Ingestor — ingests Server/CallableResource nodes consumed by runner
-- **ECO-4.6**: MCP Live Discovery — provides cached tool metadata for tool binding
+- **AU-ORCH.execution.service-registry-initialization**: KG Graph Factory — materializes pydantic-graph from KG templates
+- **AU-ECO.mcp.toolkit-live-discovery**: Agent Toolkit Ingestor — ingests Server/CallableResource nodes consumed by runner
+- **AU-ECO.mcp.toolkit-live-discovery**: MCP Live Discovery — provides cached tool metadata for tool binding
 - **ORCH-1.0**: Intelligence Graph Core — base graph infrastructure

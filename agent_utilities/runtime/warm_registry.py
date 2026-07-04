@@ -1,15 +1,15 @@
-"""CONCEPT:OS-5.58 — Host-singleton warm-parent pool for the warm-fork sandbox family.
+"""CONCEPT:AU-OS.host.so-they-are-idle — Host-singleton warm-parent pool for the warm-fork sandbox family.
 
 Generalises the per-class pool + idle-reap pattern of :class:`~.docker_workspace.DockerWorkspace`
 (``_REGISTRY`` + ``reap_idle``) into one substrate-agnostic registry shared by every warm-fork
-rung (``forkserver``, ``container_fork``, ``firecracker`` — CONCEPT:ORCH-1.83/1.86). A rung pays
+rung (``forkserver``, ``container_fork``, ``firecracker`` — CONCEPT:AU-ORCH.sandbox.warmforkfanoutcapability/1.86). A rung pays
 warm-up once for a :class:`~agent_utilities.rlm.sandboxes.base.WarmSpec`, registers the resulting
 parent here keyed by the spec's content hash, and subsequent fan-out *reuses* the parent instead
 of re-warming.
 
 Deliberately dependency-light and **opaque**: it stores parent objects + a synchronous ``close``
 callable + metadata, and never imports the sandbox layer — so there is no ``runtime`` ↔ ``rlm``
-import cycle, and reaping (driven from a synchronous maintenance tick, CONCEPT:OS-5.44) needs no
+import cycle, and reaping (driven from a synchronous maintenance tick, CONCEPT:AU-OS.state.unified-scheduling-one-intelligent) needs no
 event loop. The pool is size-capped by :func:`compute_warm_parent_count` (auto-sized to host
 RAM/CPU per *Configuration discipline* — warm parents are memory-heavy); registering past the cap
 evicts the least-recently-used parent.
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # reaped. Mirrors DockerWorkspace.reap_idle's 3600s default.
 DEFAULT_IDLE_TTL_SECS = 1800.0
 
-# CONCEPT:ORCH-1.94 — a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
+# CONCEPT:AU-ORCH.sandbox.warm-parent-lifetime-cap — a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
 # if it is continuously borrowed/busy (so its idle clock never advances). Idle-reaping alone cannot
 # evict a parent whose forked child is spinning at 100% CPU — that is exactly the runaway a hard age
 # cap closes. The backend's own container/process self-expiry is the primary defence; this is the
@@ -159,10 +159,10 @@ class WarmParentRegistry:
     ) -> list[str]:
         """Close + drop parents idle longer than ``max_idle_secs`` OR older than ``max_age_secs``.
 
-        The age cap (CONCEPT:ORCH-1.94) is the strict-lifetime backstop: a parent whose forked
+        The age cap (CONCEPT:AU-ORCH.sandbox.warm-parent-lifetime-cap) is the strict-lifetime backstop: a parent whose forked
         child is busy-looping refreshes neither ``last_used`` nor frees CPU, so idle-reaping never
         evicts it — the hard age check does. Returns the reaped keys. Wired into the host
-        maintenance tick (``_tick_warm_parent_reap``, CONCEPT:OS-5.58).
+        maintenance tick (``_tick_warm_parent_reap``, CONCEPT:AU-OS.host.so-they-are-idle).
         """
         now = time.time()
         with self._lock:

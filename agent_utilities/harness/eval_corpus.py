@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""KG-backed evaluation corpus sourced from real usage (CONCEPT:AHE-3.1).
+"""KG-backed evaluation corpus sourced from real usage (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
 Closes the Layer-6 gap where eval cases were synthetic/hand-authored. Cases are
 persisted as ``eval_case`` graph nodes and can be sourced from (1) human ``eval``
@@ -44,7 +44,7 @@ class EvalCorpus:
         ``metadata`` carries arbitrary per-case context (e.g. the evidence,
         gold topics, or retrieved ids a context-aware scorer needs); it is
         surfaced on the loaded :class:`TestCase.metadata`. ``assertion`` is an
-        optional plain-English pass/fail check (CONCEPT:AHE-3.25, Opik Test Suite
+        optional plain-English pass/fail check (CONCEPT:AU-AHE.evaluation.failure-analysis-loop, Opik Test Suite
         style) judged by LLM-as-judge in lieu of expected-output scoring.
         """
         case_id = f"eval_case:{uuid.uuid4().hex[:12]}"
@@ -79,7 +79,7 @@ class EvalCorpus:
     def add_from_trace(
         self, trace: Any, *, assertion: str = "", tags: list[str] | None = None
     ) -> str:
-        """Promote a production trace into a versioned regression case (CONCEPT:AHE-3.68).
+        """Promote a production trace into a versioned regression case (CONCEPT:AU-AHE.evaluation.generationnode-records).
 
         The prod→dataset half of the closed loop: a ``TraceNode`` (or any object/dict with
         ``input``/``output``) becomes a ``DatasetItemNode(source=trace)`` AND an eval case

@@ -1,4 +1,4 @@
-"""Persona Decision-Heuristic Enrichment tests — CONCEPT:KG-2.28.
+"""Persona Decision-Heuristic Enrichment tests — CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment.
 
 Deterministic evaluator, verdict logic (incl. the forensic-short inversion),
 unknown-metric handling, and KG seeding.
@@ -31,7 +31,7 @@ class _FakeBackend:
 
     # The KG persist path now writes via the materialization core's UNWIND
     # MERGE batches (write_batch -> write_entities -> execute_batch,
-    # CONCEPT:KG-2.9), so decode those into the same (id, type, props) /
+    # CONCEPT:AU-KG.ingest.enterprise-source-extractor), so decode those into the same (id, type, props) /
     # (src, tgt, rel) shape the assertions inspect.
     def execute(self, query, params=None):
         return []  # content-hash prefetch -> nothing stored -> full write
@@ -123,7 +123,7 @@ def test_explain_and_citation_are_grounded():
     ev = evaluate_persona("graham_investor", {"pe": 11.0, "pb": 1.1})
     cite = ev.citation()
     assert "GrahamInvestor" in cite
-    assert "KG-2.28" in cite
+    assert "AU-KG.domains.persona-decision-heuristic-enrichment" in cite
     # each explain line names the numeric threshold
     assert any("pe < 15" in r.explain() for r in ev.results)
 
@@ -162,6 +162,6 @@ def test_debate_engine_wires_heuristic_evidence():
     # Graham's bull-side heuristic verdict appears in the prompt fragment.
     block = eng._heuristic_block(eng.bull_persona, ctx)
     assert "GrahamInvestor" in block
-    assert "KG-2.28" in block
+    assert "AU-KG.domains.persona-decision-heuristic-enrichment" in block
     # No metrics -> no heuristic block (generic path unaffected).
     assert eng._heuristic_block(eng.bull_persona, DebateContext("X", "equity")) == ""

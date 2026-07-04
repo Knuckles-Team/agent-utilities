@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ontology library gate — every ontology must be VALID and CONNECTED.
 
-CONCEPT:KG-2.112 — anti-sprawl / anti-drift gate for the bundled OWL/RDF ontology
+CONCEPT:AU-KG.ontology.anti-sprawl-gate — anti-sprawl / anti-drift gate for the bundled OWL/RDF ontology
 library under ``agent_utilities/knowledge_graph/``. It enforces, in one place, the
 invariants that keep the ontology library from rotting into the state we just fixed
 (a divergent duplicate ``core/ontology.ttl`` the reasoner silently loaded instead of
@@ -75,9 +75,9 @@ def _rel(p: Path) -> Path | str:
 
 
 def _provider_ttls() -> list[Path]:
-    """Contributed ontology TTLs from installed fleet packages (CONCEPT:KG-2.320).
+    """Contributed ontology TTLs from installed fleet packages (CONCEPT:AU-KG.ontology.package-owned-ontology).
 
-    Reuses the federation read-path resolver (XDG-first, CONCEPT:OS-5.78) so the gate
+    Reuses the federation read-path resolver (XDG-first, CONCEPT:AU-OS.deployment.unified-install-tree) so the gate
     sweeps package-contributed ontologies from the same place the runtime does — the
     materialized unified tree when populated, else live entry-point discovery.
     Failure-isolated: if the resolver (or its package) can't be imported, federation
@@ -94,7 +94,7 @@ def _provider_ttls() -> list[Path]:
 
 
 def _federated_iris() -> set[str]:
-    """Known package-owned ontology IRIs (CONCEPT:KG-2.320).
+    """Known package-owned ontology IRIs (CONCEPT:AU-KG.ontology.package-owned-ontology).
 
     The canonical bundle may keep an ``owl:imports`` edge to one of these even when
     the owning package is not installed; such an import is a superset no-op, not a
@@ -119,7 +119,7 @@ def _domain_modules() -> list[Path]:
 
     Bundled: ``ontology_*.ttl`` directly in ``knowledge_graph/`` (the same glob the
     owlready2 backend and ``collect_bundled_ontology_graph`` use), excluding the
-    canonical ``ontology.ttl`` itself. Federated (CONCEPT:KG-2.320): every
+    canonical ``ontology.ttl`` itself. Federated (CONCEPT:AU-KG.ontology.package-owned-ontology): every
     contributed non-shape ``*.ttl`` from installed ontology-provider packages, so a
     moved module (e.g. servicenow now living in the servicenow-api wheel) is
     connectivity/closure-checked exactly like a bundled one.
@@ -224,7 +224,7 @@ def check(verbose: bool = False) -> int:
             )
 
     # ── 6. No dangling imports in our own namespace ─────────────────────────
-    # CONCEPT:KG-2.320 — a package-owned (federated) IRI is allowed to be imported
+    # CONCEPT:AU-KG.ontology.package-owned-ontology — a package-owned (federated) IRI is allowed to be imported
     # even when its provider package isn't installed here (a superset no-op), so the
     # canonical bundle can keep its ``owl:imports`` edge to a moved module without
     # the base install going red.

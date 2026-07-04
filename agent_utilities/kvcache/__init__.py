@@ -1,7 +1,7 @@
 """Remote KV-cache connector for the epistemic-graph engine.
 
-CONCEPT:KG-2.306 — Python LMCache/vLLM connector for the epistemic-graph
-KV-cache. The engine ships an HTTP KV-cache endpoint (CONCEPT:EG-187) that
+CONCEPT:AU-KG.backend.kvcache-vllm-connector — Python LMCache/vLLM connector for the epistemic-graph
+KV-cache. The engine ships an HTTP KV-cache endpoint (CONCEPT:EG-KG.backend.is-configured-so-co) that
 parallel vLLM / LMCache instances point at as a shared, content-addressed remote
 backend so an identical KV page produced by two workers is stored **once** and a
 cold worker can fetch a page a warm worker already computed.

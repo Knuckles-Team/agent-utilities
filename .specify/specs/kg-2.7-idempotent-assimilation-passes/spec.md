@@ -1,6 +1,6 @@
 # Spec: Idempotent & Isolated Assimilation Passes
 
-> CONCEPT:KG-2.7 (assimilation refinement — no new concept id). Surfaced by
+> CONCEPT:AU-KG.query.vendor-agnostic-traversal (assimilation refinement — no new concept id). Surfaced by
 > iterating the assimilation matcher on the live durable KG.
 
 ## Finding (what we observed)

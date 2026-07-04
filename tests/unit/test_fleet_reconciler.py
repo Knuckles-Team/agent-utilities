@@ -1,4 +1,4 @@
-"""Desired-state fleet reconciler (CONCEPT:OS-5.25).
+"""Desired-state fleet reconciler (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 
 Covers: registry + override desired-state parsing, conservative diffing
 (down ⇒ restart, replica mismatch ⇒ scale, undesired-up ⇒ stop, unobserved ⇒
@@ -6,7 +6,7 @@ skip), the ActionPolicy gate in the convergence path (queue under the shipped
 default, actuate + health-watch under a permissive policy), the per-tick
 storm guard, the approved-action drain, and ReconcileReport persistence.
 
-@pytest.mark.concept("OS-5.25")
+@pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from agent_utilities.orchestration.fleet_reconciler import (
 
 from .fleet_autonomy_fakes import FakeEngine, FakeObserver, obs, write_policy
 
-pytestmark = pytest.mark.concept("OS-5.25")
+pytestmark = pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
 
 
 REGISTRY = """
@@ -269,7 +269,7 @@ def test_denied_approvals_are_not_drained(engine, tmp_path, patch_desired):
 
 def _enabled_maintenance_names() -> set[str]:
     """Names of ENABLED maintenance :Schedule nodes for the current config
-    (the unified-scheduler analog of a tick being registered; CONCEPT:OS-5.44)."""
+    (the unified-scheduler analog of a tick being registered; CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)."""
     from agent_utilities.core import schedule_engine as _se
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,

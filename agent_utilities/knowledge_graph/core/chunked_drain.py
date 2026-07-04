@@ -1,7 +1,7 @@
 """Chunked async drain — one big `source_sync(full)` call, normalized into waves.
 
-CONCEPT:KG-2.301 — Chunked async drain (the "controlled waves" baked in)
-CONCEPT:KG-2.302 — Connector-declared page drainer (generalized pagination)
+CONCEPT:AU-KG.ontology.single-source-full-drain — Chunked async drain (the "controlled waves" baked in)
+CONCEPT:AU-KG.compute.connector-declared-page-drainer — Connector-declared page drainer (generalized pagination)
 
 A single ``source_sync(source=X, mode="full")`` on a LARGE corpus (e.g. FreshRSS's
 ~11k-article backlog) must NOT run synchronously to completion: that would block the
@@ -16,7 +16,7 @@ paginated, capacity-guarded batch-tasks**:
   cursor still ``has_more`` — **self-continues** by enqueuing the NEXT page-task carrying the
   advanced :class:`ConnectorCheckpoint`. The corpus drains across many tasks until the cursor
   is exhausted.
-* the page-tasks ride the existing ``connectors`` lane (CONCEPT:ORCH-1.75), so each runs under
+* the page-tasks ride the existing ``connectors`` lane (CONCEPT:AU-ORCH.execution.two-level-fair-rotation), so each runs under
   the BACKGROUND_INGESTION priority edict (ORCH-1.98/1.99) and the GB10 server-capacity guard
   (ORCH-1.102/1.103) — it can't time out the request and can't OOM the box. Re-draining is
   cheap: the write-layer content-hash delta (KG-2.9) skips unchanged items, and each page-task
@@ -77,12 +77,12 @@ def chunked_drain_enabled() -> bool:
     return to_boolean(_setting("KG_CHUNKED_DRAIN", "True"))
 
 
-# ── Connector-declared page drainers (CONCEPT:KG-2.302) ──────────────────────
+# ── Connector-declared page drainers (CONCEPT:AU-KG.compute.connector-declared-page-drainer) ──────────────────────
 
 
 @dataclass(frozen=True)
 class PageDrainer:
-    """How to drain ONE source page-by-page across batch-tasks (CONCEPT:KG-2.302).
+    """How to drain ONE source page-by-page across batch-tasks (CONCEPT:AU-KG.compute.connector-declared-page-drainer).
 
     Attributes:
         source: the ``source_sync`` key this drains (e.g. ``"freshrss"``).
@@ -228,7 +228,7 @@ def _enqueue_drain_page(
 def start_chunked_drain(
     engine: Any, source: str, *, mode: str = "full"
 ) -> dict[str, Any]:
-    """Begin a chunked drain of ``source`` and return a handle IMMEDIATELY (CONCEPT:KG-2.301).
+    """Begin a chunked drain of ``source`` and return a handle IMMEDIATELY (CONCEPT:AU-KG.ontology.single-source-full-drain).
 
     Enqueues the first ``connector_drain`` page-task and returns ``{drain_id, status, …}``
     without draining inline. If a drain for ``source`` is already in flight, returns its
@@ -426,7 +426,7 @@ def _progress_view(engine: Any, drain_id: str) -> dict[str, Any]:
 
 
 def drain_status(engine: Any, drain_id: str) -> dict[str, Any]:
-    """Queryable progress for a drain handle (CONCEPT:KG-2.301).
+    """Queryable progress for a drain handle (CONCEPT:AU-KG.ontology.single-source-full-drain).
 
     Returns the cumulative :SourceDrain state plus a live per-status breakdown of the
     chain's ``connector_drain`` :Task nodes, so an operator/agent fires ONE call and
@@ -452,7 +452,7 @@ def drain_status(engine: Any, drain_id: str) -> dict[str, Any]:
     return {"drain_id": drain_id, **state, "tasks": tasks}
 
 
-# ── FreshRSS page drainer (the flagship large corpus, CONCEPT:KG-2.115) ───────
+# ── FreshRSS page drainer (the flagship large corpus, CONCEPT:AU-KG.compute.homelab-rss-reader-as) ───────
 
 
 def _freshrss_build_connector(engine: Any, mode: str) -> Any:

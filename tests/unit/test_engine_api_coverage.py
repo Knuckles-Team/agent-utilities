@@ -1,5 +1,5 @@
 """Coverage contract: every epistemic-graph engine domain is reachable as BOTH an
-MCP tool and a REST route, and dispatch reaches the engine client (CONCEPT:ECO-4.99).
+MCP tool and a REST route, and dispatch reaches the engine client (CONCEPT:AU-ECO.mcp.full-api-mcp-surface).
 
 agent-utilities is the native API/MCP layer for the engine. These tests assert the
 full low-level surface (the 19 client sub-clients) is exposed in lockstep on both

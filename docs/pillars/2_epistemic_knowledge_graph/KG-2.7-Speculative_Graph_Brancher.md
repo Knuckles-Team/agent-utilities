@@ -1,4 +1,4 @@
-# Speculative Graph Brancher (CONCEPT:KG-2.7)
+# Speculative Graph Brancher (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
 ## Overview
 The **Speculative Graph Brancher** enables concurrent, non-blocking mutations on the Knowledge Graph by spawning isolated transactional branches (`KGTransaction`). Multiple agents can execute reasoning paths in parallel without acquiring global database locks.

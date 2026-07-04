@@ -1,4 +1,4 @@
-"""Unified Orchestration Protocol — CONCEPT:ORCH-1.0.
+"""Unified Orchestration Protocol — CONCEPT:AU-ORCH.execution.unified-orchestration-protocol.
 
 Defines the structural typing contract that all task-dispatching
 orchestrators must satisfy.  Uses ``typing.Protocol`` (PEP 544) so
@@ -23,7 +23,7 @@ from typing import Any, Protocol, runtime_checkable
 class OrchestratorProtocol(Protocol):
     """Interface contract that all task-dispatching orchestrators must satisfy.
 
-    CONCEPT:ORCH-1.0 — Unified Orchestration Protocol
+    CONCEPT:AU-ORCH.execution.unified-orchestration-protocol — Unified Orchestration Protocol
 
     Any class that implements ``dispatch()`` and ``get_status()`` with
     compatible signatures automatically satisfies this protocol via

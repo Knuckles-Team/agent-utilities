@@ -1,4 +1,4 @@
-# Spec: Recursive-Improvement Velocity Ledger (AHE-3.26)
+# Spec: Recursive-Improvement Velocity Ledger (AU-AHE.sdd.recursive-improvement-instrumentation-aggregating)
 
 > Status: **proposed.** **Wire-First:** EXTENDS `knowledge_graph/research/golden_loop.py`
 > (`_finalize_metrics` already persists `orchestration_cycle`/`EvolutionCycle` nodes via
@@ -6,13 +6,13 @@
 > the `/api/fleet/*` plane) on the read side — reuse both, do not rebuild. Read sources are
 > already-persisted `EvolutionCycle` + `ActionExecution` audit nodes
 > (`observability/audit_logger.py`, `change_publisher.py:_audit_publish`).
-> *(Shares one component with SAFE-1.3 — implement the single ledger once; this spec is the
-> AHE-3.26 view: per-mechanism effect measurement + early scaling-curve fit.)*
+> *(Shares one component with AU-OS.audit.recursive-improvement-velocity-tracker — implement the single ledger once; this spec is the
+> AU-AHE.sdd.recursive-improvement-instrumentation-aggregating view: per-mechanism effect measurement + early scaling-curve fit.)*
 
 ## Pre-Flight Checklist
 - [x] Extension target identified: `golden_loop.py:_finalize_metrics` (write) + `gateway/fleet.py`
       `mount_fleet_routes` (read); read corpus = persisted `EvolutionCycle`/`ActionExecution` nodes.
-- [x] New CONCEPT:AHE-3.26 justified: today **zero consumers read the cycle nodes back** — no
+- [x] New CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating justified: today **zero consumers read the cycle nodes back** — no
       capability-delta-per-merge, no acceptance rate, no compute-per-improvement, no per-mechanism
       breakdown. The ledger is the missing read/aggregate seam, not new persistence.
 - [x] Wire-First confirmed: persisted cycle/audit nodes → `RsiLedger.series()` → new
@@ -51,7 +51,7 @@ gets a first empirical recursive-improvement datapoint and is warned when veloci
   and is tenant/identity-scoped like its siblings.
 
 ## Non-Functional Requirements
-- `tests/unit/knowledge_graph/test_ahe_3_26_rsi_ledger.py` (`@pytest.mark.concept(id="AHE-3.26")`),
+- `tests/unit/knowledge_graph/test_ahe_3_26_rsi_ledger.py` (`@pytest.mark.concept(id="AU-AHE.sdd.recursive-improvement-instrumentation-aggregating")`),
   ≤60s, no live engine/LLM (fake persisted nodes + pure aggregation/fit + route via TestClient).
 - `pre-commit` green; `docs/concepts.yaml` regenerated (`scripts/build_concepts_yaml.py`,
   `scripts/check_concepts.py`); per-concept doc authored (`docs/architecture/` note).

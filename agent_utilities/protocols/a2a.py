@@ -166,7 +166,7 @@ class A2AClient:
     async def execute_bft_consensus(
         self, urls: list[str], query: str, threshold: float = 0.66
     ) -> Any:
-        """CONCEPT:ECO-4.0 — Multi-agent BFT consensus for A2A.
+        """CONCEPT:AU-ECO.interop.multi-agent-bft-consensus — Multi-agent BFT consensus for A2A.
         Queries multiple peers simultaneously and requires a consensus threshold to return a validated result.
 
         Args:
@@ -206,7 +206,7 @@ class A2AClient:
     async def execute_multisig_mutation(
         self, urls: list[str], query: str, signatures: list[str], threshold: int
     ) -> Any:
-        """CONCEPT:OS-5.5 — Multi-sig Cryptographic Mutation.
+        """CONCEPT:AU-OS.identity.multisig-cryptographic-mutation — Multi-sig Cryptographic Mutation.
         Executes a mutating task on remote peers, requiring valid cryptographic signatures
         from multiple authorized departments before the mutation is committed.
 

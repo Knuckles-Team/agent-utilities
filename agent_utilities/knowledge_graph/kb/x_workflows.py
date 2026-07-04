@@ -1,9 +1,9 @@
 #!/usr/bin/python
 """X Research & Knowledge Assimilation Workflow Definitions.
 
-CONCEPT:ORCH-1.24 — Workflow Lifecycle Management
-CONCEPT:ECO-4.0 — Social Content Ingestion
-CONCEPT:KG-2.6 — Universal Knowledge Assimilation
+CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Workflow Lifecycle Management
+CONCEPT:AU-ECO.connector.social-content-ingestion — Social Content Ingestion
+CONCEPT:AU-KG.memory.universal-knowledge-assimilation — Universal Knowledge Assimilation
 
 Pre-built workflow definitions for X search/ingestion and universal
 knowledge assimilation. These are registered in the KG via
@@ -76,7 +76,7 @@ def _x_research_plan() -> GraphPlan:
         ],
         metadata={
             "workflow_type": "x_research",
-            "concepts": ["CONCEPT:ECO-4.0"],
+            "concepts": ["CONCEPT:AU-ECO.connector.social-content-ingestion"],
             "domain": "social",
         },
     )
@@ -173,7 +173,7 @@ def _knowledge_assimilation_plan() -> GraphPlan:
         ],
         metadata={
             "workflow_type": "knowledge_assimilation",
-            "concepts": ["CONCEPT:KG-2.6", "CONCEPT:ECO-4.0"],
+            "concepts": ["CONCEPT:AU-KG.memory.universal-knowledge-assimilation", "CONCEPT:AU-ECO.connector.social-content-ingestion"],
             "domain": "research",
         },
     )
@@ -208,7 +208,7 @@ def _self_evolution_v2_plan() -> GraphPlan:
         ],
         metadata={
             "workflow_type": "self_evolution_v2",
-            "concepts": ["CONCEPT:KG-2.6", "CONCEPT:AHE-3.0"],
+            "concepts": ["CONCEPT:AU-KG.memory.universal-knowledge-assimilation", "CONCEPT:AU-AHE.harness.harness-evolution"],
             "domain": "research",
             "description": (
                 "Push-based evolution triggered by incoming high-potential content"

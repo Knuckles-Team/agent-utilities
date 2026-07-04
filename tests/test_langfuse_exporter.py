@@ -1,10 +1,10 @@
-"""Tests for the Langfuse exporter (CONCEPT:ECO-4.24).
+"""Tests for the Langfuse exporter (CONCEPT:AU-OS.observability.langfuse-exporter).
 
 Covers the lazy/optional no-op behavior (no keys / no dep), the recording path
 with an injected fake client, AND the live wiring: the orchestration engine's
 export helper actually drives the singleton exporter when one is installed.
 
-@pytest.mark.concept("ECO-4.24")
+@pytest.mark.concept("AU-OS.observability.langfuse-exporter")
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from agent_utilities.observability.langfuse_exporter import (
     set_langfuse_exporter,
 )
 
-pytestmark = pytest.mark.concept("ECO-4.24")
+pytestmark = pytest.mark.concept("AU-OS.observability.langfuse-exporter")
 
 
 @pytest.fixture(autouse=True)

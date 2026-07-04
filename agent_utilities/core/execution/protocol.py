@@ -16,7 +16,7 @@ shape** they share is::
 
 ``AgentOrchestrationEngine`` already exposes this exact shape via its
 ``execute(manifest) -> ExecutionResult`` method, which is the canonical
-Parallel Engine entrypoint (CONCEPT:ORCH-1.8). The other engines gain an
+Parallel Engine entrypoint (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer). The other engines gain an
 **additive** ``run`` adapter that conforms to this Protocol without changing
 any existing behaviour.
 

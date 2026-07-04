@@ -1,4 +1,4 @@
-"""ARA /trace producer + Live Research Manager (CONCEPT:KG-2.80)."""
+"""ARA /trace producer + Live Research Manager (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
 from __future__ import annotations
 

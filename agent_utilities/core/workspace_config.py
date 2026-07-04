@@ -345,7 +345,7 @@ def workspace_project_roots(yml_path: str | None = None) -> list[str]:
     resolves the same repository paths and keeps only those present locally.
     This is what lets the golden loop's breadth stage self-configure from the
     XDG ``workspace.yml`` (ALL ecosystem projects) instead of requiring
-    ``KG_BREADTH_REPO_ROOTS`` to be set by hand (CONCEPT:KG-2.7).
+    ``KG_BREADTH_REPO_ROOTS`` to be set by hand (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
     """
     data = load_workspace_yml(yml_path)
     if not data:

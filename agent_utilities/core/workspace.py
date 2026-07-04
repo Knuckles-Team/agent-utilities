@@ -7,7 +7,7 @@ standard agent prompt files (``main_agent.json``), parsing and serialization
 logic for these files, and robust path discovery for skills and MCP
 configurations.
 
-CONCEPT:OS-5.0 Workspace Management
+CONCEPT:AU-OS.safety.doom-loop-detection Workspace Management
 """
 
 import contextlib
@@ -81,7 +81,7 @@ CORE_FILES = {
 }
 
 TEMPLATES = {
-    # Canonical StructuredPrompt shape (CONCEPT:ORCH-1.80): body lives in
+    # Canonical StructuredPrompt shape (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical): body lives in
     # instructions.core_directive; task/tools/schema_version/source replace the
     # legacy name/capabilities/content keys.
     "MAIN_AGENT": json.dumps(

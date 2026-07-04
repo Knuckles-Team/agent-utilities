@@ -114,7 +114,7 @@ class PipelineRunner:
                 logger.error(f"Phase {phase.name} failed: {e}")
                 raise e
 
-        # CONCEPT:ORCH-1.2 — Invalidate hot cache after pipeline completion
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate hot cache after pipeline completion
         from agent_utilities.core.config import invalidate_registry_cache
 
         invalidate_registry_cache()

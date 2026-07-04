@@ -1,4 +1,4 @@
-"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:KG-2.312, KG-2.324).
+"""numpy-parity corpus for ``agent_utilities.numeric.xp`` (CONCEPT:AU-KG.compute.surface-analytics-program, CONCEPT:AU-KG.compute.numpy-scipy-drop).
 
 Every ``xp`` op is asserted ``np.allclose`` vs numpy on randomized inputs, with
 mandatory edge cases (nan/inf, singular matrices, empty arrays). This is the ONE
@@ -8,7 +8,7 @@ bit-for-bit. It is a **dev/test-only** dependency, never a runtime one: numpy is
 declared in the ``[dev]`` optional group (``pyproject.toml``), and this module
 ``pytest.importorskip("numpy")`` s so the suite skips cleanly where numpy (the
 ground-truth reference) is not installed. The shim itself never falls back to numpy
-(CONCEPT:KG-2.324) — it raises ImportError when the kernel is absent.
+(CONCEPT:AU-KG.compute.numpy-scipy-drop) — it raises ImportError when the kernel is absent.
 
 Decomposition ops (svd/eigh/qr/cholesky/pinv/lstsq) are compared via
 reconstruction, not raw factors, because factor signs/bases are implementation
@@ -217,7 +217,7 @@ def test_kernel_flag_is_bool():
 
 
 # --------------------------------------------------------------------------- #
-# ufunc-method surface (CONCEPT:KG-2.314) — xp.maximum / xp.minimum expose the
+# ufunc-method surface (CONCEPT:AU-KG.compute.ufunc-method-surface) — xp.maximum / xp.minimum expose the
 # numpy ufunc-method API (.accumulate / .reduce / .outer / .at) while keeping
 # plain-call behaviour identical. The kernel .accumulate hook is getattr-guarded and
 # used on bare 1-D float64; other inputs use the kernel-internal numpy ufunc.

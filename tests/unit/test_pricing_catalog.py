@@ -1,4 +1,4 @@
-"""Pricing catalog + model-name resolution tests (CONCEPT:ECO-4.40).
+"""Pricing catalog + model-name resolution tests (CONCEPT:AU-ECO.toolkit.model-pricing-catalog).
 
 Ports the agentsview ``internal/pricing/normalize_test.go`` and
 ``fallback_test.go`` cases to guarantee parity of the load-bearing resolver.

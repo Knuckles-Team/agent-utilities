@@ -1,4 +1,4 @@
-"""Skill-workflow → KG WorkflowDefinition ingestion (CONCEPT:KG-2.97).
+"""Skill-workflow → KG WorkflowDefinition ingestion (CONCEPT:AU-KG.ingest.skill-workflow-corpus).
 
 Unit + live-path coverage for
 ``agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest``:
@@ -6,7 +6,7 @@ a fixture workflow corpus is parsed and upserted into a fake / in-memory engine
 as a ``WorkflowDefinition`` DAG, asserting the node/edge shape
 ``execute_workflow`` reads, idempotent re-ingest, and discoverability by name.
 
-@pytest.mark.concept("KG-2.97")
+@pytest.mark.concept("AU-KG.ingest.skill-workflow-corpus")
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
     parse_workflow_skill,
 )
 
-pytestmark = pytest.mark.concept("KG-2.97")
+pytestmark = pytest.mark.concept("AU-KG.ingest.skill-workflow-corpus")
 
 
 # --------------------------------------------------------------------------- #
@@ -68,7 +68,7 @@ _FINANCE_WF = textwrap.dedent(
     tags: [finance]
     team_config:
       specialist_ids: [data-fetcher, report-generator]
-    concept: CONCEPT:EE-011
+    concept: CONCEPT:AU-AHE.assimilation.skill-workflow-ingest
     ---
 
     # Tiny Pnl Workflow
@@ -155,7 +155,7 @@ def test_parse_kebab_dialect(corpus):
 def test_parse_titlecase_agent_dialect(corpus):
     skill_md = corpus / "workflows" / "finance" / "tiny_pnl" / "SKILL.md"
     parsed = parse_workflow_skill(skill_md)
-    assert parsed["concept"] == "CONCEPT:EE-011"
+    assert parsed["concept"] == "CONCEPT:AU-AHE.assimilation.skill-workflow-ingest"
     # Title-Case heading → atomic skill comes from the **Agent** body field.
     assert parsed["steps"][0]["skill_name"] == "data-fetcher"
     assert parsed["steps"][0]["tools"] == ["graph_query", "sx_search"]
@@ -292,7 +292,7 @@ def test_discover_accepts_explicit_root(corpus):
 
 
 # --------------------------------------------------------------------------- #
-# Background-job path: the worker dispatch branch (CONCEPT:KG-2.97)            #
+# Background-job path: the worker dispatch branch (CONCEPT:AU-KG.ingest.skill-workflow-corpus)            #
 # --------------------------------------------------------------------------- #
 def test_background_job_branch_ingests_corpus(corpus):
     """The ``skill_workflows`` task-worker branch (what ``submit_task`` enqueues)

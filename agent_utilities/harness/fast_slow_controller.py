@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Fast-Slow Training controller — interleave harness updates with owned weights.
 
-CONCEPT:ORCH-1.56 — Fast-Slow Training (FST)
+CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast — Fast-Slow Training (FST)
 
 Distilled from "Owning Your Token Capital / Enterprise AI Learning Loop"
 (Fast-Slow Training, arXiv:2605.12484). FST runs two coupled learning loops
@@ -126,7 +126,7 @@ class _State:
 
 
 class FastSlowController:
-    """Interleave fast (harness) + slow (owned-weights) learning (CONCEPT:ORCH-1.56).
+    """Interleave fast (harness) + slow (owned-weights) learning (CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast).
 
     The controller collects production :class:`Trace` objects via
     :meth:`observe`, runs the FAST loop (:meth:`fast_step`) to update the harness

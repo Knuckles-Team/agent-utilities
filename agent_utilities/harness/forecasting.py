@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Predict-before-run forecasting register + calibration scoreboard.
 
-CONCEPT:AHE-3.34 — operationalizes the research-craft habit of *forecasting every
+CONCEPT:AU-AHE.harness.forecasting-discipline — operationalizes the research-craft habit of *forecasting every
 experiment's result before running it, then scoring calibration* — turning taste
 into a trainable, measured loop.
 
@@ -67,7 +67,7 @@ class Forecast:
 
 
 class ForecastBoard:
-    """Predict-before-run register + calibration scoreboard (CONCEPT:AHE-3.34).
+    """Predict-before-run register + calibration scoreboard (CONCEPT:AU-AHE.harness.forecasting-discipline).
 
     Forecasts are keyed by ``experiment_id``; predicting an id that already
     exists overwrites its prior (still-open) forecast, which models revising a

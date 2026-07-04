@@ -34,7 +34,7 @@ GroundFn = Callable[[str], list[str]]
 
 
 class CompileReport(BaseModel):
-    """What one compile pass produced (CONCEPT:KG-2.80)."""
+    """What one compile pass produced (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
     article_id: str
     artifact_node: str

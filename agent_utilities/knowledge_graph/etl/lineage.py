@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""ETL data lineage — record + query system-to-system data flows (CONCEPT:KG-2.99).
+"""ETL data lineage — record + query system-to-system data flows (CONCEPT:AU-KG.ontology.kg-3).
 
 Every ``graph_etl`` run records a lineage trail in the KG itself so an operator can
 answer impact-analysis questions ("what flows from ServiceNow to LeanIX?", "where did

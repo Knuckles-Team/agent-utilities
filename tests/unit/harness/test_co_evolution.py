@@ -1,4 +1,4 @@
-"""Cross-harness GRPO co-evolution (CONCEPT:AHE-3.55/3.56)."""
+"""Cross-harness GRPO co-evolution (CONCEPT:AU-AHE.harness.co-evolution-loop/3.56)."""
 
 from __future__ import annotations
 

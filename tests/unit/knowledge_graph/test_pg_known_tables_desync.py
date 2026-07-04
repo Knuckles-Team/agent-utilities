@@ -4,7 +4,7 @@
 Regression: ``create_schema`` cached a table name even when its CREATE failed, so the
 self-heal short-circuited (``if name in self._known_tables: return True``) and never
 created e.g. ``idea_block`` — every document IdeaBlock write then spammed
-``relation "idea_block" does not exist`` against pggraph. (CONCEPT:KG-2.8)
+``relation "idea_block" does not exist`` against pggraph. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class _FakeConn:
 def _stub(known: set[str]) -> tuple[SimpleNamespace, list[str]]:
     log: list[str] = []
     # ``_node_tables`` mirrors the real backend: ensure_label_table records the
-    # newly-created table in it too (universal node shape, CONCEPT:KG-2.9).
+    # newly-created table in it too (universal node shape, CONCEPT:AU-KG.ingest.enterprise-source-extractor).
     return (
         SimpleNamespace(
             _known_tables=known, _node_tables=set(known), _conn=lambda: _FakeConn(log)
@@ -61,7 +61,7 @@ def _stub(known: set[str]) -> tuple[SimpleNamespace, list[str]]:
     )
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_force_creates_despite_stale_cache():
     # Cache wrongly claims idea_block exists; force must still run the DDL.
     stub, log = _stub({"idea_block"})
@@ -69,14 +69,14 @@ def test_force_creates_despite_stale_cache():
     assert any('CREATE TABLE IF NOT EXISTS "idea_block"' in s for s in log)
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_non_force_short_circuits_on_cache():
     stub, log = _stub({"idea_block"})
     assert PostgreSQLBackend.ensure_label_table(stub, "idea_block") is True
     assert log == []  # cached → no DDL
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8")
+@pytest.mark.concept("CONCEPT:EG-KG.storage.nonblocking-checkpoint")
 def test_creates_and_caches_new_label():
     stub, log = _stub(set())
     assert PostgreSQLBackend.ensure_label_table(stub, "NewType") is True

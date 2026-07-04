@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — notification + webhook dispatch (CONCEPT:KG-2.42).
+"""Ontology Action System — notification + webhook dispatch (CONCEPT:AU-KG.ontology.batch-actions-executor).
 
 Provenance (Palantir AIP doc: *action-types/overview* — "Notifications" and
 "Webhooks"): after an Action Type's edits are submitted it may notify recipients
@@ -41,7 +41,7 @@ __all__ = [
 
 @runtime_checkable
 class Notifier(Protocol):
-    """A registerable notification sink. CONCEPT:KG-2.42.
+    """A registerable notification sink. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Implementations forward a rendered notification to a concrete channel and
     return an outcome record. Must never raise — failures are recorded.
@@ -53,7 +53,7 @@ class Notifier(Protocol):
 
 
 class RecordingNotifier:
-    """Default :class:`Notifier` that journals notifications durably. CONCEPT:KG-2.42.
+    """Default :class:`Notifier` that journals notifications durably. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     With no external channel wired, a notification still must be *recorded* (not
     dropped). This sink keeps an in-memory, inspectable log and returns a

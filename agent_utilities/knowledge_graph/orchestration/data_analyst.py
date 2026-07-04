@@ -1,10 +1,10 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""DB-GPT-style text2sql data-analysis agent loop (CONCEPT:KG-2.308).
+"""DB-GPT-style text2sql data-analysis agent loop (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
 The **agent** half of NL data analysis over the epistemic-graph engine. Where
-:mod:`~agent_utilities.knowledge_graph.core.nl_planner` (CONCEPT:KG-2.305) is a *single*
+:mod:`~agent_utilities.knowledge_graph.core.nl_planner` (CONCEPT:AU-KG.query.ask-gateway-rest-twin) is a *single*
 NL→query→execute shot, this module wraps that seam in a bounded, DB-GPT-style ReAct loop
 so a single natural-language *question* is answered end-to-end:
 
@@ -130,7 +130,7 @@ def _tokens(text: str) -> set[str]:
 
 
 def _relevance(name: str, q_tokens: set[str]) -> int:
-    """Overlap score between a schema name and the question tokens (CONCEPT:KG-2.308)."""
+    """Overlap score between a schema name and the question tokens (CONCEPT:AU-KG.query.data-gateway-rest-twin)."""
     n_tokens = _tokens(name)
     if not n_tokens:
         return 0
@@ -146,7 +146,7 @@ def _relevance(name: str, q_tokens: set[str]) -> int:
 def schema_link(
     question: str, schema: dict[str, Any], *, max_each: int = 8
 ) -> dict[str, list[str]]:
-    """Pick the schema labels / tables most relevant to ``question`` (CONCEPT:KG-2.308).
+    """Pick the schema labels / tables most relevant to ``question`` (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
     Deterministic token-overlap scoring — needs no LLM, so schema-linking works in the
     clean-fallback path too. Returns ``{"tables": [...], "node_labels": [...]}`` limited to
@@ -192,7 +192,7 @@ def _fallback_answer(question: str, rows: list[dict[str, Any]]) -> str:
 
 
 class DataAnalystAgent:
-    """DB-GPT-style text2sql data-analysis agent (CONCEPT:KG-2.308).
+    """DB-GPT-style text2sql data-analysis agent (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
     A bounded ReAct-ish loop over the engine: schema-link the question, generate a query
     with the KG-2.305 planner, execute it, self-correct on error (bounded), then synthesize
@@ -246,7 +246,7 @@ class DataAnalystAgent:
 
     # -- the loop ----------------------------------------------------------
     def analyze(self, question: str, *, dialect: str = "auto") -> dict[str, Any]:
-        """Answer ``question`` end-to-end via the bounded loop (CONCEPT:KG-2.308).
+        """Answer ``question`` end-to-end via the bounded loop (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
         Returns ``{question, answer, dialect, query, results, row_count, citations,
         linked_schema, attempts}`` on success — where ``attempts`` is the full trace of
@@ -369,7 +369,7 @@ def ask_data(
     planner: AuNlPlanner | None = None,
     synthesize: Callable[[str, list[dict[str, Any]]], str] | None = None,
 ) -> dict[str, Any]:
-    """One-call DB-GPT-style data-analysis over the engine (CONCEPT:KG-2.308).
+    """One-call DB-GPT-style data-analysis over the engine (CONCEPT:AU-KG.query.data-gateway-rest-twin).
 
     Thin convenience wrapper around :class:`DataAnalystAgent` — mirrors the shape of
     :func:`~...nl_planner.nl_query` (KG-2.305) but runs the full multi-step loop (schema-link

@@ -1,6 +1,6 @@
-"""Tests for TokenUsageTracker — 4-Bucket Analytics (CONCEPT:OS-5.1).
+"""Tests for TokenUsageTracker — 4-Bucket Analytics (CONCEPT:AU-OS.config.secrets-authentication).
 
-@pytest.mark.concept("OS-5.5")
+@pytest.mark.concept("AU-OS.host.homeostatic-recovery-daemon")
 """
 
 import pytest

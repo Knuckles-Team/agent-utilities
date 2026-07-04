@@ -1,4 +1,4 @@
-"""Tests for gateway multi-worker readiness (CONCEPT:OS-5.23).
+"""Tests for gateway multi-worker readiness (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
 The pre-fork model itself (os.fork + shared socket) is exercised in
 deployment; here we pin the safety contract around it: the default is 1

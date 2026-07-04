@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Knowledge Pack Models — Domain-specific data presets for the Knowledge Graph.
 
-CONCEPT:KG-2.6 — Knowledge Packs
+CONCEPT:AU-KG.ontology.knowledge-packs — Knowledge Packs
 
 A KnowledgePack defines a set of actual data instances (Nodes and Edges) that can be
 seeded into the Knowledge Graph as a cohesive bundle. While a `SchemaPack` defines the

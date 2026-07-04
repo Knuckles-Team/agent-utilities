@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Live, legible state of the 24/7 self-evolution flywheel — transparent + steerable.
 
-CONCEPT:KG-2.290 — EvolutionState live surface + per-stage progress beacon. The
+CONCEPT:AU-KG.research.evolutionstate-live-surface-per — EvolutionState live surface + per-stage progress beacon. The
 deployed loop (``loop_controller.run_one_cycle``) only persisted an ``EvolutionCycle``
 node at *finalize* — so until a cycle finished it was opaque, and an operator could
 not see "what is it mining / distilling / developing right now, and why". This module
@@ -12,7 +12,7 @@ entry, plus :func:`read_evolution_state` which aggregates the live beacon + the
 signals that already exist into ONE queryable read. You cannot steer what you cannot
 see; this is the observation plane every steering action hangs off.
 
-CONCEPT:KG-2.291 — Saturation gauge. Aggregates the four signals that already exist
+CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — Saturation gauge. Aggregates the four signals that already exist
 (``open_gaps`` trend per cycle, the AHE-3.26 ``ImprovementVelocity`` verdict, the
 OS-5.47 ``ingestion_coverage`` %, and the distilled-spec backlog yield) into ONE 0..1
 reading: "how much have we extracted from the current corpus / are we saturated".

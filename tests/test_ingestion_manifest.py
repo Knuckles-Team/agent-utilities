@@ -1,4 +1,4 @@
-"""Tests for the durable delta-ingestion manifest + centralized skip (CONCEPT:KG-2.8).
+"""Tests for the durable delta-ingestion manifest + centralized skip (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Service-free: the manifest runs in its SQLite fallback mode and the engine is
 driven with a lightweight stub KG, so these validate delta-skip, durability

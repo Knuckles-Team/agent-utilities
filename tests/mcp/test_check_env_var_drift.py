@@ -1,4 +1,4 @@
-"""Tests for the env-var drift detector (CONCEPT:OS-5.72)."""
+"""Tests for the env-var drift detector (CONCEPT:AU-OS.config.env-var-drift-guard)."""
 
 from __future__ import annotations
 

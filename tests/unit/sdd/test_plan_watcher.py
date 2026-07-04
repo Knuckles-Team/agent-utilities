@@ -1,6 +1,6 @@
 """Tests for Plan and Tasks Watcher & Ingester.
 
-CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
+CONCEPT:AU-KG.research.research-pipeline-runner — Implementation Plan & Tasks versioning and KG lineage.
 """
 
 import os

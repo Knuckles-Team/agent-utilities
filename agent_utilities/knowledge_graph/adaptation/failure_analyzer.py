@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Failure-driven self-evolution (CONCEPT:AHE-3.18 — Failure-Driven Evolution).
+"""Failure-driven self-evolution (CONCEPT:AU-AHE.harness.failure-evolution — Failure-Driven Evolution).
 
 Closes the loop the research-driven golden loop never had: instead of only
 ingesting *papers* and *unresolved research concepts*, the KG now also learns
@@ -173,10 +173,10 @@ def file_gap_topic(
 ) -> dict[str, Any] | None:
     """Persist one synthetic ``failure_gap`` ``Concept`` topic for a pattern.
 
-    The single shared gap-topic creation path (CONCEPT:AHE-3.18): used by
+    The single shared gap-topic creation path (CONCEPT:AU-AHE.harness.failure-evolution): used by
     :meth:`FailureAnalyzer._materialize` for Langfuse-derived patterns, by the
-    fleet-event triage handler (CONCEPT:OS-5.15) and by the anomaly
-    consumer (CONCEPT:AHE-3.19). The Concept carries NO ``ADDRESSED_BY`` edge,
+    fleet-event triage handler (CONCEPT:AU-OS.config.fleet-event-ingress) and by the anomaly
+    consumer (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer). The Concept carries NO ``ADDRESSED_BY`` edge,
     so the golden loop's existing ``unresolved_topics()`` intake picks it up
     unchanged. When ``anomaly_id`` is given a provenance
     ``(anomaly)-[:EVIDENCES]->(gap)`` edge is added.
@@ -227,7 +227,7 @@ def file_gap_topic(
 
 
 class FailureAnalyzer:
-    """Turn observed telemetry failures into KG remediation topics. CONCEPT:AHE-3.18.
+    """Turn observed telemetry failures into KG remediation topics. CONCEPT:AU-AHE.harness.failure-evolution.
 
     Args:
         engine: KG engine (``add_node``/``link_nodes``/``query_cypher``).
@@ -455,7 +455,7 @@ class FailureAnalyzer:
         """Synchronous entry point (for the daemon scheduler thread)."""
         return _run_coro(self.run_once_async())
 
-    # ── closed-loop regression gate (CONCEPT:AHE-3.18, Phase 4)
+    # ── closed-loop regression gate (CONCEPT:AU-AHE.harness.failure-evolution, Phase 4)
     def make_regression_check(self, gaps: list[dict[str, Any]]) -> Any:
         """Build a ``(spec) -> bool`` regression gate for failure remediations.
 
@@ -515,7 +515,7 @@ class FailureAnalyzer:
     def _lock_regression_cases(self, gaps: list[dict[str, Any]]) -> None:
         """Promote each verified-remediated gap to a locked EvalCorpus assertion.
 
-        CONCEPT:AHE-3.25 — closes the Opik "lock-as-regression-test" step: once a
+        CONCEPT:AU-AHE.evaluation.failure-analysis-loop — closes the Opik "lock-as-regression-test" step: once a
         fix is verified, persist a plain-English assertion case keyed to the
         failing workflow so future runs are judged against "this failure does not
         recur" rather than silently regressing. Idempotent per signature.
@@ -554,7 +554,7 @@ class FailureAnalyzer:
         """Persist the gate verdict as a ``RegressionGateResult`` node.
 
         This is the durable record the promotion-governance validator
-        (CONCEPT:AHE-3.20) consults: a recorded ``hold`` for a proposal blocks
+        (CONCEPT:AU-AHE.harness.promotion-governance-validator) consults: a recorded ``hold`` for a proposal blocks
         its auto-merge until the failure stabilizes and a later gate run
         records a ``pass``.
         """
@@ -618,7 +618,7 @@ class FailureAnalyzer:
 def run_failure_ingest(engine: Any) -> dict[str, Any]:
     """One failure-driven evolution pass: pull Langfuse failures → materialize
     failure_gap topics → run a regression-gated remediation cycle that addresses
-    those gaps directly (CONCEPT:AHE-3.18).
+    those gaps directly (CONCEPT:AU-AHE.harness.failure-evolution).
 
     Shared by the daemon's ``failure_ingest`` tick and the on-demand
     ``graph_orchestrate(action="failure_ingest")`` MCP action so the two never

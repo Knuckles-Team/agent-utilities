@@ -1,6 +1,6 @@
 """Graph-os memory stack adapter for the MemoryData benchmark.
 
-CONCEPT:AHE-3.71/3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
+CONCEPT:AU-AHE.harness.hardening-transparency-surface/3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
 memory surfaces, a config-vs-family bake-off, a family-aware retrieval router, and a markdown
 scoreboard. The adapter talks to a pluggable :class:`MemoryBackendClient` (mock for offline
 tests, REST for a live engine), so the whole sweep is runnable and testable with nothing

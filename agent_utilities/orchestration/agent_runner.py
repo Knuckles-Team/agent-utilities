@@ -1,4 +1,4 @@
-"""Agent Runner — CONCEPT:ORCH-1.21 KG-to-LLM Execution Bridge.
+"""Agent Runner — CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap KG-to-LLM Execution Bridge.
 
 Bridges the ``graph_orchestrate(action='execute_agent')`` MCP tool to the
 pydantic-graph execution infrastructure. Resolves the agent name against
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# CONCEPT:ORCH-1.72 — prompt-only universal entrypoints that must flow through the full
+# CONCEPT:AU-ORCH.execution.passthrough-identity — prompt-only universal entrypoints that must flow through the full
 # multi-agent graph AS THEMSELVES, never resolved to a KG specialist. Resolving one is pure
 # waste (a multi-second semantic search) and actively wrong (it mis-binds the universal
 # messaging assistant to an unrelated tag). Keep this to genuine pass-through identities.
@@ -47,7 +47,7 @@ _PASSTHROUGH_AGENTS = frozenset({"messaging-assistant"})
 def _flatten_exception_group(exc: BaseException) -> str:
     """Flatten a (possibly nested) ExceptionGroup into an actionable message.
 
-    CONCEPT:ORCH-1.21 — when a remote MCP child fails, anyio wraps the real cause
+    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — when a remote MCP child fails, anyio wraps the real cause
     in a ``BaseExceptionGroup`` whose ``str()`` is the opaque "unhandled errors in
     a TaskGroup (N sub-exceptions)". This recursively collects the LEAF exceptions
     so the caller sees the actual error message(s) (and, where the leaf carries it,
@@ -98,7 +98,7 @@ async def run_agent(
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
-    CONCEPT:ORCH-1.21 — KG-to-LLM Execution Bridge
+    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — KG-to-LLM Execution Bridge
 
     This is the primary entry point for ``graph_orchestrate(action='execute_agent')``.
     It provides deep KG integration by:
@@ -115,7 +115,7 @@ async def run_agent(
         max_steps: Maximum graph execution steps (guards against loops).
         engine: Optional pre-initialized IntelligenceGraphEngine instance.
             If not provided, one will be created from the environment.
-        return_mermaid: CONCEPT:ORCH-1.37 — when True and the routed graph produced a
+        return_mermaid: CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — when True and the routed graph produced a
             Mermaid diagram, return a JSON string ``{"output", "mermaid"}`` instead of the
             bare output string. Default False preserves the bare-string contract relied on
             by internal callers (e.g. the dynamic-workflow fan-out in
@@ -238,22 +238,22 @@ async def run_agent(
             e,
         )
 
-    # CONCEPT:ORCH-1.67 — construct the execution shape for THIS job ONCE, up front. The
+    # CONCEPT:AU-ORCH.execution.per-job-shape-construction — construct the execution shape for THIS job ONCE, up front. The
     # escalating planner decides how much graph the job needs from cheap signals; a trivial
     # turn gets a lean shape that skips KG agent resolution, the usage-guard LLM round,
-    # discovery, and the verifier (CONCEPT:ORCH-1.68), so the heavy apparatus never runs for a
+    # discovery, and the verifier (CONCEPT:AU-ORCH.execution.direct-completion-shape), so the heavy apparatus never runs for a
     # simple chat reply.
     from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
     shape = plan_execution_shape(task, profile_hint=execution_profile, engine=engine)
 
     # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
-    # CONCEPT:ORCH-1.65 — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
     # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
-    # CONCEPT:ORCH-1.68 — a direct-completion / generic chat turn does not target a named
+    # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / generic chat turn does not target a named
     # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
     # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
-    # CONCEPT:ORCH-1.72 — and a PASS-THROUGH identity (the universal messaging assistant) is
+    # CONCEPT:AU-ORCH.execution.passthrough-identity — and a PASS-THROUGH identity (the universal messaging assistant) is
     # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
     # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
     # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
@@ -263,14 +263,14 @@ async def run_agent(
         agent_meta = _unresolved_agent_meta()
 
     # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
-    # CONCEPT:KG-2.131 — read the per-session memento cache (zero I/O); only on a cold
+    # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
     # miss do we fetch via ``to_thread`` so the synchronous backend round-trip never
     # blocks the async reply path (the priming used to run inline in
     # ``_build_execution_config``). The background ``_persist_and_enrich`` pass refreshes
     # the cache after each turn, so turn N+1 reads turn N's memento from memory.
     recent_mementos = await _prime_recent_mementos(engine, memento_source or agent_name)
 
-    # Step 2c: Prime the KG's synthesized view of the task's code area (CONCEPT:KG-2.134)
+    # Step 2c: Prime the KG's synthesized view of the task's code area (CONCEPT:AU-KG.retrieval.task-start-kg-priming)
     # — the task-start "query the code KG before you grep" default. Off the loop,
     # best-effort, skipped on the chat profile.
     code_context_prime = await _prime_code_context(
@@ -278,7 +278,7 @@ async def run_agent(
     )
 
     # Step 3: Build execution config from KG metadata.
-    # CONCEPT:ORCH-1.62/1.67 — the constructed shape (already planned above) selects the
+    # CONCEPT:AU-ORCH.execution.chat-profile-timeouts/1.67 — the constructed shape (already planned above) selects the
     # per-node timeout budget and the dynamic graph shape; pass it through so the config
     # carries it to the graph deps (ExecutionProfile instances are accepted as-is).
     config = _build_execution_config(
@@ -290,7 +290,7 @@ async def run_agent(
         recent_mementos=recent_mementos,
         code_context_prime=code_context_prime,
     )
-    # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
+    # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
     if context_ref and not context:
@@ -301,7 +301,7 @@ async def run_agent(
             )
             if _rows and _rows[0].get("content"):
                 context = str(_rows[0]["content"])
-                # Provenance: link this run to the context it consumed (CONCEPT:ORCH-1.39).
+                # Provenance: link this run to the context it consumed (CONCEPT:AU-ORCH.session.carry-invoker).
                 _add_edge = getattr(engine, "add_edge", None)
                 if callable(_add_edge):
                     with contextlib.suppress(Exception):
@@ -318,7 +318,7 @@ async def run_agent(
         config["invoker_allowed_tools"] = list(allowed_tools)
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
-    # CONCEPT:ORCH-1.40 — open the invoker↔spawned native message channel for this run when
+    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
     # requested (or when an explicit session_id is given). The id is stamped into config so
     # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
     # so the invoker knows where to send/receive.
@@ -337,7 +337,7 @@ async def run_agent(
     # verifier that ran on empty results), so the server's tools were never called.
     try:
         if _is_bound_template_agent(agent_meta, config):
-            # CONCEPT:ORCH-1.101 — a KG-bound persona (e.g. agent-utilities-expert)
+            # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
             # runs a DIRECT grounding loop: its recovered persona prompt drives the
             # run and its now-bound toolsets (graph-os + the fleet) let it query the
             # KG and ground the answer, instead of the prompt-only run that
@@ -365,7 +365,7 @@ async def run_agent(
                     agent_meta=agent_meta,
                 )
         elif getattr(shape, "tool_servers", ()):
-            # CONCEPT:ORCH-1.74 — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
+            # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
             # into a multi-step plan + expert fan-out. A failure (e.g. a server unreachable)
@@ -435,10 +435,10 @@ async def run_agent(
         _record_execution_trace(
             engine, run_id, agent_name, task, status="failed", error=err_msg
         )
-        # ARPO read-back (CONCEPT:AHE-3.15): failed runs carry step credit too
+        # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
         _write_step_credit(engine, run_id, agent_name, None, success=False)
-        # CONCEPT:ORCH-1.70/1.71 — fold the failure back into the planner: evict this job's
+        # CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71 — fold the failure back into the planner: evict this job's
         # cached recipe AND teach the shape policy (this archetype failed for this task-class).
         from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
@@ -462,18 +462,18 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
     )
-    # CONCEPT:KG-2.296 — persist each tool call the local LLM made as a :ToolCall
+    # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
     # graph-os ("what tools, what args, what result"). Best-effort, never breaks.
     if isinstance(result, dict) and result.get("tool_calls"):
         _persist_tool_calls(
             engine, run_id, agent_name, agent_name, result["tool_calls"]
         )
-    # ARPO read-back (CONCEPT:AHE-3.15): credit the intermediate agent-steps of
+    # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the intermediate agent-steps of
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
     _write_step_credit(engine, run_id, agent_name, result, success=True)
-    # CONCEPT:ORCH-1.71 — teach the shape policy this archetype SUCCEEDED for this task-class,
+    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy this archetype SUCCEEDED for this task-class,
     # rewarded by speed (success × how little of the budget it spent).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
@@ -484,7 +484,7 @@ async def run_agent(
         latency_s=duration_ms / 1000.0,
         shape=shape,
     )
-    # CONCEPT:ORCH-1.40 — anchor this run to its Session (id-addressable) so "list runs by
+    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — anchor this run to its Session (id-addressable) so "list runs by
     # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:
         snode = f"session:{session_id}"
@@ -513,9 +513,9 @@ async def run_agent(
             output_str = str(results)
         else:
             output_str = str(result)
-        # CONCEPT:ORCH-1.37 — surface the routed-graph diagram when requested.
-        # CONCEPT:ORCH-1.40 — surface the message channel id when one was opened.
-        # CONCEPT:ORCH-1.97 — when the caller opts into the rich wrapper
+        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the routed-graph diagram when requested.
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — surface the message channel id when one was opened.
+        # CONCEPT:AU-ORCH.execution.rich-result-wrapper — when the caller opts into the rich wrapper
         # (``return_mermaid``, the MCP execute_agent path), ALWAYS surface the
         # ``run_id`` so a delegation is trackable — the handle to query this run's
         # RunTrace + :ToolCall provenance (KG-2.296) over graph-os, and the
@@ -563,7 +563,7 @@ def _get_or_create_engine() -> IntelligenceGraphEngine:
 
 
 def _unresolved_agent_meta() -> dict[str, Any]:
-    """The empty agent-metadata shape used when KG resolution is skipped (CONCEPT:ORCH-1.68).
+    """The empty agent-metadata shape used when KG resolution is skipped (CONCEPT:AU-ORCH.execution.direct-completion-shape).
 
     A direct-completion / generic chat turn does not target a named specialist, so we skip the
     (multi-second) semantic-search resolution and run with this neutral metadata. It matches
@@ -594,7 +594,7 @@ def _hydrate_skill_runnable(
 ) -> None:
     """Populate ``meta`` so an ingested skill runs with its own instructions + tools.
 
-    CONCEPT:ORCH-1.96 — sets ``meta['system_prompt']`` (the skill's instruction body)
+    CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — sets ``meta['system_prompt']`` (the skill's instruction body)
     and ``meta['tools']`` (its declared ``USES_TOOL`` targets), then binds the skill
     back into a runnable ``AGENT_SKILL`` CallableResource (idempotent) via
     :func:`persist_skill_as_runnable` so the next resolution is a pure prop read and
@@ -756,7 +756,7 @@ def _resolve_agent_from_kg(
                     "description", ""
                 )  # URL stored in description for A2A
             elif rtype == "AGENT_SKILL":
-                # CONCEPT:ORCH-1.96 — make the ingested skill actually RUNNABLE, not
+                # CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — make the ingested skill actually RUNNABLE, not
                 # just resolvable: load its instruction body as the system prompt and
                 # its declared tools so the spawned LLM is primed with the skill's
                 # behaviour. ``ingest_agent_skill`` writes only a ``skill_code_path``,
@@ -783,7 +783,7 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("Resource lookup failed for '%s': %s", agent_name, e)
 
-    # --- Search 2b: bare ``:Skill`` nodes (CONCEPT:ORCH-1.96) ---------------
+    # --- Search 2b: bare ``:Skill`` nodes (CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion) ---------------
     # ``skill_workflow_ingest`` (KG-2.97) writes plain ``:Skill`` nodes as the
     # ``USES_SKILL`` targets of workflow steps; they are search corpus, not
     # CallableResources, so ``run_agent`` could never dispatch them. Bind such a
@@ -825,7 +825,7 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("Skill lookup failed for '%s': %s", agent_name, e)
     # --- Search 2b: AgentTemplate nodes (KG-bound dispatchable personas) ---
-    # CONCEPT:ORCH-1.100 — a built-in/seeded AgentTemplate (e.g. the
+    # CONCEPT:AU-ORCH.dispatch.seeded-agent-template — a built-in/seeded AgentTemplate (e.g. the
     # ``agent-utilities-expert``) binds a system-prompt node + toolsets + model
     # preference. Resolve it by name, then recover the linked Prompt's body via
     # the USES_PROMPT edge so the persona actually drives the run. Toolset binding
@@ -892,7 +892,7 @@ def _resolve_agent_from_kg(
 def _spawn_auth_headers() -> dict[str, str]:
     """Outbound service-account auth for a spawned agent's REMOTE MCP toolsets.
 
-    CONCEPT:ORCH-1.21 / OS-5.32 — a spawned agent that binds a jwt-protected
+    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — a spawned agent that binds a jwt-protected
     fleet server (``*.arpa``) over SSE/streamable-HTTP must carry the same
     service-account bearer the multiplexer attaches to its children, or the
     call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
@@ -911,7 +911,7 @@ def _spawn_auth_headers() -> dict[str, str]:
 def _toolset_for_id(engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
     """Resolve ONE AgentTemplate ``toolset_id`` to a live MCP toolset.
 
-    CONCEPT:ORCH-1.101 — the binding seam that turns a KG-bound persona's declared
+    CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam that turns a KG-bound persona's declared
     toolsets into tools the local LLM can actually call. Resolution reuses the
     existing Server/mcp_config + fleet-URL machinery (no new binder, no new
     transport code):
@@ -968,7 +968,7 @@ def _resolve_toolset_ids(
 ) -> list[Any]:
     """Bind an AgentTemplate's ``toolset_ids`` into a list of live MCP toolsets.
 
-    CONCEPT:ORCH-1.101 — each id is resolved by :func:`_toolset_for_id`; a single
+    CONCEPT:AU-ORCH.adapter.transport-toolset-factory — each id is resolved by :func:`_toolset_for_id`; a single
     id that fails to bind is skipped (logged) rather than dropping the whole set,
     so the persona still gets every toolset that DID resolve (e.g. ``graph-os``
     for grounding) even if one server is unreachable.
@@ -992,7 +992,7 @@ async def _prime_recent_mementos(
 ) -> list[str]:
     """Return the recent compressed mementos for ``source`` WITHOUT blocking the loop.
 
-    CONCEPT:KG-2.131 — reads the per-session memento cache first (zero I/O). The cache
+    CONCEPT:AU-KG.memory.refresh-per-session-memento — reads the per-session memento cache first (zero I/O). The cache
     is refreshed by the background ``_persist_and_enrich`` pass after each turn, so the
     common case (turn N+1 of a live conversation) is a pure in-memory read. On a cold
     miss we fetch once via ``to_thread`` (off the event loop) and populate the cache, so
@@ -1029,7 +1029,7 @@ async def _prime_code_context(
     *,
     execution_profile: str | None = None,
 ) -> str | None:
-    """Prime the KG's synthesized view of the task's code area (CONCEPT:KG-2.134).
+    """Prime the KG's synthesized view of the task's code area (CONCEPT:AU-KG.retrieval.task-start-kg-priming).
 
     The task-start half of "query the code KG before you grep": when a run's task
     references a code symbol/area, inject the ``code_context`` answer (definition +
@@ -1082,20 +1082,20 @@ def _build_execution_config(
     This produces the same config shape that ``create_graph_agent()`` and
     ``run_graph()`` expect, but tailored to the specific agent being executed.
 
-    CONCEPT:ECO-4.78 — ``memento_source`` selects WHICH stream of compressed
+    CONCEPT:AU-ECO.messaging.universal-graph-agent — ``memento_source`` selects WHICH stream of compressed
     mementos primes the run's context. It defaults to ``agent_name`` (an agent's
     own past runs), but a session-scoped caller (e.g. a chat channel) passes its
     session key so successive turns share continuity through the core memory: the
     prior turns of THAT conversation are recalled as mementos, not via a bespoke
     per-surface history query.
 
-    CONCEPT:KG-2.131 — ``recent_mementos`` is the already-primed memento list (read
+    CONCEPT:AU-KG.memory.refresh-per-session-memento — ``recent_mementos`` is the already-primed memento list (read
     off the event loop by :func:`_prime_recent_mementos`). When ``None`` (the legacy
     direct callers / tests), we fall back to a synchronous fetch here so the function
     stays self-contained, but the hot reply path always passes the primed list so no
     blocking backend round-trip runs on the loop.
 
-    CONCEPT:ORCH-1.62 — ``execution_profile`` ("chat" vs default "task") selects the
+    CONCEPT:AU-ORCH.execution.chat-profile-timeouts — ``execution_profile`` ("chat" vs default "task") selects the
     per-node timeout budget: the chat profile bounds router/verifier to tens of seconds
     so a degraded backend fails fast inside the chat budget rather than at 300 s.
     """
@@ -1116,7 +1116,7 @@ def _build_execution_config(
 
     profile = resolve_execution_profile(execution_profile)
 
-    # Tag prompts: the agent itself + any capabilities. CONCEPT:ORCH-1.100 — when
+    # Tag prompts: the agent itself + any capabilities. CONCEPT:AU-ORCH.dispatch.seeded-agent-template — when
     # resolution recovered the agent's real system prompt (e.g. a seeded
     # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
     # that full persona instead of the bare "Specialized agent" stub.
@@ -1129,7 +1129,7 @@ def _build_execution_config(
             tag_prompts[cap] = f"Capability: {cap}"
 
     # Prime recent Mementos into the sawtooth context. The hot reply path supplies them
-    # already (read off the loop, CONCEPT:KG-2.131); only a direct caller that passed
+    # already (read off the loop, CONCEPT:AU-KG.memory.refresh-per-session-memento); only a direct caller that passed
     # nothing falls back to a synchronous fetch here.
     if recent_mementos is None:
         try:
@@ -1147,7 +1147,7 @@ def _build_execution_config(
             f"Past Context Mementos (Compressed State):\n{memento_text}"
         )
 
-    # CONCEPT:KG-2.134 — prime the KG's synthesized view of the task's code area so the
+    # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
     if code_context_prime:
         tag_prompts["code_context"] = (
@@ -1161,7 +1161,7 @@ def _build_execution_config(
         if tool_name:
             tag_prompts[tool_name] = tool.get("description", tool_name)
 
-    # CONCEPT:ORCH-1.62 — chat profile bounds node timeouts to the chat budget; the task
+    # CONCEPT:AU-ORCH.execution.chat-profile-timeouts — chat profile bounds node timeouts to the chat budget; the task
     # profile keeps the long defaults.
     router_timeout = (
         profile.router_timeout
@@ -1185,7 +1185,7 @@ def _build_execution_config(
         "router_timeout": router_timeout,
         "verifier_timeout": verifier_timeout,
         "execution_profile": profile.name,
-        # CONCEPT:ORCH-1.67/1.68 — carry the constructed shape to the graph deps so each node
+        # CONCEPT:AU-ORCH.execution.per-job-shape-construction/1.68 — carry the constructed shape to the graph deps so each node
         # can decide whether to run its work or pass through for this job.
         "execution_shape": profile,
         "min_confidence": DEFAULT_MIN_CONFIDENCE,
@@ -1287,7 +1287,7 @@ def _build_execution_config(
                 "[ORCH-1.21] Failed to bind MCP toolset for '%s': %s", agent_name, e
             )
 
-    # CONCEPT:ORCH-1.101 — a KG-bound AgentTemplate (e.g. ``agent-utilities-expert``)
+    # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound AgentTemplate (e.g. ``agent-utilities-expert``)
     # declares its toolsets as ``toolset_ids`` (surfaced as ``capabilities`` by
     # ``_resolve_agent_from_kg``). Resolution recovered the persona prompt but, until
     # now, NOT live tools: the binding above only fires for ``type=="server"`` agents
@@ -1335,7 +1335,7 @@ def _is_bound_template_agent(
 ) -> bool:
     """True when a resolved AgentTemplate has its toolset_ids bound to live toolsets.
 
-    CONCEPT:ORCH-1.101 — such a persona (e.g. ``agent-utilities-expert``) runs a
+    CONCEPT:AU-ORCH.adapter.transport-toolset-factory — such a persona (e.g. ``agent-utilities-expert``) runs a
     DIRECT grounding loop (its persona prompt + its bound toolsets), not the
     planning graph: the multi-agent router would over-decompose the ask and the
     persona/tools would never drive a single query-then-answer turn. The bound
@@ -1355,7 +1355,7 @@ async def _execute_single_server(
 ) -> dict[str, Any]:
     """Run a single-MCP-server agent directly against its bound toolset.
 
-    CONCEPT:ORCH-1.21 — a named MCP-server agent must actually USE that server's
+    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — a named MCP-server agent must actually USE that server's
     tools. Sending a one-server task through the full orchestration graph let the
     LLM router/dispatcher mis-route it (e.g. to a verifier that runs on empty
     results) so the tool was never invoked. This binds ONLY the resolved server's
@@ -1373,7 +1373,7 @@ async def _execute_single_server(
     # passed through to ``create_agent(mcp_toolsets=...)`` → ``Agent(toolsets=...)``,
     # not merely described in the prompt). A ``.filtered()`` failure must NOT be
     # swallowed into an agent with zero bound tools that then hallucinates a tool
-    # call — fail loudly instead (CONCEPT:ORCH-1.39).
+    # call — fail loudly instead (CONCEPT:AU-ORCH.session.carry-invoker).
     allowed = config.get("invoker_allowed_tools")
     if allowed:
         allow_set = {str(t).strip() for t in allowed if str(t).strip()}
@@ -1391,7 +1391,7 @@ async def _execute_single_server(
 
     # An agent resolved as a single MCP server but left with no toolset would have
     # nothing to call and would fabricate tool calls. Surface that clearly rather
-    # than producing a zero-tool agent (CONCEPT:ORCH-1.21).
+    # than producing a zero-tool agent (CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap).
     if not toolsets:
         raise RuntimeError(
             f"agent '{agent_name}' resolved to a single MCP server but has no bound "
@@ -1445,7 +1445,7 @@ async def _execute_single_server(
         if getattr(result, "output", None) is not None
         else getattr(result, "data", None) or getattr(result, "content", None) or result
     )
-    # CONCEPT:KG-2.296 — carry the per-tool-call provenance up to run_agent, which
+    # CONCEPT:AU-KG.temporal.message-history-read — carry the per-tool-call provenance up to run_agent, which
     # persists it as :ToolCall nodes on the run's RunTrace. This is the deterministic
     # MCP tool-loop, so it is exactly where real tool calls happen and are visible.
     return {
@@ -1470,7 +1470,7 @@ def _fleet_product(server: str) -> str:
 def _fleet_server_url(server: str) -> str:
     """Served MCP URL for a fleet server. Homelab convention is
     ``http://<server>.<domain>/mcp`` (streamable-http); the domain is overridable for
-    other deployments via ``FLEET_MCP_DOMAIN`` (CONCEPT:ORCH-1.74)."""
+    other deployments via ``FLEET_MCP_DOMAIN`` (CONCEPT:AU-ORCH.execution.focused-tools-altitude)."""
     domain = (setting("FLEET_MCP_DOMAIN", "arpa") or "arpa").strip().strip(".")
     return f"http://{server}.{domain}/mcp"
 
@@ -1478,7 +1478,7 @@ def _fleet_server_url(server: str) -> str:
 def _focused_tools_prompt(servers: list[str], config: dict[str, Any]) -> str:
     """System prompt for the focused-tools agent: keep any conversational persona the
     config carries, name the bound capabilities, and BIAS toward parallel tool calls
-    (CONCEPT:ORCH-1.74)."""
+    (CONCEPT:AU-ORCH.execution.focused-tools-altitude)."""
     products = ", ".join(_fleet_product(s) for s in servers) or "the bound"
     persona = str(config.get("system_prompt") or "").strip()
     directive = (
@@ -1499,7 +1499,7 @@ async def _execute_focused_tools(
     agent_name: str,
     max_steps: int,
 ) -> dict[str, Any]:
-    """FOCUSED-TOOLS altitude (CONCEPT:ORCH-1.74): the ontology lexical gate named concrete
+    """FOCUSED-TOOLS altitude (CONCEPT:AU-ORCH.execution.focused-tools-altitude): the ontology lexical gate named concrete
     fleet server(s), so bind ONLY those servers' toolsets (least privilege) and run ONE direct
     agent loop — no planner, no usage_guard / memory_selection / expert fan-out / verifier. The
     agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
@@ -1546,7 +1546,7 @@ async def _execute_focused_tools(
 
 async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
     """Answer a lean turn with ONE local-model round, OUTSIDE the multi-agent graph
-    (CONCEPT:ORCH-1.68). A ``direct_complete`` shape must NOT enter the graph: a functional
+    (CONCEPT:AU-ORCH.execution.direct-completion-shape). A ``direct_complete`` shape must NOT enter the graph: a functional
     router step cannot terminate the graph mid-flow without an extra edge that pydantic-graph
     turns into a BROADCAST FORK (router → {end, dispatcher}), which silently killed every
     full-graph / tool task. So the lean answer is produced here and the graph is reserved for
@@ -1598,7 +1598,7 @@ async def _execute_graph(
     from agent_utilities.graph.builder import create_graph_agent
     from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
-    # CONCEPT:ORCH-1.68 — a direct-completion shape answers with one lean local-model round and
+    # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion shape answers with one lean local-model round and
     # NEVER enters the multi-agent graph (see _run_direct_completion: the in-graph router
     # variant created a broadcast fork that broke full-graph tool tasks). Decide once, here; a
     # genuine failure falls through to the full graph.
@@ -1639,7 +1639,7 @@ async def _execute_graph(
     )
 
     # Execute the graph
-    # CONCEPT:ORCH-1.37 — Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
     # streamdown=True populates GraphResponse.mermaid so the routed-graph diagram can be
     # surfaced to the MCP caller (see run_agent return_mermaid).
     result = await AgentOrchestrationEngine().execute_graph(
@@ -1701,7 +1701,7 @@ def _record_execution_trace(
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
-    CONCEPT:ORCH-1.21 — Execution provenance tracking.
+    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — Execution provenance tracking.
 
     Creates a ``RunTrace`` node linked to the agent's Server/Resource node,
     enabling full audit trail of agent invocations.
@@ -1727,7 +1727,7 @@ def _record_execution_trace(
 
     # Stamp the originating identity + correlation so the audit trail answers
     # "which tenant/actor ran this, and which agents share its run?" as a
-    # tenant-scoped graph query (CONCEPT:OS-5.11 + OS-5.14 + KG-2.60).
+    # tenant-scoped graph query (CONCEPT:AU-OS.observability.run-wide-correlation-id + OS-5.14 + KG-2.60).
     _stamp_run_identity(props)
 
     try:
@@ -1746,7 +1746,7 @@ def _record_execution_trace(
 
 
 # ---------------------------------------------------------------------------
-# Internal: per-tool-call provenance (CONCEPT:KG-2.296)
+# Internal: per-tool-call provenance (CONCEPT:AU-KG.temporal.message-history-read)
 # ---------------------------------------------------------------------------
 
 _TOOL_ARG_SECRET_KEYS = (
@@ -1765,7 +1765,7 @@ _TOOL_ARG_SECRET_KEYS = (
 def _sanitize_tool_args(args: Any) -> str:
     """Render tool-call args as a compact, secret-redacted JSON string.
 
-    CONCEPT:KG-2.296 — the args are persisted for visibility ("what did the local
+    CONCEPT:AU-KG.temporal.message-history-read — the args are persisted for visibility ("what did the local
     LLM call, with what"), so redact obvious secret-shaped keys and bound the size.
     """
     try:
@@ -1794,7 +1794,7 @@ def _sanitize_tool_args(args: Any) -> str:
 def _extract_tool_calls(run_result: Any) -> list[dict[str, Any]]:
     """Pull the (tool_name, args, result/error) of every tool call from a run.
 
-    CONCEPT:KG-2.296 — reads the pydantic-ai message history
+    CONCEPT:AU-KG.temporal.message-history-read — reads the pydantic-ai message history
     (``all_messages()``): a ``ToolCallPart`` opens a call, its paired
     ``ToolReturnPart`` (matched by ``tool_call_id``) carries the result, and a
     ``RetryPromptPart`` carries a tool error. Returns one ordered record per call.
@@ -1845,7 +1845,7 @@ def _persist_tool_calls(
 ) -> int:
     """Persist each tool call as a ``:ToolCall`` node linked to the run's RunTrace.
 
-    CONCEPT:KG-2.296 — the run-level RunTrace (ORCH-1.21) said *that* a delegation
+    CONCEPT:AU-KG.temporal.message-history-read — the run-level RunTrace (ORCH-1.21) said *that* a delegation
     ran; this makes the individual tool calls first-class, queryable provenance so
     Claude can ask "what tools did the local LLM call, with what args, what result"
     over graph-os. Each call also feeds ``action_outcome`` (AHE-3.62) so the
@@ -1910,7 +1910,7 @@ def _persist_tool_calls(
 
 
 # ---------------------------------------------------------------------------
-# Internal: ARPO step-credit read-back (CONCEPT:AHE-3.15)
+# Internal: ARPO step-credit read-back (CONCEPT:AU-AHE.reward.this-is-read-back)
 # ---------------------------------------------------------------------------
 
 # Bookkeeping keys in GraphResponse.results that are not per-step outputs.
@@ -1952,7 +1952,7 @@ def _write_step_credit(
 ) -> int:
     """Write ARPO per-step advantages into the capability reward-EMA.
 
-    CONCEPT:AHE-3.15 — this is the read-back half of agent-step policy
+    CONCEPT:AU-AHE.reward.this-is-read-back — this is the read-back half of agent-step policy
     optimization: :func:`write_back_step_credit` existed but was never invoked
     from the live step lifecycle, so routing only ever learned from final
     answers. Called on every run completion (success AND failure); guarded so

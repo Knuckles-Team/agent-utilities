@@ -1,4 +1,4 @@
-# Research Intelligence Pipeline (CONCEPT:KG-2.6)
+# Research Intelligence Pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full for ≥3.0, abstract-only for ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv, local files, and web URLs.
@@ -9,7 +9,7 @@ Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevan
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# KG Source Resolver (CONCEPT:KG-2.6)
+# KG Source Resolver (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Optional — gracefully returns empty when no KG is available.
@@ -20,7 +20,7 @@ Bridges the KG indexing layer to the comparative-analysis skill by materializing
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Research Intelligence Sub-Agent (CONCEPT:KG-2.6)
+# Research Intelligence Sub-Agent (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Isolated research context with citation graph traversal (Semantic Scholar API), doom-loop detection, and KG persistence. Findings become `EvidenceNode` entries with `wasDerivedFrom` provenance chains. Adapted from ml-intern's research_tool.py sub-agent pattern.
@@ -31,10 +31,10 @@ Isolated research context with citation graph traversal (Semantic Scholar API), 
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Research Orchestration Integration (CONCEPT:KG-2.6)
+# Research Orchestration Integration (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
-Connects ResearchSubagent (KG-2.33) to ResearchPipelineRunner (KG-2.3) and UnifiedRAGKGRetriever (KG-2.38) for automated daily research cycles. 7-phase pipeline: discovery → subagent session → citation traversal → pipeline ingestion → similarity linking → cluster refresh → KG persistence. MCP-compatible for `run_research_cycle` tool registration.
+Connects ResearchSubagent (AU-KG.research.zero-llm-pack-link) to ResearchPipelineRunner (KG-2.3) and UnifiedRAGKGRetriever (KG-2.38) for automated daily research cycles. 7-phase pipeline: discovery → subagent session → citation traversal → pipeline ingestion → similarity linking → cluster refresh → KG persistence. MCP-compatible for `run_research_cycle` tool registration.
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/orchestration/research_orchestrator.py``

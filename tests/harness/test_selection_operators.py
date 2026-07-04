@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the unified selection / aggregation operators + VariantPool wiring.
 
-CONCEPT:ORCH-1.30
+CONCEPT:AU-ORCH.optimization.selection-on-unseen-data
 """
 
 from unittest.mock import MagicMock
@@ -16,7 +16,7 @@ from agent_utilities.harness.selection_operators import (
     select_top_k,
 )
 
-pytestmark = pytest.mark.concept("ORCH-1.30")
+pytestmark = pytest.mark.concept("AU-ORCH.optimization.selection-on-unseen-data")
 
 
 # --- Bradley–Terry ---------------------------------------------------------

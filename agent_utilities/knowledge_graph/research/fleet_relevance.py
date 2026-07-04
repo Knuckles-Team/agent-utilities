@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Fleet-wide relevance grading (CONCEPT:AHE-3.63).
+"""Fleet-wide relevance grading (CONCEPT:AU-AHE.assimilation.research-source-grading).
 
 The feature matrix (KG-2.173) says WHAT each ingested source contributes; this
 says WHICH of the fleet's 80+ ``agent-packages/*`` each source could improve. For
@@ -156,7 +156,7 @@ def grade_fleet(
             "threshold_pct": threshold_pct,
             "considerations": [],
         }
-    # Bounded per-type fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+    # Bounded per-type fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never a whole-graph node pull.
     from ..core.bounded_read import iter_nodes_by_types
 
     considerations: list[dict[str, Any]] = []

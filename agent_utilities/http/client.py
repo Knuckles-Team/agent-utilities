@@ -1,6 +1,6 @@
 """Shared base API client for the connector fleet.
 
-CONCEPT:ECO-4.35 — Fleet HTTP Client Library
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
 The consolidation audit found a ~95%-identical ``api_client_base.py``
 duplicated across 10+ connector repos, none with retry, rate-limit capture,

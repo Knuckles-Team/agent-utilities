@@ -1,6 +1,6 @@
 """Tests for SDD governance graph nodes, policies, and process flows.
 
-CONCEPT:AHE-3.0 — Spec-Driven Development
+CONCEPT:AU-AHE.harness.harness-evolution — Spec-Driven Development
 """
 
 import pytest

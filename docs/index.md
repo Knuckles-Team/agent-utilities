@@ -31,7 +31,7 @@ The entire ecosystem is organized into five foundational pillars, each handling 
 
 ## 🧠 The Single Company Brain (Pillar 2 Deep-Dive)
 
-The **Single Company Brain** (`CONCEPT:KG-2.7`) is the operational state layer that transforms the Epistemic Knowledge Graph into a multi-writer, multi-reader, multi-tenant organizational memory. It is strictly governed by Ontology Alignment Bridges and Entailment-Aware Permission Scopers.
+The **Single Company Brain** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) is the operational state layer that transforms the Epistemic Knowledge Graph into a multi-writer, multi-reader, multi-tenant organizational memory. It is strictly governed by Ontology Alignment Bridges and Entailment-Aware Permission Scopers.
 
 | Document | Description |
 |:---------|:------------|
@@ -57,14 +57,14 @@ The **Single Company Brain** (`CONCEPT:KG-2.7`) is the operational state layer t
 
 | Document | Description |
 |:---------|:------------|
-| **[State Externalization](architecture/state_externalization.md)** | `STATE_DB_URI` shared Postgres state store, SKIP LOCKED queue claims, advisory-lock daemon leadership, paginated fleet queries (OS-5.16–5.18, KG-2.54, ORCH-1.44) |
-| **[Engine Sharding](architecture/engine_sharding.md)** | Tenant-partitioned engine shards behind client-side HRW routing + shard topology visibility (KG-2.58, OS-5.28) |
+| **[State Externalization](architecture/state_externalization.md)** | `STATE_DB_URI` shared Postgres state store, SKIP LOCKED queue claims, advisory-lock daemon leadership, paginated fleet queries (AU-OS.state.unified-durable-state-externalization–5.18, AU-KG.ingest.cross-host-safe-kg, AU-ORCH.session.durable-goal-registry-goals) |
+| **[Engine Sharding](architecture/engine_sharding.md)** | Tenant-partitioned engine shards behind client-side HRW routing + shard topology visibility (AU-KG.sharding.tenant-partitioned-sharding-hrw, AU-OS.scaling.shard-topology-visibility-per) |
 | **[Event Backbone](architecture/event_backbone_architecture.md)** | Kafka ingest scale-out: fail-loud queue selection, keyed partitions, `kg-ingest` consumer group + lag metrics (KG-2.55–2.57) |
 | **[Agent Dispatch](architecture/agent_dispatch.md)** | Queue-driven agent dispatch: session-keyed `agent_turns` queue + stateless `agent-dispatch-worker` fleet (ORCH-1.45) |
 | **[Fleet Autonomy](architecture/fleet_autonomy.md)** | ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.24–5.27, OS-5.29) |
-| **[Gateway Scaling](architecture/gateway_scaling.md)** | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (OS-5.23) |
+| **[Gateway Scaling](architecture/gateway_scaling.md)** | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (AU-OS.observability.no-op-without-metrics) |
 | **[MCP Multiplexer](architecture/mcp_multiplexer.md)** | Dynamic tool gateway: progressive disclosure (`find_tools`/`list_catalog`/`load_tools`), self-cataloging probe, collision-free prefixes, hybrid stdio+http children, lazy mounting (ECO-4.36) |
-| **[Autonomous Evolution](guides/autonomous-evolution.md)** | The governed self-evolution chain: propose-only loops → governance validation → regression gate → policy-gated branch publication (AHE-3.18–3.21) |
+| **[Autonomous Evolution](guides/autonomous-evolution.md)** | The governed self-evolution chain: propose-only loops → governance validation → regression gate → policy-gated branch publication (AU-AHE.harness.failure-evolution–3.21) |
 | **[Metrics Reference](reference/metrics.md)** | Catalog of every `agent_utilities_*` Prometheus series |
 
 ---

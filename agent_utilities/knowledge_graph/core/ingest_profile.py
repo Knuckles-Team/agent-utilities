@@ -1,15 +1,15 @@
 #!/usr/bin/python
-"""Lightweight, unified ingestion profiling (CONCEPT:OS-5.69/70/71).
+"""Lightweight, unified ingestion profiling (CONCEPT:AU-OS.observability.ingestion-profile-report/70/71).
 
 The task profiler (``profile_report``, OS-5.55) times every queued task end-to-end
 per lane, but three things were invisible:
 
 * **token/cost** — the LLM/embed spend per ingest was never captured, so
-  ``profile_report`` reported ``tokens=0`` (CONCEPT:OS-5.69);
+  ``profile_report`` reported ``tokens=0`` (CONCEPT:AU-OS.observability.ingestion-profile-report);
 * **per-stage breakdown** — a paper's ~5s ingest was opaque (read vs LLM-extract vs
-  embed vs graph-write) (CONCEPT:OS-5.70);
+  embed vs graph-write) (CONCEPT:AU-OS.observability.ingest-stage-breakdown);
 * **off-queue work** — the embed-backfill, concept-registry embedding and the
-  assimilation passes run OFF the task queue, so they never appeared (CONCEPT:OS-5.71).
+  assimilation passes run OFF the task queue, so they never appeared (CONCEPT:AU-OS.observability.embed-stage-profile).
 
 This module closes all three with ONE primitive: a **contextvar-scoped**
 ``IngestProfile``. An ingest activates one for its duration; the shared
@@ -162,7 +162,7 @@ def estimate_tokens(text: str) -> int:
 def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None:
     """Persist an OFF-QUEUE ingest profile as a ``:ProfileSpan`` so ``profile_report``
     covers paths that never become ``:Task`` nodes — the embed-backfill, the
-    concept-registry embedding, the assimilation passes (CONCEPT:OS-5.71).
+    concept-registry embedding, the assimilation passes (CONCEPT:AU-OS.observability.embed-stage-profile).
 
     Written to the control graph alongside ``:Task`` with a task-shaped metadata
     envelope (``type='offqueue:<kind>'`` + ``profile`` + ``duration_ms``) so the

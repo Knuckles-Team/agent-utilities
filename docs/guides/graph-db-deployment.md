@@ -1,6 +1,6 @@
 # Graph Database Deployment & Multi-Backend Guide
 
-> **CONCEPT:KG-2.0** — High-Scale Graph Database Backends
+> **CONCEPT:AU-KG.query.object-graph-mapper** — High-Scale Graph Database Backends
 
 This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine.
 

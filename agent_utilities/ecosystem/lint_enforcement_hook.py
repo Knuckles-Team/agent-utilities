@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Lint Enforcement Hook — Deterministic Code Quality via PRE_TOOL_USE.
 
-CONCEPT:ECO-4.11 — Deterministic Lint Enforcement Hook
+CONCEPT:AU-OS.governance.lint-enforcement-hook — Deterministic Lint Enforcement Hook
 
 For automated checks like linting and formatting, hooks enforce the rules
 deterministically and produce more consistent results than relying on the
@@ -113,7 +113,7 @@ class LintResult:
 class LintEnforcementHook:
     """Deterministic lint enforcement via PRE_TOOL_USE hook.
 
-    CONCEPT:ECO-4.11 — Deterministic Lint Enforcement Hook
+    CONCEPT:AU-OS.governance.lint-enforcement-hook — Deterministic Lint Enforcement Hook
 
     Usage::
 

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Real-Time Market Data Feeds."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Real-Time Market Data Feeds."""
 
 import pytest
 

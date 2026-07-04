@@ -1,6 +1,6 @@
 """The Loop engine controller — one hot path for every long-running objective.
 
-CONCEPT:KG-2.7 / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis,
+CONCEPT:AU-KG.query.vendor-agnostic-traversal / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis,
 generalized to advance **any** active :class:`~..research.loops.Loop` (research /
 develop / skill) through ONE cycle. Formerly the "golden loop"; renamed because goals,
 research topics, failure gaps and skill executions all collapse into the single Loop
@@ -47,7 +47,7 @@ _WATERMARK_TYPES = {
     "requirement",
     "decision",
     "concept",
-    # Enterprise standardization inputs (CONCEPT:KG-2.49): new harvested assets or
+    # Enterprise standardization inputs (CONCEPT:AU-KG.ontology.populated-at-import-real-3): new harvested assets or
     # edited standards re-trigger the standardize stage.
     "enterprise_resource",
     "enterprise_standard",
@@ -61,7 +61,7 @@ def _run_coro(coro: Any) -> Any:
     The cycle is sync (daemon tick / MCP), but the research-intake mechanism is
     async. When no loop is running we ``asyncio.run``; when one is (an async MCP
     handler) we run it on a worker thread with its own loop so we never reenter a
-    running loop. (CONCEPT:KG-2.77)
+    running loop. (CONCEPT:AU-KG.research.research-intelligence-loop)
     """
     import asyncio
 
@@ -76,7 +76,7 @@ def _run_coro(coro: Any) -> Any:
 
 
 class LoopController:
-    """Advance the active Loops one propose-only cycle over the KG (CONCEPT:KG-2.78)."""
+    """Advance the active Loops one propose-only cycle over the KG (CONCEPT:AU-KG.research.these-properties-carry)."""
 
     def __init__(
         self,
@@ -91,21 +91,21 @@ class LoopController:
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or setting("WORKSPACE_PATH") or "."
-        # Execution backends for the non-research Loop kinds (CONCEPT:KG-2.78 L3),
+        # Execution backends for the non-research Loop kinds (CONCEPT:AU-KG.research.these-properties-carry L3),
         # injectable so the develop/skill stages are unit-testable without a real
         # subprocess / workflow engine. Defaults are wired lazily on first use.
         self._develop_runner = develop_runner
         self._skill_runner = skill_runner
-        # Live-beacon + cycle id (CONCEPT:KG-2.290) — set per run_one_cycle.
+        # Live-beacon + cycle id (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) — set per run_one_cycle.
         self._beacon: Any = None
         self._cycle_id: str = ""
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only
-        # Governed auto-merge (CONCEPT:AHE-3.14) — OFF by default. Enabled
+        # Governed auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge) — OFF by default. Enabled
         # explicitly (auto_merge=True) or via KG_GOLDEN_AUTO_MERGE=1; only then
         # do high-quality, governance-valid proposals promote proposal→active.
-        # ``regression_check`` gates failure-remediation merges (CONCEPT:AHE-3.18)
+        # ``regression_check`` gates failure-remediation merges (CONCEPT:AU-AHE.harness.failure-evolution)
         # against the originally observed failures — the failure-ingest tick passes
         # one so a remediation only auto-merges when it does not coincide with a
         # regression.
@@ -199,7 +199,7 @@ class LoopController:
         }
         cycle_start = time.monotonic()
 
-        # CONCEPT:KG-2.290 — live per-stage progress beacon. A single mutable node
+        # CONCEPT:AU-KG.research.evolutionstate-live-surface-per — live per-stage progress beacon. A single mutable node
         # updated at every stage boundary so the cycle is legible MID-FLIGHT (not only
         # at finalize): graph_loops(action="state") reports the current stage + why.
         import uuid as _uuid
@@ -235,7 +235,7 @@ class LoopController:
         # ingest → LLM concept/fact extraction) so the cycle is a research-pipeline
         # runner: the assimilate stage then matches the fresh papers against the
         # ecosystem. Opt-in (external calls) via KG_LOOP_DISCOVER; caller-supplied
-        # ``papers`` always run. (CONCEPT:KG-2.77)
+        # ``papers`` always run. (CONCEPT:AU-KG.research.research-intelligence-loop)
         if discover or papers:
             report["intake_papers"] = _stage(
                 "intake_papers", lambda: self._run_intake_papers(papers)
@@ -266,29 +266,29 @@ class LoopController:
 
         # 0a. REASON — OWL/RDF reasoning over the ONE ecosystem ontology; harvest the
         # extrapolated relationships and surface cross-domain inferences as fresh
-        # research Loops (CONCEPT:KG-2.79). Best-effort + lightweight; never blocks.
+        # research Loops (CONCEPT:AU-KG.research.best-effort-lightweight-never). Best-effort + lightweight; never blocks.
         if reason:
             report["reason"] = _stage("reason", self._run_reason)
 
         # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
         # (egeria/leanix/aris/camunda) into propose-only atomic-skill and
-        # skill-workflow PROPOSALS (CONCEPT:KG-2.90/2.83). Connector-agnostic over
+        # skill-workflow PROPOSALS (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83). Connector-agnostic over
         # the ontology, default-ON, propose-only (nothing lands in any repo). Best-
         # effort: a failing stage never aborts the cycle.
         report["skill_proposals"] = _stage("distill_skills", self._distill_skills)
 
-        # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
+        # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:AU-KG.ontology.populated-at-import-real-3),
         # propose-only. Gated (KG_LOOP_STANDARDIZE) since it requires a harvested
         # enterprise estate; idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
         if standardize:
             report["standardize"] = _stage("standardize", self._run_standardize)
 
-        # 1. INTAKE — every active Loop the engine should advance (CONCEPT:KG-2.78):
+        # 1. INTAKE — every active Loop the engine should advance (CONCEPT:AU-KG.research.these-properties-carry):
         # research/develop/skill objectives + autonomous gaps, each carrying its
         # ``kind`` so later stages dispatch correctly. Caller-supplied ``topics``
         # (e.g. the failure-ingest tick's just-materialized failure_gap loops)
         # bypass the generic ``active_loops`` scan so a brand-new gap is addressed
-        # deterministically instead of competing for a slot. (CONCEPT:AHE-3.18)
+        # deterministically instead of competing for a slot. (CONCEPT:AU-AHE.harness.failure-evolution)
         if topics is not None:
             topics = topics[:max_topics] if max_topics else list(topics)
             report["metrics"]["stage_ms"]["intake"] = 0.0
@@ -297,7 +297,7 @@ class LoopController:
                 _stage("intake", lambda: active_loops(self.engine, max_topics)) or []
             )
         # Focus-query biasing: a caller-supplied query becomes a prioritized research
-        # topic for this cycle so acquire/resolve converges on it first (CONCEPT:KG-2.77).
+        # topic for this cycle so acquire/resolve converges on it first (CONCEPT:AU-KG.research.research-intelligence-loop).
         fq = (focus_query or "").strip()
         if fq:
             topics = [
@@ -309,7 +309,7 @@ class LoopController:
         report["topics_intake"] = len(topics)
 
         # 1b. EXECUTE — advance develop/skill Loops one step through the SAME hot
-        # path (CONCEPT:KG-2.78 L3): develop runs act→validate, skill runs its
+        # path (CONCEPT:AU-KG.research.these-properties-carry L3): develop runs act→validate, skill runs its
         # skill/skill-workflow. Research loops fall through to acquire_resolve below.
         exec_loops = [t for t in topics if t.get("kind", "research") != "research"]
         if exec_loops:
@@ -334,7 +334,7 @@ class LoopController:
                     return
                 for t in topics:
                     # Only RESEARCH loops are resolved by acquiring sources; develop/
-                    # skill loops are advanced by their own stages (CONCEPT:KG-2.78,
+                    # skill loops are advanced by their own stages (CONCEPT:AU-KG.research.these-properties-carry,
                     # L3) and must NOT be marked addressed by semantic sources here.
                     if t.get("kind", "research") != "research":
                         continue
@@ -363,7 +363,7 @@ class LoopController:
                     "synthesize", lambda: self._synthesize_team(topics)
                 )
 
-        # 6. SELF-PLAY SEARCH-TASK SYNTHESIS (CONCEPT:KG-2.70/2.71/2.72) — build
+        # 6. SELF-PLAY SEARCH-TASK SYNTHESIS (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72) — build
         # shortcut-resistant deep-search tasks from the evidence graph and draft a
         # training corpus (propose-only). Opt-in: it does not depend on open
         # topics and is skipped by default to keep the zero-infra cycle cheap.
@@ -372,7 +372,7 @@ class LoopController:
                 "synthesize_search", self._synthesize_search_tasks
             )
 
-        # 7. HYBRID TRI-EVOLUTION (CONCEPT:AHE-3.50) — co-evolve the research
+        # 7. HYBRID TRI-EVOLUTION (CONCEPT:AU-AHE.harness.co-evolve-research) — co-evolve the research
         # proposer/solver/judge and report the ablation that proves co-evolution
         # beats solo (HOTE arXiv:2606.13710). Opt-in (off by default): the CPU
         # ablation harness runs without LLMs; the LLM-backed integration of the
@@ -385,7 +385,7 @@ class LoopController:
 
     # ------------------------------------------------------------------
     def _run_tri_evolution(self, *, rounds: int = 20) -> dict[str, Any]:
-        """Run the HOTE co-evolution ablation harness (CONCEPT:AHE-3.50).
+        """Run the HOTE co-evolution ablation harness (CONCEPT:AU-AHE.harness.co-evolve-research).
 
         Returns the joint-vs-solo final skills, the indispensability verdict, and
         the marginal adaptation-speed gain of joint co-evolution. CPU-only and
@@ -483,10 +483,10 @@ class LoopController:
         Idempotent: if the input watermark is unchanged since the last cycle (and
         not ``force``), skip the work. The ranked gaps are exclusion-filtered to
         ``open_features`` (satisfied/superseded/implemented features are never
-        re-proposed). CONCEPT:KG-2.7.
+        re-proposed). CONCEPT:AU-KG.query.vendor-agnostic-traversal.
 
         ``restrict_to`` scopes satisfy/synergy/rank/matrix to a feature set (e.g. a
-        research cohort's sources, CONCEPT:KG-2.193) so per-cohort synthesis is
+        research cohort's sources, CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so per-cohort synthesis is
         O(cohort), and the matrix is materialized to ``matrix_node_id`` (a cohort
         gets its own node instead of overwriting the ecosystem-wide one).
         """
@@ -507,7 +507,7 @@ class LoopController:
         from ..core.ingest_profile import stage as _pstage  # OS-5.70 per-stage timing
 
         # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
-        # for a SCOPED (cohort) pass (CONCEPT:KG-2.193) so finalize stays O(cohort) —
+        # for a SCOPED (cohort) pass (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so finalize stays O(cohort) —
         # a cohort's matrix doesn't need ecosystem-wide dedup.
         with _pstage("dedup"):
             dedup = None if restrict_to is not None else dedup_features(self.engine)
@@ -515,9 +515,9 @@ class LoopController:
         # retrieval stage has vectors (idempotent; skips already-embedded). Then
         # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
         # covered (SATISFIED_BY) vs related-novel (RELATES_TO) — replacing the old
-        # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:KG-2.75)
+        # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:AU-KG.ingest.world-model-gate)
         # WHOLE-GRAPH op (iterates every node to find vectorless concepts): skip it
-        # for a SCOPED (cohort) pass (CONCEPT:KG-2.193) — the registry is embedded
+        # for a SCOPED (cohort) pass (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — the registry is embedded
         # ecosystem-wide once, and the matcher recalls from the engine HNSW; a cohort
         # finalize must not re-scan the whole graph (which resets the socket at scale).
         if restrict_to is None:
@@ -538,7 +538,7 @@ class LoopController:
             )
 
         # Materialize the comparative feature/innovation matrix from the now-
-        # assimilated graph (CONCEPT:KG-2.173) — default-ON so every cycle emits the
+        # assimilated graph (CONCEPT:AU-KG.research.default-so-every-cycle) — default-ON so every cycle emits the
         # deliverable: coverage rows, leverage-ranked novel gaps, and the cross-source
         # synergy bundles (the combine-to-surpass candidates).
         matrix_summary: dict[str, Any] = {}
@@ -597,7 +597,7 @@ class LoopController:
         discovery → tiered KB ingest → LLM concept/fact extraction → OWL enrich),
         so the unified cycle is a research-pipeline runner: the ``assimilate`` stage
         then matches the freshly-ingested papers against the ecosystem Concept
-        registry via the ConceptMatcher. (CONCEPT:KG-2.77)
+        registry via the ConceptMatcher. (CONCEPT:AU-KG.research.research-intelligence-loop)
         """
         from agent_utilities.automation.research_pipeline import ResearchPipelineRunner
 
@@ -615,7 +615,7 @@ class LoopController:
     def _run_reason(self) -> dict[str, Any]:
         """Run OWL/RDF reasoning over the ecosystem; harvest the extrapolation.
 
-        The ontology-driven research engine (CONCEPT:KG-2.79): reason over the one
+        The ontology-driven research engine (CONCEPT:AU-KG.research.best-effort-lightweight-never): reason over the one
         ecosystem knowledge-graph and turn the newly-inferred cross-domain
         relationships into fresh research Loops for subsequent cycles — so research
         compounds on what reasoning discovers, not just what was ingested.
@@ -633,7 +633,7 @@ class LoopController:
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
 
-        The connector→skill synthesis stage (CONCEPT:KG-2.90/2.83): the
+        The connector→skill synthesis stage (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83): the
         :class:`ConnectorSkillDistiller` queries the KG over the ontology classes
         (BusinessProcess flowsTo-chains, BusinessTask, Capability) of EVERY
         connected system, classifies atomic-skill vs skill-workflow candidates,
@@ -663,7 +663,7 @@ class LoopController:
         distiller = ConnectorSkillDistiller(self.engine, embed_fn=embed_fn)
         return distiller.run().to_dict()
 
-    # -- develop / skill Loop execution (CONCEPT:KG-2.78 L3) ---------------- #
+    # -- develop / skill Loop execution (CONCEPT:AU-KG.research.these-properties-carry L3) ---------------- #
     def _run_execute_loops(self, loops: list[dict[str, Any]]) -> dict[str, Any]:
         """Advance every non-research Loop one step through the same hot path.
 
@@ -690,7 +690,7 @@ class LoopController:
             # Atomically claim the Loop (status → running via the engine CAS)
             # before advancing it. A lost race means a concurrent cycle / peer
             # host / graph_loops run already owns it — skip rather than
-            # double-drive. (CONCEPT:KG-2.141)
+            # double-drive. (CONCEPT:AU-KG.compute.user-override-prompt-library)
             if not claim_loop(
                 self.engine, loop["id"], current_status=str(loop.get("status") or "")
             ):
@@ -714,7 +714,7 @@ class LoopController:
         return out
 
     def _iterate(self, loop: dict[str, Any]) -> dict[str, Any]:
-        """Advance ANY Loop one step, dispatched by kind (CONCEPT:KG-2.78).
+        """Advance ANY Loop one step, dispatched by kind (CONCEPT:AU-KG.research.these-properties-carry).
 
         The single kind-agnostic step the controller runs everywhere — the
         per-cycle execute stage, the durable :meth:`run_loop`, and the
@@ -758,7 +758,7 @@ class LoopController:
 
         A spec-bound develop Loop (carrying ``spec_id``, created by the OS-5.73
         spec-review approval) feeds the approved spec into the EXISTING promotion
-        pipeline via ``develop_spec`` → ``governed_publish`` (CONCEPT:KG-2.292) — the
+        pipeline via ``develop_spec`` → ``governed_publish`` (CONCEPT:AU-KG.research.close-distill-develop-seam) — the
         ``merge_promotion`` human gate + capability ratchet stay on that path. A plain
         develop Loop runs its ``validation_cmd`` and completes on exit 0 (unchanged).
         """
@@ -800,7 +800,7 @@ class LoopController:
             )
         return {"status": "completed" if ok else "failed", "output": output}
 
-    # -- durable, resumable run-to-completion (CONCEPT:KG-2.78 + OS-5.16) --- #
+    # -- durable, resumable run-to-completion (CONCEPT:AU-KG.research.these-properties-carry + OS-5.16) --- #
     async def run_loop(
         self,
         loop: dict[str, Any],
@@ -851,7 +851,7 @@ class LoopController:
         # legitimate re-entry of a Loop this caller already owns (durable
         # rehydration left it 'running'/'orphaned'), so a lost CAS there is not
         # fatal; on a fresh start (it == 0) a lost claim means someone else owns
-        # it and we yield. (CONCEPT:KG-2.141, was a blind flip — KG-2.78)
+        # it and we yield. (CONCEPT:AU-KG.compute.user-override-prompt-library, was a blind flip — KG-2.78)
         won = claim_loop(self.engine, loop_id, current_status=status)
         if not won and it == 0:
             logger.info(
@@ -949,7 +949,7 @@ class LoopController:
         return (prior - 1) if isinstance(prior, int) and prior > 0 else 0
 
     def _run_standardize(self) -> dict[str, Any]:
-        """Run the enterprise standardization + consolidation pass (CONCEPT:KG-2.49).
+        """Run the enterprise standardization + consolidation pass (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
 
         Propose-only: materializes enterprise-standard interfaces, scores per-asset
         conformance drift, and emits ranked consolidation recommendations. No source
@@ -965,7 +965,7 @@ class LoopController:
         Delegates to the unified ``sync_source`` entrypoint (``_sync_archivebox``):
         enumerate snapshots past the watermark, ingest each archived URL through the
         DOCUMENT path (ArchiveBox-preferred fetch + research-paper extraction).
-        (CONCEPT:KG-2.7)
+        (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         """
         from ..core.source_sync import sync_source
 
@@ -978,7 +978,7 @@ class LoopController:
         enumerate items past the GReader ``ot`` watermark and route each through the
         :class:`WorldModelPipelineRunner` relevance gate — only KG-relevant/novel (or
         agent-force-flagged) items are fully ingested; Research/arXiv items route to
-        the research path. (CONCEPT:KG-2.116 / KG-2.117)
+        the research path. (CONCEPT:AU-KG.ingest.news-finance-tech-sibling / KG-2.117)
         """
         from ..core.source_sync import sync_source
 
@@ -993,7 +993,7 @@ class LoopController:
         single declaration of ALL ecosystem projects we want assimilated. So the
         loop self-configures: ``assimilate`` always has the codebase capability
         map to compare research against, with no env config required. Content-
-        addressed ingest makes re-runs cheap. (CONCEPT:KG-2.7)
+        addressed ingest makes re-runs cheap. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         """
         from dataclasses import asdict
 
@@ -1053,7 +1053,7 @@ class LoopController:
         import time as _time
 
         now_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
-        # Share the id with the live beacon (CONCEPT:KG-2.290) so the finalized
+        # Share the id with the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the finalized
         # EvolutionCycle and the mid-flight beacon cross-reference one cycle.
         cycle_id = self._cycle_id or (
             f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
@@ -1085,7 +1085,7 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort
             logger.debug("EvolutionCycle persist failed: %s", e)
 
-        # CONCEPT:AHE-3.26 / SAFE-1.3 — recursive-improvement velocity. Read the
+        # CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / SAFE-1.3 — recursive-improvement velocity. Read the
         # loop's own audit streams (EvolutionCycle + ProposalPublication +
         # CapabilityRatchetResult) back into one velocity reading and persist it, so
         # the loop self-instruments: is it still improving, how fast, and is it
@@ -1104,7 +1104,7 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — instrumentation never blocks the loop
             logger.debug("[AHE-3.26] velocity ledger failed: %s", e)
 
-        # CONCEPT:KG-2.291 — saturation gauge. Aggregate open_gaps trend + the just-
+        # CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge. Aggregate open_gaps trend + the just-
         # recorded velocity verdict + ingestion coverage into ONE 0..1 reading and
         # stamp it on the report + the live beacon; when saturated (and stalling),
         # surface a request-more recommendation (NEVER auto-fetch). Best-effort.
@@ -1135,7 +1135,7 @@ class LoopController:
             logger.debug("[KG-2.291] saturation gauge failed: %s", e)
             gauge = None
 
-        # Close out the live beacon (CONCEPT:KG-2.290).
+        # Close out the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per).
         if self._beacon is not None:
             try:
                 self._beacon.finish(
@@ -1166,7 +1166,7 @@ class LoopController:
         # propose_only: write DRAFTS under .specify/ only.
         paths = write_spec_drafts(specs, self.codebase_root)
 
-        # CONCEPT:KG-2.292 — close the distill→develop seam. Persist each draft as a
+        # CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam. Persist each draft as a
         # first-class, queryable :SpecProposal (status pending_review) linked to its
         # source concepts, so the distilled spec is no longer a dead-end .md file but
         # a develop-able + reviewable work item. The spec is fed into the existing
@@ -1216,7 +1216,7 @@ class LoopController:
             except Exception as e:  # noqa: BLE001
                 logger.debug("persist_synthesis failed: %s", e)
 
-        # GOVERNED auto-merge (CONCEPT:AHE-3.14): consider promoting the team
+        # GOVERNED auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge): consider promoting the team
         # proposal to active. Disabled by default → stays proposal-only; only a
         # high-quality, governance-valid proposal auto-merges when enabled.
         merge: dict[str, Any] | None = None
@@ -1245,7 +1245,7 @@ class LoopController:
         """Build shortcut-resistant deep-search tasks from the evidence graph.
 
         Selects candidate answer entities, runs the FORT-distilled synthesizer
-        (CONCEPT:KG-2.70/2.71/2.72), keeps only tasks whose shortcut report is
+        (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72), keeps only tasks whose shortcut report is
         clear, drafts a JSONL corpus under ``.specify/specs/search-tasks/`` and
         (propose-only) persists each as a ``SearchTask`` node. Returns a summary.
         """
@@ -1315,7 +1315,7 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
 
     Synchronous (the controller advances one iteration per cycle), timeout-bounded,
     best-effort — mirrors the durable goal loop's validation step (``sessions``) but
-    as a single step in the unified hot path. (CONCEPT:KG-2.78)
+    as a single step in the unified hot path. (CONCEPT:AU-KG.research.these-properties-carry)
 
     Security: ``cmd`` is the operator-authored validation command from a develop
     Loop definition (e.g. ``pytest -q && ruff check``), a trusted internal source —
@@ -1347,7 +1347,7 @@ def _default_skill_runner(
 
     Compiles (if needed) and runs the workflow named/identified by ``skill_ref``;
     best-effort so a missing orchestrator degrades to a failed step, never a crash.
-    (CONCEPT:KG-2.78)
+    (CONCEPT:AU-KG.research.these-properties-carry)
     """
     try:
         from ...orchestration.manager import Orchestrator
@@ -1387,7 +1387,7 @@ def run_assimilation_pass(
     restrict_to: set[str] | None = None,
     matrix_node_id: str = "feature_matrix:latest",
 ) -> dict[str, Any]:
-    """Run only the graph-compute assimilation middle (CONCEPT:KG-2.7).
+    """Run only the graph-compute assimilation middle (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
     dedup → auto-satisfy → synergy → rank (idempotent via the watermark); with
     ``synthesize=True`` also generate grounded SDD plan proposals for the top-N
@@ -1420,7 +1420,7 @@ def run_assimilation_pass(
     # ``assimilate()`` bumped the watermark and silently suppressed a follow-up
     # ``synthesize`` (the only reason ``force`` was ever needed). The watermark's
     # job is to avoid redundant *re-ranking*, not to block an explicit synthesis
-    # request. (CONCEPT:KG-2.7)
+    # request. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     if synthesize:
         from ..assimilation import synthesize_plans
 

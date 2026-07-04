@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Government Domain Pydantic Models (CONCEPT:KG-2.0).
+"""Government Domain Pydantic Models (CONCEPT:AU-KG.query.object-graph-mapper).
 
 Aligned to NIST 800-53, FedRAMP, and NIEM standards.
 """

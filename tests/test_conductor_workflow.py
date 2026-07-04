@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for CONCEPT:ORCH-1.1: Conductor Workflow Specification.
+"""Tests for CONCEPT:AU-ORCH.planning.recursion-nesting-depth: Conductor Workflow Specification.
 
 Validates that ExecutionStep.refined_subtask is correctly serialized,
 preferred over raw queries in the executor, and properly integrated
@@ -87,7 +87,7 @@ class TestRefinedSubtaskModel:
         )
         assert "refined_subtask" in props
         desc = props["refined_subtask"]["description"]
-        assert "CONCEPT:ORCH-1.1" in desc
+        assert "CONCEPT:AU-ORCH.planning.recursion-nesting-depth" in desc
 
     def test_refined_subtask_coexists_with_input_data(self):
         """Both refined_subtask and input_data can be set."""
@@ -144,7 +144,7 @@ class TestRefinedSubtaskModel:
 
 
 class TestRefinedSubtaskRouting:
-    """Integration tests verifying the router prompt includes CONCEPT:ORCH-1.1 instructions."""
+    """Integration tests verifying the router prompt includes CONCEPT:AU-ORCH.planning.recursion-nesting-depth instructions."""
 
     def test_step_descriptions_not_empty(self):
         """get_step_descriptions returns a non-empty catalog."""

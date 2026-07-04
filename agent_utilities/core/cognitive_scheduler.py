@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:OS-5.2 — Cognitive Scheduler with Priority-Aware Preemption.
+"""CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler with Priority-Aware Preemption.
 
 Manages competing agent demands in real-time with priority preemption,
 context paging to the Knowledge Graph, and per-agent token/compute
@@ -29,12 +29,12 @@ Architecture:
       simultaneously. Excess processes are queued by priority.
 
 Integrates with:
-    - CONCEPT:OS-5.2 (Resource Optimizer): Token budget tracking
-    - CONCEPT:OS-5.2 (Checkpointing): Context snapshot/restore
-    - CONCEPT:OS-5.2 (Eviction): Context paging under memory pressure
-    - CONCEPT:KG-2.0 (Swarm): Concurrent agent pool management
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Resource Optimizer): Token budget tracking
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Checkpointing): Context snapshot/restore
+    - CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Eviction): Context paging under memory pressure
+    - CONCEPT:AU-KG.query.object-graph-mapper (Swarm): Concurrent agent pool management
 
-See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 """
 
 
@@ -92,7 +92,7 @@ DEFAULT_FALLBACK_CHAIN: list[str] = ["super", "standard", "lite"]
 class InferenceBudget(BaseModel):
     """Per-process inference budget with cost and tier tracking.
 
-    CONCEPT:OS-5.2 — Research: 2605.05701v1 (Inference-Time Budget Control)
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Research: 2605.05701v1 (Inference-Time Budget Control)
 
     Rather than simply preempting processes that exceed token quotas,
     this model enables graceful degradation: when budget pressure
@@ -168,7 +168,7 @@ class AgentProcess(BaseModel):
     Wraps a running or queued specialist with priority, state tracking,
     token quota, and optional checkpoint reference for context paging.
 
-    CONCEPT:OS-5.2 — Extended with InferenceBudget (Research: 2605.05701v1)
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Extended with InferenceBudget (Research: 2605.05701v1)
 
     Attributes:
         id: Unique process identifier.
@@ -202,7 +202,7 @@ class AgentProcess(BaseModel):
 class CognitiveScheduler:
     """Priority-aware preemptive scheduler for agent processes.
 
-    CONCEPT:OS-5.2 — Cognitive Scheduler
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler
 
     Manages a pool of ``AgentProcess`` instances, enforcing:
     - **Priority ordering**: Higher-priority processes run first
@@ -235,13 +235,13 @@ class CognitiveScheduler:
             asyncio.PriorityQueue()
         )
 
-        # CONCEPT:AHE-3.2 — Optional convergence monitor for multi-loop tasks
+        # CONCEPT:AU-AHE.harness.multi-loop-convergence-monitor — Optional convergence monitor for multi-loop tasks
         self.convergence_monitor: ConvergenceMonitor | None = None
 
     def _get_kg_centrality(self, agent_id: str) -> float:
         """Query the topological centrality of the agent's node in the active graph.
 
-        CONCEPT:OS-5.8 — Epistemic Resource Scheduler.
+        CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota — Epistemic Resource Scheduler.
 
         Returns 0.0 (no boost) when the KG engine is unavailable or the agent
         is not present in the graph.  Only agents with actual graph connectivity
@@ -291,7 +291,7 @@ class CognitiveScheduler:
         Returns:
             The created ``AgentProcess``.
         """
-        # CONCEPT:OS-5.8 — Epistemic dynamic priority & quota scaling based on KG Centrality
+        # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota — Epistemic dynamic priority & quota scaling based on KG Centrality
         centrality = self._get_kg_centrality(agent_id)
 
         final_quota = token_quota or self.default_token_quota
@@ -531,7 +531,7 @@ class CognitiveScheduler:
     ) -> dict[str, Any]:
         """Record an inference call with cost-aware budget tracking.
 
-        CONCEPT:OS-5.2 — Research: 2605.05701v1
+        CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Research: 2605.05701v1
 
         Unlike ``record_tokens`` (which only counts raw tokens), this
         method tracks dollar cost by model tier and triggers automatic
@@ -608,7 +608,7 @@ class CognitiveScheduler:
     def get_recommended_tier(self, process_id: str) -> str:
         """Return the recommended model tier for a process.
 
-        CONCEPT:OS-5.2 — Research: 2605.05701v1
+        CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Research: 2605.05701v1
 
         Based on remaining budget, returns the most capable tier the
         process can afford. If budget is exhausted, returns the cheapest
@@ -628,7 +628,7 @@ class CognitiveScheduler:
     def get_budget_stats(self, process_id: str) -> dict[str, Any]:
         """Return detailed budget statistics for a process.
 
-        CONCEPT:OS-5.2 — Research: 2605.05701v1
+        CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Research: 2605.05701v1
 
         Args:
             process_id: The process to query.

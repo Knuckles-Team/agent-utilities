@@ -1,4 +1,4 @@
-"""Ontology-prior-guided retrieval ranking (CONCEPT:KG-2.44b).
+"""Ontology-prior-guided retrieval ranking (CONCEPT:AU-KG.ontology.optional-populated-from).
 
 ``CapabilityIndex.designate`` re-projects the flat cosine neighbourhood through the
 ontology type structure (the structured-prior analogue of arXiv:2606.09828's
@@ -15,7 +15,7 @@ import pytest
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
 from agent_utilities.numeric import xp as np
 
-pytestmark = pytest.mark.concept("KG-2.44b")
+pytestmark = pytest.mark.concept("AU-KG.ontology.optional-populated-from")
 
 DIM = 8
 

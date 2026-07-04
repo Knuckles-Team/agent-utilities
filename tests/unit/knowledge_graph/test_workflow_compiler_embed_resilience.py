@@ -1,6 +1,6 @@
 """WorkflowCompiler agent matching is bounded and never triggers a full scan.
 
-CONCEPT:ORCH-1.23 — NL workflow compilation. Resolving a step to an agent first
+CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — NL workflow compilation. Resolving a step to an agent first
 tries a structural KG query; the semantic fallback ranks candidates via the
 engine's bounded vector index (``backend.semantic_search``, HNSW top-k). It must
 NOT use ``engine.search_hybrid``, whose retriever materializes the whole graph

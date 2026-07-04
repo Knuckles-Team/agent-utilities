@@ -1,7 +1,7 @@
 # X Personal Assistant & Social Content Ingestion Guide
 
-**CONCEPT:ECO-4.0** — Social Content Ingestion
-**CONCEPT:KG-2.6** — Universal Knowledge Assimilation
+**CONCEPT:AU-ECO.messaging.native-backend-abstraction** — Social Content Ingestion
+**CONCEPT:AU-KG.research.research-pipeline-runner** — Universal Knowledge Assimilation
 
 > This guide covers the native X (formerly Twitter) integration in agent-utilities,
 > including authenticated search, post retrieval, automatic Knowledge Graph ingestion,
@@ -180,7 +180,7 @@ aligned to `schema:SocialMediaPosting`.
 
 ### X Ingestion Bridge
 
-Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:KG-2.7):
+Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:AU-KG.query.vendor-agnostic-traversal):
 
 ```python
 from agent_utilities.knowledge_graph.ingestion import IngestionEngine, IngestionManifest, ContentType

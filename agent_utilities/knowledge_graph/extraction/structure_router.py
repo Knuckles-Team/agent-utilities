@@ -1,4 +1,4 @@
-"""Structure router — prose vs. structured text classification (CONCEPT:KG-2.74).
+"""Structure router — prose vs. structured text classification (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 The universal ingestion funnel (reader → **structure-router** → {open | schema}
 extraction → ontology grounding → background closure) needs to know, *before* it

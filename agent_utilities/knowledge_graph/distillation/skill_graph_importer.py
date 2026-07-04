@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Skill-Graph Importer — re-ingest a distilled skill-graph back into a KG.
 
-CONCEPT:AHE-3.9 / KG-2.7 — The round-trip counterpart of ``SkillGraphDistiller``.
+CONCEPT:AU-AHE.optimization.physical-distillation-engine / KG-2.7 — The round-trip counterpart of ``SkillGraphDistiller``.
 
 A skill-graph distilled by ``SkillGraphDistiller`` ships a ``kg_manifest.json``
 (original node ids/types, edges, ontology, snapshot) alongside its ``reference/``

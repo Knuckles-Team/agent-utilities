@@ -7,7 +7,7 @@ New code should import from the submodules directly:
 - ``agent_utilities.mcp.context_helpers`` — ctx_* helpers
 - ``agent_utilities.mcp.delegated_auth`` — OAuth 2.0 delegation helpers
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 __version__ = "1.0.2"

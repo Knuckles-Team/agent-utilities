@@ -1,14 +1,14 @@
 #!/usr/bin/python
 """Tests for the Multi-Agent Social System swarm model (b2-01 MASS).
 
-CONCEPT:ORCH-1.32
+CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm
 """
 
 import pytest
 
 from agent_utilities.graph.social_system import MultiAgentSocialSystem
 
-pytestmark = pytest.mark.concept("ORCH-1.32")
+pytestmark = pytest.mark.concept("AU-ORCH.dispatch.kg-governed-agent-swarm")
 
 
 def _sys():

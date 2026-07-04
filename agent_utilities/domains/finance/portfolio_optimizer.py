@@ -1,5 +1,5 @@
 """
-Portfolio Optimization Suite — CONCEPT:KG-2.6
+Portfolio Optimization Suite — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides Mean-Variance (Markowitz), Risk Parity, and Black-Litterman
 portfolio optimization with KG-backed allocation tracking.
@@ -59,7 +59,7 @@ class MeanVarianceOptimizer:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
         # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
         with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.optimize_portfolio(
@@ -116,7 +116,7 @@ class RiskParityOptimizer:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
         # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
         with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.risk_parity(cov_matrix)
@@ -189,7 +189,7 @@ class BlackLittermanOptimizer:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
         # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
         with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.black_litterman(
@@ -215,7 +215,7 @@ class BlackLittermanOptimizer:
 
 class EmpiricalKellyOptimizer:
     """
-    Empirical Kelly Position Sizing — CONCEPT:KG-2.6
+    Empirical Kelly Position Sizing — CONCEPT:AU-KG.research.research-pipeline-runner
     Adjusts standard Kelly criterion sizing based on the Coefficient of Variation (CV)
     of the expected edge, computed via Monte Carlo simulation of historical returns.
     """
@@ -278,7 +278,7 @@ class EmpiricalKellyOptimizer:
 
 class FractionalKellyOptimizer:
     """
-    Fractional Kelly Position Sizing — CONCEPT:KG-2.6
+    Fractional Kelly Position Sizing — CONCEPT:AU-KG.research.research-pipeline-runner
     Scales the Kelly criterion by a fixed fraction (e.g., 0.15x) to survive variance.
     """
 
@@ -303,7 +303,7 @@ class FractionalKellyOptimizer:
 
 class CircuitBreaker:
     """
-    Risk Management Circuit Breaker — CONCEPT:KG-2.6
+    Risk Management Circuit Breaker — CONCEPT:AU-KG.research.research-pipeline-runner
     Halts trading if a daily drawdown threshold is breached.
     """
 
@@ -316,7 +316,7 @@ class CircuitBreaker:
 
 class EdgeKellyOptimizer:
     """
-    Edge-based Kelly Position Sizing — CONCEPT:KG-2.6
+    Edge-based Kelly Position Sizing — CONCEPT:AU-KG.research.research-pipeline-runner
     Calculates Kelly fraction directly from the calculated edge and market price.
     Uses a default Quarter-Kelly (0.25) fractional multiplier for risk dampening.
     """

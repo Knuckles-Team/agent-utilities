@@ -24,11 +24,11 @@ and resolves contradictions by event-time precedence over existing `CONTRADICTS`
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.1 | Tiered Memory & Context | 0.86 | KG-2 |
-| KG-2.3 | Unified Retrieval & Graph Integrity | 0.74 | KG-2 |
-| KG-2.16 | (temporal/time-series facet) | 0.69 | KG-2 |
-| ECO-4.0 | Memory tier ingestion | 0.66 | ECO-4 |
-| KG-2.5 | Topological Partitioning | 0.40 | KG-2 |
+| KG-2.1 | Tiered Memory & Context | 0.86 | EG-KG.compute.backend |
+| KG-2.3 | Unified Retrieval & Graph Integrity | 0.74 | EG-KG.compute.backend |
+| KG-2.16 | (temporal/time-series facet) | 0.69 | EG-KG.compute.backend |
+| ECO-4.0 | Memory tier ingestion | 0.66 | AU-ECO.connector.plane-provisioning-auth |
+| KG-2.5 | Topological Partitioning | 0.40 | EG-KG.compute.backend |
 
 ### Extension Analysis
 
@@ -39,7 +39,7 @@ and resolves contradictions by event-time precedence over existing `CONTRADICTS`
 
 ### New Concept Proposal
 
-- **Proposed ID**: `CONCEPT:KG-2.11`
+- **Proposed ID**: `CONCEPT:AU-KG.temporal.bi-temporal-memory-layers`
 - **Augments Pillar**: KG
 - **15-Phase Pipeline Integration**: Phase 4 (Epistemic — sync/extraction) for stamping; query-time for as-of resolution.
 - **Justification**: KG-2.1 models *recency decay* across working/episodic/semantic tiers. KG-2.11 adds the orthogonal *valid-time* axis (event vs storage time) and the missing *procedural* layer — neither is expressible as decay.

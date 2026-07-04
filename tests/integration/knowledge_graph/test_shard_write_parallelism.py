@@ -1,4 +1,4 @@
-"""Durable cross-shard write-parallelism (CONCEPT:KG-2.279) — live engine proof.
+"""Durable cross-shard write-parallelism (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap) — live engine proof.
 
 The submission-side bottleneck this guards against: when ingestion writes ONE
 graph at a time, every commit funnels onto the ONE redb shard writer that owns
@@ -27,7 +27,7 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.concept("KG-2.279")
+pytestmark = pytest.mark.concept("AU-KG.ingest.floor-codebase-admission-cap")
 
 _K = 4
 

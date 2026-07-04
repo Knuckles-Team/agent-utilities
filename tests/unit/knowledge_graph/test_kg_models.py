@@ -16,13 +16,13 @@ members introduced per ``docs/KG_V2_DESIGN.md`` §§2-3. Tests focus on:
 * Schema coverage — every new node class has a matching
   ``TableDefinition`` and every new edge has a ``RelDefinition``.
 """
-# CONCEPT:AHE-3.2 — Agentic Coding Patterns
+# CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Coding Patterns
 
-# CONCEPT:ORCH-1.1 — Exploration & Discovery
+# CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Exploration & Discovery
 
-# CONCEPT:OS-5.2 — Evaluation & Monitoring
+# CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Evaluation & Monitoring
 
-# CONCEPT:OS-5.0 — Agent Identity Management
+# CONCEPT:AU-OS.safety.doom-loop-detection — Agent Identity Management
 
 
 import json

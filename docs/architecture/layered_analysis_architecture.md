@@ -1,6 +1,6 @@
 # Layered Hybrid Architecture — KG Comparative Analysis Pipeline
 
-> **CONCEPT:KG-2.0** — Knowledge Graph Comparative Analysis Architecture
+> **CONCEPT:AU-KG.query.object-graph-mapper** — Knowledge Graph Comparative Analysis Architecture
 >
 > This document describes the three-layer **streaming pipeline** for extracting
 > actionable features and innovation opportunities from research papers and

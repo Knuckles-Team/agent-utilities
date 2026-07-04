@@ -1,4 +1,4 @@
-"""Unit tests for the cross-backend graph migration (CONCEPT:KG-2.74).
+"""Unit tests for the cross-backend graph migration (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 `copy_graph` reads a source graph and writes it to a target backend via the
 engine's portable MERGE upserts. These tests use fakes (no real backend) to

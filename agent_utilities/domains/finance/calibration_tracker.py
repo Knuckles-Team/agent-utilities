@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.27 — Agent Calibration and Reputation Tracking
+"""CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking — Agent Calibration and Reputation Tracking
 
 A capability Palantir AIP and Fincept's persona registry both lack: track each
 **agent/persona's** past directional calls against realized outcomes, score how
@@ -54,7 +54,7 @@ def _engine() -> Any:
             client_connect_kwargs,
         )
 
-        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
         # deployment instead of the engine's bare env defaults. No autostart — this
         # path degrades to the local numpy kernel when the engine is unreachable.
         _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
@@ -241,7 +241,7 @@ class CalibrationTracker:
                         "accuracy": round(sc.accuracy, 4),
                         "brier": round(sc.brier, 4),
                         "calibration": round(sc.calibration, 4),
-                        "concept": "KG-2.27",
+                        "concept": "AU-KG.domains.agent-calibration-reputation-tracking",
                     },
                 )
             )

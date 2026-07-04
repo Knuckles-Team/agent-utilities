@@ -18,13 +18,13 @@ The architecture solves these bottlenecks through several interdependent primiti
 ### Registry Hot Cache & Unified Specialists (ORCH-1.2)
 We collapsed the artificial boundary between `prompt` and `mcp` agents into a singular `specialist` type. The **Registry Hot Cache** maintains an O(1) session-scoped index of these specialists. Instead of passing 50+ specialists to the orchestrator, it filters down to the Top-7 relevant specialists per query, reducing prompt token bloat by ~7x.
 
-### Spec-Driven Development Pipeline (ORCH-1.6)
+### Spec-Driven Development Pipeline (AU-ORCH.planning.spec-driven-pipeline)
 The orchestrator implements a multi-stage SDD pipeline:
 - **Discovery & Requirements**: Generates structured `Spec` models with measurable success criteria.
 - **Task Decomposition**: Emits a `Tasks` dependency graph, identifying which subtasks can be executed in parallel (e.g., frontend and backend).
 - **Parallel Dispatch**: Fuses tasks out to specific `specialist` workers, leveraging the `Execution Visibility Graph` to constrain context so a backend specialist only sees backend-related prior steps.
 
-### Learned Agent Routing & Execution Budgets (ORCH-1.7 & ORCH-1.3)
+### Learned Agent Routing & Execution Budgets (AU-ORCH.planning.journey-milestone & ORCH-1.3)
 Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical `ExecutionTrace` records with an exponential moving average (EMA) to actively down-weight specialists with low success rates. `ExecutionBudget` acts as an absolute cost governor, preempting infinite loops by enforcing USD/token constraints at the dispatcher step.
 
 ## Benefits Introduced
@@ -38,41 +38,41 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.1**: Agentic Planning Engine (Planning)
 - **ORCH-1.2**: Agentic Planning Engine (Routing)
 - **ORCH-1.3**: Execution Budgets & State Safety
-- **ORCH-1.6**: Spec-Driven Development
-- **ORCH-1.7**: Learned Agent Routing
+- **AU-ORCH.planning.spec-driven-pipeline**: Spec-Driven Development
+- **AU-ORCH.planning.journey-milestone**: Learned Agent Routing
 - **ORCH-1.19**: Subgraph Synthesis (Legacy Compat)
-- **ORCH-1.20**: KG-Driven Graph Factory — materializes pydantic-graph topologies from AgentTemplate nodes
+- **AU-ORCH.execution.service-registry-initialization**: KG-Driven Graph Factory — materializes pydantic-graph topologies from AgentTemplate nodes
 - **ORCH-1.21**: Agent Runner — KG-to-LLM execution bridge with dynamic tool binding and provenance tracking
 - **ORCH-1.22**: RecursiveMAS Latent Orchestrator 🔬 — continuous latent loop or simulated semantic collaboration
 - **ORCH-1.8**: [**Parallel Engine**](1_graph_orchestration/ORCH-1.8-Parallel_Engine.md) — unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis
 - **ORCH-1.8**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
-- **ORCH-1.9**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
+- **AU-ORCH.execution.autonomous-department-orchestration**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
 - **ORCH-1.10**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
-- **ORCH-1.11**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback (the RLM execution tier is now realized by **ORCH-1.38**)
+- **AU-ORCH.sandbox.compiled-orchestration-kernel**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback (the RLM execution tier is now realized by **ORCH-1.38**)
 - **ORCH-1.12**: [**Structured Predict-RLM Runtime**](1_graph_orchestration/ORCH-1.12-Structured_RLM_Outputs.md) — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL, plus **schema-constrained subagent contracts** so RLM fan-out returns typed values (bool/model/list) instead of free-form prose
-- **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — uniform `Sandbox` contract with four real backends (local / **monty** / wasm / docker) behind a deterministic `ast` capability router that escalates per-snippet (monty→wasm→docker→local); monty is the fast isolated default that still serves the RLM host helpers, Docker serves them over a UDS bridge under `--network none`, and the wasm tier is real CPython-WASI (replacing the ORCH-1.11 stub)
-- **ORCH-1.13**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
+- **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — uniform `Sandbox` contract with four real backends (local / **monty** / wasm / docker) behind a deterministic `ast` capability router that escalates per-snippet (monty→wasm→docker→local); monty is the fast isolated default that still serves the RLM host helpers, Docker serves them over a UDS bridge under `--network none`, and the wasm tier is real CPython-WASI (replacing the AU-ORCH.sandbox.compiled-orchestration-kernel stub)
+- **AU-ORCH.optimization.optimize-skill-prompt-gepa**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
 - **ORCH-1.37**: Orchestration execution-flow mermaid-diagram surfacing in `graph_orchestrate` responses (additive, backward-compatible)
 - **ORCH-1.39**: Invoker→spawned-agent handoff of curated context, token budget, tool scope, and credential *reference* (raw secret never persisted/logged) — see [KG-Native Orchestration § Invoker to Spawned Handoff](../guides/kg_native_orchestration.md#invoker-to-spawned-agent-handoff-and-native-channels)
-- **ORCH-1.40**: Session-anchored collections (`Session` node + `HAS_CONTEXT`/`HAS_MESSAGE`/`HAS_RUN` edges) and native cross-process invoker↔spawned message channels with a durable backstop and elicitation bridge (`graph_context`, `graph_message` MCP tools)
+- **AU-ORCH.session.session-anchored-collections-native**: Session-anchored collections (`Session` node + `HAS_CONTEXT`/`HAS_MESSAGE`/`HAS_RUN` edges) and native cross-process invoker↔spawned message channels with a durable backstop and elicitation bridge (`graph_context`, `graph_message` MCP tools)
 - **ORCH-1.41**: Process Plan Compiler — `graph_orchestrate(action="compile_process")` lifts a descriptive BPMN process into an executable plan (see [Ontology-to-Workflow Execution](#orch-141--142--143--ontology-to-workflow-execution-path))
-- **ORCH-1.42**: Execution Ontology Gate — ontology validation on the execution path before a compiled process runs (`knowledge_graph/core/workflow_gate.py`)
+- **AU-ORCH.execution.ontology-validation-execution-path**: Execution Ontology Gate — ontology validation on the execution path before a compiled process runs (`knowledge_graph/core/workflow_gate.py`)
 - **ORCH-1.43**: Workflow Lineage Close-Out — run lineage written back to the KG, closing the descriptive↔executable provenance loop (`workflows/runner.py`)
-- **ORCH-1.44**: Durable Goal Registry — goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing (see [State Externalization](../architecture/state_externalization.md))
+- **AU-ORCH.session.durable-goal-registry-goals**: Durable Goal Registry — goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing (see [State Externalization](../architecture/state_externalization.md))
 - **ORCH-1.45**: Queue-Driven Agent Dispatch — session-keyed `agent_turns` queue (`AgentTurnEnvelope`) consumed by a stateless `agent-dispatch-worker` fleet with fleet-visible placement (see [Agent Dispatch](../architecture/agent_dispatch.md))
 
 ## 🧬 First Principles Architecture
 
-The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
+The **First Principles Architecture** (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
 
 | Concept | Problem Solved | Solution |
 |:--------|:--------------|:---------|
-| **CONCEPT:ORCH-1.2: Registry Hot Cache** | O(N) specialist lookups on every routing call | Session-scoped cache with O(1) lookups, event-driven invalidation |
-| **CONCEPT:AHE-3.3: TeamConfig Promotion** | LLM re-discovers same specialist teams for recurring patterns | Persist proven coalitions as reusable templates in the KG |
-| **CONCEPT:ORCH-1.2: AgentCapability System** | Static tool bindings; no dynamic capability activation | First-class KG capability nodes with trigger conditions |
-| **CONCEPT:ECO-4.0: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
-| **CONCEPT:ECO-4.0: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
-| **CONCEPT:ORCH-1.2: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
+| **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Registry Hot Cache** | O(N) specialist lookups on every routing call | Session-scoped cache with O(1) lookups, event-driven invalidation |
+| **CONCEPT:AU-AHE.evaluation.interpretability-tests: TeamConfig Promotion** | LLM re-discovers same specialist teams for recurring patterns | Persist proven coalitions as reusable templates in the KG |
+| **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: AgentCapability System** | Static tool bindings; no dynamic capability activation | First-class KG capability nodes with trigger conditions |
+| **CONCEPT:AU-ECO.messaging.native-backend-abstraction: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
+| **CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
+| **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
 
 ```mermaid
 graph LR
@@ -355,10 +355,10 @@ neighbor co-evolution slope, Wasserstein-1 drift). `ParallelEngine` attaches the
 snapshot to `ExecutionResult.telemetry["social_system"]`. Full design:
 [Multi-Agent Social System](../architecture/multi_agent_social_system.md).
 
-### ECO-4.84/4.88 — Agent-to-agent coordination over the AgentBus
+### AU-ECO.bus.agentbus-federated-agent-agent/4.88 — Agent-to-agent coordination over the AgentBus
 
 Swarm and sub-agent coordination is not limited to manifest fan-in/synthesis: every agent
-inherits the **AgentBus** as a native capability (CONCEPT:ECO-4.88) and can message peers —
+inherits the **AgentBus** as a native capability (CONCEPT:AU-ECO.bus.agent-bus-awareness) and can message peers —
 across sessions, providers, and hosts — through the universal `bus_join`/`bus_peers`/`bus_send`/
 `bus_check` tools (or the `graph_bus` MCP tool). The orchestrator (the "graph shaper") knows it
 can stand up agent-to-agent communication, and `action=swarm` gives each wave a shared bus topic
@@ -375,8 +375,8 @@ the loop at every step:
   `graph_orchestrate(action="compile_process")` (REST twin
   `/api/graph/orchestrate/compile-process`) lifts a descriptive BPMN process —
   ingested via the Camunda extractor and given step-level ontology shape by
-  **KG-2.53** — into an executable plan.
-- **ORCH-1.42 — Execution Ontology Gate** (`knowledge_graph/core/workflow_gate.py`):
+  **AU-KG.ontology.descriptive-process-world-gains** — into an executable plan.
+- **AU-ORCH.execution.ontology-validation-execution-path — Execution Ontology Gate** (`knowledge_graph/core/workflow_gate.py`):
   ontology validation sits on the execution path, so a compiled process is
   checked against the published ontology before it runs.
 - **ORCH-1.43 — Lineage Close-Out** (`workflows/runner.py` + `core/owl_bridge.py`):
@@ -388,9 +388,9 @@ The authoritative TBox these steps validate against is published to Fuseki on a
 background tick (**KG-2.52**, `knowledge_graph/core/ontology_publisher.py`).
 Walkthrough: [ontology-to-workflow example](../examples/ontology-to-workflow.md).
 
-### ORCH-1.44 — Durable Goal Registry
+### AU-ORCH.session.durable-goal-registry-goals — Durable Goal Registry
 
-Goals are durable records in the externalized state store (OS-5.16), not
+Goals are durable records in the externalized state store (AU-OS.state.unified-durable-state-externalization), not
 in-process objects: they persist across gateway restarts, and a run stranded by
 a crashed host rehydrates as `orphaned` instead of silently vanishing
 (`core/sessions.py`, `models/goal.py`). See
@@ -418,7 +418,7 @@ walkthrough: [queue-dispatch example](../examples/queue-dispatch-walkthrough.md)
 
 ### ORCH-1.50 — Task-Management Ergonomics on SDD
 
-The Spec-Driven Development pipeline (ORCH-1.6) already persists a durable,
+The Spec-Driven Development pipeline (AU-ORCH.planning.spec-driven-pipeline) already persists a durable,
 dependency-aware task list — `Spec` / `Task` / `Tasks` / `ImplementationPlan`
 (`models/sdd.py`) round-tripped to `.specify/` by `SDDManager` (`sdd/__init__.py`).
 ORCH-1.50 adds the *loop-driving* ergonomics on top, so a long-horizon goal can be

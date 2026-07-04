@@ -302,13 +302,13 @@ sequenceDiagram
     KG-->>Q: incidents from ALL vendors
 ```
 
-## Ontology → workflow bridge (`KG-2.52`/`KG-2.53`/`ORCH-1.41`–`1.43`)
+## Ontology → workflow bridge (`KG-2.52`/`AU-KG.ontology.descriptive-process-world-gains`/`ORCH-1.41`–`1.43`)
 
 The descriptive process world (harvested `BusinessProcess` nodes) and the
 executable workflow world (`WorkflowDefinition`/`GraphPlan`) are connected
 end-to-end:
 
-1. **Step-level lift (`KG-2.53`)** — when the injected Camunda client can serve
+1. **Step-level lift (`AU-KG.ontology.descriptive-process-world-gains`)** — when the injected Camunda client can serve
    BPMN XML (`camunda_process action=xml`), the extractor lifts
    tasks/gateways as `BusinessTask` nodes (`task_type` property) and sequence
    flows as `FLOWS_TO` edges (`:flowsTo`), preserving gateway branch
@@ -323,7 +323,7 @@ end-to-end:
    KG semantic matcher (unmatched tasks stay as explicit `manual:` steps). The
    stored workflow carries `(:WorkflowDefinition)-[:REALIZES]->
    (:BusinessProcess)` (`:realizesProcess`).
-3. **Execution gate (`ORCH-1.42`)** — `execute_workflow` SHACL-validates the
+3. **Execution gate (`AU-ORCH.execution.ontology-validation-execution-path`)** — `execute_workflow` SHACL-validates the
    stored definition (`WorkflowDefinitionShape`/`WorkflowStepShape`,
    `KG_WORKFLOW_SHAPE_GATE` default ON) and, with `KG_BRAIN_ENFORCE` on,
    applies the ontology permissioning row gate to the workflow node

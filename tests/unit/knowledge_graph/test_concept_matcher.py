@@ -1,4 +1,4 @@
-"""Unit tests for the robust ConceptMatcher (CONCEPT:KG-2.75)."""
+"""Unit tests for the robust ConceptMatcher (CONCEPT:AU-KG.ingest.world-model-gate)."""
 
 from __future__ import annotations
 
@@ -72,11 +72,11 @@ def test_top_k_cosine_orders_and_thresholds():
 
 def test_decide_prefers_covered_over_related():
     ms = [
-        Match("KG-2.1", 0.7, "related", 0.8, 0.76, "llm_judge"),
-        Match("KG-2.2", 0.8, "covered", 0.9, 0.86, "llm_judge"),
+        Match("AU-KG.memory.tiered-memory-caching", 0.7, "related", 0.8, 0.76, "llm_judge"),
+        Match("AU-KG.ingest.engineering-rules", 0.8, "covered", 0.9, 0.86, "llm_judge"),
     ]
     fm = _decide("f", ms, judge_accept=0.6)
-    assert fm.decision == "covered" and fm.best.concept_id == "KG-2.2"
+    assert fm.decision == "covered" and fm.best.concept_id == "AU-KG.ingest.engineering-rules"
 
 
 # --- explicit-id stage ----------------------------------------------------- #
@@ -84,13 +84,13 @@ def test_explicit_id_match_is_covered():
     nodes = {
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "name": "Research Assimilation",
         },
         "article:p1": {
             "type": "article",
             "name": "A paper about KG-2.7",
-            "concept_ids": ["KG-2.7"],
+            "concept_ids": ["AU-KG.query.vendor-agnostic-traversal"],
         },
     }
     eng = _Engine(nodes)
@@ -108,7 +108,7 @@ def test_llm_judge_covered_writes_satisfied_by():
     nodes = {
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "name": "Research Assimilation",
             "embedding": [1.0, 0.0],
         },
@@ -134,7 +134,7 @@ def test_llm_judge_related_writes_relates_to_and_stays_novel():
     nodes = {
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "name": "Assimilation",
             "embedding": [1.0, 0.0],
         },
@@ -160,7 +160,7 @@ def test_no_llm_falls_back_to_cosine_verdict():
     nodes = {
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "name": "Assimilation",
             "embedding": [1.0, 0.0],
         },
@@ -215,7 +215,7 @@ def test_idempotent_reconcile_replaces_not_accumulates():
     nodes = {
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "name": "A",
             "embedding": [1.0, 0.0],
         },
@@ -236,11 +236,11 @@ def test_explicit_id_beats_embedding_nearest():
         "spec:foo": {
             "type": "capability",
             "embedding": [0.0, 1.0, 0.0],
-            "concept_ids": ["KG-2.7"],
+            "concept_ids": ["AU-KG.query.vendor-agnostic-traversal"],
         },
         "concept:KG-2.7": {
             "type": "concept",
-            "concept_id": "KG-2.7",
+            "concept_id": "AU-KG.query.vendor-agnostic-traversal",
             "embedding": [1.0, 0.0, 0.0],
         },
         "concept:KG-9.9": {
@@ -263,11 +263,11 @@ def test_body_citation_does_not_count_as_declared_identity():
         "new-paper": {
             "type": "capability",
             "embedding": [0.0, 1.0, 0.0],  # orthogonal to the concept
-            "content": "We build on CONCEPT:AHE-3.1 as related work.",
+            "content": "We build on CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort as related work.",
         },
         "concept:AHE-3.1": {
             "type": "concept",
-            "concept_id": "AHE-3.1",
+            "concept_id": "AU-AHE.evaluation.adaptive-reasoning-effort",
             "embedding": [1.0, 0.0, 0.0],
         },
     }

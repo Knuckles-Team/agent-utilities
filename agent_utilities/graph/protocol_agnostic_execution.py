@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Unified Execution Layer Module.
 
-CONCEPT:ORCH-1.4
+CONCEPT:AU-ORCH.adapter.kg-graph-materialization
 
 This module provides protocol-agnostic entry points for graph execution,
 simplifying the interface for various adapters (ACP, AG-UI, SSE). It wraps

@@ -1,4 +1,4 @@
-"""CONCEPT:ECO-4.97 — ARD federation relay (cross-registry discovery).
+"""CONCEPT:AU-ECO.interop.ard-federation-relay — ARD federation relay (cross-registry discovery).
 
 ARD federation lets one registry's ``/search`` surface capabilities hosted by another:
 a consumer hits us, and (in ``auto`` mode) we fan the query out to our peer registries,
@@ -54,7 +54,7 @@ def default_mode() -> str:
 
 
 class ArdFederationRelay:
-    """Fan an ARD ``/search`` out to peer registries and merge results. CONCEPT:ECO-4.97."""
+    """Fan an ARD ``/search`` out to peer registries and merge results. CONCEPT:AU-ECO.interop.ard-federation-relay."""
 
     # ── Peer registry (KG-native via A2A, mirrors BusFederationRelay) ────────
     def register_registry(self, name: str, url: str, *, auth: str = "none") -> str:

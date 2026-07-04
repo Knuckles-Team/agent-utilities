@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""AU-as-engine NL→query planner (CONCEPT:KG-2.305).
+"""AU-as-engine NL→query planner (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
 
 The **agent-utilities half** of the epistemic-graph NL→query dual-mode. The engine
 (EG-078/080) defines an ``NlPlanner`` seam: a natural-language string is turned into an
@@ -65,7 +65,7 @@ _SYSTEM_PROMPT = (
 def is_llm_configured() -> bool:
     """True when agent-utilities has an LLM endpoint the fleet planner can reach.
 
-    CONCEPT:KG-2.305 — the clean-fallback gate. Returns ``False`` when nothing usable is
+    CONCEPT:AU-KG.query.ask-gateway-rest-twin — the clean-fallback gate. Returns ``False`` when nothing usable is
     configured (no OpenAI-compatible base URL, no provider API key, no model registry),
     so :func:`nl_query` can report a clear error instead of attempting a doomed model
     call. Best-effort and never raises — a config-load hiccup degrades to "not
@@ -109,7 +109,7 @@ def _parse_plan(output: str) -> dict[str, str]:
 
 
 class AuNlPlanner:
-    """CONCEPT:KG-2.305 — agent-utilities' configured fleet LLM AS the engine's NL planner.
+    """CONCEPT:AU-KG.query.ask-gateway-rest-twin — agent-utilities' configured fleet LLM AS the engine's NL planner.
 
     Mirrors the engine's EG-078 ``NlPlanner`` trait: :meth:`plan` turns a
     natural-language request (+ a schema hint) into an executable query STRING. The
@@ -210,7 +210,7 @@ def nl_query(
     limit: int = 50,
     planner: AuNlPlanner | None = None,
 ) -> dict[str, Any]:
-    """NL→query with agent-utilities' fleet LLM as the engine's planner (CONCEPT:KG-2.305).
+    """NL→query with agent-utilities' fleet LLM as the engine's planner (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
 
     (1) grounds a live schema snapshot from ``engine``; (2) has the AU-configured fleet
     LLM (:class:`AuNlPlanner`) translate ``text`` into an executable query STRING in the

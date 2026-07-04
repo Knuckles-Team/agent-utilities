@@ -1,4 +1,4 @@
-"""Persona-voiced debate wiring (CONCEPT:KG-2.6).
+"""Persona-voiced debate wiring (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Verifies the Bull/Bear DebateEngine actually loads investor-persona prompt
 bodies as its system prompt — closing the loop so each side argues in a

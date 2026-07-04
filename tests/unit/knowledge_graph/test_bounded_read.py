@@ -1,4 +1,4 @@
-"""Unit tests for bounded node iteration (CONCEPT:KG-2.261)."""
+"""Unit tests for bounded node iteration (CONCEPT:AU-KG.ingest.never-scan-whole-graph)."""
 
 from __future__ import annotations
 

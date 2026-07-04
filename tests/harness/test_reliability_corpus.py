@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the reliability seed corpus and EvalCorpus metadata passthrough.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 import pytest
@@ -13,7 +13,7 @@ from agent_utilities.harness.reliability_corpus import (
     run_reliability_corpus,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.1")
+pytestmark = pytest.mark.concept("AU-AHE.evaluation.adaptive-reasoning-effort")
 
 
 # --- EvalCorpus metadata passthrough ---------------------------------------

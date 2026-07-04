@@ -12,8 +12,8 @@
 | `ORCH-1.2` | Specialist Routing | ○ Mem0g routing | — | — | — | ● single-query | — | — | — |
 | `ORCH-1.3` | Execution Safety | — | ● poisoning defense | — | — | — | — | ● scaling laws | — |
 | `ORCH-1.4` | Capability Wiring | — | — | — | — | — | — | — | — |
-| `ORCH-1.5` | Agent Orchestrator | ○ multi-agent | ● coordinated teams | — | — | — | — | ● ensemble failures | — |
-| `ORCH-1.5` | DSTDD Pipeline | — | — | — | — | — | — | — | — |
+| `AU-ORCH.planning.legal-automation-roadmap` | Agent Orchestrator | ○ multi-agent | ● coordinated teams | — | — | — | — | ● ensemble failures | — |
+| `AU-ORCH.planning.legal-automation-roadmap` | DSTDD Pipeline | — | — | — | — | — | — | — | — |
 
 ## Pillar 2: Epistemic Knowledge Graph (KG)
 
@@ -39,8 +39,8 @@
 | `AHE-3.2` | Agentic Evolution | ○ evolution patterns | — | — | — | — | — | — | — |
 | `AHE-3.3` | Team & Synergy | — | ● consensus | — | — | — | — | ● ensemble | — |
 | `AHE-3.4` | Distributed Evolution | — | — | — | — | — | — | — | — |
-| `AHE-3.5` | Heavy Thinking | ○ background | ○ sleep-time compute | — | — | — | — | ○ inference | — |
-| `AHE-3.6` | Backtest & Curriculum | — | ● CGT benchmark | — | — | — | — | — | — |
+| `AU-AHE.harness.self-evolution-narrative` | Heavy Thinking | ○ background | ○ sleep-time compute | — | — | — | — | ○ inference | — |
+| `AU-AHE.harness.evolution-checkpoint` | Backtest & Curriculum | — | ● CGT benchmark | — | — | — | — | — | — |
 
 ## Pillar 4: Ecosystem & Peripherals (ECO)
 
@@ -48,10 +48,10 @@
 |---|---|---|---|---|---|---|---|---|---|
 | `ECO-4.0` | Tool Interface & MCP | — | — | — | — | — | — | — | — |
 | `ECO-4.1` | A2A Network | — | — | — | — | — | — | — | — |
-| `ECO-4.2` | Community Telemetry | — | — | — | — | — | — | — | — |
-| `ECO-4.3` | Market Data Connectors | — | — | — | — | — | — | — | — |
-| `ECO-4.4` | KG MCP Server | ○ MCP memory | — | — | — | — | — | — | — |
-| `ECO-4.5` | Terminal Agent Launcher | — | — | — | — | — | — | — | — |
+| `AU-ECO.toolkit.journey-map-narrative` | Community Telemetry | — | — | — | — | — | — | — | — |
+| `AU-ECO.ui.company-infrastructure-orchestration` | Market Data Connectors | — | — | — | — | — | — | — | — |
+| `AU-ECO.toolkit.journey-map-adoption` | KG MCP Server | ○ MCP memory | — | — | — | — | — | — | — |
+| `AU-ECO.toolkit.journey-map-milestones` | Terminal Agent Launcher | — | — | — | — | — | — | — | — |
 
 ## Pillar 5: Agent OS Infrastructure (OS)
 
@@ -60,8 +60,8 @@
 | `OS-5.0` | Agent OS Kernel | — | — | — | — | — | — | — | — |
 | `OS-5.1` | Security & Auth | — | ● memory poisoning | — | — | — | — | ● safety scaling | — |
 | `OS-5.2` | Resource Scheduling | — | — | — | — | — | ○ MemOS resource | — | — |
-| `OS-5.3` | Guardrails & Safety | — | — | — | — | — | — | ● safety ≠ accuracy | — |
-| `OS-5.4` | Telemetry & Observability | — | — | — | — | — | — | — | — |
+| `AU-OS.governance.reactive-multi-axis-budget` | Guardrails & Safety | — | — | — | — | — | — | ● safety ≠ accuracy | — |
+| `AU-OS.governance.wasm-micro-agent-sandbox` | Telemetry & Observability | — | — | — | — | — | — | — | — |
 
 ## Legend
 

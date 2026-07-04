@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the coordination named-aggregation registry + select_winners consensus (b1-02).
 
-CONCEPT:ORCH-1.3
+CONCEPT:AU-ORCH.execution.execution-budget-caps
 """
 
 import pytest
@@ -13,7 +13,7 @@ from agent_utilities.graph.coordination import (
 )
 from agent_utilities.graph.workspace_attention import Proposal, WorkspaceAttention
 
-pytestmark = pytest.mark.concept("ORCH-1.3")
+pytestmark = pytest.mark.concept("AU-ORCH.execution.execution-budget-caps")
 
 
 # --- aggregate_scores registry ---------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for the per-model parallel-call concurrency controller (CONCEPT:KG-2.143)."""
+"""Tests for the per-model parallel-call concurrency controller (CONCEPT:AU-KG.compute.concurrency-controller-sizing)."""
 
 from __future__ import annotations
 
@@ -198,7 +198,7 @@ def test_resolve_capacity_unknown_defaults_to_one():
     assert resolve_capacity("totally-unknown-model-xyz") == 1
 
 
-# --- sample recording side-channel (CONCEPT:KG-2.145) -----------------------
+# --- sample recording side-channel (CONCEPT:AU-KG.compute.surfaces-universal-latency-signal) -----------------------
 
 
 def test_sync_records_samples_while_preserving_order(monkeypatch):

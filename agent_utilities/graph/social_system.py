@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Multi-Agent Social System (MASS) — swarm as a governed social graph.
 
-CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm
 
 Distilled from "Social Theory Should Be a Structural Prior for Agentic AI"
 (`.specify/specs/research-evolution-20260606/` plan b2-01). The paper models a

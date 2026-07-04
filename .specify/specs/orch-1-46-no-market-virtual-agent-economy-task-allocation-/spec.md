@@ -4,7 +4,7 @@
 > **Wire-First:** add a market allocation backend **behind the existing dispatch seam**
 > (`orchestration/agent_dispatch.py` + ORCH-1.45 `AgentTurnEnvelope` queue) as an alternative to the
 > default uniform queue-pull — a sealed-bid / second-price auction where workers bid a cost for
-> capability-matched tasks. Reuses KG-2.27 calibration as the bid-quality prior and the OS-5.24
+> capability-matched tasks. Reuses AU-KG.domains.agent-calibration-reputation-tracking calibration as the bid-quality prior and the OS-5.24
 > ActionPolicy as the spend gate; clearing prices persist as graph nodes fed back into the OS-5.29
 > autoscaler as scarcity signals. Queue-pull stays the default; market mode is one flag.
 
@@ -12,13 +12,13 @@
 - [x] **Extension target identified** — allocation today is centrally pushed by static role strings
   (`DistributedCoordinator.route_task → agent.tasks.<role>`, OS-5.5) or keyword matching
   (`adaptive_agent_router` `RuleBasedPolicy`); ORCH-1.45 dispatch is queue-pull but **uniform**
-  (session-key partition, no price). `agent_step_po.py` (AHE-3.15) has RL step-credit but no budget,
+  (session-key partition, no price). `agent_step_po.py` (AU-AHE.reward.this-is-read-back) has RL step-credit but no budget,
   bid, currency, or clearing. There is no mechanism where agents hold/spend a budget and a market clears.
-- [x] **New CONCEPT:ORCH-1.46 justified** — a price-coordinated allocation regime is distinct from
-  rule/role routing (ORCH-1.x) and RL credit (AHE-3.15); it is the §5.4 "Virtual Agent Economy"
+- [x] **New CONCEPT:AU-ORCH.reactive.action-dispatcher justified** — a price-coordinated allocation regime is distinct from
+  rule/role routing (AU-ORCH.planning.orchestration-overview) and RL credit (AU-AHE.reward.this-is-read-back); it is the §5.4 "Virtual Agent Economy"
   decentralized self-organization mechanism, and surfaces scarcity/value signals routing cannot.
 - [x] **Wire-First confirmed** — 1 allocation backend behind the ORCH-1.45 dispatch seam; bids priced
-  via token-budget + KG-2.27 confidence; spend gated by OS-5.24; clearing prices → OS-5.29 signals.
+  via token-budget + AU-KG.domains.agent-calibration-reputation-tracking confidence; spend gated by OS-5.24; clearing prices → OS-5.29 signals.
 - [x] **Success metric defined** — under market mode, capability-matched tasks are assigned to the
   clearing-winning bidder, an audit-able clearing price is recorded per task, and disabling the flag
   reproduces today's uniform queue-pull byte-for-byte.
@@ -30,7 +30,7 @@
 collective self-organizes allocation and surfaces scarcity/value instead of round-robin.
 - **AC1**: a `MarketAllocator` runs a sealed-bid second-price (or continuous double) auction over the
   ORCH-1.45 `AgentTurnEnvelope`; eligible bidders are capability-matched (reuse the existing router's
-  capability match), bids = token-budget cost weighted by KG-2.27 calibration confidence.
+  capability match), bids = token-budget cost weighted by AU-KG.domains.agent-calibration-reputation-tracking calibration confidence.
 - **AC2**: the winning bidder is assigned the task and the **clearing price** is persisted as a graph
   node (task id, winner, price, losers' bids) for audit and feedback.
 - **AC3**: a bidder with insufficient budget or a task whose spend exceeds the OS-5.24 ActionPolicy cap
@@ -50,6 +50,6 @@ value/scarcity, not just queue depth.
   over-budget bidder excluded, the ActionPolicy cap enforced, and flag-off reproduces queue-pull.
 - `pre-commit run --all-files` green; `scripts/build_concepts_yaml.py` re-run so ORCH-1.46 lands in
   `docs/concepts.yaml`; `scripts/check_concepts.py` passes.
-- Per-concept doc under `docs/architecture/` (extend `agent_dispatch.md`), naming KG-2.27 as the
-  bid-quality prior and OS-5.24 as the spend gate; relate to ORCH-1.49 (scaling-law measurement of
+- Per-concept doc under `docs/architecture/` (extend `agent_dispatch.md`), naming AU-KG.domains.agent-calibration-reputation-tracking as the
+  bid-quality prior and OS-5.24 as the spend gate; relate to AU-ORCH.execution.robust-multi-format-edit (scaling-law measurement of
   whether the market helps).

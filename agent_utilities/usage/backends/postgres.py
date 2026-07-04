@@ -1,6 +1,6 @@
 """Postgres usage backend — enterprise-scale shared store.
 
-CONCEPT:ECO-4.39. Opens through the ``state_store`` seam (the same pool the KG
+CONCEPT:AU-OS.observability.usage-analytics-store. Opens through the ``state_store`` seam (the same pool the KG
 Postgres backend uses) so a single ``STATE_DB_URI`` promotes the whole platform
 — including usage analytics — onto shared Postgres. Search uses ``tsvector``/
 GIN; everything else shares ``SqlUsageBackend`` for query-shape parity.

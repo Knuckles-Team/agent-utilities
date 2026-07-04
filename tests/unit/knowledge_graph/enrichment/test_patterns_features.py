@@ -1,4 +1,4 @@
-"""Design-pattern detection + feature clustering (CONCEPT:KG-2.8 Phase 2)."""
+"""Design-pattern detection + feature clustering (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 2)."""
 
 from __future__ import annotations
 

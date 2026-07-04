@@ -318,7 +318,7 @@ def __getattr__(name):
                 if name == "ModelDisplayOptimizer"
                 else DisplayComplexityBudget
             )
-    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
+    # Ecosystem Topology Map (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
         from .knowledge_graph.core.ecosystem_topology import (
             EcosystemTopologyBuilder,
@@ -327,7 +327,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
+    # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
     elif name in ["SynergyEngine", "ConceptBridge", "PillarCoupling", "SynergyInsight"]:
         from .knowledge_graph.core.synergy_engine import (
             ConceptBridge,
@@ -337,7 +337,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Chat Search Facade (CONCEPT:KG-2.1)
+    # Chat Search Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
     elif name in ["ChatSearchResult", "search_sessions"]:
         from .knowledge_graph.retrieval.chat_search import (
             ChatSearchResult,
@@ -345,7 +345,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agents MD Facade (CONCEPT:KG-2.1)
+    # Agents MD Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
     elif name in ["load_agents_md", "inject_project_context", "find_agents_md"]:
         from .knowledge_graph.core.agents_md import (
             find_agents_md,
@@ -354,7 +354,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Engineering Patterns Facade (CONCEPT:AHE-3.2)
+    # Engineering Patterns Facade (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     elif name in ["EngineeringPatternOrchestrator", "PatternType", "PatternResult"]:
         from .harness.engineering import (
             EngineeringPatternOrchestrator,
@@ -363,7 +363,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.0, ECO-4.12, AHE-3.23)
+    # Agent-Runtimes Capabilities (CONCEPT:AU-ECO.messaging.native-backend-abstraction, CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle, CONCEPT:AU-AHE.harness.capability-ratchet)
     elif name == "DurableExecutionManager":
         from .orchestration.durable_execution import DurableExecutionManager
 
@@ -380,7 +380,7 @@ def __getattr__(name):
         from .core.agentspec_catalog import AgentSpecGenerator
 
         return AgentSpecGenerator
-    # Reactive Framework (CONCEPT:ORCH-1.10)
+    # Reactive Framework (CONCEPT:AU-ORCH.reactive.event-sourcing-ledger)
     elif name in [
         "EventLedger",
         "BehaviorDispatcher",
@@ -397,17 +397,17 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # WASM Agent Runner (CONCEPT:OS-5.4)
+    # WASM Agent Runner (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
     elif name == "WasmAgentRunner":
         from .core.wasm_runner import WasmAgentRunner
 
         return WasmAgentRunner
-    # Cognitive Scheduler (CONCEPT:OS-5.2)
+    # Cognitive Scheduler (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
     elif name == "CognitiveScheduler":
         from .core.cognitive_scheduler import CognitiveScheduler
 
         return CognitiveScheduler
-    # Distributed Coordination (CONCEPT:OS-5.5)
+    # Distributed Coordination (CONCEPT:AU-OS.host.homeostatic-recovery-daemon)
     elif name == "DistributedCoordinator":
         from .orchestration.distributed_coordinator import DistributedCoordinator
 
@@ -416,12 +416,12 @@ def __getattr__(name):
         from .orchestration.recovery_daemon import RecoveryDaemon
 
         return RecoveryDaemon
-    # Semantic Compactor (CONCEPT:KG-2.7)
+    # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     elif name == "SemanticCompactor":
         from .knowledge_graph.memory.memory_compaction import SemanticCompactor
 
         return SemanticCompactor
-    # Replay Engine (CONCEPT:OS-5.6)
+    # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)
     elif name in ["DistributedReplayEngine", "ReplayManifest", "InteractionRecord"]:
         from .observability.replay_engine import (
             DistributedReplayEngine,
@@ -430,12 +430,12 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Telemetry Engine (CONCEPT:OS-5.1)
+    # Telemetry Engine (CONCEPT:AU-OS.config.secrets-authentication)
     elif name == "TelemetryEngine":
         from .observability import TelemetryEngine
 
         return TelemetryEngine
-    # Sandboxed Executor (CONCEPT:OS-5.6)
+    # Sandboxed Executor (CONCEPT:AU-OS.observability.deterministic-replay)
     elif name in ["SandboxedExecutor", "SandboxLimits", "SandboxResult"]:
         from .security.sandboxed_executor import (
             SandboxedExecutor,
@@ -537,46 +537,46 @@ __all__ = [
     "CodemapArtifact",
     "CodemapGenerator",
     "parse_codemap_mentions",
-    # Secrets & Auth (CONCEPT:OS-5.1)
+    # Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
     "SecretsClient",
     "create_secrets_client",
     "verify_credentials",
-    # MATE Integration — Evaluation (CONCEPT:AHE-3.1)
+    # MATE Integration — Evaluation (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "EvalRunner",
     "EvalStrategy",
     "TestCase",
     "EvalResult",
-    # MATE Integration — Token Tracking (CONCEPT:OS-5.1)
+    # MATE Integration — Token Tracking (CONCEPT:AU-OS.config.secrets-authentication)
     "TokenUsageTracker",
     "TokenUsageRecord",
     "TokenBucket",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
+    # MATE Integration — Audit Logging (CONCEPT:AU-OS.config.secrets-authentication)
     "AuditLogger",
     "AuditRecord",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
+    # MATE Integration — Guardrail Engine (CONCEPT:AU-OS.config.secrets-authentication)
     "GuardrailEngine",
     "GuardrailRule",
     "GuardrailAction",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
+    # MATE Integration — Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
+    # Ecosystem Topology Map (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
     "EcosystemTopologyBuilder",
     "PackageCategory",
     "PackageInfo",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
+    # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
     "SynergyEngine",
     "ConceptBridge",
     "PillarCoupling",
     "SynergyInsight",
-    # Chat Search Facade (CONCEPT:KG-2.1)
+    # Chat Search Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
     "ChatSearchResult",
     "search_sessions",
-    # Agents MD Facade (CONCEPT:KG-2.1)
+    # Agents MD Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
     "load_agents_md",
     "inject_project_context",
     "find_agents_md",
-    # Engineering Patterns Facade (CONCEPT:AHE-3.2)
+    # Engineering Patterns Facade (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "EngineeringPatternOrchestrator",
     "PatternType",
     "PatternResult",
@@ -585,28 +585,28 @@ __all__ = [
     "JupyterKernelAdapter",
     "SandboxExecutor",
     "AgentSpecGenerator",
-    # Reactive Framework (CONCEPT:ORCH-1.10)
+    # Reactive Framework (CONCEPT:AU-ORCH.reactive.event-sourcing-ledger)
     "EventLedger",
     "BehaviorDispatcher",
     "reactive_behavior",
     "BudgetGuard",
     "BudgetTrippedException",
-    # WASM Agent Runner (CONCEPT:OS-5.4)
+    # WASM Agent Runner (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
     "WasmAgentRunner",
-    # Cognitive Scheduler (CONCEPT:OS-5.2)
+    # Cognitive Scheduler (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
     "CognitiveScheduler",
-    # Distributed Coordination (CONCEPT:OS-5.5)
+    # Distributed Coordination (CONCEPT:AU-OS.host.homeostatic-recovery-daemon)
     "DistributedCoordinator",
     "RecoveryDaemon",
-    # Semantic Compactor (CONCEPT:KG-2.7)
+    # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     "SemanticCompactor",
-    # Replay Engine (CONCEPT:OS-5.6)
+    # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)
     "DistributedReplayEngine",
     "ReplayManifest",
     "InteractionRecord",
-    # Telemetry Engine (CONCEPT:OS-5.1)
+    # Telemetry Engine (CONCEPT:AU-OS.config.secrets-authentication)
     "TelemetryEngine",
-    # Sandboxed Executor (CONCEPT:OS-5.6)
+    # Sandboxed Executor (CONCEPT:AU-OS.observability.deterministic-replay)
     "SandboxedExecutor",
     "SandboxLimits",
     "SandboxResult",

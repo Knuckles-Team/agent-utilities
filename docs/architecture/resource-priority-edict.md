@@ -1,8 +1,8 @@
 # Resource-Priority Edict — interactive over ingestion, end to end
 
-> **CONCEPT:ORCH-1.98** (the priority class + carrier) ·
-> **CONCEPT:ORCH-1.99** (the priority-aware shared-LLM admission gate) ·
-> **CONCEPT:KG-2.293** (cross-component propagation)
+> **CONCEPT:AU-ORCH.scheduling.resource-priority-edict** (the priority class + carrier) ·
+> **CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler** (the priority-aware shared-LLM admission gate) ·
+> **CONCEPT:AU-KG.compute.priority-class-propagation** (cross-component propagation)
 
 ## The edict (the law)
 
@@ -68,9 +68,9 @@ slot ahead of background ingestion, because all three reserved lanes key off the
 
 | Tier | Mechanism | Reserved floor |
 |---|---|---|
-| **Host worker** | `knowledge_graph/core/worker_scheduler.py` `AdmissionPolicy` (CONCEPT:KG-2.289) | `interactive_floor()` — a worker count non-interactive lanes can never claim |
-| **Engine read** | epistemic-graph reserved read lane (EG-044) | a read slot kept for interactive reads under a write-storm |
-| **Shared LLM** | `core/resource_priority.py` `PriorityModelGate` (CONCEPT:ORCH-1.99) | `reserve` permits kept free for interactive/orchestration/hydration |
+| **Host worker** | `knowledge_graph/core/worker_scheduler.py` `AdmissionPolicy` (CONCEPT:AU-KG.compute.interactive-lane-floor) | `interactive_floor()` — a worker count non-interactive lanes can never claim |
+| **Engine read** | epistemic-graph reserved read lane (EG-KG.coordination.reserved-read-lane) | a read slot kept for interactive reads under a write-storm |
+| **Shared LLM** | `core/resource_priority.py` `PriorityModelGate` (CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler) | `reserve` permits kept free for interactive/orchestration/hydration |
 
 The LLM gate, for one generator model:
 
@@ -159,8 +159,8 @@ check these in order:
    (`observability/correlation.py`) across process and engine hops, so a spawned child
    agent inherits the class — verify it is present on the outbound call.
 2. **Is the slowness the LLM gate or somewhere else?** The gate only governs the
-   **shared qwen generator**. If the wait is on an engine read it is the EG-044 reserved
-   read lane; if it is on a worker slot it is the host `AdmissionPolicy` (KG-2.289).
+   **shared qwen generator**. If the wait is on an engine read it is the EG-KG.coordination.reserved-read-lane reserved
+   read lane; if it is on a worker slot it is the host `AdmissionPolicy` (AU-KG.compute.interactive-lane-floor).
    All three key off the same `PriorityClass`, so a misclassified call starves all
    three — fix the class, not the individual lane.
 3. **Is `reserve` too small for the interactive burst?** `reserve` guarantees that
@@ -172,7 +172,7 @@ check these in order:
 4. **Is background actually yielding?** Background is *refused admission* while a high
    call waits and capped at `capacity - reserve` otherwise; it is never blocked to
    zero. If ingestion has stalled to nothing, that is a different problem (a tripped
-   circuit breaker, ORCH-1.103, or an empty queue) — not the edict starving it.
+   circuit breaker, AU-ORCH.routing.load-shedding-backoff, or an empty queue) — not the edict starving it.
 
 ## Propagation (the carrier)
 
@@ -197,7 +197,7 @@ and the engine access via a context-var carrier — there is no parallel system:
 - **Cross-process / engine.** `observability/correlation.py` carries the class on
   the `x-resource-priority` header in `current_carrier()` / `inject()`, and restores
   it in `bind_carrier()`, so a spawned child agent and any outbound engine read
-  (the EG-044 read lane) inherit the entry point's priority.
+  (the EG-KG.coordination.reserved-read-lane read lane) inherit the entry point's priority.
 
 `HYDRATION_TASK_TYPES` (default `{"skill_workflows"}`) overrides the background lane
 mapping so foundational hydration is HIGH even though its corpus ingest is bulky.

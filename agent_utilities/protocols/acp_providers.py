@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """ACP Providers Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module implements custom persistence providers for the ACP protocol.
 It enables mirroring of ACP session state (like plans) into workspace-local

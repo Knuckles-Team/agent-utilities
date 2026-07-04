@@ -1,6 +1,6 @@
 """Live-path test: a research-roundup page auto-acquires + links its papers.
 
-CONCEPT:KG-2.7 — exercises the IngestionEngine wiring (``_acquire_referenced_papers``),
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — exercises the IngestionEngine wiring (``_acquire_referenced_papers``),
 not just the helpers, per the Wire-First discipline.
 """
 

@@ -1,6 +1,6 @@
 """Job-queue controls: cancel / clear(by status incl. all/zombie) / prioritize.
 
-CONCEPT:KG-2.8 — operator control over the ingestion queue. Exercises the
+CONCEPT:EG-KG.storage.nonblocking-checkpoint — operator control over the ingestion queue. Exercises the
 ``TaskManagerMixin`` methods against a real ``EpistemicGraphBackend``.
 """
 

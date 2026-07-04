@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Population-drift monitor for evolutionary / swarm loops.
 
-CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine (diversity-collapse detection)
+CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Aggregation Engine (diversity-collapse detection)
 
 A distributional collapse detector distilled from the MASS social-swarm research
 (`.specify/specs/research-evolution-20260606/` plan b2-01): instead of a single

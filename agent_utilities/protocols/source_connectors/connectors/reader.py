@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Readability reader document-source connector (CONCEPT:KG-2.66).
+"""Readability reader document-source connector (CONCEPT:AU-KG.enrichment.multimodal-readers).
 
 Turns a single URL into clean, boilerplate-stripped markdown — the content a
 fact extractor actually wants, versus the raw HTML the recursive ``web`` crawler
@@ -98,7 +98,7 @@ def _default_fetch(url: str) -> str:
 class ReaderConnector(LoadConnector):
     """Read a single URL into clean markdown (readability), one document.
 
-    CONCEPT:KG-2.66.
+    CONCEPT:AU-KG.enrichment.multimodal-readers.
 
     Config:
         url: The page to read (required).

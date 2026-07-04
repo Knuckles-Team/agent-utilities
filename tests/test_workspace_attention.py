@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for CONCEPT:ORCH-1.2 — Global Workspace Attention."""
+"""Tests for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Global Workspace Attention."""
 
 import pytest
 

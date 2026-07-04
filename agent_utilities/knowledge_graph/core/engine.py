@@ -95,7 +95,7 @@ class IntelligenceGraphEngine(
     FederationMixin,
     AHEMixin,
     InfrastructureEngineMixin,
-    # CONCEPT:KG-2.6 — finance + ML/RLM domain methods composed onto the engine, so
+    # CONCEPT:AU-KG.domains.lazy-symbol-loading — finance + ML/RLM domain methods composed onto the engine, so
     # callers use engine.fit_markov_regime(...) / engine.register_rlm_actor(...) directly
     # instead of instantiating the abstract mixins standalone (the prior workaround).
     FinanceEngineMixin,
@@ -159,7 +159,7 @@ class IntelligenceGraphEngine(
             )
             self.routing_strategy = RoutingStrategy.HYBRID
 
-        # CONCEPT:KG-2.148 — control-plane / content-plane write isolation.
+        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control-plane / content-plane write isolation.
         # The scheduler, the per-task claim CAS, status flips, the reaper resets,
         # the promotion sweep, and the :Schedule store all funnel through ONE
         # engine graph ('__commons__') with a single per-graph write lock. Under
@@ -197,7 +197,7 @@ class IntelligenceGraphEngine(
 
         # Resolve the active Schema Pack (explicit > env > config > core) and build
         # the retriever pack-aware so pack-driven retrieval signals (recency,
-        # source-trust, autocut, relational-intent) are reachable (CONCEPT:KG-2.35).
+        # source-trust, autocut, relational-intent) are reachable (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         if schema_pack is None:
             try:
                 from agent_utilities.models.schema_pack_loader import (
@@ -214,11 +214,11 @@ class IntelligenceGraphEngine(
         self.hybrid_retriever = HybridRetriever(self, schema_pack=schema_pack)
         self.inference_engine = InferenceEngine(self)
 
-        # CONCEPT:ORCH-1.4 — Auto-register service registry
+        # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Auto-register service registry
         self._services_registered = False
 
     def _build_control_backend(self) -> GraphBackend:
-        """Construct the dedicated control-plane backend (CONCEPT:KG-2.148).
+        """Construct the dedicated control-plane backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
 
         Returns a backend bound to the ``__control__`` engine graph so the
         scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
@@ -246,14 +246,14 @@ class IntelligenceGraphEngine(
             # state; only the engine authority does.)
             control = EpistemicGraphBackend(graph_name="__control__")
             logger.info(
-                "[CONCEPT:KG-2.148] control backend bound to '__control__' "
+                "[CONCEPT:AU-KG.backend.schedule-on-control-graph] control backend bound to '__control__' "
                 "(isolated engine graph; content backend=%s)",
                 type(base).__name__,
             )
             return control
         except Exception as e:  # noqa: BLE001 — degrade, never crash the engine
             logger.warning(
-                "[CONCEPT:KG-2.148] could not build isolated control backend "
+                "[CONCEPT:AU-KG.backend.schedule-on-control-graph] could not build isolated control backend "
                 "(%s); falling back to the shared content backend (__commons__). "
                 "Control-plane writes will contend with ingestion as before.",
                 e,
@@ -263,7 +263,7 @@ class IntelligenceGraphEngine(
     def register_services(self) -> int:
         """Register all services with the KG for orchestrator discovery.
 
-        CONCEPT:ORCH-1.4 — Unified Service Discovery
+        CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Unified Service Discovery
 
         Lazily initializes the ServiceRegistry and registers all concept
         modules as CallableResource nodes in the KG, enabling the
@@ -283,7 +283,7 @@ class IntelligenceGraphEngine(
             count = registry.register_with_kg(self)
             self._services_registered = True
             logger.info(
-                "[CONCEPT:ORCH-1.4] Registered %d services with KG engine", count
+                "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine", count
             )
             return count
         except Exception as e:
@@ -320,7 +320,7 @@ class IntelligenceGraphEngine(
 
     def _normalize_label(self, label: str) -> str:
         """Find canonical case for a label from the schema. Delegates to the one
-        materialization helper (CONCEPT:KG-2.9) — single source of truth."""
+        materialization helper (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — single source of truth."""
         from .materialization import normalize_label
 
         return normalize_label(label)
@@ -378,7 +378,7 @@ class IntelligenceGraphEngine(
 
     # Drivers that reject map/list-of-map property values (openCypher property
     # values must be primitives or arrays of primitives). Nested dict/list props
-    # are JSON-encoded for these so a write never throws (CONCEPT:KG-2.7 parity).
+    # are JSON-encoded for these so a write never throws (CONCEPT:AU-KG.compute.bidirectional-sync parity).
     _NESTED_UNSAFE = {"Neo4jBackend", "FalkorDBBackend"}
 
     # Fields stored as native arrays (not JSON-encoded) across backends.
@@ -390,7 +390,7 @@ class IntelligenceGraphEngine(
             "success_criteria_met",
             "embedding",
             "issues",
-            # CONCEPT:KG-2.133 — capability-node aliases the lexical gate matches;
+            # CONCEPT:AU-KG.ontology.capability-node-aliases-lexical — capability-node aliases the lexical gate matches;
             # kept native (not JSON-encoded) so it round-trips as a list on every
             # backend, including the nested-unsafe ones (neo4j/falkordb).
             "synonyms",
@@ -415,7 +415,7 @@ class IntelligenceGraphEngine(
         self, data: dict[str, Any], alias: str = "n", label: str | None = None
     ) -> str:
         """Generate a SET clause for a Cypher query from a dictionary. Delegates to
-        the one materialization helper (CONCEPT:KG-2.9) so SET-clause column
+        the one materialization helper (CONCEPT:AU-KG.ingest.enterprise-source-extractor) so SET-clause column
         filtering has a single implementation."""
         from .materialization import set_clause
 
@@ -522,7 +522,7 @@ class IntelligenceGraphEngine(
         """
         if rel_type:
             # Flag edge types outside an EXCLUSIVE pack before normalising case
-            # (observe-only; no-op under the default core pack) (CONCEPT:KG-2.35).
+            # (observe-only; no-op under the default core pack) (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
             self._audit_candidate_type("edge", str(rel_type))
             rel_type = rel_type.upper()
         props = properties or {}
@@ -531,7 +531,7 @@ class IntelligenceGraphEngine(
             props["confidence"] = 1.0
         if "source" not in props:
             props["source"] = "system"
-        # CONCEPT:KG-2.11 — Bi-Temporal Memory. Stamp event_time / storage_time /
+        # CONCEPT:AU-KG.temporal.bi-temporal-memory-layers — Bi-Temporal Memory. Stamp event_time / storage_time /
         # valid_from / valid_to so edges support as-of queries and event-time contradiction
         # precedence (extends the prior Graphiti-inspired valid_from). A caller-supplied
         # event_time (e.g. a narrative date resolved by the learner) is preserved.
@@ -590,7 +590,7 @@ class IntelligenceGraphEngine(
         # the capability — the same signal ``migration.py`` uses — is correct THROUGH
         # a wrapper (a FanOutBackend delegates ``cypher_support`` to its authority), so
         # a Neo4j/FalkorDB mirror or authority reached via the fan-out no longer gets a
-        # broken ``label(n)`` query that retries forever (CONCEPT:KG-2.74). The
+        # broken ``label(n)`` query that retries forever (CONCEPT:AU-KG.backend.mirror-health-repair). The
         # class-name ``_NESTED_UNSAFE`` set stays for nested-prop JSON encoding only.
         # Skipped entirely when the caller supplies the labels (bulk migration) — the
         # labels are normalised the same way the nodes were written so the indexed
@@ -664,7 +664,7 @@ class IntelligenceGraphEngine(
         return False
 
     def _on_schema_pack_change(self, pack: Any) -> None:
-        """Rewire the engine when the active Schema Pack changes (CONCEPT:KG-2.35).
+        """Rewire the engine when the active Schema Pack changes (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
 
         Rebuilds the retriever so the new pack's retrieval signals take effect
         immediately; the fresh retriever carries the new ``pack.signature()`` so a
@@ -726,7 +726,7 @@ class IntelligenceGraphEngine(
         node_type = self._normalize_label(node_type)
         props = properties or {}
         props["type"] = node_type
-        # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:KG-2.35).
+        # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
 
         if self.backend and not ephemeral:
@@ -748,7 +748,7 @@ class IntelligenceGraphEngine(
         """Add a generic edge between two nodes (backend-first, then graph_compute).
 
         Convenience for ad-hoc relationships (e.g. provenance links like
-        ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:ORCH-1.39) where there is no typed
+        ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:AU-ORCH.session.invoker-agent-handoff) where there is no typed
         model. Best-effort: a missing backend/compute method is tolerated.
         """
         if self.backend and not ephemeral:
@@ -840,7 +840,7 @@ class IntelligenceGraphEngine(
         that tracks mutations and can flush **only the deltas** back to the durable
         tier — instead of the detached, load-only scratchpad ``load_subgraph``
         returns. This closes the checkout → mutate → write-back loop without a
-        full-graph enumeration. (CONCEPT:KG-2.7 P2 — bounded checkout + delta
+        full-graph enumeration. (CONCEPT:AU-KG.compute.bidirectional-sync P2 — bounded checkout + delta
         write-back.)
 
         The Cypher query must ``RETURN`` nodes ``n`` (and optionally relationships
@@ -1126,7 +1126,7 @@ class IntelligenceGraphEngine(
     def hydrate_compute_engine(self, limit: int = 50000) -> int:
         """Rebuild the Rust compute engine state from the persistent backend.
 
-        CONCEPT:KG-2.7 — On startup (or after a Rust service restart), the
+        CONCEPT:AU-KG.compute.bidirectional-sync — On startup (or after a Rust service restart), the
         in-memory graph is empty. This method queries the backend for all
         nodes and edges, then replays them into the compute engine via
         ``batch_update()`` to restore full state parity.
@@ -1208,7 +1208,7 @@ class IntelligenceGraphEngine(
     ) -> int:
         """Synchronize vector embeddings between LadybugDB and Rust SemanticStore.
 
-        CONCEPT:KG-2.7 — Bidirectional sync to ensure both the persistent
+        CONCEPT:AU-KG.compute.bidirectional-sync — Bidirectional sync to ensure both the persistent
         VECTOR index (LadybugDB) and the in-memory SemanticStore (Rust) have
         the same embeddings.
 

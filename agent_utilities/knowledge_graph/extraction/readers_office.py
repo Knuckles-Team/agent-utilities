@@ -1,6 +1,6 @@
 """Office-document modality readers — email, presentations, spreadsheets.
 
-CONCEPT:KG-2.66 — multi-modal ingestion readers (office tail).
+CONCEPT:AU-KG.enrichment.multimodal-readers — multi-modal ingestion readers (office tail).
 
 Extends the universal ingestion funnel's *reader* stage (reader → structure-router
 → {open|schema} extraction → ontology grounding) to the everyday office formats

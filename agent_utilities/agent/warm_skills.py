@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.92 — dispatch-tier warm-fork: share the warm agent-construction artifacts.
+"""CONCEPT:AU-ORCH.dispatch.dispatch-warm-fork — dispatch-tier warm-fork: share the warm agent-construction artifacts.
 
 When a swarm fans out (``graph/parallel_engine.py``, 50–300 sub-agents) or a dispatch worker
 handles many same-config turns, every ``create_agent`` rebuilds the **SkillsToolset** from
@@ -13,7 +13,7 @@ in-process worker already amortises *imports*. The honest, safe win is to build 
 read-only construction artifacts **once** and let each freshly-constructed ``Agent`` reuse them
 (pydantic-ai toolsets are designed to be attached to many agents) while still opening its own
 per-run MCP connections. The artifacts are pooled in the host :class:`WarmParentRegistry`
-(CONCEPT:OS-5.58), so they are idle-reaped and counted alongside the sandbox warm parents.
+(CONCEPT:AU-OS.host.so-they-are-idle), so they are idle-reaped and counted alongside the sandbox warm parents.
 """
 
 from __future__ import annotations

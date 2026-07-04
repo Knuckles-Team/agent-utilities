@@ -1,7 +1,7 @@
 """Unified resource-priority class + priority-aware shared-LLM admission.
 
-CONCEPT:ORCH-1.98 (the priority class + carrier) / CONCEPT:ORCH-1.99 (the LLM
-admission gate) / CONCEPT:KG-2.293 (cross-component propagation).
+CONCEPT:AU-ORCH.scheduling.resource-priority-edict (the priority class + carrier) / CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler (the LLM
+admission gate) / CONCEPT:AU-KG.compute.priority-class-propagation (cross-component propagation).
 
 THE EDICT (the operator's law)
 ------------------------------
@@ -22,7 +22,7 @@ triangle, keyed off the SAME :class:`PriorityClass` currency:
 
 * the **host worker** reserved interactive lane —
   :class:`agent_utilities.knowledge_graph.core.worker_scheduler.AdmissionPolicy`
-  (CONCEPT:KG-2.289) reserves a worker floor that non-interactive lanes can never
+  (CONCEPT:AU-KG.compute.interactive-lane-floor) reserves a worker floor that non-interactive lanes can never
   claim, so an interactive task always lands a worker slot.
 * the **engine** reserved read lane (EG-044, in epistemic-graph) keeps a read
   slot for interactive reads under a saturating ingest write-storm.
@@ -198,7 +198,7 @@ def priority_for_lane(lane: str | None) -> PriorityClass:
     """Map a host scheduler *lane* to its priority class (KG-2.293).
 
     Keyed off the SAME ``INTERACTIVE_LANES`` set the worker AdmissionPolicy uses
-    (CONCEPT:KG-2.289), so the LLM admission and the worker reservation agree on
+    (CONCEPT:AU-KG.compute.interactive-lane-floor), so the LLM admission and the worker reservation agree on
     what "interactive" means without a second source of truth.
     """
     from agent_utilities.knowledge_graph.core.task_lanes import INTERACTIVE_LANES

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Policy & Guardrails Engine.
 
-CONCEPT:OS-5.1
+CONCEPT:AU-OS.config.secrets-authentication
 
 Provides automated policy enforcement for agent inputs and outputs.
 Rules implement the :class:`PolicyRule` protocol and are aggregated by

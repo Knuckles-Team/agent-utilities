@@ -1,4 +1,4 @@
-"""Tests for server-minted KG request identity (CONCEPT:OS-5.14).
+"""Tests for server-minted KG request identity (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
 Covers:
 - claims → ActorContext mapping (roles/tenant extraction, authenticated flag)
@@ -91,7 +91,7 @@ def _status(sent: list[dict]) -> int:
 
 
 class TestActorFromClaims:
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_basic_mapping_is_authenticated(self):
         actor = actor_from_claims(
             {"sub": "user:ada", "roles": ["hr", "analyst"], "tenant_id": "acme"}
@@ -101,7 +101,7 @@ class TestActorFromClaims:
         assert actor.tenant_id == "acme"
         assert actor.authenticated is True
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_keycloak_realm_roles_and_tid(self):
         actor = actor_from_claims(
             {"sub": "svc:x", "realm_access": {"roles": ["kg-reader"]}, "tid": "t1"}
@@ -109,12 +109,12 @@ class TestActorFromClaims:
         assert actor.roles == ("kg-reader",)
         assert actor.tenant_id == "t1"
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_scope_string_split(self):
         actor = actor_from_claims({"sub": "svc:y", "scope": "kg:read kg:write"})
         assert actor.roles == ("kg:read", "kg:write")
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_human_when_email_claim_present(self):
         from agent_utilities.models.company_brain import ActorType
 
@@ -130,7 +130,7 @@ class TestActorFromClaims:
 
 
 class TestActorIdentityMiddleware:
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_valid_token_mints_authenticated_actor(self):
         token, jwks = _make_token_and_jwks(roles=["hr"], tenant_id="acme")
@@ -157,7 +157,7 @@ class TestActorIdentityMiddleware:
         # The contextvar is reset after the request.
         assert current_actor().authenticated is False
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_invalid_token_is_401_even_when_auth_not_required(self):
         _, jwks = _make_token_and_jwks()
@@ -174,7 +174,7 @@ class TestActorIdentityMiddleware:
             sent = await _call(mw, headers=[(b"authorization", b"Bearer garbage")])
         assert _status(sent) == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_auth_required_rejects_missing_token(self):
         cfg = _make_config(kg_auth_required=True, auth_jwt_jwks_uri="https://idp/jwks")
@@ -183,7 +183,7 @@ class TestActorIdentityMiddleware:
             sent = await _call(mw)
         assert _status(sent) == 401
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_auth_required_exempts_health(self):
         cfg = _make_config(kg_auth_required=True)
@@ -195,7 +195,7 @@ class TestActorIdentityMiddleware:
         assert captured["actor"].authenticated is False
 
     async def test_auth_required_exempts_metrics(self):
-        # Prometheus scrapers cannot mint JWTs (CONCEPT:OS-5.23)
+        # Prometheus scrapers cannot mint JWTs (CONCEPT:AU-OS.observability.no-op-without-metrics)
         cfg = _make_config(kg_auth_required=True)
         captured: dict = {}
         mw = ActorIdentityMiddleware(_make_inner_app(captured))
@@ -204,7 +204,7 @@ class TestActorIdentityMiddleware:
         assert _status(sent) == 200
         assert captured["actor"].authenticated is False
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_legacy_mode_passes_through_unauthenticated(self):
         cfg = _make_config()
@@ -222,7 +222,7 @@ class TestActorIdentityMiddleware:
 
 
 class TestKgServerIdentityResolution:
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_legacy_kwargs_build_actor(self):
         from agent_utilities.mcp.kg_server import _actor_from_kwargs
 
@@ -236,7 +236,7 @@ class TestKgServerIdentityResolution:
         assert actor.authenticated is False
         assert kwargs == {"x": 1}  # identity kwargs always popped
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_authenticated_ambient_actor_ignores_kwargs(self):
         from agent_utilities.mcp.kg_server import _actor_from_kwargs
 
@@ -251,7 +251,7 @@ class TestKgServerIdentityResolution:
         assert actor is None  # ambient (server-minted) identity kept
         assert kwargs == {}
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_auth_required_ignores_kwargs_entirely(self):
         from agent_utilities.mcp.kg_server import _actor_from_kwargs
 
@@ -262,7 +262,7 @@ class TestKgServerIdentityResolution:
         assert actor is None
         assert kwargs == {}
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_read_only_gate_blocks_writes_when_unauthenticated(self):
         from agent_utilities.mcp import kg_server
@@ -283,7 +283,7 @@ class TestKgServerIdentityResolution:
             # Read-only surface stays available.
             assert await kg_server._execute_tool("graph_query") == "ok"
 
-    @pytest.mark.concept("CONCEPT:OS-5.14")
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_authenticated_actor_passes_write_gate(self):
         from agent_utilities.mcp import kg_server
@@ -302,7 +302,7 @@ class TestKgServerIdentityResolution:
 
 
 # ---------------------------------------------------------------------------
-# Served security profile (CONCEPT:OS-5.14)
+# Served security profile (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
 # ---------------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.11 — Unified dev-lifecycle CLI tests (namespace isolation + run-scoped token mint)."""
+"""CONCEPT:AU-OS.observability.run-wide-correlation-id — Unified dev-lifecycle CLI tests (namespace isolation + run-scoped token mint)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from agent_utilities import cli
 from agent_utilities.security.run_token import decode_token, validate_token
 
-pytestmark = pytest.mark.concept(id="OS-5.11")
+pytestmark = pytest.mark.concept(id="AU-OS.observability.run-wide-correlation-id")
 
 
 def test_runtime_dir_isolated_by_namespace(monkeypatch, tmp_path):

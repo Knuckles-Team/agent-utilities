@@ -1,15 +1,15 @@
 # Spec: Agent-Step Policy Optimization (ARPO-derived)
 
-> **Status: PROPOSED.** Concept: new **AHE-3.x** (Agentic Harness Engineering).
+> **Status: PROPOSED.** Concept: new **AU-AHE.optimization.telemetry-optimization** (Agentic Harness Engineering).
 > Source: ARPO — *Agentic Reinforced Policy Optimization* (arXiv:2507.19849).
 > Derived from `.specify/specs/reasoning-rl-2026/COMPARATIVE_ANALYSIS.md` (rank 1).
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
 - [ ] **KG search completed** — `.specify/design/arpo-agent-step-po/design.md` exists
-- [ ] **Extension point identified** — extends AHE-3.1 reward + ORCH routing (New Concept Proposal: AHE-3.x)
+- [ ] **Extension point identified** — extends AHE-3.1 reward + ORCH routing (New Concept Proposal: AU-AHE.optimization.telemetry-optimization)
 - [ ] **C4 diagram created** — agent-step credit + entropy-branching into ORCH routing topology
-- [ ] **No new CONCEPT: tag** without pillar reference — AHE-3.x under Agentic Harness Engineering
+- [ ] **No new CONCEPT: tag** without pillar reference — AU-AHE.optimization.telemetry-optimization under Agentic Harness Engineering
 - [ ] **`code-enhancer` audit** run against proposed changes
 - [ ] **Design validation passes** — `SDDManager.validate_design("arpo-agent-step-po")`
 

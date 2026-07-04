@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.8 — multi-language code discovery + language classification.
+"""CONCEPT:EG-KG.storage.nonblocking-checkpoint — multi-language code discovery + language classification.
 
 The Rust engine parses Python/JS/TS/Go/Rust/Java/C/C++/C#; the Python side must
 (1) discover all of those source files (not just ``*.py``) and (2) carry the

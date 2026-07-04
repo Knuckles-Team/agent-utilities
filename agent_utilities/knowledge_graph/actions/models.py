@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — data models (CONCEPT:KG-2.25).
+"""Ontology Action System — data models (CONCEPT:AU-KG.ontology.ontology-action-system).
 
 Pydantic models for the governed *verb* layer over the ontology: the
 parameterized, permission-gated, audited :class:`OntologyAction` definition, its
@@ -32,7 +32,7 @@ class ActionEffect(StrEnum):
 
 
 class EffectKind(StrEnum):
-    """The class of typed side-effect an action declares. CONCEPT:KG-2.42.
+    """The class of typed side-effect an action declares. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview*): an Action Type may
     apply MULTIPLE typed edits in one logical submission — create/modify/delete
@@ -49,7 +49,7 @@ class EffectKind(StrEnum):
 
 
 class ActionEffectSpec(BaseModel):
-    """One declared, typed side-effect of an :class:`OntologyAction`. CONCEPT:KG-2.42.
+    """One declared, typed side-effect of an :class:`OntologyAction`. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview* — "Modifying the
     Ontology"): an action's effects are a typed list of object/link edits applied
@@ -95,7 +95,7 @@ class ActionParameter(BaseModel):
 
 
 class CriterionOp(StrEnum):
-    """Comparison operator for a :class:`SubmissionCriterion`. CONCEPT:KG-2.42."""
+    """Comparison operator for a :class:`SubmissionCriterion`. CONCEPT:AU-KG.ontology.batch-actions-executor."""
 
     REQUIRED = "required"  # field must be present + truthy
     EQUALS = "equals"
@@ -110,7 +110,7 @@ class CriterionOp(StrEnum):
 
 
 class SubmissionCriterion(BaseModel):
-    """A submission rule predicate gating whether an action may run. CONCEPT:KG-2.42.
+    """A submission rule predicate gating whether an action may run. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview* — "Submission
     criteria"): before an action's edits are applied, a set of validation rules
@@ -138,7 +138,7 @@ class SubmissionCriterion(BaseModel):
 
 
 class FunctionRef(BaseModel):
-    """Reference to a registered ontology Function backing an action. CONCEPT:KG-2.42.
+    """Reference to a registered ontology Function backing an action. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview* — "Function-backed
     actions"): an action may delegate its core logic to a typed, versioned
@@ -153,7 +153,7 @@ class FunctionRef(BaseModel):
 
 
 class NotificationSpec(BaseModel):
-    """A notification to fire after an action's edits are applied. CONCEPT:KG-2.42.
+    """A notification to fire after an action's edits are applied. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview* — "Notifications"):
     actions can notify recipients on submission. ``template`` supports the same
@@ -166,7 +166,7 @@ class NotificationSpec(BaseModel):
 
 
 class WebhookSpec(BaseModel):
-    """An outbound webhook to POST after an action's edits are applied. CONCEPT:KG-2.42.
+    """An outbound webhook to POST after an action's edits are applied. CONCEPT:AU-KG.ontology.batch-actions-executor.
 
     Provenance (Palantir AIP doc: *action-types/overview* — "Webhooks"): an
     action can call an external system on submission. Dispatched for real via
@@ -181,7 +181,7 @@ class WebhookSpec(BaseModel):
 
 
 class OntologyAction(BaseModel):
-    """A first-class, governed verb over ontology objects. CONCEPT:KG-2.25.
+    """A first-class, governed verb over ontology objects. CONCEPT:AU-KG.ontology.ontology-action-system.
 
     An action is a *definition* (Palantir-AIP-style ``Action Type``): it names a
     verb, declares its typed parameters, the ontology object types it
@@ -202,10 +202,10 @@ class OntologyAction(BaseModel):
         risk_tier: Optional explicit HITL risk tier ("low".."critical") that
             overrides the tier derived from ``produces_effect``/``idempotent``
             when the :class:`EscalationGate` decides whether human approval is
-            required (CONCEPT:OS-5.12). Empty → derive from effect.
+            required (CONCEPT:AU-OS.observability.empty-derive-from-effect). Empty → derive from effect.
         value_tier: Default value/business-impact tier for this action
             ("low".."critical") used by the escalation matrix when the caller
-            does not supply a per-invocation value hint (CONCEPT:OS-5.12).
+            does not supply a per-invocation value hint (CONCEPT:AU-OS.observability.empty-derive-from-effect).
     """
 
     id: str = ""
@@ -219,7 +219,7 @@ class OntologyAction(BaseModel):
     idempotent: bool = True
     risk_tier: str = ""
     value_tier: str = "low"
-    # ── Action-Type extension (CONCEPT:KG-2.42) — all optional, defaults
+    # ── Action-Type extension (CONCEPT:AU-KG.ontology.batch-actions-executor) — all optional, defaults
     # preserve existing KG-2.25 semantics (no side-effects, no criteria). ──
     side_effects: list[ActionEffectSpec] = Field(default_factory=list)
     submission_criteria: list[SubmissionCriterion] = Field(default_factory=list)
@@ -250,7 +250,7 @@ class OntologyAction(BaseModel):
 
 
 class ActionInvocation(BaseModel):
-    """An audited record of one :class:`OntologyAction` invocation. CONCEPT:KG-2.25.
+    """An audited record of one :class:`OntologyAction` invocation. CONCEPT:AU-KG.ontology.ontology-action-system.
 
     Persisted as a KG ``action_invocation`` node (lazily, when a backend is
     reachable) with ``INVOKED_BY`` → actor and ``ACTS_ON`` → target edges.
@@ -266,7 +266,7 @@ class ActionInvocation(BaseModel):
     error: str = ""
     audit_ref: str = ""
     persisted: bool = False
-    # ── Action-Type extension (CONCEPT:KG-2.42) ──
+    # ── Action-Type extension (CONCEPT:AU-KG.ontology.batch-actions-executor) ──
     # Ids of the C1 EditLedger edits this invocation produced (drives undo).
     edit_ids: list[str] = Field(default_factory=list)
     # Recorded outbound dispatches (notifications + webhooks), each a dict

@@ -1,4 +1,4 @@
-# MCP Tool Source Connector (CONCEPT:KG-2.59)
+# MCP Tool Source Connector (CONCEPT:AU-KG.ingest.mcp-tool-connector)
 
 ## Overview
 One declarative adapter (`source_type: "mcp_tool"`) that turns **any** MCP server's
@@ -87,7 +87,7 @@ KG-2.8). Live-path test:
 `tests/integration/protocols/test_mcp_tool_connector_live_path.py` (in-process
 FastMCP server with canned sql-mcp / objectstore-mcp envelopes).
 
-## Write-back — the symmetric side (CONCEPT:KG-2.42)
+## Write-back — the symmetric side (CONCEPT:AU-KG.ontology.batch-actions-executor)
 
 Ingestion *reads* records out of the fleet; the symmetric path *writes* a mutation
 back to the source of record. `call_tool_once()` (same module) is the write-side
@@ -126,7 +126,7 @@ records carry no text body (kafka topic metadata) have **no preset** by design.
 ### Per-repo preset contribution (the "2 actions from the same repo" seam)
 A connector can ship its OWN ingestion preset **beside its MCP tool** instead of
 adding it to the central dict, via the same data-only entry-point pattern the hub
-uses for skills/prompts (CONCEPT:OS-5.52):
+uses for skills/prompts (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
 ```toml
 # in the connector package's pyproject.toml

@@ -4,7 +4,7 @@
 > companion to the north-star [`entrypoint-unification.md`](entrypoint-unification.md): it
 > traces the **real call paths** of every surface that kicks off a pydantic-ai graph agent,
 > confirms they funnel into one orchestration system, and documents the one divergence found
-> and closed (the streaming REST surface, CONCEPT:ORCH-1.104).
+> and closed (the streaming REST surface, CONCEPT:AU-ORCH.session.session-continuity-entrypoint).
 
 ## Verdict
 
@@ -23,7 +23,7 @@ The **one gap** was the streaming REST gateway (`/ag-ui`, `/stream` — the path
 `agent-terminal-ui` frontends hit *directly*). It streams the **same** graph via
 `AgentOrchestrationEngine.iter_graph` (token-by-token, which cannot return through `run_agent`'s
 string contract), and historically skipped the seam's memory + provenance wrapper — leaving those
-sessions memory-siloed. **CONCEPT:ORCH-1.104** wires that surface into the *same* KG-backed
+sessions memory-siloed. **CONCEPT:AU-ORCH.session.session-continuity-entrypoint** wires that surface into the *same* KG-backed
 continuity model (recall + persist), without a parallel orchestrator. See
 [Shared memory](#shared-memory-kg-backed-cross-surface).
 

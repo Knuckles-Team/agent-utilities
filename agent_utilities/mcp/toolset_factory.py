@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Build pydantic-ai v2 ``MCPToolset`` clients from connection specs.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 pydantic-ai v2 removed ``MCPServerSSE`` / ``MCPServerStreamableHTTP`` /
 ``MCPServerStdio`` / ``FastMCPToolset``; the unified MCP client is a single
@@ -26,7 +26,7 @@ DEFAULT_MCP_TIMEOUT = 60.0
 def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
     """Return a ``McpHttpClientFactory`` closing over SSL ``verify`` + timeout.
 
-    CONCEPT:ORCH-1.101 — the transport invokes this factory with a transport-version
+    CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the transport invokes this factory with a transport-version
     dependent kwarg set. fastmcp's streamable-HTTP transport calls it as
     ``factory(headers=, auth=, follow_redirects=, timeout=)`` (the ``follow_redirects``
     kwarg was added in fastmcp ≥3.x); the older shape was ``factory(headers=, timeout=,

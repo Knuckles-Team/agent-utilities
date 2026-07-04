@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 — BYOK provider-normalizing proxy router (Wire-First entry point).
+"""CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK provider-normalizing proxy router (Wire-First entry point).
 
 Exposes ``POST /api/proxy/{provider}/stream``: forwards a chat request to an upstream LLM provider and
 streams back a **canonical SSE** event stream, after a DNS-resolved SSRF check on any custom

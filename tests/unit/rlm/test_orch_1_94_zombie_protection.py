@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.94 — strict zombie protection for warm-fork sandboxes.
+"""CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — strict zombie protection for warm-fork sandboxes.
 
 Covers the three layers that close the 3-day, 100%-CPU runaway-sandbox gap:
 1. WarmParentRegistry age-reaps a busy (non-idle) parent past the hard age cap.

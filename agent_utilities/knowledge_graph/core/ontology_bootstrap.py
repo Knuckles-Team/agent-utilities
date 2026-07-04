@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Self-bootstrapping ontology agent (schema-free KG construction).
 
-CONCEPT:KG-2.2 — Entity/Claim Extraction (bootstrapped ontology)
+CONCEPT:AU-KG.enrichment.entity-claim-extraction — Entity/Claim Extraction (bootstrapped ontology)
 
 Distilled from the Product-KG research (`.specify/specs/research-evolution-20260606/`
 plan b7-05): instead of a fixed hand-authored ontology, *derive* the ontology from
@@ -71,7 +71,7 @@ class BootstrapResult(BaseModel):
 
 
 class OntologyBootstrapper:
-    """Incrementally derive an ontology from sample records (CONCEPT:KG-2.2)."""
+    """Incrementally derive an ontology from sample records (CONCEPT:AU-KG.enrichment.entity-claim-extraction)."""
 
     def __init__(self, *, plateau_patience: int = 5) -> None:
         self.plateau_patience = max(1, plateau_patience)

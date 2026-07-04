@@ -3,7 +3,7 @@
 Validates the KG-persistent compaction pipeline, Summary DAG construction,
 escalation logic, and the unified ElasticContextManager LCM operations.
 
-CONCEPT:KG-2.1 — Lossless Context Management
+CONCEPT:AU-KG.memory.tiered-memory-caching — Lossless Context Management
 """
 
 from __future__ import annotations

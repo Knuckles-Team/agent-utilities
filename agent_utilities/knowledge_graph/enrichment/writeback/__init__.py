@@ -1,4 +1,4 @@
-"""Unified KG → external-tool write-back (CONCEPT:KG-2.8/2.9).
+"""Unified KG → external-tool write-back (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9).
 
 One fail-closed, dry-run-first, domain-dispatched write-back core replacing the
 three divergent modules (capability/leanix/process). The :data:`WritebackResult`,

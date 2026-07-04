@@ -1,4 +1,4 @@
-"""Ontology-guided extraction schema (CONCEPT:KG-2.255).
+"""Ontology-guided extraction schema (CONCEPT:AU-KG.retrieval.mmr-diversification).
 
 Loads the OWL **TBox** (``owl:Class`` + ``owl:ObjectProperty`` with
 ``rdfs:domain``/``rdfs:range`` + labels) from the canonical ontology ``.ttl``
@@ -113,7 +113,7 @@ class Relation:
 
 @dataclass(frozen=True)
 class ExtractionSchema:
-    """A compact, prompt-ready view of an ontology subset (CONCEPT:KG-2.255)."""
+    """A compact, prompt-ready view of an ontology subset (CONCEPT:AU-KG.retrieval.mmr-diversification)."""
 
     name: str
     entity_types: tuple[EntityType, ...] = field(default_factory=tuple)

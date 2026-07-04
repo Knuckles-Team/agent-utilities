@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Resource-Aware Optimization — CONCEPT:OS-5.2
+"""Resource-Aware Optimization — CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 
 Cost-aware model selection, per-specialist budget allocation,
 latency-aware routing, and resource usage tracking with KG persistence.
@@ -9,7 +9,7 @@ latency-aware routing, and resource usage tracking with KG persistence.
 Design-pattern source: Chapter 16 — Resource-Aware Optimization.
 
 OWL: :ResourceUsage rdfs:subClassOf bfo:Process
-See docs/pillars/architecture_c4.md §CONCEPT:OS-5.2
+See docs/pillars/architecture_c4.md §CONCEPT:AU-OS.state.cognitive-scheduler-preemption
 """
 
 
@@ -139,16 +139,16 @@ class ResourceOptimizer:
 
         When a ``confidence_signal`` is provided and the registry supports
         :meth:`pick_for_task_adaptive`, the confidence signal is forwarded
-        for CONCEPT:ORCH-1.2 confidence-gated routing.  Otherwise falls back to the
+        for CONCEPT:AU-ORCH.routing.confidence-signal-forwarding confidence-gated routing.  Otherwise falls back to the
         standard tier-based selection.
 
         Args:
             complexity: Requested model tier.
             required_tags: Tags every candidate must carry.
             confidence_signal: Optional normalised confidence ``[0, 1]``
-                from upstream scoring.  CONCEPT:ORCH-1.2
+                from upstream scoring.  CONCEPT:AU-ORCH.routing.confidence-signal-forwarding
             routing_percentile: Threshold for confidence gating.
-                CONCEPT:ORCH-1.2
+                CONCEPT:AU-ORCH.routing.confidence-signal-forwarding
         """
         if self._registry is None:
             return None
@@ -162,7 +162,7 @@ class ResourceOptimizer:
         else:
             effective_complexity = complexity
 
-        # CONCEPT:ORCH-1.2 — Forward confidence signal when available
+        # CONCEPT:AU-ORCH.routing.confidence-signal-forwarding — Forward confidence signal when available
         if confidence_signal is not None and hasattr(
             self._registry, "pick_for_task_adaptive"
         ):

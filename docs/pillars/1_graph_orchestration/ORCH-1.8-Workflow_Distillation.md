@@ -1,4 +1,4 @@
-# Workflow Distillation & Skill-as-Workflow (CONCEPT:ORCH-1.8)
+# Workflow Distillation & Skill-as-Workflow (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 
 ## Overview
 

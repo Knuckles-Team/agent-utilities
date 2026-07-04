@@ -1,4 +1,4 @@
-"""Tests for the synthesized, cited code_context Q&A (CONCEPT:KG-2.134 / KG-2.135).
+"""Tests for the synthesized, cited code_context Q&A (CONCEPT:AU-KG.retrieval.synthesized-cited-answer / KG-2.135).
 
 Exercises the composition + synthesis offline via a fake engine that routes
 Cypher reads to canned rows, plus path normalization and cross-repo grouping.
@@ -106,21 +106,21 @@ class FakeEngine:
         return row
 
 
-@pytest.mark.concept("KG-2.135")
+@pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_normalize_path_folds_au_mount():
     assert normalize_path(_AU) == _CANON
     assert normalize_path(_CANON) == _CANON
     assert normalize_path("") == ""
 
 
-@pytest.mark.concept("KG-2.134")
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
 def test_resolve_anchors_by_name():
     anchors = resolve_anchors(FakeEngine(), query="how does run_agent work")
     assert anchors and anchors[0]["symbol"] == "run_agent"
     assert anchors[0]["file"] == _CANON
 
 
-@pytest.mark.concept("KG-2.134")
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
 def test_how_intent_synthesizes_with_calls_and_citation():
     res = build_code_context(
         FakeEngine(), query="how does run_agent work", intent="how"
@@ -135,7 +135,7 @@ def test_how_intent_synthesizes_with_calls_and_citation():
     assert all(cite["file"] for cite in res["citations"])
 
 
-@pytest.mark.concept("KG-2.135")
+@pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_usage_intent_dedupes_au_mount_and_groups_cross_repo():
     res = build_code_context(
         FakeEngine(), query="where is run_agent used", intent="usage"
@@ -151,7 +151,7 @@ def test_usage_intent_dedupes_au_mount_and_groups_cross_repo():
     assert any(r.startswith("oss/") for r in cr["repos"])
 
 
-@pytest.mark.concept("KG-2.134")
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
 def test_impact_intent_reports_blast_radius():
     res = build_code_context(
         FakeEngine(), query="impact of changing run_agent", intent="impact"
@@ -161,7 +161,7 @@ def test_impact_intent_reports_blast_radius():
     assert "impacts" in res["answer"]
 
 
-@pytest.mark.concept("KG-2.134")
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
 def test_no_anchor_degrades_gracefully():
     class Empty:
         def query_cypher(self, cypher, params):
@@ -173,7 +173,7 @@ def test_no_anchor_degrades_gracefully():
     assert "No resolved code symbol" in res["answer"]
 
 
-@pytest.mark.concept("KG-2.135")
+@pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_cross_repo_usages_grouped_by_repo():
     info = cross_repo_usages(FakeEngine(), "run_agent")
     assert info["symbol"] == "run_agent"
@@ -182,7 +182,7 @@ def test_cross_repo_usages_grouped_by_repo():
     assert info["definitions"]
 
 
-@pytest.mark.concept("KG-2.134")
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
 def test_similar_and_routes_surface_when_present():
     eng = FakeEngine(with_similar=True, with_routes=True)
     res = build_code_context(eng, query="where is run_agent used", intent="usage")

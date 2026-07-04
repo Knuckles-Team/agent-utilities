@@ -1,15 +1,15 @@
-# CONCEPT:ECO-4.05 - Pluggable Event Queue Backend
-# CONCEPT:ORCH-1.10 - Reactive Event Sourcing
+# CONCEPT:AU-ECO.bus.pluggable-event-queue - Pluggable Event Queue Backend
+# CONCEPT:AU-ORCH.reactive.event-sourcing-ledger - Reactive Event Sourcing
 
 """Production-grade Kafka ingest task queue.
 
-CONCEPT:KG-2.55 — Fail-loud selectable ingest task-queue backend: when Kafka is
+CONCEPT:AU-KG.backend.selectable-queue-backend — Fail-loud selectable ingest task-queue backend: when Kafka is
 EXPLICITLY selected (``TASK_QUEUE_BACKEND=kafka``) an unreachable broker raises
 :class:`~.queue_backend.TaskQueueUnavailable` at startup instead of silently
 degrading to the per-host SQLite file (which would split the fleet's queue into
 invisible islands).
 
-CONCEPT:KG-2.56 — Keyed ingest partitions for per-tenant and per-repo ordering
+CONCEPT:AU-KG.backend.keyed-ingest-partitions — Keyed ingest partitions for per-tenant and per-repo ordering
 without global serialization: every task is produced to the
 ``kg_tasks`` topic with a partition key so Kafka guarantees per-key ordering
 without global serialization. Key hierarchy (first match wins):
@@ -26,7 +26,7 @@ Topic provisioning is idempotent at startup: ``kg_tasks`` is created with
 partitions is never shrunk; with fewer, partitions are added).
 
 The decoupled ``kg-ingest`` consumer group lives in
-:mod:`agent_utilities.knowledge_graph.ingest_worker` (CONCEPT:KG-2.57); this
+:mod:`agent_utilities.knowledge_graph.ingest_worker` (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer); this
 module owns the producer/topic/lag side. Uses ``confluent_kafka`` (a core
 dependency), imported lazily so environments without it degrade per the
 fail-loud/graceful contract above.
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 #: Task submission topic (kept from the original backend) and its staging twin.
 TASKS_TOPIC = "kg_tasks"
 STAGING_TOPIC = "kg_staging"
-#: Consumer group for decoupled ingest workers (CONCEPT:KG-2.57).
+#: Consumer group for decoupled ingest workers (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 INGEST_GROUP = "kg-ingest"
 STAGING_GROUP = "kg_staging_group"
 
@@ -74,12 +74,12 @@ def _corpus_root(target: str) -> str:
 def partition_key_for(item: dict[str, Any]) -> str:
     """Compute the partition key for a task or agent-turn envelope.
 
-    CONCEPT:KG-2.56 — key hierarchy: tenant id (ambient ActorContext) →
+    CONCEPT:AU-KG.backend.keyed-ingest-partitions — key hierarchy: tenant id (ambient ActorContext) →
     repo/corpus identifier of the ingest target → task type. Guarantees
     per-tenant / per-repo ordering while letting unrelated work parallelize
     across partitions.
 
-    CONCEPT:ORCH-1.45 — a ``session_id`` on the envelope outranks everything,
+    CONCEPT:AU-ORCH.dispatch.parameterized-queue-topic — a ``session_id`` on the envelope outranks everything,
     INCLUDING the ambient tenant: agent turns of one session must execute
     serially (turn N+1 reads the state turn N wrote — interleaving corrupts
     the conversation), whereas tenant keying is only an ordering/fairness
@@ -147,7 +147,7 @@ class KafkaQueueBackend(QueueBackend):
         tasks_topic: str = TASKS_TOPIC,
         consumer_group: str = INGEST_GROUP,
     ):
-        # CONCEPT:ORCH-1.45 — the topic/group are parameters so the agent
+        # CONCEPT:AU-ORCH.dispatch.parameterized-queue-topic — the topic/group are parameters so the agent
         # dispatch queue (``agent_turns`` / ``agent-dispatch``) reuses this
         # backend verbatim; the defaults keep the ingest queue unchanged. The
         # staging twin only exists for the ingest topic.
@@ -244,7 +244,7 @@ class KafkaQueueBackend(QueueBackend):
         )
         return self._fallback_queue
 
-    # ── topic provisioning ── CONCEPT:KG-2.56
+    # ── topic provisioning ── CONCEPT:AU-KG.backend.keyed-ingest-partitions
 
     def _admin_client(self) -> Any:
         if self._admin is None:
@@ -367,7 +367,7 @@ class KafkaQueueBackend(QueueBackend):
         except Exception as e:  # noqa: BLE001
             logger.error("Kafka commit/ack failed: %s", e)
 
-    # ── depth / lag backpressure visibility ── CONCEPT:KG-2.57
+    # ── depth / lag backpressure visibility ── CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer
 
     def consumer_lag(self, topic: str | None = None, group: str | None = None) -> int:
         """Total consumer-group lag on ``topic`` (unconsumed messages across

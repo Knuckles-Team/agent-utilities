@@ -1,4 +1,4 @@
-"""Tests for native multi-realm JWT trust (CONCEPT:OS-5.45).
+"""Tests for native multi-realm JWT trust (CONCEPT:AU-OS.identity.native-multi-realm-jwt).
 
 A comma-separated FASTMCP_SERVER_AUTH_JWT_ISSUER + _JWKS_URI builds one JWTVerifier per
 realm; a token is accepted if ANY realm validates it. This enables a zero-downtime Keycloak

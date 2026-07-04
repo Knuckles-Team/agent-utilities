@@ -23,24 +23,24 @@ flowchart TB
     SPLIT -- yes --> FAN["repo_split.plan_repo_split()<br/>K balanced buckets → code:&lt;repo&gt;__s&lt;i&gt;<br/>commit in parallel across K shard writers (KG-2.287)"]
     SPLIT -- no --> STRUCT["structural code pass<br/>Code/Test/Feature + call graph"]
     FAN --> STRUCT
-    STRUCT --> CLASS["repo_classifier.classify_repo()<br/>Skill / Spec / Prompt / Document / Config / Code (KG-2.284)"]
+    STRUCT --> CLASS["repo_classifier.classify_repo()<br/>Skill / Spec / Prompt / Document / Config / Code (AU-KG.ingest.over-same-tree-fan)"]
     CLASS --> ROUTE["_route_classified_artifacts()<br/>fan non-code to per-type adaptors (KG-2.285)"]
-    ROUTE --> DOCS["batched, enrich-deferred document writes<br/>(_BatchedBackend, KG-2.295)"]
-    STRUCT --> HIST["git_history.ingest_commit_history()<br/>:Commit/:Author/:File + coupling/churn (KG-2.282)"]
-    DOCS --> EMB["batched + concurrent embedding<br/>make_embed_fn (KG-2.280) · cached client (KG-2.294)"]
+    ROUTE --> DOCS["batched, enrich-deferred document writes<br/>(_BatchedBackend, AU-KG.ingest.writes-go)"]
+    STRUCT --> HIST["git_history.ingest_commit_history()<br/>:Commit/:Author/:File + coupling/churn (AU-KG.ingest.normal-codebase-ingest-also)"]
+    DOCS --> EMB["batched + concurrent embedding<br/>make_embed_fn (AU-KG.ingest.applying-agents-md-batch) · cached client (KG-2.294)"]
     HIST --> EMB
     EMB --> KG[("epistemic-graph<br/>K redb shard writers")]
 
     subgraph GUARDS["whole pipeline runs under (worker_scheduler)"]
         T["per-task soft-timeout watchdog (KG-2.286)"]
-        R["interactive reservation floor (KG-2.289)"]
+        R["interactive reservation floor (AU-KG.compute.interactive-lane-floor)"]
         O["tail observability — slowest-N + p99 (KG-2.288)"]
     end
 ```
 
 ---
 
-## Native auto-classification of repo files (CONCEPT:KG-2.284 / KG-2.285)
+## Native auto-classification of repo files (CONCEPT:AU-KG.ingest.over-same-tree-fan / KG-2.285)
 
 **What.** A repo is not just code. A `CODEBASE` ingest used to parse only *source*
 files (`SOURCE_EXTENSIONS`) into `Code`/`Test`/`Feature` nodes and drop the rest — a
@@ -50,7 +50,7 @@ recognises **every** file and routes it to its own native KG type.
 
 **How.** Two pieces, both in `knowledge_graph/ingestion/`:
 
-- `repo_classifier.py` (**KG-2.284**) — a single **deterministic** router,
+- `repo_classifier.py` (**AU-KG.ingest.over-same-tree-fan**) — a single **deterministic** router,
   `classify_repo(root)`, that in one walk assigns each file/dir to a native
   `ContentType` using *extension + path + a lightweight content sniff*. There is
   **no LLM**: genuinely ambiguous files (a data `.json` that isn't a recognisable
@@ -88,7 +88,7 @@ never fails the code ingest. Opt out per-ingest with `metadata["classify"]=False
 
 ---
 
-## Commit-history graph + `code_evolution` (CONCEPT:KG-2.282 / KG-2.283)
+## Commit-history graph + `code_evolution` (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also / AU-KG.enrichment.query-ingested-commit-history)
 
 **What.** A repo's commit history *is* a graph (commits → authors → files, over
 time). Tools like Gource / SourceTree only *render* that evolution; we **ingest** it
@@ -96,13 +96,13 @@ as first-class graph data so codebase evolution becomes a free native KG query.
 
 **How.** `knowledge_graph/enrichment/git_history.py`:
 
-- **KG-2.282 — ingestion.** `ingest_commit_history(...)` runs **one** `git log
+- **AU-KG.ingest.normal-codebase-ingest-also — ingestion.** `ingest_commit_history(...)` runs **one** `git log
   --numstat` pass with a machine-parseable `--pretty` format (not a subprocess per
   commit — the Gource-slow way), parsed in memory at ~32k commits/sec and
   batch-written through the engine's bulk path. It builds `:Commit` (`commit:<sha>`)
   / `:Author` (`author:<email>`) / `:File` (`file:<path>`) nodes and `AUTHORED` /
   `PARENT` (the DAG) / `TOUCHED` edges, derives `FILE_CHANGES_WITH` change-coupling
-  (reusing CONCEPT:KG-2.104) and per-file churn (hotspots). Crucially it links to the
+  (reusing CONCEPT:AU-KG.ingest.mine-git-history-files) and per-file churn (hotspots). Crucially it links to the
   **same `file:<path>` ids** the structural code ingest uses, so history and
   structure are **one graph**. It is **auto-bounded** for huge histories
   (`max_count`, default 5000, via `DEFAULT_MAX_COMMITS`; optional `--since`), and
@@ -113,21 +113,21 @@ as first-class graph data so codebase evolution becomes a free native KG query.
   (`ontology_software.ttl`) gains the `:Commit`/`:Author`/`:File` classes and
   `:authored`/`:parentOf`/`:touched`/`:changesWith` properties (valid+connected gate).
 
-- **KG-2.283 — query surface.** `code_evolution` is a `graph_analyze` action (handled
+- **AU-KG.enrichment.query-ingested-commit-history — query surface.** `code_evolution` is a `graph_analyze` action (handled
   in `mcp/tools/analysis_tools.py`) with the REST twin `POST
   /graph/analyze/code-evolution`. Modes: **file** (per-file timeline), **owners**
   (subsystem ownership), **hotspots** (churn), **coupled** (co-change blast-radius).
 
 **Why.** Who-owns-what, change-coupling blast-radius, churn hotspots, and per-file
 timelines become near-free grounded queries — exceeding tools that only visualize
-history, and feeding the same `code_context impact` reasoning (CONCEPT:KG-2.134).
+history, and feeding the same `code_context impact` reasoning (CONCEPT:AU-KG.retrieval.synthesized-cited-answer).
 
 **Config knob.** `max_count` (default 5000) and `since` bound a huge history;
 otherwise no knobs — it auto-bounds and deltas by sha.
 
 ---
 
-## Embedding throughput — batch + concurrent + cached client (CONCEPT:KG-2.280 / KG-2.281 / KG-2.294)
+## Embedding throughput — batch + concurrent + cached client (CONCEPT:AU-KG.ingest.applying-agents-md-batch / AU-KG.compute.resolve / KG-2.294)
 
 **What.** Enrichment (embedding) was the e2e bottleneck: embeds were issued **one
 HTTP round-trip per text** (one `POST /v1/embeddings` every ~2-3s), dropping the
@@ -135,26 +135,26 @@ profiler's `parallelism_factor` to ~1.83. Three fixes raise throughput by ~20x+.
 
 **How.**
 
-- **KG-2.280 — batch + concurrent.** `make_embed_fn` (in
+- **AU-KG.ingest.applying-agents-md-batch — batch + concurrent.** `make_embed_fn` (in
   `knowledge_graph/enrichment/semantic.py`, mirrored in
   `pipeline/phases/embedding.py`) now sends a **big list per request** — it pins the
   llama-index model's `embed_batch_size` (via `_auto_batch`, clamped to `[32,
   _EMBED_MAX_BATCH]`) so the client stops re-splitting our chunk into
   `DEFAULT_EMBED_BATCH_SIZE` sub-POSTs — and **fans chunk-requests out concurrently**,
   auto-sized from the shared cpu/load anchor (`_embed_concurrency`, ≥ the model's
-  declared parallel capacity, CONCEPT:KG-2.143) through the shared concurrency
+  declared parallel capacity, CONCEPT:AU-KG.compute.concurrency-controller-sizing) through the shared concurrency
   controller (`map_concurrent` / `map_concurrent_sync`). The fan-out passes an
   explicit `capacity` so it inherits the server-capacity guard / OOM-safety
-  (CONCEPT:KG-2.300 over KG-2.299/KG-2.146). Order and per-node vectors are preserved;
+  (CONCEPT:AU-KG.ingest.keys-off over AU-KG.enrichment.each-call-resolves-active/AU-KG.compute.pure-config-enumeration-fail). Order and per-node vectors are preserved;
   the KG-2.3 fail-loud contract is unchanged. Live bench: 48 texts went 2.14s serial →
   0.09s batched (~23x), dim=1024.
 
-- **KG-2.281 — split-storage shard-K fix.** `durable_shard_writers()` derived the
+- **AU-KG.compute.resolve — split-storage shard-K fix.** `durable_shard_writers()` derived the
   shard width `K` from the **local** host's CPUs — wrong when the engine is **remote**
   (split storage). `resolve_engine_shard_writers()` now asks the engine for its real
   `K` (`len(rebalance_plan().shards)`), cached and seeded once by the daemon, falling
   back to env/cpu only when unavailable. This corrects the codebase admission floor
-  (CONCEPT:KG-2.279) so concurrent codebase ingests actually fan across the engine's
+  (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap) so concurrent codebase ingests actually fan across the engine's
   true number of shard writers.
 
 - **KG-2.294 — cached embedder client.** `create_embedding_model()` used to rebuild a
@@ -177,18 +177,18 @@ The embedder endpoint stays the existing `DEFAULT_EMBEDDING_BASE_URL` /
 
 ---
 
-## Tail optimization (CONCEPT:KG-2.286 / KG-2.287 / KG-2.288 / KG-2.289)
+## Tail optimization (CONCEPT:AU-KG.compute.lane-bound-task / KG-2.287 / KG-2.288 / AU-KG.compute.interactive-lane-floor)
 
 The ingestion **median** is healthy; the **tail** (p95/max) blows up on edge cases.
 These four fixes attack the outliers without touching the median. (Note: the four
-were renumbered from KG-2.282–285 to **KG-2.286–289**, since 282–285 are the
+were renumbered from AU-KG.ingest.normal-codebase-ingest-also–285 to **KG-2.286–289**, since 282–285 are the
 commit-history/classifier work above.)
 
 ### Big-repo split (KG-2.287)
 
 `knowledge_graph/ingestion/repo_split.py`. One huge repo (agent-utilities,
 epistemic-graph: thousands of files) was **one** `codebase` `:Task` → **one**
-per-repo graph (`code:<repo>`, KG-2.269) → **one** redb shard writer (EG-026),
+per-repo graph (`code:<repo>`, KG-2.269) → **one** redb shard writer (EG-KG.backend.sharded-k-way-durable),
 serialising on one writer thread and pinning a worker for minutes (live tail:
 codebase p50=36s but p95=650s / max=797s) while the other K-1 shard writers sat idle.
 `plan_repo_split` partitions a repo above `SPLIT_MIN_FILES` (= **1200** source files)
@@ -214,11 +214,11 @@ queries 120s, connectors 180s, worldview 300s, maint 600s, research/extraction 1
 codebase/ingestion 3600s; default 1800s) enforced by a **daemon-thread watchdog** that
 frees the worker at the bound regardless of whether the hang is sync or async (a plain
 `asyncio.wait_for` can't, because `asyncio.run`'s loop-close joins the executor). A
-timeout routes through the existing retry→backoff→dead_letter machinery (KG-2.113).
+timeout routes through the existing retry→backoff→dead_letter machinery (AU-KG.ingest.hardened-priority-scheduled-task).
 **No env knob** — the bound is a deterministic function of the lane, with the reaper's
 absolute cap as the backstop.
 
-### Interactive reservation (KG-2.289)
+### Interactive reservation (AU-KG.compute.interactive-lane-floor)
 
 Under ingestion saturation the worker pool was fully consumed, starving
 interactive/MCP work. The `AdmissionPolicy` (`worker_scheduler.py`) now enforces a
@@ -229,7 +229,7 @@ to cover an uncovered ingestion lane, so no codebase/ingestion/maint backlog can
 interactive capacity to 0; an MCP/interactive call always lands. The interactive lane
 set is `INTERACTIVE_LANES = {"queries"}` (conversation / kg_memory — the on-pool half
 of MCP/chat). This is the host-scheduler companion to the resource-priority edict
-(ORCH-1.98/1.99) that [chunked drain](chunked-async-drain.md) also relies on.
+(AU-ORCH.scheduling.resource-priority-edict/1.99) that [chunked drain](chunked-async-drain.md) also relies on.
 
 ### Tail observability (KG-2.288)
 
@@ -237,7 +237,7 @@ of MCP/chat). This is the host-scheduler companion to the resource-priority edic
 (id/type/lane/target/duration) and per-lane **p99** alongside p95/max, so the specific
 outliers are visible — not just lane-level statistics. This extends the per-hop
 profiler described in [Ingestion throughput](ingestion_throughput.md) (the
-*Per-hop profiling* section, OS-5.69/70/71).
+*Per-hop profiling* section, AU-OS.observability.ingestion-profile-report/70/71).
 
 **Config knobs (tail).**
 
@@ -250,7 +250,7 @@ profiler described in [Ingestion throughput](ingestion_throughput.md) (the
 
 ---
 
-## Batched classified-document writes + watchdogs (CONCEPT:KG-2.295)
+## Batched classified-document writes + watchdogs (CONCEPT:AU-KG.ingest.writes-go)
 
 **What.** After classification (KG-2.285), `_route_classified_artifacts` was running
 **one full `self.ingest()` per markdown file** — each with its own adaptor dispatch,
@@ -263,7 +263,7 @@ A doc-heavy repo's queue grew faster than it drained.
 - Each doc's **structural write** goes through a per-doc `_BatchedBackend`, so the
   `Document` + chunk + concept nodes flush as **bulk RPCs** instead of one socket
   round-trip per node (the *batch, never per-element* rule, see the *Native bulk
-  primitives* section of [Ingestion throughput](ingestion_throughput.md), KG-2.147).
+  primitives* section of [Ingestion throughput](ingestion_throughput.md), AU-KG.ingest.instead).
 - Each doc's enrichable text **bubbles up to the parent** codebase result, so the one
   central enrich seam enriches the **whole repo's docs in one pass** (the
   `_ingest_document_dir` pattern) — not N inline passes.
@@ -290,8 +290,8 @@ live e2e profiler exposed.
   (`deployment/doctor.py`) plus the `DeltaManifest` freshness SLA — confirms repos are
   actually ingested (and surfaces uningested areas before you fall back to grep).
 - **Lane health:** the lane metrics / admission decisions in `worker_scheduler.py`
-  show whether the interactive floor (KG-2.289) is holding and whether the best-effort
-  maint cap (ORCH-1.82) is keeping the throughput lanes clear.
+  show whether the interactive floor (AU-KG.compute.interactive-lane-floor) is holding and whether the best-effort
+  maint cap (AU-ORCH.scheduling.low-value-high-volume) is keeping the throughput lanes clear.
 
 What each optimization buys: **classification** → skills/prompts/specs/docs become
 typed nodes (richer cross-repo answers); **commit-history** → ownership / coupling /

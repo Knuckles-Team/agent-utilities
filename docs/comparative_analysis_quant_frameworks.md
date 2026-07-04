@@ -2,11 +2,11 @@
 
 Comparison of three open-source quant agentic frameworks against the
 `agent-utilities` finance domain (`agent_utilities/domains/finance/*`,
-`CONCEPT:KG-2.6`), with three concrete gaps closed:
+`CONCEPT:AU-KG.research.research-pipeline-runner`), with three concrete gaps closed:
 
-- **`CONCEPT:KG-2.26`** — Trade-journal bias auditor + shadow account
-- **`CONCEPT:KG-2.27`** — Agent calibration / reputation tracking
-- **`CONCEPT:KG-2.28`** — Persona decision-heuristic enrichment
+- **`CONCEPT:AU-KG.domains.trade-journal-bias-auditor`** — Trade-journal bias auditor + shadow account
+- **`CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking`** — Agent calibration / reputation tracking
+- **`CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment`** — Persona decision-heuristic enrichment
 
 The thesis: each borrowed capability is made **stronger** by our OWL/KG /
 graph-native / self-evolution substrate — the borrowed feature stops being a
@@ -47,7 +47,7 @@ archetypes), `GeopoliticsAgents`, and `EconomicAgents`. Critically, each persona
 config (`TraderInvestorsAgent/configs/agent_definitions.json`) carries an
 **explicit, scored decision framework** — Buffett: ROE≥15% / D/E<0.5 /
 owner-earnings yield; Graham-style value gates; named `scoring_weights` and
-required `line_items`. That structure is the seed for `KG-2.28`. Weakness: no KG,
+required `line_items`. That structure is the seed for `AU-KG.domains.persona-decision-heuristic-enrichment`. Weakness: no KG,
 no calibration/reputation, frameworks live in prose + weights but aren't
 executable, queryable graph facts.
 
@@ -63,8 +63,8 @@ executable, queryable graph facts.
 | Portfolio opt / VaR / regime / alpha factors | partial | basic | data | ✅ KG-2.6 suite | ✅ |
 | **Trade-journal behavioural-bias audit** | ✅ (flat report) | — | — | ❌ | ✅ **KG-2.26** (KG-persisted) |
 | **Shadow account (trader profile as signal)** | ✅ (report) | — | — | ❌ | ✅ **KG-2.26** |
-| **Agent calibration / reputation feedback** | — | — | — | ❌ | ✅ **KG-2.27** (Brier → swarm weights) |
-| **Executable, queryable persona heuristics** | — | — | prose + weights | partial (voice only) | ✅ **KG-2.28** (OWL + evaluator) |
+| **Agent calibration / reputation feedback** | — | — | — | ❌ | ✅ **AU-KG.domains.agent-calibration-reputation-tracking** (Brier → swarm weights) |
+| **Executable, queryable persona heuristics** | — | — | prose + weights | partial (voice only) | ✅ **AU-KG.domains.persona-decision-heuristic-enrichment** (OWL + evaluator) |
 | 100+ data sources / many brokers | some | 1 venue | ✅ | partial | (out of scope) |
 | Graph-native provenance / OWL reasoning | — | — | — | ✅ epistemic-graph + OWL | ✅ |
 
@@ -86,14 +86,14 @@ becomes an input to further reasoning:
   risk officer can **cite** them: "this account exhibits a HIGH disposition
   effect → weight the bear's stop-loss discipline up." The audit becomes a fact
   reasoned over, with provenance, not a one-shot artifact.
-- **Calibration feedback (KG-2.27).** Palantir AIP and Fincept have personas but
+- **Calibration feedback (AU-KG.domains.agent-calibration-reputation-tracking).** Palantir AIP and Fincept have personas but
   no memory of who was *right*. We record each persona's directional calls vs
   outcomes, score them with the engine's **`brier_score`** kernel, and feed the
   calibration back into the **weighted `SwarmConsensus`** so historically-accurate
   voices outvote the rest. Each score is an `:AgentCalibration` node
   (`CALIBRATION_OF` the agent) — a queryable reputation, e.g. "which persona has
   the best Brier on tech shorts?"
-- **Persona heuristics as OWL facts (KG-2.28).** Fincept's frameworks live in
+- **Persona heuristics as OWL facts (AU-KG.domains.persona-decision-heuristic-enrichment).** Fincept's frameworks live in
   prose + weights. We make them `:DecisionHeuristic` OWL individuals
   (`HEURISTIC_OF` a persona `:Agent`) with a deterministic evaluator, so the
   graph can answer "which personas' value criteria does ACME pass?" and a Buffett
@@ -109,7 +109,7 @@ self-improving one.
 
 ## 4. Implemented gaps — API + wiring
 
-### a. Trade-journal bias auditor + shadow account — `CONCEPT:KG-2.26`
+### a. Trade-journal bias auditor + shadow account — `CONCEPT:AU-KG.domains.trade-journal-bias-auditor`
 `agent_utilities/domains/finance/trade_journal.py`
 
 ```python
@@ -129,7 +129,7 @@ auditor.persist(profile, backend)                # -> :TraderProfile + :Behavior
   `GraphBackend`** path every enrichment source uses. `None` backend degrades to a
   no-op so the audit runs fully offline.
 
-### b. Agent calibration / reputation tracking — `CONCEPT:KG-2.27`
+### b. Agent calibration / reputation tracking — `CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking`
 `agent_utilities/domains/finance/calibration_tracker.py`
 
 ```python
@@ -154,7 +154,7 @@ apply_calibration_to_swarm(swarm, t)      # LIVE wire: mutates swarm.config.role
   decision flips HOLD → BUY after calibration.
 - **Wiring → KG:** `persist()` writes `:AgentCalibration` nodes (`CALIBRATION_OF`).
 
-### c. Persona decision-heuristic enrichment — `CONCEPT:KG-2.28`
+### c. Persona decision-heuristic enrichment — `CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment`
 `agent_utilities/domains/finance/persona_heuristics.py`
 
 ```python
@@ -174,7 +174,7 @@ ev.citation()     # names the exact passing/failing rules
   `DebateEngine.persona_heuristic_evidence()` / `_heuristic_block()` fold each
   bound persona's verdict into its bull/bear prompt **by default when metrics are
   present** (generic path untouched otherwise). A live-path test asserts the
-  Graham verdict + `KG-2.28` marker appear in the prompt block.
+  Graham verdict + `AU-KG.domains.persona-decision-heuristic-enrichment` marker appear in the prompt block.
 - **Wiring → KG/OWL:** `persona_heuristics_batch()` / `seed_persona_heuristics()`
   emit `:DecisionHeuristic` nodes (`HEURISTIC_OF`); matching OWL classes
   (`:DecisionHeuristic`, `:AgentCalibration`, `:TraderProfile`, `:BehavioralBias`)
@@ -188,8 +188,8 @@ ev.citation()     # names the exact passing/failing rules
 | ID | Capability | Borrowed from | Module |
 |---|---|---|---|
 | `KG-2.26` | Trade-journal bias auditor + shadow account | Vibe-Trading | `domains/finance/trade_journal.py` |
-| `KG-2.27` | Agent calibration / reputation tracking | (novel; gap vs Palantir/Fincept) | `domains/finance/calibration_tracker.py` |
-| `KG-2.28` | Persona decision-heuristic enrichment | FinceptTerminal | `domains/finance/persona_heuristics.py` |
+| `AU-KG.domains.agent-calibration-reputation-tracking` | Agent calibration / reputation tracking | (novel; gap vs Palantir/Fincept) | `domains/finance/calibration_tracker.py` |
+| `AU-KG.domains.persona-decision-heuristic-enrichment` | Persona decision-heuristic enrichment | FinceptTerminal | `domains/finance/persona_heuristics.py` |
 
 All three degrade cleanly offline (lazy engine + optional KG backend), export via
 `domains/finance/__init__.py`, and are covered by tests under

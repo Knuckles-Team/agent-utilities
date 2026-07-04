@@ -21,11 +21,11 @@ backend-abstracted analytics store, and a REST + MCP surface.
 | Piece | What it does | Concept |
 | --- | --- | --- |
 | Pricing catalog | LiteLLM rates + offline fallback, model-name resolution | ECO-4.40 |
-| UsageStore | Backend-abstracted fact store (SQLite/Postgres/DuckDB) | ECO-4.39 |
-| Agent-source registry | Auto-detects + parses 36 agents' session logs | ECO-4.38 |
-| Runtime instrumentation | Records our own graph runs + tool/skill/db calls | OS-5.31 |
-| Gateway API + MCP tools | `/api/observability/*` + `usage_query`/`ingest_sessions` | ECO-4.41 |
-| Remote ingest transport | Client-parses, server-sinks (no server FS access) | ECO-4.42 |
+| UsageStore | Backend-abstracted fact store (SQLite/Postgres/DuckDB) | AU-OS.observability.usage-analytics-store |
+| Agent-source registry | Auto-detects + parses 36 agents' session logs | AU-ECO.connector.agent-source-ingestion |
+| Runtime instrumentation | Records our own graph runs + tool/skill/db calls | AU-OS.observability.persist-this-graph-run |
+| Gateway API + MCP tools | `/api/observability/*` + `usage_query`/`ingest_sessions` | AU-ECO.mcp.usage-cost-observability-surface |
+| Remote ingest transport | Client-parses, server-sinks (no server FS access) | AU-ECO.mcp.client-side-chat-session |
 
 **Two data planes, one store.** Plane A = ingested *external* agent logs
 (historical). Plane B = our *own* runtime telemetry (live). Both land in the same

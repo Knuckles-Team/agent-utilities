@@ -1,4 +1,4 @@
-"""LLM-planner routing strategy prompt fragments (R9 — CONCEPT:ORCH-1.1).
+"""LLM-planner routing strategy prompt fragments (R9 — CONCEPT:AU-ORCH.planning.recursion-nesting-depth).
 
 R9 is the HTN-style subtask-specification + wide-search-orchestration guidance
 injected into the router's planning system prompt. Extracted verbatim so the
@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 SUBTASK_AND_WIDESEARCH_INSTRUCTIONS = (
-    "### SUBTASK SPECIFICATION (CONCEPT:ORCH-1.1)\n"
+    "### SUBTASK SPECIFICATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)\n"
     "For EACH step in your plan, include a 'refined_subtask' — a focused, "
     "specific instruction tailored for that specialist. Do NOT just repeat the "
     "user query. Instead, decompose it into a targeted sub-goal. Example: if the "
@@ -26,10 +26,10 @@ SUBTASK_AND_WIDESEARCH_INSTRUCTIONS = (
     "You may also specify 'access_list' per step to control which prior step "
     "results are visible. Use ['all'] for full context, specific node_ids for "
     "selective injection, or leave empty for no prior context.\n"
-    "You MAY also set 'model_id' per step (CONCEPT:ORCH-1.27) to route that step to "
+    "You MAY also set 'model_id' per step (CONCEPT:AU-ORCH.routing.conductor-per-step-model) to route that step to "
     "a specific registered model — assign cheaper models to simple steps and the "
     "strongest model to the hardest step; omit to use automatic tier routing.\n\n"
-    "### WIDE-SEARCH ORCHESTRATION (CONCEPT:ORCH-1.1)\n"
+    "### WIDE-SEARCH ORCHESTRATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)\n"
     "If the query requests extracting a large table of data across many entities "
     "(e.g., 'Web2WideSearch' or 'Wide-Search'), you MUST decompose the extraction "
     "into discrete batches. Emit multiple parallel ExecutionSteps assigned to an "

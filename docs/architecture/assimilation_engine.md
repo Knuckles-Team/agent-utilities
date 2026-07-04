@@ -1,6 +1,6 @@
 # Graph-Native Assimilation Engine
 
-> **CONCEPT:KG-2.7** — Research Assimilation (+ KG-2.5 synergy, KG-2.10 orchestration synthesis)
+> **CONCEPT:AU-KG.query.vendor-agnostic-traversal** — Research Assimilation (+ KG-2.5 synergy, AU-KG.enrichment.a2a-capability-extraction orchestration synthesis)
 > **Package:** `agent_utilities/knowledge_graph/assimilation/` · **Driver:** `research/golden_loop.py` · **MCP:** `graph_orchestrate(action="assimilate")`
 > **Strategy/plan:** `.specify/specs/ecosystem-evolution/`
 

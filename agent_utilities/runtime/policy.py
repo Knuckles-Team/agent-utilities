@@ -1,5 +1,5 @@
-"""CONCEPT:OS-5.33 — Bridge the developer-workspace mutating-action gate to the fleet
-ActionPolicy (CONCEPT:OS-5.24).
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Bridge the developer-workspace mutating-action gate to the fleet
+ActionPolicy (CONCEPT:AU-OS.deployment.fleet-lifecycle-control).
 
 The workspace itself only knows a :data:`~.workspace.PolicyGate` — a ``str -> (allowed, reason)``
 callable. This adapter wraps the real :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`

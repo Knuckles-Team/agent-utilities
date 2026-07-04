@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Specialization task + machine-verifiable Verifier contract.
 
-CONCEPT:AHE-3.28 — the (task, verifier, target, human-baseline) contract a SAI
+CONCEPT:AU-AHE.harness.sai-task — the (task, verifier, target, human-baseline) contract a SAI
 specialization run is defined against, and the ``Verifier`` Protocol that turns a
 candidate output into a machine-checkable reward.
 

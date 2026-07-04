@@ -1,6 +1,6 @@
 """UsageService — read-side aggregation the gateway API delegates to.
 
-CONCEPT:ECO-4.39 / ECO-4.41. A thin layer over the active ``UsageBackend`` so
+CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.41. A thin layer over the active ``UsageBackend`` so
 the router stays declarative and all SQL lives in the backend.
 """
 

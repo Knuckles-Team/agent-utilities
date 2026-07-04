@@ -49,7 +49,7 @@ def _not_found_if_error(result: Any, detail: str) -> Any:
     return result
 
 
-# ── Value types (CONCEPT:KG-2.39) ───────────────────────────────────────────
+# ── Value types (CONCEPT:AU-KG.ontology.value-type-shacl-load) ───────────────────────────────────────────
 
 
 @ontology_router.get("/ontology/value-types", response_model=OntologyEnvelope)
@@ -65,7 +65,7 @@ async def get_value_type(name: str) -> OntologyEnvelope:
     return OntologyEnvelope(result=_not_found_if_error(res, f"value type {name!r}"))
 
 
-# ── Property types (CONCEPT:KG-2.47) ─────────────────────────────────────────
+# ── Property types (CONCEPT:AU-KG.ontology.ontology-property-types) ─────────────────────────────────────────
 
 
 @ontology_router.get("/ontology/property-types", response_model=OntologyEnvelope)
@@ -85,7 +85,7 @@ async def describe_property_type(type_ref: str) -> OntologyEnvelope:
     return OntologyEnvelope(result=_not_found_if_error(res, f"type {type_ref!r}"))
 
 
-# ── Interfaces (CONCEPT:KG-2.38) ─────────────────────────────────────────────
+# ── Interfaces (CONCEPT:AU-KG.ontology.conformance-check) ─────────────────────────────────────────────
 
 
 @ontology_router.get("/ontology/interfaces", response_model=OntologyEnvelope)
@@ -114,7 +114,7 @@ async def get_interface_implementers(
     )
 
 
-# ── Sampling profiles (CONCEPT:ORCH-1.58 / KG-2.94) ──────────────────────────
+# ── Sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / KG-2.94) ──────────────────────────
 
 
 @ontology_router.get("/ontology/sampling-profiles", response_model=OntologyEnvelope)
@@ -137,7 +137,7 @@ async def describe_sampling_profile(task_class: str) -> OntologyEnvelope:
     )
 
 
-# ── Functions (CONCEPT:KG-2.41) ──────────────────────────────────────────────
+# ── Functions (CONCEPT:AU-KG.ontology.default-runtime-bound-import) ──────────────────────────────────────────────
 
 
 @ontology_router.get("/ontology/functions", response_model=OntologyEnvelope)
@@ -158,7 +158,7 @@ async def get_function(name: str) -> OntologyEnvelope:
     return OntologyEnvelope(result=match)
 
 
-# ── Objects: read + edit history (CONCEPT:KG-2.43/2.45) ──────────────────────
+# ── Objects: read + edit history (CONCEPT:AU-KG.ontology.edit-ledger-writeback/2.45) ──────────────────────
 
 
 @ontology_router.get("/objects/{object_id}", response_model=OntologyEnvelope)
@@ -173,7 +173,7 @@ async def get_object(object_id: str) -> OntologyEnvelope:
 
 @ontology_router.get("/objects/{object_id}/history", response_model=OntologyEnvelope)
 async def get_object_history(object_id: str) -> OntologyEnvelope:
-    """Per-object edit history / changelog (CONCEPT:KG-2.43)."""
+    """Per-object edit history / changelog (CONCEPT:AU-KG.ontology.edit-ledger-writeback)."""
     return OntologyEnvelope(
         result=await _call("object_edits", action="history", object_id=object_id)
     )
@@ -184,13 +184,13 @@ async def get_object_as_of(
     object_id: str,
     ts: float = Query(..., description="Unix timestamp for the point-in-time view."),
 ) -> OntologyEnvelope:
-    """Bitemporal as-of snapshot of an object (CONCEPT:KG-2.43)."""
+    """Bitemporal as-of snapshot of an object (CONCEPT:AU-KG.ontology.edit-ledger-writeback)."""
     return OntologyEnvelope(
         result=await _call("object_edits", action="as_of", object_id=object_id, ts=ts)
     )
 
 
-# ── LeanIX metamodel sync (CONCEPT:KG-2.9) ──────────────────────────────────
+# ── LeanIX metamodel sync (CONCEPT:AU-KG.ingest.enterprise-source-extractor) ──────────────────────────────────
 
 
 @ontology_router.post("/ontology/leanix/sync", response_model=OntologyEnvelope)

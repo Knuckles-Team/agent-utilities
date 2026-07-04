@@ -1,4 +1,4 @@
-"""Mealie source extractor (CONCEPT:KG-2.9).
+"""Mealie source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Reads recipes/meal-plans/shopping-lists from a Mealie instance into canonical
 wellness OWL nodes: recipes → :Recipe, meal plans → :MealPlan, shopping lists →

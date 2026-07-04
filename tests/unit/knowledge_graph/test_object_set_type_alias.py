@@ -5,7 +5,7 @@ Regression: ``graph_ingest agent_toolkit`` writes tool nodes with
 ``node_type="CallableResource"`` (via ``add_node(node_type=...)``) but left
 ``type``/``label`` unset, so ``object_set of_type('CallableResource')`` resolved
 zero objects even though ``graph_query`` counted hundreds. The object-type
-accessor now includes ``node_type`` in its alias chain. (CONCEPT:KG-2.45)
+accessor now includes ``node_type`` in its alias chain. (CONCEPT:AU-KG.ontology.link-type-pivot)
 """
 
 from __future__ import annotations

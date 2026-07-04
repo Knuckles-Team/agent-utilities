@@ -6,7 +6,7 @@
 
 - [x] Design document exists and KG-nearest-concepts table completed.
 - [x] Extension target identified (ORCH-1.8 Parallel Engine Visualizer, similarity ≥ 0.70).
-- [x] New CONCEPT:ORCH-1.37 justified in design as augmentation (sub-concept of ORCH-1.8).
+- [x] New CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid justified in design as augmentation (sub-concept of ORCH-1.8).
 - [x] Wire-First confirmed: ≤2 hops from `graph_orchestrate`.
 - [x] No diagram generation added — surfaces an existing artifact only.
 

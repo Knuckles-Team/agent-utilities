@@ -2,11 +2,11 @@
 
 > **Status:** core + messaging renderer **done** (this slice). The other frontend
 > renderers (webui / terminal-ui / geniusbot / `agent_server.py`) are specified here as a
-> thin contract for their (separate) repos. CONCEPT:ECO-4.79 / ECO-4.80 / ECO-4.81.
+> thin contract for their (separate) repos. CONCEPT:AU-ECO.reactions.emitted-alongside-reply / AU-ECO.reactions.one-emote-registry-governance / ECO-4.81.
 
 Reactions used to be a **messaging-only** feature: the instinctive-reaction heuristic, the
 available-emoji menu, and the Telegram `setMessageReaction` call all lived inside
-`messaging/` (CONCEPT:ECO-4.60). That made "react with 👍" impossible for any other surface
+`messaging/` (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction). That made "react with 👍" impossible for any other surface
 to inherit — exactly the per-surface sprawl the
 [*Universal capability — ONE core, thin entrypoints*](entrypoint-unification.md) rule forbids.
 
@@ -30,7 +30,7 @@ flowchart LR
 | Piece | Concept | What it is |
 |---|---|---|
 | `AgentReaction` | ECO-4.79 | The structured output a turn emits: `{emote, target_message_id?, intensity?}`. Optional + lightweight — no reaction ⇒ `None`. `to_dict()` / `from_dict()` serialize it for envelopes and renderers. |
-| `EmoteRegistry` | ECO-4.80 | The **one** menu of available emotes + the governance gate (`allows(emote, actor, context)`), reusing the `ActionPolicy` decision point (`reaction` kind). No per-surface emote list. |
+| `EmoteRegistry` | AU-ECO.reactions.one-emote-registry-governance | The **one** menu of available emotes + the governance gate (`allows(emote, actor, context)`), reusing the `ActionPolicy` decision point (`reaction` kind). No per-surface emote list. |
 | `decide_reaction()` | ECO-4.79 | The instinctive, **model-agnostic** decision (a tool-free completion, bounded to 10 s) — moved out of `messaging/router.py` so every entrypoint shares one heuristic. Opt out with `REACTIONS=0` (legacy `MESSAGING_REACTIONS=0` still honored). |
 
 ## The renderer contract (the ONLY per-surface code)
@@ -52,7 +52,7 @@ stable across process / repo boundaries:
 
 | Entrypoint | Status | What it implements |
 |---|---|---|
-| **messaging (Telegram, …)** | ✅ done | `MessagingService.render_reaction(platform, channel_id, reaction)` → `react()` → backend `send_reaction` → Telegram `setMessageReaction`. The router's `_react_in_background` now calls the **core** `decide_reaction` and renders the result (CONCEPT:ECO-4.81). Other backends (Slack `reactions.add`, …) expose `send_reaction` and degrade gracefully where the emote is unsupported. |
+| **messaging (Telegram, …)** | ✅ done | `MessagingService.render_reaction(platform, channel_id, reaction)` → `react()` → backend `send_reaction` → Telegram `setMessageReaction`. The router's `_react_in_background` now calls the **core** `decide_reaction` and renders the result (CONCEPT:AU-ECO.messaging.messaging-as-renderer). Other backends (Slack `reactions.add`, …) expose `send_reaction` and degrade gracefully where the emote is unsupported. |
 | **`agent-webui`** | ▢ stub (separate repo) | Render `reaction.emote` as an **emoji reaction chip** on the assistant message; map `intensity` to chip emphasis if present. Read the `reaction` field off the turn's response (below). No emote list of its own — the menu is `EmoteRegistry.available()`. |
 | **`agent-terminal-ui`** | ▢ stub (separate repo) | Render an **inline emote glyph / reaction line** next to the turn (e.g. a dim ` 👀` suffix). `target_message_id` is usually `None` here (standalone glyph). |
 | **`geniusbot`** | ▢ stub (separate repo) | Surface a **desktop reaction affordance** (a small emoji badge on the message bubble / a toast). |

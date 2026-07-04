@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Media generation gateway — universal, multi-backend image / video / speech.
 
-CONCEPT:ECO-4.30 — Media Generation Gateway
+CONCEPT:AU-ECO.toolkit.media-gateway-failure-path — Media Generation Gateway
 
 A backend-abstracted media layer: each modality (image / video / speech /
 transcription) is served by one of several interchangeable **backends**, selected
@@ -111,17 +111,17 @@ _SPEECH_BACKENDS: dict[str, dict[str, Any]] = {
 
 
 def list_image_backends() -> list[str]:
-    """Return the registered image backend names (CONCEPT:ECO-4.30)."""
+    """Return the registered image backend names (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path)."""
     return sorted(_IMAGE_BACKENDS)
 
 
 def list_video_backends() -> list[str]:
-    """Return the registered video backend names (CONCEPT:ECO-4.30)."""
+    """Return the registered video backend names (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path)."""
     return sorted(_VIDEO_BACKENDS)
 
 
 def list_speech_backends() -> list[str]:
-    """Return the registered speech backend names (CONCEPT:ECO-4.30)."""
+    """Return the registered speech backend names (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path)."""
     return sorted(_SPEECH_BACKENDS)
 
 
@@ -132,7 +132,7 @@ HttpFn = Any
 class MediaServiceError(RuntimeError):
     """Raised when a media-generation service is unreachable or errors.
 
-    CONCEPT:ECO-4.30 — the clear, non-silent failure path.
+    CONCEPT:AU-ECO.toolkit.media-gateway-failure-path — the clear, non-silent failure path.
     """
 
 
@@ -167,7 +167,7 @@ def _request(http_fn: HttpFn | None, method: str, url: str, **kwargs: Any) -> An
 
 
 class SpeechSynthesizer:
-    """Text-to-speech via the Coqui ``xtts-streaming-server`` (CONCEPT:ECO-4.30).
+    """Text-to-speech via the Coqui ``xtts-streaming-server`` (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     Args:
         base_url: xtts base URL (``XTTS_URL`` env by default).
@@ -238,7 +238,7 @@ class SpeechSynthesizer:
 
 
 class ImageGenerator:
-    """Text-to-image via the ``flux.2`` service (CONCEPT:ECO-4.30).
+    """Text-to-image via the ``flux.2`` service (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     The request/response shape is configurable to match the deployed flux server:
     a JSON ``POST {endpoint}`` with the prompt under ``prompt_field``, returning
@@ -318,7 +318,7 @@ class ImageGenerator:
 
 
 class VideoGenerator:
-    """Text-to-video via the ``hunyuanvideo`` service (CONCEPT:ECO-4.30).
+    """Text-to-video via the ``hunyuanvideo`` service (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     Video generation is long-running; the client supports a synchronous response
     (bytes / base64 / url) and a simple job-poll shape (``{job_id}`` → poll
@@ -397,7 +397,7 @@ class VideoGenerator:
 
 
 class ComfyUIClient:
-    """ComfyUI workflow-API transport for image + video (CONCEPT:ECO-4.30).
+    """ComfyUI workflow-API transport for image + video (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     The consolidated GB10 engine. Submits a prompt workflow (``POST /prompt``),
     polls ``GET /history/{id}`` until the run completes, then fetches the output
@@ -554,7 +554,7 @@ def synthesize_speech(
     speaker: str | None = None,
     language: str = "en",
 ) -> bytes:
-    """Convenience: synthesize ``text`` to audio bytes (CONCEPT:ECO-4.30).
+    """Convenience: synthesize ``text`` to audio bytes (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     ``backend`` selects the speech engine (``xtts`` or ``openai``).
     """
@@ -579,7 +579,7 @@ def synthesize_speech(
 def generate_image(
     prompt: str, *, backend: str = "stable-diffusion", **kwargs: Any
 ) -> bytes:
-    """Convenience: generate an image from ``prompt`` (CONCEPT:ECO-4.30).
+    """Convenience: generate an image from ``prompt`` (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     ``backend`` is one of :func:`list_image_backends` — ``stable-diffusion``,
     ``flux``, ``qwen-image``, ``hunyuanimage``, or ``comfyui``. The default routes
@@ -601,7 +601,7 @@ def generate_video(
     workflow: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Convenience: submit a text-to-video job (CONCEPT:ECO-4.30).
+    """Convenience: submit a text-to-video job (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
     ``backend`` is one of :func:`list_video_backends` — ``hunyuanvideo``, ``ltx``,
     or ``comfyui``. ComfyUI-backed video requires a ``workflow`` graph for the

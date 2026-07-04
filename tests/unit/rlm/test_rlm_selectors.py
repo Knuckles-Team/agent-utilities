@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for RLM config selectors: configurable max_turns + lossless/compaction.
 
-CONCEPT:ORCH-1.12
+CONCEPT:AU-ORCH.execution.predict-rlm-runtime
 """
 
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from agent_utilities.rlm.config import RLMConfig
 from agent_utilities.rlm.repl import RLMEnvironment
 
-pytestmark = pytest.mark.concept("ORCH-1.12")
+pytestmark = pytest.mark.concept("AU-ORCH.execution.predict-rlm-runtime")
 
 
 # --- configurable max_turns -------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for IngestionEngine (CONCEPT:KG-2.7).
+"""Tests for IngestionEngine (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Validates that all ContentType adaptors route correctly through the
 single ``IngestionEngine.ingest()`` entrypoint, and that batch ingestion,
@@ -52,7 +52,7 @@ def engine(mock_kg_engine):
 
 
 class TestContentType:
-    """CONCEPT:KG-2.7 — ContentType enum completeness."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — ContentType enum completeness."""
 
     def test_all_content_types_registered(self):
         """Every ContentType value must have a name."""
@@ -83,7 +83,7 @@ class TestContentType:
 
 
 class TestIngestionManifest:
-    """CONCEPT:KG-2.7 — IngestionManifest construction and defaults."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — IngestionManifest construction and defaults."""
 
     def test_minimal_manifest(self):
         m = IngestionManifest(
@@ -111,7 +111,7 @@ class TestIngestionManifest:
 
 
 class TestDirectorySourceHash:
-    """CONCEPT:KG-2.7 — directory content-identity hashing.
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — directory content-identity hashing.
 
     Regression: ``_default_source_hash`` must prune ``_SKIP_DIRS`` *during*
     traversal (``os.walk`` in-place prune), never descending into vendored/build
@@ -151,7 +151,7 @@ class TestDirectorySourceHash:
 
 
 class TestIngestionResult:
-    """CONCEPT:KG-2.7 — IngestionResult construction and defaults."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — IngestionResult construction and defaults."""
 
     def test_success_result(self):
         m = IngestionManifest(
@@ -177,7 +177,7 @@ class TestIngestionResult:
 
 
 class TestCodebaseIngestion:
-    """CONCEPT:KG-2.7 — CODEBASE content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — CODEBASE content type adaptor."""
 
     @pytest.mark.anyio
     async def test_nonexistent_path(self, engine):
@@ -193,12 +193,12 @@ class TestCodebaseIngestion:
     @pytest.mark.anyio
     async def test_routes_through_enrichment_pipeline(self, engine, tmp_path):
         """Structural codebase ingest runs the per-file Rust parse path
-        (EnrichmentPipeline), not the old whole-repo parse_repository (CONCEPT:KG-2.8).
+        (EnrichmentPipeline), not the old whole-repo parse_repository (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
         """
         (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
         # Fake the Rust parser with a benign empty parse so no service is needed.
         engine.kg.graph_compute.parse_file = MagicMock(return_value={})
-        # Pin the per-file path here; the batched ParseFiles routing (CONCEPT:KG-2.16)
+        # Pin the per-file path here; the batched ParseFiles routing (CONCEPT:EG-KG.compute.graph-compute-engine)
         # is covered separately in test_ingestion_perf_optimizations.py.
         engine.kg.graph_compute.supports_batch_parse = False
 
@@ -221,7 +221,7 @@ class TestCodebaseIngestion:
 
 
 class TestConversationIngestion:
-    """CONCEPT:KG-2.7 — CONVERSATION content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — CONVERSATION content type adaptor."""
 
     @pytest.mark.anyio
     async def test_creates_episode_node(self, engine):
@@ -241,7 +241,7 @@ class TestConversationIngestion:
 
 
 class TestSkillIngestion:
-    """CONCEPT:KG-2.7 — SKILL content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — SKILL content type adaptor."""
 
     @pytest.mark.anyio
     async def test_missing_skill_md(self, engine, tmp_path):
@@ -281,7 +281,7 @@ class TestSkillIngestion:
 
 
 class TestPolicyIngestion:
-    """CONCEPT:KG-2.7 — POLICY content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — POLICY content type adaptor."""
 
     @pytest.mark.anyio
     async def test_ingest_all_policies(self, engine, tmp_path):
@@ -312,7 +312,7 @@ class TestPolicyIngestion:
 
 
 class TestMCPServerIngestion:
-    """CONCEPT:KG-2.7 — MCP_SERVER content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — MCP_SERVER content type adaptor."""
 
     @pytest.mark.anyio
     async def test_local_mcp_config(self, engine, tmp_path):
@@ -358,7 +358,7 @@ class TestMCPServerIngestion:
 
 
 class TestPromptIngestion:
-    """CONCEPT:KG-2.7 — PROMPT content type adaptor."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — PROMPT content type adaptor."""
 
     @pytest.mark.anyio
     async def test_prompt_success(self, engine, tmp_path):
@@ -393,7 +393,7 @@ class TestPromptIngestion:
 
 
 class TestBatchIngestion:
-    """CONCEPT:KG-2.7 — Batch ingestion via ingest_batch()."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — Batch ingestion via ingest_batch()."""
 
     @pytest.mark.anyio
     async def test_mixed_results(self, engine, tmp_path):
@@ -420,7 +420,7 @@ class TestBatchIngestion:
 
 
 class TestHistoryTracking:
-    """CONCEPT:KG-2.7 — Ingestion history tracking."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — Ingestion history tracking."""
 
     @pytest.mark.anyio
     async def test_history_populated(self, engine, tmp_path):
@@ -453,7 +453,7 @@ class TestHistoryTracking:
 
 
 class TestModuleExports:
-    """CONCEPT:KG-2.7 — Verify public API surface from ingestion module."""
+    """CONCEPT:AU-KG.query.vendor-agnostic-traversal — Verify public API surface from ingestion module."""
 
     def test_engine_importable(self):
         from agent_utilities.knowledge_graph.ingestion import IngestionEngine

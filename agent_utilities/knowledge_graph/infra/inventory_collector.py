@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Hardware inventory collector → KG infra ontology (CONCEPT:KG-2.9).
+"""Hardware inventory collector → KG infra ontology (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The real implementation behind the previously doc-only ``hardware-profile-sweep``
 / ``host-resource-sampler`` skills. Pulls host hardware/resource/network profiles
@@ -164,7 +164,7 @@ class InfraInventoryCollector:
                         "swarm_role": p.role,
                         "region": p.region,
                         "security_findings": p.security_findings,
-                        "concept": "KG-2.9",
+                        "concept": "AU-KG.ingest.enterprise-source-extractor",
                     },
                 )
             except Exception:  # noqa: BLE001  # nosec B112
@@ -178,7 +178,7 @@ class InfraInventoryCollector:
                         properties={
                             "gpu_model": gpu.get("model", gpu.get("name", "")),
                             "vram_gb": _f(gpu, "vram_gb", "memory_gb", default=0.0),
-                            "concept": "KG-2.9",
+                            "concept": "AU-KG.ingest.enterprise-source-extractor",
                         },
                     )
                     if callable(link):

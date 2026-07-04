@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Pure In-Memory Graph Backend (CONCEPT:OS-5.0).
+"""Pure In-Memory Graph Backend (CONCEPT:AU-OS.safety.doom-loop-detection).
 
 Zero-dependency, zero-disk backend using GraphComputeEngine (Rust/epistemic-graph).
 Ideal for testing, edge devices, ephemeral containers,
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # A variable-length relationship pattern ``-[*lo..hi]-`` / ``-[*]->`` etc. These
 # are bounded multi-hop traversals the L1 engine resolves via a BFS over its
-# native neighbour ops. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+# native neighbour ops. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
 _VAR_LEN_RE = re.compile(r"\[\s*[A-Za-z_]*\s*:?\s*\w*\s*\*")
 
 # Write-DDL keyword detection as *whole words*. A substring scan misroutes a READ
@@ -58,13 +58,13 @@ class EpistemicGraphBackend(GraphBackend):
     @property
     def cypher_support(self) -> str:
         """No Cypher engine: only the bounded operational subset the orchestration
-        engine emits is interpreted directly (CONCEPT:KG-2.63)."""
+        engine emits is interpreted directly (CONCEPT:AU-KG.backend.multi-connection-registry)."""
         return "subset"
 
     def __init__(self, graph_name: str | None = None) -> None:
         """Initialize the backend, optionally bound to a named engine graph.
 
-        CONCEPT:KG-2.148 — Control-plane graph isolation (foundation). The
+        CONCEPT:AU-KG.backend.schedule-on-control-graph — Control-plane graph isolation (foundation). The
         optional ``graph_name`` selects which engine graph this backend instance
         reads from and writes to. It is threaded straight through to the
         underlying :class:`GraphComputeEngine` (and thence the
@@ -83,7 +83,7 @@ class EpistemicGraphBackend(GraphBackend):
         self._graph = GraphComputeEngine(graph_name=graph_name, backend_type="rust")
         # Surface the effective graph the engine resolved (None-default routes to
         # the configured/tenant graph) so callers/tiered wrappers can introspect
-        # the binding. (CONCEPT:KG-2.148)
+        # the binding. (CONCEPT:AU-KG.backend.schedule-on-control-graph)
         self.graph_name = getattr(self._graph, "graph_name", graph_name)
         self._embeddings: dict[str, list[float]] = {}
         self._node_counter = 0
@@ -128,7 +128,7 @@ class EpistemicGraphBackend(GraphBackend):
 
         # Node upsert: ``MERGE (n:Label {id: $id}) SET n.k = $props_k, ...`` is the
         # persistence path used by the graph-writer daemon and sync phase. Without
-        # this, ingested nodes never land in the in-memory store. (CONCEPT:KG-2.0)
+        # this, ingested nodes never land in the in-memory store. (CONCEPT:AU-KG.query.object-graph-mapper)
         if qu.startswith("MERGE") and "->" not in q and "<-" not in q:
             handled, result = self._exec_merge_node(q, params)
             if handled:
@@ -137,7 +137,7 @@ class EpistemicGraphBackend(GraphBackend):
         # Relationship upsert: ``MATCH (a),(b) WHERE a.id=$x AND b.id=$y
         # MERGE (a)-[:REL]->(b)``. Resolve both endpoints by id (O(1)) and add
         # the edge directly — otherwise this falls to the full-scan legacy reader
-        # AND never creates the L1 edge. (CONCEPT:KG-2.8 ingestion throughput)
+        # AND never creates the L1 edge. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
         if "->" in q and _has_kw(qu, "MERGE") and qu.startswith("MATCH"):
             handled, result = self._exec_rel_merge(q, params)
             if handled:
@@ -149,7 +149,7 @@ class EpistemicGraphBackend(GraphBackend):
         # to L3. Critically, if no traversal interpreter matches we return ``[]``
         # — NOT the whole graph — so a tiered caller can defer to L3 instead of
         # silently receiving every node (the old legacy full-scan footgun).
-        # (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+        # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
         if (
             qu.startswith("MATCH")
             and ("->" in q or "<-" in q or _VAR_LEN_RE.search(q))
@@ -170,11 +170,11 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
             # LABEL+WHERE-anchored traversal (the graph_code_nav shapes): resolve
-            # the anchor by scan, then walk. (CONCEPT:KG-2.9g)
+            # the anchor by scan, then walk. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
             handled, result = self._exec_where_anchored_traversal(q, params)
             if handled:
                 return result
-            # SILENT-WRONG GUARD (CONCEPT:KG-2.9h): an *aggregate* (``count(...)``)
+            # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): an *aggregate* (``count(...)``)
             # over a relationship pattern whose WHERE filter no interpreter could
             # honor must NOT silently return ``[]`` — a caller reads an empty
             # aggregate as 0, which is a confidently wrong number. Fail loud so the
@@ -224,7 +224,7 @@ class EpistemicGraphBackend(GraphBackend):
         Resolves the anchor ``a`` by id, walks ``REL`` neighbours in the matched
         direction, filters targets ``b`` by label, and projects on ``b``. Returns
         ``(False, [])`` for any shape outside this subset so the caller can fall
-        back. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+        back. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
         """
         anchor_re = (
             r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*"
@@ -307,7 +307,7 @@ class EpistemicGraphBackend(GraphBackend):
     @staticmethod
     def _where_has_unhonored_filter(q: str) -> bool:
         """True if the WHERE clause carries a predicate the *unanchored* edge
-        aggregate cannot apply (CONCEPT:KG-2.9h).
+        aggregate cannot apply (CONCEPT:AU-KG.backend.where-clause-carrying).
 
         The unanchored ``count(r)`` / edge-export path can only honor ``<var>.id =
         …`` equalities (consumed as id anchors). Any other WHERE predicate —
@@ -418,9 +418,9 @@ class EpistemicGraphBackend(GraphBackend):
             # (e.g. ``RETURN b``) still defers (``return False``) rather than
             # scanning every node — the deliberate L1 guard. This is what makes
             # ``MATCH ()-[r]->() RETURN count(r)`` readable from the L1 backend.
-            # (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+            # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
             #
-            # SILENT-WRONG GUARD (CONCEPT:KG-2.9h): a WHERE clause carrying a
+            # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): a WHERE clause carrying a
             # node-property predicate this aggregate cannot honor (e.g.
             # ``MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN count(c)``)
             # must NOT collapse to the *unfiltered* global edge count — that returns
@@ -487,7 +487,7 @@ class EpistemicGraphBackend(GraphBackend):
         ``def.name = $symbol``), and the *free* node is projected. We resolve the
         anchor ids via a label+WHERE scan (the engine's labeled fetch), then walk
         ``calls`` edges in the direction implied by which side is anchored —
-        single-hop (rel-type filtered) or bounded k-hop. (CONCEPT:KG-2.9g)
+        single-hop (rel-type filtered) or bounded k-hop. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
         """
         import re
 
@@ -539,7 +539,7 @@ class EpistemicGraphBackend(GraphBackend):
             # Fall back to a full node scan if the engine exposes one; if it
             # exposes NEITHER, defer cleanly (``False, []``) rather than letting an
             # AttributeError escape — the caller's silent-wrong guard then decides
-            # whether to fail loud. (CONCEPT:KG-2.9h)
+            # whether to fail loud. (CONCEPT:AU-KG.backend.where-clause-carrying)
             _scan = getattr(self._graph, "_get_all_nodes_with_properties", None)
             if not callable(_scan):
                 return False, []
@@ -609,7 +609,7 @@ class EpistemicGraphBackend(GraphBackend):
         left) and directed ``->`` / ``<-`` variants. Resolves the anchor by id,
         runs a bounded BFS over the engine's native neighbour ops to ``hi`` hops,
         filters the free node by label, and projects on it. Returns ``(False, [])``
-        for shapes outside this subset. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+        for shapes outside this subset. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
         """
         if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b", q, re.I):
             return False, []
@@ -648,7 +648,7 @@ class EpistemicGraphBackend(GraphBackend):
         else:
             # No inline-id anchor → defer so a WHERE/label-anchored traversal
             # (``…-[:calls*1..n]->(t) WHERE t.name=$s``) can resolve the anchor by
-            # scan instead of being swallowed as "no rows". (CONCEPT:KG-2.9g)
+            # scan instead of being swallowed as "no rows". (CONCEPT:AU-KG.backend.declared-columns-so-schema)
             return False, []
 
         lo = int(lo_s) if lo_s else 1
@@ -782,7 +782,7 @@ class EpistemicGraphBackend(GraphBackend):
         merged["node_type"] = label
         # The engine's label index (``get_nodes_by_label``) keys off ``label`` /
         # ``type`` / ``labels`` — NOT ``node_type``. Stamp the MERGE label so a
-        # later ``MATCH (n:Label) WHERE …`` scan finds the node. (CONCEPT:KG-2.9g)
+        # later ``MATCH (n:Label) WHERE …`` scan finds the node. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
         merged["label"] = label
 
         ms = re.search(r"\bSET\b(.+?)$", q, re.I | re.S)
@@ -824,7 +824,7 @@ class EpistemicGraphBackend(GraphBackend):
                     results.append(entry)
             return results
 
-        # CONCEPT:ORCH-1.40 (hardening) — NEVER silently return the entire graph for an
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native (hardening) — NEVER silently return the entire graph for an
         # unparsed query. That over-match was the `graph_context list` "garbage" bug and a
         # latent correctness/cost hazard for every caller. Default to empty; require an
         # explicit opt-in (KG_ALLOW_FULL_SCAN=true) for a rare deliberate full enumeration.
@@ -920,7 +920,7 @@ class EpistemicGraphBackend(GraphBackend):
         # matches if ANY group matches). An inline ``{prop:..}`` pattern ANDs into
         # every group. A genuinely unsupported shape returns None and is logged
         # loudly rather than silently returning [] — the old behaviour masqueraded
-        # "I can't parse this" as "no rows", a debugging footgun. (CONCEPT:KG-2.0)
+        # "I can't parse this" as "no rows", a debugging footgun. (CONCEPT:AU-KG.query.object-graph-mapper)
         where_groups: list[list[tuple[str, str, Any]]] = [inline_conds]
         mw = re.search(
             r"\bWHERE\b(.+?)(?:\bSET\b|\bRETURN\b|\bDETACH\b|\bDELETE\b|$)",
@@ -943,7 +943,7 @@ class EpistemicGraphBackend(GraphBackend):
         # graph (O(N)). Ingestion issues many id-keyed MATCH/SET upserts, so without
         # this every write is O(N) → ingestion is O(N²) and degrades as the graph
         # grows. A disjunction (OR) can't use the fast path → full scan.
-        # (CONCEPT:KG-2.8 ingestion throughput)
+        # (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
         matched: list[tuple[str, dict[str, Any]]] = []
         id_val = None
         if len(where_groups) == 1:
@@ -962,7 +962,7 @@ class EpistemicGraphBackend(GraphBackend):
         # UDS round-trip per node, so an unfiltered count is O(N) round-trips and
         # gets slower as the graph grows (a full ``count(*)`` was taking minutes
         # on an accumulated graph). Resolve it from the id list directly.
-        # (CONCEPT:KG-2.8 ingestion throughput)
+        # (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
         cnt_m = re.search(r"\bRETURN\b\s+count\s*\(\s*\*?\s*\w*\s*\)", q, re.I)
         if (
             id_val is None
@@ -985,7 +985,7 @@ class EpistemicGraphBackend(GraphBackend):
                 ):
                     matched.append((id_val, data))
         else:
-            # Engine-side labeled fetch (CONCEPT:KG-2.51): a label-scoped MATCH
+            # Engine-side labeled fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation): a label-scoped MATCH
             # fetches only that label's nodes — never the whole graph — and pushes
             # the LIMIT down for a pure read (no WHERE/SET/DELETE could drop a
             # match and under-return). A bare (label-less) MATCH still does the
@@ -1020,7 +1020,7 @@ class EpistemicGraphBackend(GraphBackend):
             else:
                 # Full-graph scan: fetch all nodes WITH their properties in a single
                 # round-trip (one ``_get_node_properties`` per node is an N+1 that
-                # cost ~45s on a 40K-node graph). (CONCEPT:KG-2.8)
+                # cost ~45s on a 40K-node graph). (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
                 rows = self._graph._get_all_nodes_with_properties()
             for nid, data in rows:
                 data = data or {}
@@ -1368,7 +1368,7 @@ class EpistemicGraphBackend(GraphBackend):
         interpreters already handle (``row.`k```/``row.k`` → ``$k``) and run it per
         row. Without this the whole batch silently no-ops (the raw ``row.id``
         template matches no interpreter) — ingested code/entities never land.
-        (CONCEPT:KG-2.9g)
+        (CONCEPT:AU-KG.backend.declared-columns-so-schema)
         """
         per_row = self._unwind_to_per_row(query)
         results = []
@@ -1400,7 +1400,7 @@ class EpistemicGraphBackend(GraphBackend):
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Store an embedding for a node — in the engine HNSW AND the local cache.
 
-        The engine index (CONCEPT:KG-2.0) is what makes ``semantic_search`` O(log N)
+        The engine index (CONCEPT:AU-KG.query.object-graph-mapper) is what makes ``semantic_search`` O(log N)
         and survives across processes; before this, embeddings only lived in the
         per-process ``_embeddings`` dict, so on the served/restarted graph the
         index was empty and retrieval fell back to an O(N) full-graph scan.
@@ -1556,7 +1556,7 @@ class EpistemicGraphBackend(GraphBackend):
         """Return a node's current properties, or ``None`` if it doesn't exist.
 
         Cheap in-memory read used by the Company Brain write-path guard for
-        field-level survivorship (CONCEPT:KG-2.6). Returns ``{}`` for a node that
+        field-level survivorship (CONCEPT:AU-KG.research.research-pipeline-runner). Returns ``{}`` for a node that
         exists with no properties; ``None`` lets the guard fall back to
         node-level arbitration.
         """
@@ -1571,10 +1571,10 @@ class EpistemicGraphBackend(GraphBackend):
     def nodes_by_label(
         self, label: str, limit: int = 0
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Engine-side label scan (CONCEPT:KG-2.51) — ``(node_id, properties)`` for
+        """Engine-side label scan (CONCEPT:EG-KG.txn.per-graph-write-isolation) — ``(node_id, properties)`` for
         every node carrying ``label`` (``limit=0`` ⇒ uncapped), via the engine's
         label index. The reliable label-scan primitive the consolidated engine-only
-        stores (CONCEPT:KG-2.244-248) use for their ``list``/scan reads (the limited
+        stores (CONCEPT:AU-KG.backend.cache-lives-as-248) use for their ``list``/scan reads (the limited
         ``execute()`` Cypher interpreter refuses an unscoped ``MATCH (n:L) RETURN n``).
         """
         try:
@@ -1588,7 +1588,7 @@ class EpistemicGraphBackend(GraphBackend):
         conditions: dict[str, Any],
         updates: dict[str, Any],
     ) -> bool:
-        """Atomic compare-and-set on a node's top-level fields (CONCEPT:KG-2.141).
+        """Atomic compare-and-set on a node's top-level fields (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
         Delegates to the authoritative GraphComputeEngine CAS op; returns
         ``True`` iff the conditions held and the updates were applied. The

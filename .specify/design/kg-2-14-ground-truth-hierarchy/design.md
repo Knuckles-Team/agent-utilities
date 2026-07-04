@@ -1,4 +1,4 @@
-# Design Document: Ground-Truth Context Authority (KG-2.14)
+# Design Document: Ground-Truth Context Authority (AU-KG.memory.ground-truth-preamble-declaring)
 
 > Assimilates memory-os Layer 7 "Ground Truth Hierarchy" (`ClaudioDrews/memory-os@a4ca094`,
 > `layers/07-ground-truth.md`) — but as **structural, graph-grounded chunk authority + a budgeted
@@ -16,15 +16,15 @@
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.1 | Tiered Memory & Context | 0.86 (offline matcher 0.61, review band) | KG-2 |
-| KG-2.6 | Memory Stability | 0.43 | KG-2 |
+| KG-2.1 | Tiered Memory & Context | 0.86 (offline matcher 0.61, review band) | EG-KG.compute.backend |
+| KG-2.6 | Memory Stability | 0.43 | EG-KG.compute.backend |
 
 ### Extension Analysis
 
 - **Primary Extension Point**: `KG-2.1` (Tiered Memory & Context) — the startup-context builder.
 - **Extension Strategy**: `augment` — add an authority tier to `StartupChunk` + an authority preamble
   in `build_payload`; no parallel module.
-- **New Concept Required?**: Yes — `KG-2.14` (minted), justified as the orthogonal *authority* axis on
+- **New Concept Required?**: Yes — `AU-KG.memory.ground-truth-preamble-declaring` (minted), justified as the orthogonal *authority* axis on
   injected memory (KG-2.1 covers recency/tiering; this covers "is it authoritative").
 
 ## C4 Context Diagram
@@ -34,7 +34,7 @@ C4Context
     title Ground-Truth Context Authority — Integration Context
 
     System_Boundary(b1, "KG-2.1 Memory Engine") {
-        System(auth, "KG-2.14 Authority Tier + Preamble", "source_authority + _build_authority_preamble")
+        System(auth, "AU-KG.memory.ground-truth-preamble-declaring Authority Tier + Preamble", "source_authority + _build_authority_preamble")
         System(builder, "StartupContextBuilder.build_payload", "budgeted startup payload")
     }
     System_Ext(cli, "agent-utilities-memory context / MCP context / MemoryEngine", "entry points")

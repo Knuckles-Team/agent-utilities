@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.35 / OS-5.11 — Interactive loop: held-turn resume, sidecar isolation, run tokens.
+"""CONCEPT:AU-ORCH.execution.held-turn-registry-mid / OS-5.11 — Interactive loop: held-turn resume, sidecar isolation, run tokens.
 
 Covers the mid-turn pause/resume registry, the ``/api/runs/{id}/tool-result`` live route, per-run
 UDS socket isolation via typed process stamps, and run-scoped token mint/validate (expiry + scope).
@@ -23,7 +23,7 @@ from agent_utilities.security.sidecar_runtime import (
     socket_path,
 )
 
-pytestmark = pytest.mark.concept(id="ORCH-1.35")
+pytestmark = pytest.mark.concept(id="AU-ORCH.execution.held-turn-registry-mid")
 
 
 # ── held-turn registry ──────────────────────────────────────────────

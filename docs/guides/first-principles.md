@@ -1,6 +1,6 @@
 # First Principles Architecture
 
-> **Concepts:** CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:ORCH-1.2, CONCEPT:ECO-4.0
+> **Concepts:** CONCEPT:AU-ORCH.adapter.hot-cache-invalidation, CONCEPT:AU-AHE.evaluation.interpretability-tests, CONCEPT:AU-ORCH.adapter.hot-cache-invalidation, CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This document describes the **First Principles Architecture** layer — a set of four foundational concepts that rewire the routing, dispatch, and feedback loops of `agent-utilities` from basic primitives. These concepts were designed to solve specific scalability, performance, and intelligence bottlenecks that emerge when the system manages dozens of specialists and hundreds of tools.
 
@@ -8,35 +8,35 @@ This document describes the **First Principles Architecture** layer — a set of
 
 | Problem | Root Cause | Solution |
 |---------|-----------|----------|
-| **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:ORCH-1.2: Hot cache filters to top-7 relevant specialists per query |
-| **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AHE-3.3: TeamConfig promotes proven coalitions as reusable templates |
-| **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:ORCH-1.2: AgentCapability nodes auto-activate based on input constraints |
-| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:ECO-4.0: PlannerGraphSkill provides a direct graph-backed A2A entry point |
-| **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AHE-3.3 + CONCEPT:KG-2.1: Verification outcomes update Self-Model and TeamConfig rewards |
+| **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Hot cache filters to top-7 relevant specialists per query |
+| **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AU-AHE.evaluation.interpretability-tests: TeamConfig promotes proven coalitions as reusable templates |
+| **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: AgentCapability nodes auto-activate based on input constraints |
+| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:AU-ECO.messaging.native-backend-abstraction: PlannerGraphSkill provides a direct graph-backed A2A entry point |
+| **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AU-AHE.evaluation.interpretability-tests + CONCEPT:AU-KG.memory.tiered-memory-caching: Verification outcomes update Self-Model and TeamConfig rewards |
 
 ## Architecture Overview
 
 ```mermaid
 graph LR
     subgraph Ingress ["Protocol Ingress"]
-        ECO-4.1: A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:ECO-4.0)"]
+        ECO-4.1: A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:AU-ECO.messaging.native-backend-abstraction)"]
         ECO-4.1: ACP[ACP] --> Router
         AGUI[ECO-4.0: AG-UI] --> Router
     end
 
     subgraph Routing ["3-Stage Hybrid Routing"]
         PGS --> Router
-        Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AHE-3.3)"}
+        Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AU-AHE.evaluation.interpretability-tests)"}
         TC -- "Hit" --> Dispatch
-        TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:KG-2.1)"}
+        TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:AU-KG.memory.tiered-memory-caching)"}
         SM --> LLM["ORCH-1.1: LLM Planner\n(Filtered Prompt)"]
         LLM --> Dispatch
     end
 
     subgraph Execution ["Dispatch & Execute"]
-        Dispatch --> Cache["Registry Cache\n(CONCEPT:ORCH-1.2)"]
+        Dispatch --> Cache["Registry Cache\n(CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"]
         Cache --> Specs["ORCH-1.2: Top-7 Specialists"]
-        Specs --> Cap{"Capability\nAuto-Activate?\n(CONCEPT:ORCH-1.2)"}
+        Specs --> Cap{"Capability\nAuto-Activate?\n(CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"}
         Cap --> Exec["ORCH-1.21: Parallel Execution"]
     end
 
@@ -44,14 +44,14 @@ graph LR
         Exec --> Verify["AHE-3.1: Verifier"]
         Verify --> SMUpdate["AHE-3.3: Self-Model\nUpdate"]
         Verify --> TCReward["ORCH-1.2: TeamConfig\nReward"]
-        SMUpdate --> CacheInv["ECO-4.6: Cache\nInvalidation"]
+        SMUpdate --> CacheInv["AU-ECO.mcp.toolkit-live-discovery: Cache\nInvalidation"]
         TCReward --> CacheInv
     end
 ```
 
 ---
 
-## CONCEPT:ORCH-1.2 — Registry Hot Cache
+## CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Registry Hot Cache
 
 **Module:** `agent_utilities/core/config.py`
 
@@ -113,7 +113,7 @@ The cache is invalidated by 4 event sources, ensuring it stays in sync:
 
 ---
 
-## CONCEPT:AHE-3.3 — TeamConfig Promotion & Proven Team Reuse
+## CONCEPT:AU-AHE.evaluation.interpretability-tests — TeamConfig Promotion & Proven Team Reuse
 
 **Module:** `agent_utilities/core/registry/kg_adapter.py`
 
@@ -156,7 +156,7 @@ graph TD
 
 ```python
 class TeamConfigNode(RegistryNode):
-    """CONCEPT:AHE-3.3 — Proven Team Reuse"""
+    """CONCEPT:AU-AHE.evaluation.interpretability-tests — Proven Team Reuse"""
     node_type: str = "TEAM_CONFIG"
     domain_pattern: str           # e.g., "deploy*staging*"
     specialist_ids: list[str]     # Ordered specialist node IDs
@@ -187,7 +187,7 @@ if len(query) > 5000 and "rlm" not in team_config.capability_overrides:
 
 ---
 
-## CONCEPT:ORCH-1.2 — AgentCapability Type System
+## CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — AgentCapability Type System
 
 **Module:** `agent_utilities/models/knowledge_graph.py`, `agent_utilities/graph/executor.py`
 
@@ -203,7 +203,7 @@ Specialist agents had static, fixed tool bindings defined at registration time. 
 
 ```python
 class AgentCapabilityNode(RegistryNode):
-    """CONCEPT:ORCH-1.2 — Agent Capability Type System"""
+    """CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Agent Capability Type System"""
     node_type: str = "AGENT_CAPABILITY"
     capability_type: str          # e.g., "rlm", "critic", "summarizer"
     auto_activate: bool = False   # If True, system checks triggers automatically
@@ -227,7 +227,7 @@ for specialist in specialists:
     )
     for cap in capabilities:
         if _check_trigger(cap.trigger_conditions, input_text):
-            logger.info("[CONCEPT:ORCH-1.2] Auto-activating %s for %s", cap.capability_type, specialist.name)
+            logger.info("[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activating %s for %s", cap.capability_type, specialist.name)
             # Activate the capability handler before execution
 ```
 
@@ -242,7 +242,7 @@ for specialist in specialists:
 
 ---
 
-## CONCEPT:ECO-4.0 — PlannerGraphSkill (A2A-Native Routing)
+## CONCEPT:AU-ECO.messaging.native-backend-abstraction — PlannerGraphSkill (A2A-Native Routing)
 
 **Module:** `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
 
@@ -256,7 +256,7 @@ A2A requests always went through the full LLM-mediated pipeline: parse request �
 
 ```python
 class PlannerGraphSkill:
-    """CONCEPT:ECO-4.0 — A2A-Native PlannerAgent"""
+    """CONCEPT:AU-ECO.messaging.native-backend-abstraction — A2A-Native PlannerAgent"""
 
     def __init__(self, graph_bundle):
         self.graph_bundle = graph_bundle
@@ -295,16 +295,16 @@ if graph_bundle:
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `TEAM_CONFIG` | CONCEPT:AHE-3.3 | Proven specialist coalition template |
-| `AGENT_CAPABILITY` | CONCEPT:ORCH-1.2 | Dynamic capability with trigger conditions |
+| `TEAM_CONFIG` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Proven specialist coalition template |
+| `AGENT_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Dynamic capability with trigger conditions |
 
 ### Edge Types
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `HAS_CAPABILITY` | CONCEPT:ORCH-1.2 | Links specialist → capability |
-| `REUSED_TEAM` | CONCEPT:AHE-3.3 | Links session → TeamConfig (tracks reuse) |
-| `USES_PROMPT` | CONCEPT:AHE-3.3 | Links specialist → JSON prompt template |
+| `HAS_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links specialist → capability |
+| `REUSED_TEAM` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links session → TeamConfig (tracks reuse) |
+| `USES_PROMPT` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links specialist → JSON prompt template |
 
 ---
 
@@ -333,5 +333,5 @@ python -m pytest tests/unit/core/test_config_helpers.py \
 
 - [Registry Cache Deep-Dive](../1_graph_orchestration/registry-cache.md) — Focused cache architecture and performance analysis
 - [Process Lifecycle Management](../5_agent_os_infrastructure/process-lifecycle.md) — Sidecar cleanup and signal handling
-- [Emergent Architecture](../2_epistemic_knowledge_graph/emergent-architecture.md) — CONCEPT:KG-2.0 through CONCEPT:ORCH-1.2 (OGM, Swarm, Self-Model, Attention)
+- [Emergent Architecture](../2_epistemic_knowledge_graph/emergent-architecture.md) — CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (OGM, Swarm, Self-Model, Attention)
 - [Architecture](../1_graph_orchestration/architecture.md) — Full system architecture with routing diagrams

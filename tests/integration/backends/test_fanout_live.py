@@ -1,4 +1,4 @@
-"""Live cross-backend convergence for the fan-out mirror (CONCEPT:KG-2.74).
+"""Live cross-backend convergence for the fan-out mirror (CONCEPT:AU-KG.backend.mirror-health-repair).
 
 Runs under ``pytest -m live`` against throwaway Postgres-AGE (authority) + Neo4j
 and FalkorDB (mirrors) containers. Proves the two contract guarantees against

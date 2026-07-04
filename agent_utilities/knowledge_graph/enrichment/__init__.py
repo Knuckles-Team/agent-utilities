@@ -1,4 +1,4 @@
-"""KG enrichment pipeline (CONCEPT:KG-2.8).
+"""KG enrichment pipeline (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Turns raw ingestion into a deeply-typed, cross-linkable epistemic graph. Phase 1
 ships the Code/Test vertical slice: the epistemic-graph Rust engine computes AST

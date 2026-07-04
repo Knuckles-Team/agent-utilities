@@ -1,6 +1,6 @@
-# Tasks: Recursive-Improvement Velocity Ledger (AHE-3.26)
+# Tasks: Recursive-Improvement Velocity Ledger (AU-AHE.sdd.recursive-improvement-instrumentation-aggregating)
 
-> Wire-First, ordered. Shares the single ledger with SAFE-1.3 — build once.
+> Wire-First, ordered. Shares the single ledger with AU-OS.audit.recursive-improvement-velocity-tracker — build once.
 
 ## T1 — Tag the cycle node at the write seam (US-1)  [code]
 - [ ] `knowledge_graph/research/golden_loop.py:_finalize_metrics` — add `mechanism` +
@@ -19,9 +19,9 @@
 
 ## T4 — Tests (NFR)  [test]
 - [ ] `tests/unit/knowledge_graph/test_ahe_3_26_rsi_ledger.py` — AC1–AC6 with fake persisted nodes
-      (`@pytest.mark.concept(id="AHE-3.26")`), incl. a live-path test through `mount_fleet_routes`.
+      (`@pytest.mark.concept(id="AU-AHE.sdd.recursive-improvement-instrumentation-aggregating")`), incl. a live-path test through `mount_fleet_routes`.
 
 ## T5 — Artifacts (NFR)  [docs]
-- [ ] CONCEPT:AHE-3.26 marker on `rsi_ledger.py`; `docs/concepts.yaml` regen
+- [ ] CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating marker on `rsi_ledger.py`; `docs/concepts.yaml` regen
       (`scripts/build_concepts_yaml.py`) + `scripts/check_concepts.py`; CHANGELOG; README AHE-3 count;
       `docs/architecture/` per-concept note; `pre-commit run --all-files` green.

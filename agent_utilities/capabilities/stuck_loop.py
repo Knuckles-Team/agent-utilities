@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Stuck loop detection capability with knowledge graph integration.
 
-CONCEPT:OS-5.1
+CONCEPT:AU-OS.config.secrets-authentication
 
 Detects repetitive agent behavior and intervenes, recording the event
 as a SelfEvaluation node in the knowledge graph.

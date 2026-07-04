@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """ArchiMate EA Governance Layer.
 
-CONCEPT:KG-2.6 — ArchiMate-to-KG Mapping
+CONCEPT:AU-KG.research.research-pipeline-runner — ArchiMate-to-KG Mapping
 
 Maps Knowledge Graph node types to the ArchiMate 3.2 metamodel, enabling
 enterprise-architecture-level governance over the agent ecosystem. Provides
@@ -127,7 +127,7 @@ _KG_TO_ARCHIMATE: dict[str, tuple[ArchiMateLayerType, str]] = {
 class ArchiMateLayer:
     """Maps KG concepts to ArchiMate 3.2 metamodel elements.
 
-    CONCEPT:KG-2.6 — ArchiMate EA Governance Layer
+    CONCEPT:AU-KG.research.research-pipeline-runner — ArchiMate EA Governance Layer
 
     Business Layer:   Policy, Goal, Process → BusinessService, BusinessProcess
     Application Layer: Agent, Tool, Skill → ApplicationComponent, ApplicationService

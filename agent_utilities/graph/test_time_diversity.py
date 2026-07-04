@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Test-Time Diversity (VPO).
 
-CONCEPT:AHE-3.16 — VPO (arXiv:2605.22817)
+CONCEPT:AU-AHE.harness.width-diverse-best-k — VPO (arXiv:2605.22817)
 
 We already scale test-time compute (``harness/reasoning_effort``) and fan out
 subagents (``SubagentLifecyclePolicy``, ``rlm/`` parallel sub-calls), but we sample

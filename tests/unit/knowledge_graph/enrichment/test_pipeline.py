@@ -155,7 +155,7 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
 
     def fake_llm(prompt):
         card = '{"summary": "does a thing", "responsibilities": ["r1"]}'
-        # Multi-symbol batch prompts ask for a JSON array (CONCEPT:KG-2.8, #2).
+        # Multi-symbol batch prompts ask for a JSON array (CONCEPT:EG-KG.storage.nonblocking-checkpoint, #2).
         if "JSON array" in prompt:
             return "[" + ", ".join([card] * 16) + "]"
         return card
@@ -322,7 +322,7 @@ def test_pipeline_is_hash_incremental(tmp_path):
     assert third.files_parsed == 1
 
 
-# ── CONCEPT:KG-2.100 — single-round-trip Rust resolver path ──────────────────
+# ── CONCEPT:EG-KG.compute.type-scope-resolved-call — single-round-trip Rust resolver path ──────────────────
 
 
 class PropBackend:
@@ -418,14 +418,14 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     assert calls and calls[0][3].get("strategy") == "same_file"
     assert calls[0][3].get("confidence") == "0.90"
     assert any(e[2] == "INHERITS" for e in backend.edges)
-    # Model-free similarity edge persisted with its score (CONCEPT:KG-2.101).
+    # Model-free similarity edge persisted with its score (CONCEPT:EG-KG.compute.model-free-similar-code).
     sim = [e for e in backend.edges if e[2] == "SIMILAR_TO"]
     assert sim and sim[0][3].get("score") == "0.75"
 
 
 def test_pipeline_extracts_routes_from_decorators(tmp_path):
     """A handler with a route decorator yields a Route node + SERVES edge
-    (CONCEPT:KG-2.102)."""
+    (CONCEPT:AU-KG.compute.http-route-graph)."""
     (tmp_path / "app.py").write_text("def list_users():\n    return []\n")
 
     def parse_fn(file_path, source):
@@ -461,7 +461,7 @@ def test_pipeline_extracts_routes_from_decorators(tmp_path):
 
 
 def test_pipeline_extracts_iac_resources(tmp_path):
-    """A Dockerfile alongside the code yields a Resource node (CONCEPT:KG-2.103)."""
+    """A Dockerfile alongside the code yields a Resource node (CONCEPT:AU-KG.enrichment.read-them-here-so)."""
     (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
     (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\nEXPOSE 8080\n")
 

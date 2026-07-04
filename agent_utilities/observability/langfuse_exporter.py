@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.24 — Langfuse exporter for spans, token usage and traces.
+"""CONCEPT:AU-OS.observability.langfuse-exporter — Langfuse exporter for spans, token usage and traces.
 
 The orchestration engine already opens an OpenTelemetry span around every graph
 run (``orchestration/engine.py`` → ``tracer.start_as_current_span``) and the
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class LangfuseExporter:
-    """Optional Langfuse sink for graph-run traces + token usage. CONCEPT:ECO-4.24.
+    """Optional Langfuse sink for graph-run traces + token usage. CONCEPT:AU-OS.observability.langfuse-exporter.
 
     Parameters
     ----------
@@ -108,7 +108,7 @@ class LangfuseExporter:
         model: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Export one graph run as a Langfuse trace. CONCEPT:ECO-4.24.
+        """Export one graph run as a Langfuse trace. CONCEPT:AU-OS.observability.langfuse-exporter.
 
         Emits a ``trace`` (the graph run) with a nested ``generation``
         observation carrying token usage when present. Returns ``True`` when a
@@ -121,7 +121,7 @@ class LangfuseExporter:
         try:
             md = dict(metadata or {})
             md.update({"status": status, "duration_ms": duration_ms})
-            # CONCEPT:OS-5.11 — stamp the run-wide correlation id so every agent's
+            # CONCEPT:AU-OS.observability.run-wide-correlation-id — stamp the run-wide correlation id so every agent's
             # trace in a multi-agent run is joinable ("which agents touched X?").
             try:
                 from agent_utilities.observability.correlation import get_correlation_id

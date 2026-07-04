@@ -1,5 +1,5 @@
 """L1 (epistemic_graph) must never silently return a *global* edge count for a
-relationship aggregate whose WHERE filter it cannot honor (CONCEPT:KG-2.9h).
+relationship aggregate whose WHERE filter it cannot honor (CONCEPT:AU-KG.backend.where-clause-carrying).
 
 Live symptom: ``MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN
 count(c)`` returned the GLOBAL chunk/edge count (e.g. 822419) because the
@@ -23,7 +23,7 @@ class _GlobalCountOnlyGraph:
 
     This is the worst case: the where-anchored traversal path can't resolve the
     anchor (no node scan), so the backend MUST fail loud rather than fall back to
-    the global edge count. (CONCEPT:KG-2.9h)
+    the global edge count. (CONCEPT:AU-KG.backend.where-clause-carrying)
     """
 
     def __init__(self, edges: int):

@@ -4,11 +4,11 @@ This document consolidates the memory paradigms used by agent-utilities.
 
 ## Core Memory Features
 
-- **Autonomous Memory Architecture (CONCEPT:KG-2.1)**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Autonomous Self-Improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
-- **Cross-Agent Observational Memory Bridge (CONCEPT:KG-2.1)**: Shared local memory layer across 10 terminal agents (Claude Code, Codex, Grok Build, Devin, Antigravity, Windsurf, OpenCode, agent-terminal-ui, Cowork, Hermes). KG is the source of truth; materialized Markdown files (`observations.md`, `reflections.md`, `profile.md`, `active.md`) provide inspectable, editable views at `~/.local/share/agent-utilities/memory/`. Bidirectional sync ensures user edits flow back to the KG. Includes LLM-powered Observer/Reflector pipeline, budgeted startup context injection via agent hooks (ECO-4.6), and `agent-utilities-memory` CLI.
-- **Token-Aware Context Compaction (CONCEPT:KG-2.1)**: Intelligent context window management with three strategies (`summarize_tools`, `drop_middle`, `progressive`). Adapted from Goose's `context_mgmt/mod.rs`. Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall via `MemoryRetriever`.
-- **Multi-Timescale Memory Dynamics (CONCEPT:KG-2.2)**: Three-tier memory with timescale-aware exponential decay (Working 5min, Episodic 4hr, Semantic 30-day). Consolidation promotes high-activation memories. Derived from Continual Knowledge Updating (arXiv:2605.05097v1).
-- **Memory-Aware Test-Time Scaling (CONCEPT:AHE-3.4)**: Integrates batch-parallel trajectory generation into the HTN planner. Distills reasoning memory concurrently across multiple parallel attempts (successes and failures) yielding zero-shot hypergraph generalization and structural topological feedback.
+- **Autonomous Memory Architecture (CONCEPT:AU-KG.memory.tiered-memory-caching)**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Autonomous Self-Improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
+- **Cross-Agent Observational Memory Bridge (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Shared local memory layer across 10 terminal agents (Claude Code, Codex, Grok Build, Devin, Antigravity, Windsurf, OpenCode, agent-terminal-ui, Cowork, Hermes). KG is the source of truth; materialized Markdown files (`observations.md`, `reflections.md`, `profile.md`, `active.md`) provide inspectable, editable views at `~/.local/share/agent-utilities/memory/`. Bidirectional sync ensures user edits flow back to the KG. Includes LLM-powered Observer/Reflector pipeline, budgeted startup context injection via agent hooks (AU-ECO.mcp.toolkit-live-discovery), and `agent-utilities-memory` CLI.
+- **Token-Aware Context Compaction (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Intelligent context window management with three strategies (`summarize_tools`, `drop_middle`, `progressive`). Adapted from Goose's `context_mgmt/mod.rs`. Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall via `MemoryRetriever`.
+- **Multi-Timescale Memory Dynamics (CONCEPT:AU-KG.ingest.engineering-rules)**: Three-tier memory with timescale-aware exponential decay (Working 5min, Episodic 4hr, Semantic 30-day). Consolidation promotes high-activation memories. Derived from Continual Knowledge Updating (arXiv:2605.05097v1).
+- **Memory-Aware Test-Time Scaling (CONCEPT:AU-AHE.evaluation.backtest-harness)**: Integrates batch-parallel trajectory generation into the HTN planner. Distills reasoning memory concurrently across multiple parallel attempts (successes and failures) yielding zero-shot hypergraph generalization and structural topological feedback.
 
 
 
@@ -39,13 +39,13 @@ flowchart TB
     end
     subgraph RET["3 · Retrieval / routing"]
         HYB["Hybrid Retriever (semantic ⊕ keyword)"]
-        CIDX["CapabilityIndex.designate()<br/>(KG-2.44b ontology-type prior)"]
-        ROUTE["GraphOSRouterMethod<br/>(AHE-3.73 family-aware config router)"]
+        CIDX["CapabilityIndex.designate()<br/>(AU-KG.ontology.optional-populated-from ontology-type prior)"]
+        ROUTE["GraphOSRouterMethod<br/>(AU-AHE.harness.callers-feed-back-per family-aware config router)"]
     end
     subgraph MNT["4 · Maintenance"]
         DECAY["Ebbinghaus decay / consolidation<br/>(KG-2.4 Evolving Memory)"]
         REAP["idle / max-age reapers + compaction"]
-        ERASE["Generation-scoped selective reward erasure<br/>(KG-2.276 — provenance, not age)"]
+        ERASE["Generation-scoped selective reward erasure<br/>(AU-KG.memory.generation-scoped-selective-reward — provenance, not age)"]
     end
 
     EXT --> REP
@@ -54,7 +54,7 @@ flowchart TB
     MNT -. "promote / decay / forget" .-> REP
 ```
 
-### Generation-scoped selective reward erasure (CONCEPT:KG-2.276)
+### Generation-scoped selective reward erasure (CONCEPT:AU-KG.memory.generation-scoped-selective-reward)
 
 The maintenance quadrant decays learned utility by **age** (`decay_rewards`,
 KG-2.4) and reaps memories by idle/max-age. It had no way to forget utility by
@@ -87,7 +87,7 @@ records, in two wired forms:
 > **Scope honesty.** arXiv:2606.26294 is a *self-improving-agents / co-evolving-evaluator*
 > paper, not a memory paper; most of its mechanism (controlled utility evolution,
 > ground-truth-anchored challenger promotion, the multi-agent workspace tree)
-> already lives in our AHE-3.x self-improvement spine (the capability reward-EMA
+> already lives in our AU-AHE.optimization.telemetry-optimization self-improvement spine (the capability reward-EMA
 > router, the eval/preference corpus, the GEPA held-out split, the MemoryData
 > router-vs-best bake-off). Selective erasure is the **one** mechanism that filled
 > a genuine memory-maintenance gap. See
@@ -105,21 +105,21 @@ and whether a learned router beats every single config.
   implements MemoryData's `memorize`/`query` contract over a pluggable
   `MemoryBackendClient` (`client.py`): a `mock` transport for offline runs and a
   `GraphOSRestClient` that talks to graph-os over REST.
-- **AHE-3.72 — bake-off.** `run_bakeoff` (`bakeoff.py`) runs every
+- **AU-AHE.harness.when-outcome-names-agent — bake-off.** `run_bakeoff` (`bakeoff.py`) runs every
   config × family × task cell and scores **EM + ROUGE-L** into a `BakeoffResult`.
-- **AHE-3.73 — family-aware router.** `GraphOSRouterMethod` (`router_method.py`)
+- **AU-AHE.harness.callers-feed-back-per — family-aware router.** `GraphOSRouterMethod` (`router_method.py`)
   picks a config per query from `DEFAULT_FAMILY_PRIORS` and self-tunes with a
   per-config reward EMA (`record_outcome`).
-- **AHE-3.74 — scoreboard.** `render_scoreboard` (`scoreboard.py`) emits a
+- **AU-AHE.harness.ahe-3 — scoreboard.** `render_scoreboard` (`scoreboard.py`) emits a
   markdown table: measured results, best-config-per-family, and router-vs-best,
   with the 22 published MemoryData presets stubbed for a future Δ column.
 
 ```mermaid
 flowchart LR
     subgraph DRIVER["MemoryData bake-off (harness/memorydata/)"]
-        BAKE["run_bakeoff()<br/>config × family × task<br/>(AHE-3.72)"]
+        BAKE["run_bakeoff()<br/>config × family × task<br/>(AU-AHE.harness.when-outcome-names-agent)"]
         ADAPT["GraphOSMemoryMethod<br/>memorize / query (AHE-3.71)"]
-        ROUTER["GraphOSRouterMethod<br/>family priors + reward EMA (AHE-3.73)"]
+        ROUTER["GraphOSRouterMethod<br/>family priors + reward EMA (AU-AHE.harness.callers-feed-back-per)"]
         CLIENT["MemoryBackendClient<br/>mock | GraphOSRestClient (AHE-3.71)"]
     end
     subgraph CONFIGS["6 retrieval configs (RETRIEVAL_CONFIGS)"]
@@ -144,7 +144,7 @@ flowchart LR
     CLIENT --> SRCH
     CLIENT --> ANALYZE
     CLIENT --> SESS
-    BAKE --> SCORE["render_scoreboard()<br/>EM / ROUGE-L / Judge<br/>router-vs-best (AHE-3.74)"]
+    BAKE --> SCORE["render_scoreboard()<br/>EM / ROUGE-L / Judge<br/>router-vs-best (AU-AHE.harness.ahe-3)"]
     SCORE -. "vs 22 MemoryData presets" .-> BASE["MEMORYDATA_BASELINES (Δ stub)"]
     SCORE -->|"per-config reward"| ROUTER
 ```

@@ -1,6 +1,6 @@
 """Markov Chain Market Regime Detection and Forecasting.
 
-CONCEPT:KG-2.6 — Markov Regime Detection
+CONCEPT:AU-KG.research.research-pipeline-runner — Markov Regime Detection
 
 Extends the core ``MarkovTransitionModel`` with financial market regime
 detection, multi-step forecasting, trading signal generation, and
@@ -214,7 +214,7 @@ class BacktestResult:
 class MarkovRegimeModel:
     """Complete Markov Chain model for market regime analysis.
 
-    CONCEPT:KG-2.6 — Markov Regime Forecasting
+    CONCEPT:AU-KG.research.research-pipeline-runner — Markov Regime Forecasting
 
     Wraps ``MarketRegimeDetector`` and ``MarkovTransitionModel`` to provide
     an end-to-end pipeline from raw returns to trading signals.
@@ -333,7 +333,7 @@ class MarkovRegimeModel:
     ) -> BacktestResult:
         """Walk-forward backtest with rolling re-estimation.
 
-        CONCEPT:KG-2.6 — Walk-Forward Regime Backtesting
+        CONCEPT:AU-KG.research.research-pipeline-runner — Walk-Forward Regime Backtesting
 
         At each step ``t >= lookback``:
         1. Fit a new ``MarkovRegimeModel`` on ``returns[t-lookback:t]``.
@@ -458,7 +458,7 @@ class MarkovRegimeModel:
 class HiddenMarkovRegimeModel:
     """Gaussian Hidden Markov Model for latent regime detection.
 
-    CONCEPT:KG-2.6 — Hidden Markov Regime Model
+    CONCEPT:AU-KG.research.research-pipeline-runner — Hidden Markov Regime Model
 
     Uses ``hmmlearn.GaussianHMM`` to discover latent regimes from
     returns data using Baum-Welch (EM) estimation with multiple restarts.

@@ -14,7 +14,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-# CONCEPT:KG-2.6 — Lazy symbol loading. The finance domain pulls heavy optional
+# CONCEPT:AU-KG.domains.lazy-symbol-loading — Lazy symbol loading. The finance domain pulls heavy optional
 # deps (scipy/pandas/statsmodels via agent-utilities[finance]); importing this
 # package eagerly used to drag them onto every import path, including the lean
 # torch-free serving image which omits [finance]. Each symbol now resolves to its

@@ -1,4 +1,4 @@
-"""Live Postgres state-store pass (CONCEPT:OS-5.16 / KG-2.54 / OS-5.17).
+"""Live Postgres state-store pass (CONCEPT:AU-OS.state.unified-durable-state-externalization / KG-2.54 / OS-5.17).
 
 Runs ONLY when ``STATE_DB_URI`` points at a reachable Postgres (e.g. the
 deployed ``kg-backbone_pggraph`` service) — skipped everywhere else, so CI
@@ -109,7 +109,7 @@ def test_live_sessions_schema_migrates():
         assert conn.dialect == "postgres"
         cur = conn.cursor()
         # goal state lives on the KG Loop node now, not a SQLite/PG goals table
-        # (CONCEPT:KG-2.78); only sessions/turns remain in the sessions store.
+        # (CONCEPT:AU-KG.research.these-properties-carry); only sessions/turns remain in the sessions store.
         for table in ("sessions", "turns"):
             cur.execute(f"SELECT COUNT(*) FROM {table}")  # nosec B608
             assert cur.fetchone()[0] >= 0

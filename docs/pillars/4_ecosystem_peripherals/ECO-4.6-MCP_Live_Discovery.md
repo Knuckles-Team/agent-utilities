@@ -1,10 +1,10 @@
-# ECO-4.6: MCP Live Tool Discovery
+# AU-ECO.mcp.toolkit-live-discovery: MCP Live Tool Discovery
 
 ## Concept Summary
 
 | Field | Value |
 |-------|-------|
-| **Concept ID** | `ECO-4.6` |
+| **Concept ID** | `AU-ECO.mcp.toolkit-live-discovery` |
 | **Pillar** | 4 — Ecosystem & Peripherals |
 | **Status** | Implemented |
 | **Source Modules** | `engine_mcp_discovery.py`, `tools/dynamic_tool_orchestrator.py` |
@@ -90,7 +90,7 @@ Subsequent Ingestion:
 
 ## Dynamic Toolset Resolution & Cache Refresh
 
-Beyond static ingestion-time discovery, **ECO-4.6** supports runtime dynamic toolset resolution and background cache refreshing via the `DynamicToolOrchestrator`.
+Beyond static ingestion-time discovery, **AU-ECO.mcp.toolkit-live-discovery** supports runtime dynamic toolset resolution and background cache refreshing via the `DynamicToolOrchestrator`.
 
 When an MCP client passes query filters or custom headers requesting context-scoped capabilities:
 1. **Direct KG Resolution**: The `DynamicToolOrchestrator` queries the Active Knowledge Graph using optimized, LLM-free Cypher matching against `CallableResource` nodes to filter the active tools list.
@@ -102,6 +102,6 @@ When an MCP client passes query filters or custom headers requesting context-sco
 
 ## Related Concepts
 
-- **ECO-4.6**: Agent Toolkit Ingestor — the unified ingestion pipeline that calls discovery
+- **AU-ECO.mcp.toolkit-live-discovery**: Agent Toolkit Ingestor — the unified ingestion pipeline that calls discovery
 - **ECO-4.0**: Tool Interface & MCP Factory — base MCP infrastructure
 - **KG-2.0**: Active Knowledge Graph — persistence layer for cached tools

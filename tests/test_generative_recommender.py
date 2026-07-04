@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unit tests for the implicit-reasoning generative recommender (CONCEPT:KG-2.93).
+"""Unit tests for the implicit-reasoning generative recommender (CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative).
 
 Deterministic, no LLM/network: a small synthetic catalog of clustered item
 embeddings is encoded into semantic IDs via a real (seeded)
@@ -168,7 +168,7 @@ def test_explain_budget_reports_implicit_no_rationale() -> None:
     assert info["rationale"] is None
     assert info["decodes_rationale"] is False
     assert "2606.14142" in info["paper"]
-    assert info["concept"] == "KG-2.93"
+    assert info["concept"] == "AU-KG.retrieval.pauserec-implicit-reasoning-generative"
 
 
 def test_determinism() -> None:

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.316 — Memory→weights distillation EXPORT path (AU-side).
+"""CONCEPT:AU-KG.memory.memory-weights-distillation-export — Memory→weights distillation EXPORT path (AU-side).
 
 The *parametric-consolidation bridge* of the agent-native-memory stack. Where
 :mod:`agent_utilities.knowledge_graph.memory.lifecycle` (KG-2.307) consolidates
@@ -39,7 +39,7 @@ Pipeline (one ``export`` cycle):
     :meth:`MemoryWeightsDistiller.submit`, returning a typed
     :class:`DistillationJob`. Default submit is durable + torch-free (writes the
     JSONL + a job manifest and, best-effort, registers a job node the fleet can
-    pick up) **and now dispatches the train LIVE** (CONCEPT:KG-2.318): it runs the
+    pick up) **and now dispatches the train LIVE** (CONCEPT:AU-KG.memory.live-data-science-mcp): it runs the
     ``train_model`` workflow on ``data-science-mcp`` through the
     ``graph_orchestrate execute_workflow`` seam (:data:`DATA_SCIENCE_MCP_CONTRACT`),
     marking the job ``running`` with the remote run handle. The dispatch is bounded
@@ -95,7 +95,7 @@ _DEFAULT_INSTRUCTION_TEMPLATE = (
 )
 
 
-# The typed data-science-mcp hand-off CONTRACT (CONCEPT:KG-2.316). The export side
+# The typed data-science-mcp hand-off CONTRACT (CONCEPT:AU-KG.memory.memory-weights-distillation-export). The export side
 # produces a corpus in ``corpus_format[method]`` and hands it to the training side
 # via ONE of the ``dispatch`` seams; the live LoRA train runs there (GPU-gated).
 DATA_SCIENCE_MCP_CONTRACT: dict[str, Any] = {
@@ -141,7 +141,7 @@ def _as_str_list(val: Any) -> list[str]:
     return []
 
 
-# Hard wall-clock bound on the live data-science-mcp dispatch (CONCEPT:KG-2.318).
+# Hard wall-clock bound on the live data-science-mcp dispatch (CONCEPT:AU-KG.memory.live-data-science-mcp).
 # A named constant, not a flag (Configuration discipline): a single correct upper
 # bound so an unreachable/slow train hand-off fails fast into the durable
 # ``enqueued`` degrade rather than blocking the export path.
@@ -204,7 +204,7 @@ def _dispatch_train_workflow(
 
 @dataclass
 class DistillationTargetSpec:
-    """The fine-tune TARGET of a memory→weights distillation (CONCEPT:KG-2.316).
+    """The fine-tune TARGET of a memory→weights distillation (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
 
     Describes *what* the exported corpus is meant to train: the base model, the
     adapter shape (LoRA rank/alpha), the training method, and *which* slice of
@@ -281,7 +281,7 @@ class DistillationTargetSpec:
 
 @dataclass
 class DistillationCorpus:
-    """A training-ready corpus distilled from memory (CONCEPT:KG-2.316).
+    """A training-ready corpus distilled from memory (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
 
     ``examples`` are plain dicts keyed exactly as ``data-science-mcp`` consumes:
     ``{prompt, completion}`` for SFT or ``{prompt, chosen, rejected}`` for a
@@ -320,7 +320,7 @@ class DistillationCorpus:
 
 @dataclass
 class DistillationJob:
-    """A typed hand-off of a distilled corpus to data-science-mcp (CONCEPT:KG-2.316).
+    """A typed hand-off of a distilled corpus to data-science-mcp (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
 
     ``status`` lifecycle: ``exported`` (corpus materialized, nothing enqueued) →
     ``enqueued`` (a durable job node the fleet can pick up) → (in data-science-mcp)
@@ -353,7 +353,7 @@ class DistillationJob:
 
 
 class MemoryWeightsDistiller:
-    """Export consolidated/procedural memory as a LoRA/SFT corpus (CONCEPT:KG-2.316).
+    """Export consolidated/procedural memory as a LoRA/SFT corpus (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
 
     Instantiate with the same ``engine`` the scheduler hands maintenance handlers
     (it exposes ``.backend`` for the bounded reader and, optionally, a job surface
@@ -362,7 +362,7 @@ class MemoryWeightsDistiller:
     * ``submitter`` — ``(corpus, spec) -> DistillationJob``, overrides the WHOLE
       submit step (defaults to :meth:`_default_submit`, durable + torch-free).
     * ``dispatcher`` — ``(handoff, corpus, spec) -> dict``, the LIVE data-science-mcp
-      hand-off within the default submit (CONCEPT:KG-2.318). Defaults to
+      hand-off within the default submit (CONCEPT:AU-KG.memory.live-data-science-mcp). Defaults to
       :meth:`_default_dispatch`, which runs the ``train_model`` workflow over
       ``graph_orchestrate execute_workflow``; tests inject a mock MCP client here.
     """
@@ -406,7 +406,7 @@ class MemoryWeightsDistiller:
     ) -> list[dict[str, Any]]:
         """Return the in-scope memory nodes to distil, deterministically ordered.
 
-        A node is in scope (CONCEPT:KG-2.316) when its ``memory_type`` is one of
+        A node is in scope (CONCEPT:AU-KG.memory.memory-weights-distillation-export) when its ``memory_type`` is one of
         ``spec.scopes``, its status is ACTIVE (not retired/merged/…), it carries
         content, it clears the trust floor and the optional time-window, and — if
         ``target_entities`` is set — its ``target_entity``/``category`` matches.
@@ -565,7 +565,7 @@ class MemoryWeightsDistiller:
             "dpo" if self.spec.is_preference else "sft"
         ]
         return {
-            "contract": "KG-2.316",
+            "contract": "AU-KG.memory.memory-weights-distillation-export",
             "server": DATA_SCIENCE_MCP_CONTRACT["server"],
             # Preferred single-call hand-off (drives the full train DAG).
             "workflow": {
@@ -599,11 +599,11 @@ class MemoryWeightsDistiller:
             ),
         }
 
-    # CONCEPT:KG-2.318 — LIVE data-science-mcp train dispatch + TrainingJob status poll
+    # CONCEPT:AU-KG.memory.live-data-science-mcp — LIVE data-science-mcp train dispatch + TrainingJob status poll
     def _default_dispatch(
         self, handoff: dict[str, Any], corpus: DistillationCorpus
     ) -> dict[str, Any]:
-        """LIVE data-science-mcp hand-off — run ``train_model`` (CONCEPT:KG-2.318).
+        """LIVE data-science-mcp hand-off — run ``train_model`` (CONCEPT:AU-KG.memory.live-data-science-mcp).
 
         Drives the contract's ``workflow`` entry (``graph_orchestrate
         execute_workflow name=train_model``) so the exported corpus + spec reach
@@ -668,7 +668,7 @@ class MemoryWeightsDistiller:
 
         Writes the JSONL + a job manifest under the memory dir, builds the
         data-science-mcp hand-off payload, **dispatches the train live** through the
-        dispatcher seam (CONCEPT:KG-2.318 — the ``train_model`` workflow over
+        dispatcher seam (CONCEPT:AU-KG.memory.live-data-science-mcp — the ``train_model`` workflow over
         ``graph_orchestrate``), and registers a durable ``TrainingJob`` node the
         fleet + poll can read back. A live dispatch marks the job ``running`` with
         the remote run handle; an unreachable data-science-mcp degrades to a durable
@@ -711,7 +711,7 @@ class MemoryWeightsDistiller:
                     job_id,
                     "TrainingJob",
                     properties={
-                        "concept": "KG-2.318",
+                        "concept": "AU-KG.memory.live-data-science-mcp",
                         "status": intended_status,
                         "kind": "memory_to_weights_lora",
                         "base_model": self.spec.base_model,
@@ -775,13 +775,13 @@ class MemoryWeightsDistiller:
         )
 
     def submit(self, corpus: DistillationCorpus) -> DistillationJob:
-        """Hand a distilled corpus off to data-science-mcp (CONCEPT:KG-2.316)."""
+        """Hand a distilled corpus off to data-science-mcp (CONCEPT:AU-KG.memory.memory-weights-distillation-export)."""
         if self._submitter is not None:
             return self._submitter(corpus, self.spec)
         return self._default_submit(corpus)
 
     def poll(self, job_id: str) -> dict[str, Any]:
-        """Poll a submitted job's status, reading train state back (CONCEPT:KG-2.318).
+        """Poll a submitted job's status, reading train state back (CONCEPT:AU-KG.memory.live-data-science-mcp).
 
         Prefers the live ``TrainingJob`` engine node — which data-science-mcp
         updates as the LoRA/SFT train advances ``running``→``succeeded``/``failed``
@@ -841,12 +841,12 @@ def distill_memory_to_weights(
     nodes: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Action-core for ``graph_analyze action=distill_memory`` (CONCEPT:KG-2.316/2.318).
+    """Action-core for ``graph_analyze action=distill_memory`` (CONCEPT:AU-KG.memory.memory-weights-distillation-export/2.318).
 
     The single method BOTH surfaces (the ``graph_analyze`` MCP tool and its
     ``POST /graph/analyze`` REST twin) dispatch into. Reads consolidated/procedural
     memory, exports a LoRA/SFT corpus + spec, and — when ``submit`` — LIVE-dispatches
-    it to data-science-mcp (CONCEPT:KG-2.318), returning a JSON-safe summary (corpus
+    it to data-science-mcp (CONCEPT:AU-KG.memory.live-data-science-mcp), returning a JSON-safe summary (corpus
     stats + spec + job). A ``poll_job_id`` param instead reads a submitted job's live
     ``TrainingJob``/checkpoint state back (the status-poll surface).
     """
@@ -856,7 +856,7 @@ def distill_memory_to_weights(
     if poll_job_id:
         return {
             "status": "ok",
-            "concept": "KG-2.318",
+            "concept": "AU-KG.memory.live-data-science-mcp",
             "poll": MemoryWeightsDistiller(engine).poll(poll_job_id),
         }
     spec = DistillationTargetSpec.from_params(params)
@@ -864,7 +864,7 @@ def distill_memory_to_weights(
     corpus = distiller.export(nodes=nodes, now=now)
     result: dict[str, Any] = {
         "status": "ok",
-        "concept": "KG-2.316",
+        "concept": "AU-KG.memory.memory-weights-distillation-export",
         "corpus": corpus.summary(),
     }
     if submit:

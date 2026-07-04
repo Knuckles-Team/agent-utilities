@@ -29,7 +29,7 @@ async def export_subgraph(
 ) -> str:
     """Export a lightweight snapshot or subgraph for sharing with other agents.
 
-    CONCEPT:KG-2.0
+    CONCEPT:AU-KG.query.object-graph-mapper
 
         Export a subgraph centered around a topic for agent-to-agent sharing.
 

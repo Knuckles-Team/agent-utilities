@@ -1,4 +1,4 @@
-"""CONCEPT:AHE-3.12 — LongMemEval-S Validation Harness.
+"""CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S Validation Harness.
 
 A FastAPI surface that lets Quarq's HTTP benchmark runner (``quarqlabs/benchmarks``) drive the
 agent-utilities memory-first stack (ORCH-1.27 + KG-2.11/2.12/2.13) against LongMemEval-S, and
@@ -160,7 +160,7 @@ async def benchmark_health() -> dict[str, Any]:
     """Liveness + active-run summary for the benchmark harness."""
     return {
         "status": "ok",
-        "concept": "AHE-3.12",
+        "concept": "AU-AHE.evaluation.longmemeval-validation-harness",
         "active_runs": {rid: len(rows) for rid, rows in _RUNS.items()},
     }
 

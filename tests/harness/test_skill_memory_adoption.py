@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Skill evolution routes through the unified EvolvingMemoryStore (adoption).
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 """
 
 from types import SimpleNamespace
@@ -12,7 +12,7 @@ import pytest
 from agent_utilities.harness.agentic_evolution_engine import AgenticEvolutionEngine
 from agent_utilities.harness.evolving_memory import MemoryBank
 
-pytestmark = pytest.mark.concept("KG-2.1")
+pytestmark = pytest.mark.concept("AU-KG.memory.tiered-memory-caching")
 
 
 def _engine():

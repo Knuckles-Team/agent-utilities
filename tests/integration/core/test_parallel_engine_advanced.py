@@ -256,7 +256,7 @@ class _FakeKGEngine:
 
 
 def test_broadcast_workspace_attention_live_loop():
-    """CONCEPT:ORCH-1.2 — the parallel engine drives the GWT loop and the broadcast
+    """CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — the parallel engine drives the GWT loop and the broadcast
     is readable back via get_attention_score (the previously-dead loop, now live)."""
     from types import SimpleNamespace
 
@@ -286,7 +286,7 @@ def test_broadcast_workspace_attention_live_loop():
     score = WorkspaceAttention(kg).get_attention_score(broadcast_ids[0])
     assert score is not None and 0.0 <= score <= 1.0
 
-    # CONCEPT:KG-2.1 — winners were also routed into the evolving memory store,
+    # CONCEPT:AU-KG.memory.tiered-memory-caching — winners were also routed into the evolving memory store,
     # persisted to the shared engine (INSIGHT bank, gwt-winner signature).
     insight_nodes = [
         props

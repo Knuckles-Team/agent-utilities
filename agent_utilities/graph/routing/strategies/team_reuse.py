@@ -1,4 +1,4 @@
-"""TeamConfig reuse strategy (R2 — CONCEPT:AHE-3.3).
+"""TeamConfig reuse strategy (R2 — CONCEPT:AU-AHE.evaluation.interpretability-tests).
 
 Before invoking the LLM planner, the router checks the KG for a proven
 ``TeamConfig`` matching the query and reuses it when its success rate clears its

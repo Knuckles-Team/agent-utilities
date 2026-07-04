@@ -1,6 +1,6 @@
 """Embedded offline pricing fallback.
 
-CONCEPT:ECO-4.40 — Unified model pricing catalog.
+CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Port of agentsview ``internal/pricing/fallback.go``. Used so cost computation
 works with zero network access. ``FALLBACK_VERSION`` is bumped whenever rates

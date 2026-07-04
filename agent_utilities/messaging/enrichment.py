@@ -1,4 +1,4 @@
-"""Post-conversation KG enrichment for messaging (CONCEPT:ECO-4.65).
+"""Post-conversation KG enrichment for messaging (CONCEPT:AU-ECO.messaging.post-conversation-enrichment).
 
 After a conversation turn, mine the chat for ``Concept`` nodes and link them into the shared
 Knowledge Graph (``MENTIONS``), reusing the same extractor the IDE-conversation ingestion
@@ -9,7 +9,7 @@ makes the agent smarter over time, not just a transcript.
 Runs in the background (off the reply path) and is best-effort. Disable with
 ``MESSAGING_ENRICH=0``.
 
-CONCEPT:ECO-4.65 — Post-conversation concept extraction + KG linking for chat
+CONCEPT:AU-ECO.messaging.post-conversation-enrichment — Post-conversation concept extraction + KG linking for chat
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def enrich_conversation(
 ) -> int:
     """Extract concepts from a chat turn and link them into the KG. Returns concept count.
 
-    CONCEPT:ECO-4.65 — synchronous + best-effort; call via ``asyncio.to_thread`` so it never
+    CONCEPT:AU-ECO.messaging.post-conversation-enrichment — synchronous + best-effort; call via ``asyncio.to_thread`` so it never
     blocks the reply. Mirrors ``conversation_ingestion``'s per-thread concept write.
     """
     if not _enabled() or engine is None or not (text and text.strip()):
@@ -110,12 +110,12 @@ def enrich_conversation(
             logger.debug("[ECO-4.65] concept write failed: %s", exc)
     if written:
         logger.info(
-            "[CONCEPT:ECO-4.65] Enriched chat turn on %s with %d concept(s).",
+            "[CONCEPT:AU-ECO.messaging.post-conversation-enrichment] Enriched chat turn on %s with %d concept(s).",
             platform,
             written,
         )
 
-    # Surface goals / SDD-worthy specs from the turn (CONCEPT:ECO-4.70).
+    # Surface goals / SDD-worthy specs from the turn (CONCEPT:AU-ECO.messaging.surfaced).
     _surface_intents(engine, text, source_id, llm_fn)
     return written
 
@@ -171,7 +171,7 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
                 properties={"source": "chat"},
             )
             logger.info(
-                "[CONCEPT:ECO-4.70] Surfaced %s from chat: %s", label, desc[:60]
+                "[CONCEPT:AU-ECO.messaging.surfaced] Surfaced %s from chat: %s", label, desc[:60]
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[ECO-4.70] %s surfacing failed: %s", label, exc)

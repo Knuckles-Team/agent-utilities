@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — CPython-WASI sandbox: isolated full-stdlib compute, no daemon.
+"""CONCEPT:AU-ORCH.sandbox.cpython-wasi-sandbox — CPython-WASI sandbox: isolated full-stdlib compute, no daemon.
 
 The previous "WASM sandbox" never loaded a ``python.wasm`` — it emulated three hardcoded
 tasks. This backend runs a real **CPython-on-WASI** payload under ``wasmtime``: full standard
@@ -78,7 +78,7 @@ main()
 def _resolve_payload() -> Path | None:
     """Locate the CPython-WASI payload: ``$RLM_WASM_PYTHON`` first, then the platform cache.
 
-    A **Wizer-preinitialized** payload (CONCEPT:ORCH-1.88, ``python-warm*.wasm``) is preferred
+    A **Wizer-preinitialized** payload (CONCEPT:AU-ORCH.sandbox.wasm-backend, ``python-warm*.wasm``) is preferred
     when present: Wizer snapshots the CPython-WASI heap *after* the heavy imports run, so
     instantiating it skips the per-run ``import`` cost — the build-time analogue of the
     ``forkserver`` rung's runtime warm-fork, and it works on any platform incl. ARM. Build one

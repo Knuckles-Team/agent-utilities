@@ -43,7 +43,7 @@ class WorkflowContextRouter:
         query: str,
         context_state: dict[str, Any] | None = None,
     ) -> ShieldedResult:
-        """Return the task-relevant, budgeted context slice (CONCEPT:KG-2.1).
+        """Return the task-relevant, budgeted context slice (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         ``context_state`` lets the caller scope retrieval to *this* task instead
         of dumping everything — "the N pieces that matter for the task in front

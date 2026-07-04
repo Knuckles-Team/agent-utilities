@@ -1,7 +1,7 @@
 # Perspectival Inquiry — STORM made native
 
-> Concepts: **KG-2.127** (engine), **KG-2.128** (contradiction/agreement/blind-spot
-> structures), **KG-2.129** (peer-review self-critique). Code:
+> Concepts: **AU-KG.research.perspectival-inquiry** (engine), **AU-KG.research.contradiction-agreement-blind-spot** (contradiction/agreement/blind-spot
+> structures), **AU-KG.research.peer-review-self-critique** (peer-review self-critique). Code:
 > `knowledge_graph/research/perspective.py`, wired into
 > `knowledge_graph/research/search.py` + `research/loop_controller.py`, surfaced via
 > `research/ara/service.py` (`action=inquire`).

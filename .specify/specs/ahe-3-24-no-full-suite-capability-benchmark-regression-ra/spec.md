@@ -1,4 +1,4 @@
-# Spec: Capability-Benchmark Regression Ratchet (AHE-3.24)
+# Spec: Capability-Benchmark Regression Ratchet (AU-AHE.evaluation.capability-benchmark-regression-ratchet)
 
 > Status: **proposed**.
 > **Wire-First:** insert a `CapabilityRatchet` between the publisher worktree build and merge in
@@ -6,7 +6,7 @@
 > `change_publisher.py:310`) that runs the **existing** `harness/reliability_scorers.py`
 > `build_reliability_suite` (AHE-3.1) + LongMemEval-S (`harness/benchmark.py`, AHE-3.12) in that
 > worktree and requires post-change scores ≥ a stored baseline before publish. Reuses
-> `promotion_governance.py` (AHE-3.20) as the gate host — adds a capability axis to its structural
+> `promotion_governance.py` (AU-AHE.harness.promotion-governance-validator) as the gate host — adds a capability axis to its structural
 > `quality_score`, not a new merge path.
 
 ## Pre-Flight Checklist
@@ -15,11 +15,11 @@
   spike: `current > base`). `reliability_scorers` (AHE-3.1) and LongMemEval-S (AHE-3.12) exist but are
   **not read** by the merge/publish gate — a merged change can pass its own targeted tests and the
   spike monitor while regressing untested capabilities (the paper's "degeneration" mode, §5.3).
-- [x] **New CONCEPT:AHE-3.24 justified** — distinct from AHE-3.20 structural governance (SHACL +
-  constitution + `quality_score`) and AHE-3.18 spike monitoring: this is a *monotone capability*
+- [x] **New CONCEPT:AU-AHE.evaluation.capability-benchmark-regression-ratchet justified** — distinct from AU-AHE.harness.promotion-governance-validator structural governance (SHACL +
+  constitution + `quality_score`) and AU-AHE.harness.failure-evolution spike monitoring: this is a *monotone capability*
   ratchet on measured benchmark scores, the verifier-quality safety net agenda 4d demands.
 - [x] **Wire-First confirmed** — 1 gate call inserted in the publisher path, reusing the AHE-3.1 suite,
-  AHE-3.12 benchmark, and the AHE-3.20 governance host; baseline persisted as a graph node.
+  AHE-3.12 benchmark, and the AU-AHE.harness.promotion-governance-validator governance host; baseline persisted as a graph node.
 - [x] **Success metric defined** — a candidate whose post-change per-capability score vector drops
   below the stored baseline (beyond tolerance) on **any** tracked capability is blocked from publish;
   a candidate at-or-above baseline on all tracked capabilities proceeds and updates the baseline.
@@ -43,14 +43,14 @@ publish path or bypass appears.
   predicate alongside `quality_score`/SHACL/constitution — a single governed decision, not a second gate.
 - **AC5**: with no baseline node yet, the first run **establishes** the baseline and records it without
   blocking (bootstrap), and the score vector is stored so AU can begin fitting local
-  recursive-improvement curves (agenda 4a, feeds AHE-3.26/SAFE-1.3).
+  recursive-improvement curves (agenda 4a, feeds AU-AHE.sdd.recursive-improvement-instrumentation-aggregating/AU-OS.audit.recursive-improvement-velocity-tracker).
 
 ## Non-Functional Requirements
 - `tests/unit/knowledge_graph/research/test_ahe_3_24_capability_ratchet.py`
-  (`@pytest.mark.concept(id="AHE-3.24")`), ≤60s, no live engine/LLM: stub a score vector; assert a
+  (`@pytest.mark.concept(id="AU-AHE.evaluation.capability-benchmark-regression-ratchet")`), ≤60s, no live engine/LLM: stub a score vector; assert a
   below-baseline capability blocks publish, an at/above-baseline set advances the baseline, and the
   bootstrap (no baseline) path establishes without blocking.
-- `pre-commit run --all-files` green; `scripts/build_concepts_yaml.py` re-run so AHE-3.24 lands in
+- `pre-commit run --all-files` green; `scripts/build_concepts_yaml.py` re-run so AU-AHE.evaluation.capability-benchmark-regression-ratchet lands in
   `docs/concepts.yaml`; `scripts/check_concepts.py` passes.
 - Per-concept doc under `docs/guides/` (extend `autonomous-evolution.md`), naming the ratchet as the
   required safety net for AHE-3.22 generated code and AHE-3.25 distilled models.

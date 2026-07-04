@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Schema-Pack candidate-type audit (CONCEPT:KG-2.35).
+"""Schema-Pack candidate-type audit (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
 
 When an EXCLUSIVE pack is active and a write introduces a node/edge type *outside*
 the active set, that type is recorded as a *candidate* — a type the brain is

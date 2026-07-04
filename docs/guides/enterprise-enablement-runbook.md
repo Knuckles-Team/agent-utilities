@@ -56,7 +56,7 @@ until these are on.
 - **Verify:** an unauthenticated request → 401; a request with a valid JWT scopes to the
   right tenant; a cross-tenant read is denied (not silently allowed).
 
-## Stage D — Externalize state (multiply stateless tiers) — OS-5.16–18, KG-2.54
+## Stage D — Externalize state (multiply stateless tiers) — AU-OS.state.unified-durable-state-externalization–18, AU-KG.ingest.cross-host-safe-kg
 
 ```bash
 export STATE_DB_URI=postgresql://agent:agent@pg-age.arpa:5432/agent_kg
@@ -71,7 +71,7 @@ replicas** behind Caddy and they share state.
   leader → another host acquires the advisory lock and resumes background ticks; a
   running goal rehydrates as `orphaned` (not lost) after a restart.
 
-## Stage E — Shard the engines (scale the graph) — KG-2.58 / OS-5.28
+## Stage E — Shard the engines (scale the graph) — AU-KG.sharding.tenant-partitioned-sharding-hrw / AU-OS.scaling.shard-topology-visibility-per
 
 ```bash
 export GRAPH_SERVICE_ENDPOINTS=unix:///run/eg-0.sock,unix:///run/eg-1.sock,unix:///run/eg-2.sock
@@ -97,7 +97,7 @@ byte-for-byte** — so enable only after Stage C (identity) is verified.
 - **Verify:** conflicting source values resolve to the higher-trust source; an ACL-marked
   field is dropped for an unauthorized reader; a human correction persists as a rule.
 
-## Stage G — Autonomy loops (under an ActionPolicy posture) — AHE-3.18–21, OS-5.15/5.24–29
+## Stage G — Autonomy loops (under an ActionPolicy posture) — AU-AHE.harness.failure-evolution–21, AU-OS.config.fleet-event-ingress/5.24–29
 
 The control plane is built; these flags let it *act*. **Gate everything mutating through
 an ActionPolicy posture** — start locked-down, graduate deliberately.
@@ -172,8 +172,8 @@ Three homes, by kind:
 | Engine HMAC auth | `GRAPH_SERVICE_AUTH_SECRET` | unset | **yes** (`GRAPH_SERVICE_AUTH_SECRET`) | engine refuses empty |
 | Request auth (OS-5.14) | `KG_AUTH_REQUIRED` | `false` | no | **auto-on** when `AUTH_JWT_ISSUER`/`AUTH_JWT_JWKS_URI` set |
 | Fail-closed ACL | `KG_ACL_DEFAULT_ALLOW` | `false` | no | deny-by-default |
-| Shared state (OS-5.16) | `STATE_DB_URI` | unset | **yes** (`STATE_DB_URI`) | uses Postgres when set, else SQLite |
-| Sharding (KG-2.58) | `GRAPH_SERVICE_ENDPOINTS` | unset | no | 2+ endpoints → HRW sharding |
+| Shared state (AU-OS.state.unified-durable-state-externalization) | `STATE_DB_URI` | unset | **yes** (`STATE_DB_URI`) | uses Postgres when set, else SQLite |
+| Sharding (AU-KG.sharding.tenant-partitioned-sharding-hrw) | `GRAPH_SERVICE_ENDPOINTS` | unset | no | 2+ endpoints → HRW sharding |
 | Company Brain | `KG_BRAIN_ENFORCE` | `false` | no | explicit |
 | Loop engine | `KG_LOOP` | `false` | no | explicit (propose-only) |
 | Failure evolution | `KG_FAILURE_EVOLUTION` | `false` | no | explicit (propose-only) |

@@ -1,4 +1,4 @@
-# Spec: EPIC 5 — Skill Intelligence (extends ORCH-1.2 / ECO-4.6 / AHE-3.1)
+# Spec: EPIC 5 — Skill Intelligence (extends ORCH-1.2 / AU-ECO.mcp.toolkit-live-discovery / AHE-3.1)
 
 > Design: `.specify/design/e5-skill-intelligence/design.md`. Extension-only (no new CONCEPT:ID).
 > Depends on EPIC 3 (critique policy + success-rate signal).

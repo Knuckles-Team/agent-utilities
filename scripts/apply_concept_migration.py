@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OKF-CIS applier (CONCEPT:OS-5.77) — the big-bang marker rewriter.
+"""OKF-CIS applier (CONCEPT:AU-OS.governance.concept-2) — the big-bang marker rewriter.
 
 Driven by the frozen ``curated_migration_plan.yaml`` (never by heuristics at write
 time). Rewrites every legacy ``CONCEPT:<old>`` marker + comma-list continuation +
@@ -39,9 +39,17 @@ _SCAN_EXT = {".py", ".rs", ".md"}
 _SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
 
 
+# Historical records legitimately cite old ids — never rewrite them.
+_SKIP_NAMES = {"CHANGELOG.md", "concepts.yaml", "concept_reservations.yaml", "concept_map.md"}
+
+
 def _iter_files(root: Path):
     for p in root.rglob("*"):
-        if p.suffix in _SCAN_EXT and not any(s in p.parts for s in _SKIP_DIRS):
+        if (
+            p.suffix in _SCAN_EXT
+            and p.name not in _SKIP_NAMES
+            and not any(s in p.parts for s in _SKIP_DIRS)
+        ):
             yield p
 
 
@@ -50,7 +58,7 @@ def load_maps(plan_path: Path) -> tuple[dict, dict, dict]:
 
     ``primary`` is the new_id of the collided id's most-authoritative cluster (the
     one with the most definition files) — the fallback for otherwise-ambiguous
-    *references* to a formerly-overloaded id (a bare ``CONCEPT:KG-2.0`` reference
+    *references* to a formerly-overloaded id (a bare ``CONCEPT:AU-KG.query.object-graph-mapper`` reference
     maps to the dominant "Active Knowledge Graph" meaning, not a rare sibling).
     """
     plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
@@ -133,6 +141,23 @@ def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool
                 return simple.get(m.group(1), m.group(1))
             # don't touch ids already inside a CONCEPT: marker (handled above)
             text = simple_re.sub(_sub_bare, text)
+
+        # quoted legacy-id string literals in code (capability keys, ids passed as
+        # args) — "AU-KG.query.vendor-agnostic-traversal" / 'AU-AHE.assimilation.transliteration-singularization-extend-ahe'. Resolve like a reference (primary for a
+        # formerly-collided id). Only exact plan ids, so non-concept strings are safe.
+        if path.suffix in {".py", ".rs"}:
+            def _sub_code(m: re.Match, rel: str = rel) -> str:
+                q, oid = m.group(1), m.group(2)
+                new, reason = resolve(oid, rel, by_file, by_old, primary)
+                if new is None:
+                    return m.group(0)
+                if reason == "primary-ref":
+                    info.append(f"{rel}: {q}{oid}{q} -> {new} [code-primary-ref]")
+                return f"{q}{new}{q}"
+            text = re.sub(
+                r"([\"'])([A-Z]+-\d+(?:\.[0-9A-Za-z]+)*)\1",
+                _sub_code, text,
+            )
 
         if text != orig:
             nrw = len(_LEGACY_ID_RE.findall(orig)) - len(_LEGACY_ID_RE.findall(text))

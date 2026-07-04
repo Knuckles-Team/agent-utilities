@@ -71,7 +71,7 @@ class VaREstimateNode(RegistryNode):
 class MarkovRegimeStateNode(RegistryNode):
     """A detected market regime observation.
 
-    CONCEPT:KG-2.6 — Markov Regime Detection
+    CONCEPT:AU-KG.research.research-pipeline-runner — Markov Regime Detection
     """
 
     type: RegistryNodeType = RegistryNodeType.MARKOV_REGIME_STATE
@@ -84,7 +84,7 @@ class MarkovRegimeStateNode(RegistryNode):
 class MarkovTransitionMatrixNode(RegistryNode):
     """A serialized Markov transition matrix.
 
-    CONCEPT:KG-2.6 — Markov Regime Forecasting
+    CONCEPT:AU-KG.research.research-pipeline-runner — Markov Regime Forecasting
     """
 
     type: RegistryNodeType = RegistryNodeType.MARKOV_TRANSITION_MATRIX
@@ -98,7 +98,7 @@ class MarkovTransitionMatrixNode(RegistryNode):
 class RegimeSignalNode(RegistryNode):
     """A generated trading signal from regime probabilities.
 
-    CONCEPT:KG-2.6 — Regime-Based Signal Generation
+    CONCEPT:AU-KG.research.research-pipeline-runner — Regime-Based Signal Generation
     """
 
     type: RegistryNodeType = RegistryNodeType.REGIME_SIGNAL
@@ -118,7 +118,7 @@ class StrategyCardEntityNode(RegistryNode):
 class MicrostructureSignalNode(RegistryNode):
     """A short-horizon microstructure alpha with measured statistical priors.
 
-    CONCEPT:EE-033 — the priors (directional accuracy, standalone Sharpe, decay)
+    CONCEPT:AU-AHE.assimilation.microstructure-signal-fusion — the priors (directional accuracy, standalone Sharpe, decay)
     are written back by the backtester and drive signal-fusion weights, so the
     fusion self-adjusts as evidence accumulates. ``provenance`` cites the backtest
     run id or the book/paper the signal was distilled from.
@@ -139,7 +139,7 @@ class MicrostructureSignalNode(RegistryNode):
 class _TradingKnowledgeBase(RegistryNode):
     """Shared shape for knowledge distilled & classified from books/PDFs/notes.
 
-    CONCEPT:EE-036 — concrete subclasses (Strategy/Risk/Execution concept)
+    CONCEPT:AU-AHE.assimilation.trading-curator — concrete subclasses (Strategy/Risk/Execution concept)
     organise curated knowledge into typed, queryable nodes with citations and an
     extraction-confidence score, rather than leaving it as a verbatim document.
     """
@@ -166,7 +166,7 @@ class ExecutionConceptNode(_TradingKnowledgeBase):
 class TradeJournalNode(RegistryNode):
     """A single trade decision recorded for the feedback loop.
 
-    CONCEPT:EE-034 — the expert agent writes one per decision; a nightly distill
+    CONCEPT:AU-AHE.assimilation.decision-distillation — the expert agent writes one per decision; a nightly distill
     pass promotes recurring profitable patterns into reusable strategy concepts.
     """
 

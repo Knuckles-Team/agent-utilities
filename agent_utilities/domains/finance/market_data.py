@@ -1,5 +1,5 @@
 """
-Unified Market Data Abstraction Layer — CONCEPT:KG-2.6
+Unified Market Data Abstraction Layer — CONCEPT:AU-KG.research.research-pipeline-runner
 
 Provides a protocol-based data provider system with auto-fallback chains,
 OHLCV normalization, and KG data provenance tracking.

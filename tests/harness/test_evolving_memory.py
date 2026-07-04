@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the graph-native CRUD evolving-memory store + live evolution wiring.
 
-CONCEPT:KG-2.1
+CONCEPT:AU-KG.memory.tiered-memory-caching
 """
 
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from agent_utilities.harness.evolving_memory import (
     MemoryRecord,
 )
 
-pytestmark = pytest.mark.concept("KG-2.1")
+pytestmark = pytest.mark.concept("AU-KG.memory.tiered-memory-caching")
 
 
 # --- add / dedup -----------------------------------------------------------

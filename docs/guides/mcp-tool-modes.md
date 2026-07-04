@@ -123,4 +123,4 @@ surface plus the meta-tools by default, and pulls granular verbose tools in on d
 via `find_tools` / `load_tools`. Recommended for any context-sensitive client: full
 CRUD is *reachable*, but only the small action surface is *resident*.
 
-CONCEPT:ECO-4.82 — MCP tool-mode standardization.
+CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization.

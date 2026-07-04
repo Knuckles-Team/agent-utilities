@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the durable Edit Ledger (CONCEPT:KG-2.43).
+"""Tests for the durable Edit Ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback).
 
 Provenance: Palantir Foundry *object-edits/overview* — structured edits with
 before/after snapshots, per-object history, undo/revert, write-back to source.

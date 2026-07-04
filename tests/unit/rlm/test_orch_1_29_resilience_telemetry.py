@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.29 — RLM Resilience + Structured Telemetry."""
+"""CONCEPT:AU-ORCH.execution.typed-failure-classification — RLM Resilience + Structured Telemetry."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from agent_utilities.rlm.telemetry import (
 )
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 def test_classify_failure_taxonomy():
     assert classify_failure(SandboxFatalError("x")) == "sandbox_fatal"
     assert classify_failure(TimeoutError()) == "host_tool_timeout"
@@ -27,7 +27,7 @@ def test_classify_failure_taxonomy():
     assert classify_failure("something odd") == "unknown"
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 def test_dominant_failure_precedence():
     assert (
         dominant_failure(["unknown", "host_tool_timeout", "sandbox_fatal"])
@@ -40,7 +40,7 @@ def test_dominant_failure_precedence():
     assert dominant_failure([]) == "unknown"
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 def test_runtrace_accumulates_steps_and_usage():
     t = RunTrace()
     t.add_step(code="x=1", output="", finish_reason="stop")
@@ -53,7 +53,7 @@ def test_runtrace_accumulates_steps_and_usage():
     assert t.failure_summary() == "model_generated_bad_code"
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 @pytest.mark.asyncio
 async def test_with_tool_timeout_recoverable():
     async def slow():
@@ -72,7 +72,7 @@ async def test_with_tool_timeout_recoverable():
     assert ok2 is True and val2 == 42
 
 
-@pytest.mark.concept(id="ORCH-1.29")
+@pytest.mark.concept(id="AU-ORCH.execution.typed-failure-classification")
 @pytest.mark.asyncio
 async def test_with_tool_timeout_propagates_fatal():
     async def fatal():

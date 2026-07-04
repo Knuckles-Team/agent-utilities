@@ -3,9 +3,9 @@ from __future__ import annotations
 
 """Typed source-credential registry — the shapes a connector applies to a request.
 
-CONCEPT:OS-5.39 — Typed Source-Credential Registry
+CONCEPT:AU-OS.config.source-credential-registry — Typed Source-Credential Registry
 
-The companion to :mod:`credential_provider` (CONCEPT:OS-5.38). Where the
+The companion to :mod:`credential_provider` (CONCEPT:AU-OS.deployment.universal-outbound-credentialprovider). Where the
 :class:`~agent_utilities.security.secrets_client.SecretsBackend` stores raw secret
 *strings* keyed by name, this module models the *kind* of credential an external
 data source needs and how it is **applied to an outbound HTTP request** — a header,

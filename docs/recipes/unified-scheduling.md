@@ -1,14 +1,14 @@
 # Recipe — Unified scheduling, the priority queue, and the ScholarX RSS research feed
 
-The gateway daemon runs **one** intelligent scheduler (CONCEPT:OS-5.44). Every
+The gateway daemon runs **one** intelligent scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent). Every
 recurring job — the `deploy/schedules.yml` entries, the former fixed-interval
 maintenance ticks, the self-evolution `loop_cycle`, and the ScholarX RSS research
 feed — is a durable `:Schedule` node. The single scheduler tick evaluates them and
 **enqueues** a `scheduled_job` `:Task` onto one hardened priority+scheduled queue
-(CONCEPT:KG-2.113) that the worker pool drains. Nothing recurring runs inline in the
+(CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task) that the worker pool drains. Nothing recurring runs inline in the
 scheduler thread anymore.
 
-## The queue (CONCEPT:KG-2.113)
+## The queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
 
 A `:Task` carries:
 
@@ -41,7 +41,7 @@ curl -s localhost:8080/graph/schedules -d '{"action":"list"}'
 `deploy/schedules.yml` is the **seed** (desired state); the `:Schedule` node holds
 live last-run / next-run / failure-backoff and survives restart and leader-failover.
 
-## The ScholarX RSS research feed (CONCEPT:KG-2.114)
+## The ScholarX RSS research feed (CONCEPT:AU-KG.research.scholarx-rss-research-feed)
 
 A default-on `research_feed` schedule (`KG_RESEARCH_FEED`, cadence
 `KG_RESEARCH_FEED_INTERVAL`, default 30 min) enqueues
@@ -68,13 +68,13 @@ A scheduled job is an *interval tick*, not a backlog item — running a stale mi
 tick adds no value. Two mechanisms keep the queue from accumulating duplicates:
 
 - **Coalesce (per-schedule, at enqueue):** a tick is not enqueued while a prior
-  tick for the same schedule is still un-consumed (CONCEPT:OS-5.44).
+  tick for the same schedule is still un-consumed (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 - **Collapse (self-healing, at each tick):** `collapse_stale_ticks` cancels any
   schedule's *active* duplicate ticks down to ≤1, recovering from a backlog that
-  pre-dates the coalescer or a window where its probe failed (CONCEPT:OS-5.53).
+  pre-dates the coalescer or a window where its probe failed (CONCEPT:AU-OS.state.stale-tick-collapse).
   `running` ticks are never touched.
 
-This pairs with the **best-effort lane cap** (CONCEPT:ORCH-1.82): the `maint` lane
+This pairs with the **best-effort lane cap** (CONCEPT:AU-ORCH.scheduling.low-value-high-volume): the `maint` lane
 is capped at its floor coverage so a tick backlog can never crowd the throughput
 lanes. See [Ingestion Throughput](../architecture/ingestion_throughput.md).
 

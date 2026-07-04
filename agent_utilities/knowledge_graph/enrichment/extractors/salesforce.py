@@ -1,4 +1,4 @@
-"""Salesforce CRM source extractor (CONCEPT:KG-2.9).
+"""Salesforce CRM source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps the Salesforce CRM into the uniform ExtractionBatch via SOQL: Account →
 :Customer, Contact → :Person, Opportunity → :SalesOrder, with PLACED_BY edges.

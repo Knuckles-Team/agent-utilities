@@ -1,4 +1,4 @@
-"""Tests for the graph_secret MCP tool + REST twin (CONCEPT:OS-5.66).
+"""Tests for the graph_secret MCP tool + REST twin (CONCEPT:AU-OS.identity.encrypted-secret-store).
 
 Exercises the live two-surface path: the shared ``_execute_tool`` action core
 that both the MCP tool and the auto-mounted ``/graph/secret`` REST route dispatch
@@ -36,13 +36,13 @@ def isolated_secrets(monkeypatch):
     return client
 
 
-@pytest.mark.concept("CONCEPT:OS-5.66")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
 def test_graph_secret_registered_on_both_surfaces(registered):
     assert "graph_secret" in registered.REGISTERED_TOOLS
     assert registered.ACTION_TOOL_ROUTES.get("graph_secret") == "/graph/secret"
 
 
-@pytest.mark.concept("CONCEPT:OS-5.66")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
 @pytest.mark.asyncio
 async def test_set_get_list_delete_round_trip(
     registered, isolated_secrets, monkeypatch
@@ -84,7 +84,7 @@ async def test_set_get_list_delete_round_trip(
     assert del_res["deleted"] is True
 
 
-@pytest.mark.concept("CONCEPT:OS-5.66")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
 @pytest.mark.asyncio
 async def test_set_denied_by_policy_does_not_store(
     registered, isolated_secrets, monkeypatch
@@ -112,7 +112,7 @@ async def test_set_denied_by_policy_does_not_store(
     assert got["value"] is None
 
 
-@pytest.mark.concept("CONCEPT:OS-5.66")
+@pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
 @pytest.mark.asyncio
 async def test_unknown_action(registered):
     res = json.loads(await kg_server._execute_tool("graph_secret", action="bogus"))

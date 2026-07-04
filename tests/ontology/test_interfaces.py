@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for ontology Interfaces (CONCEPT:KG-2.38).
+"""Tests for ontology Interfaces (CONCEPT:AU-KG.ontology.conformance-check).
 
 Covers: defining an interface, implementing it with a conforming and a
 non-conforming type (gap detection), interface inheritance (extends), and the

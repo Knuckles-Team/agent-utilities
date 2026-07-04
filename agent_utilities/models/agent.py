@@ -25,9 +25,9 @@ class AgentDeps:
     mcp_toolsets: list[Any] = field(default_factory=list)
     patterns: Any | None = None
     external_ontologies: list[str] = field(default_factory=list)
-    # CONCEPT:ORCH-1.40 — the invoker↔spawned message channel this agent may talk back on.
+    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — the invoker↔spawned message channel this agent may talk back on.
     message_channel_id: str | None = None
-    # CONCEPT:ORCH-1.47 — the developer-workspace runtime (OS-5.33) the SWE agent acts in.
+    # CONCEPT:AU-ORCH.execution.developer-workspace-runtime — the developer-workspace runtime (OS-5.33) the SWE agent acts in.
     # A ``DevWorkspace`` handle; None for non-SWE agents. Kept ``Any`` to avoid importing the
     # runtime package into the model layer.
     workspace: Any | None = None

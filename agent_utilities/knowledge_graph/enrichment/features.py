@@ -1,4 +1,4 @@
-"""Feature discovery via call-graph community detection (CONCEPT:KG-2.8 Phase 2).
+"""Feature discovery via call-graph community detection (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 2).
 
 A *feature* is a cohesive cluster of code symbols that implement a capability
 together. We build the resolved call graph and run the **epistemic-graph engine's
@@ -18,7 +18,7 @@ from .models import CodeEntity, EnrichmentEdge, Feature
 logger = logging.getLogger(__name__)
 
 # Max ops per bulk_mutate call — bounds the per-request MsgPack payload while
-# still amortising the socket round-trip over thousands of writes. (CONCEPT:KG-2.16)
+# still amortising the socket round-trip over thousands of writes. (CONCEPT:EG-KG.compute.graph-compute-engine)
 _COMMUNITY_BULK_CHUNK = 10_000
 
 # (node_ids, edges) -> list of communities (each a list of node ids)
@@ -31,7 +31,7 @@ CommunityFn = Callable[[list[str], list[tuple[str, str]]], list[list[str]]]
 # N×M blow-up (egeria: `toString` is on 1,864 symbols → 6.4M spurious edges in 72s,
 # and a community pass over them is catastrophic). Capping the fan-out drops that
 # noise (egeria → 162k real edges in 2.1s) while keeping the precise calls.
-# (CONCEPT:KG-2.8)
+# (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
 _MAX_CALL_FANOUT = 10
 
 
@@ -137,7 +137,7 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
         # 9e3620c), so the batched load is read-compatible; this was reverted to
         # per-element only while that op stored unreadable bytes. Nodes are loaded
         # before edges so every edge endpoint exists. Falls back to per-element if
-        # the engine has no bulk op or a batch fails. (CONCEPT:KG-2.16)
+        # the engine has no bulk op or a batch fails. (CONCEPT:EG-KG.compute.graph-compute-engine)
         bulk = getattr(graph_compute, "bulk_mutate", None) or getattr(
             graph_compute, "batch_update", None
         )

@@ -1,4 +1,4 @@
-"""Home Assistant source extractor — device/entity inventory (CONCEPT:KG-2.9).
+"""Home Assistant source extractor — device/entity inventory (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Maps HA entities into the uniform ExtractionBatch as :ConfigurationItem (a
 homelab/IoT device registry that joins the same CMDB/asset plane as ServiceNow

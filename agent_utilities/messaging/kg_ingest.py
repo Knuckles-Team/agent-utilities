@@ -1,13 +1,13 @@
-"""KG Auto-Ingest for Messaging Events (CONCEPT:ECO-4.0 + KG-2.1).
+"""KG Auto-Ingest for Messaging Events (CONCEPT:AU-ECO.messaging.native-backend-abstraction + KG-2.1).
 
 Auto-ingests inbound and outbound messages into the Knowledge Graph as
 ``ChatMessage`` memory nodes with Ebbinghaus decay. This creates a
 searchable, cross-platform conversational memory that agents can query
 via ``recall_memory()``.
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
-CONCEPT:KG-2.1 — Tiered Memory & Context
-CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
+CONCEPT:AU-KG.memory.tiered-memory-caching — Tiered Memory & Context
+CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Auto-Similarity Memory Graph
 
 See Also:
     - ``knowledge_graph/core/engine_memory.py`` for ``store_memory()``
@@ -36,7 +36,7 @@ async def ingest_message_to_kg(
 ) -> str | None:
     """Ingest a messaging event into the Knowledge Graph as a memory node.
 
-    CONCEPT:ECO-4.0 + CONCEPT:KG-2.1
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction + CONCEPT:AU-KG.memory.tiered-memory-caching
 
     Creates a tiered memory node with:
     - ``memory_type="episodic"`` (conversation memories decay over time)
@@ -65,7 +65,7 @@ async def ingest_message_to_kg(
         try:
             engine = _get_default_engine()
         except Exception:
-            logger.debug("[CONCEPT:ECO-4.0] No KG engine available, skipping ingest.")
+            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] No KG engine available, skipping ingest.")
             return None
 
     if engine is None:
@@ -93,9 +93,9 @@ async def ingest_message_to_kg(
         tags.append(f"thread:{event.thread_id}")
 
     try:
-        # CONCEPT:ECO-4.72 — store_memory is a BLOCKING call (graph write + embedding).
+        # CONCEPT:AU-ECO.messaging.blocking-store-memory — store_memory is a BLOCKING call (graph write + embedding).
         # Run it off the event loop so ingest never stalls the messaging/reply loop.
-        # CONCEPT:ECO-4.78 — this is episodic memory the universal recall reads on demand;
+        # CONCEPT:AU-ECO.messaging.episodic-memory-recall — this is episodic memory the universal recall reads on demand;
         # reply continuity comes from the per-session conversation memento, not a bespoke
         # per-channel history query, so no flat channel_key/role/text scaffolding is stamped.
         memory_id = await asyncio.to_thread(
@@ -109,7 +109,7 @@ async def ingest_message_to_kg(
         )
 
         logger.debug(
-            "[CONCEPT:ECO-4.0] Ingested message to KG: %s (platform=%s, user=%s)",
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Ingested message to KG: %s (platform=%s, user=%s)",
             memory_id,
             platform,
             user,
@@ -117,7 +117,7 @@ async def ingest_message_to_kg(
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:ECO-4.0] Failed to ingest message to KG: %s", e)
+        logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest message to KG: %s", e)
         return None
 
 
@@ -128,7 +128,7 @@ async def ingest_outbound_to_kg(
 ) -> str | None:
     """Ingest an outbound message into the KG for full conversation tracking.
 
-    CONCEPT:ECO-4.0 + CONCEPT:KG-2.1
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction + CONCEPT:AU-KG.memory.tiered-memory-caching
 
     Stores agent-sent messages as semantic memories (longer half-life
     than episodic) for future context retrieval.
@@ -179,21 +179,21 @@ async def ingest_outbound_to_kg(
         )
 
         logger.debug(
-            "[CONCEPT:ECO-4.0] Ingested outbound to KG: %s (platform=%s)",
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Ingested outbound to KG: %s (platform=%s)",
             memory_id,
             platform,
         )
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:ECO-4.0] Failed to ingest outbound to KG: %s", e)
+        logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest outbound to KG: %s", e)
         return None
 
 
 def _get_default_engine() -> Any | None:
     """Return the live served engine (the same one ``gateway/daemon.py`` uses).
 
-    CONCEPT:ECO-4.0 — bind to ``IntelligenceGraphEngine.get_active()`` so ingested
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction — bind to ``IntelligenceGraphEngine.get_active()`` so ingested
     messages land in the running graph rather than a throwaway side database.
 
     Returns:
@@ -204,5 +204,5 @@ def _get_default_engine() -> Any | None:
 
         return IntelligenceGraphEngine.get_active()
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.0] Default engine load failed: %s", e)
+        logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Default engine load failed: %s", e)
         return None

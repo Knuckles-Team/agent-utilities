@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Market Data Abstraction Layer."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Market Data Abstraction Layer."""
 
 import pandas as pd
 

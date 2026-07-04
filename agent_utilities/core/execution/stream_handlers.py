@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Stream-format dispatch: parse adapter stdout into canonical events.
+"""CONCEPT:AU-ORCH.adapter.stream-format-dispatch — Stream-format dispatch: parse adapter stdout into canonical events.
 
 Each :class:`~agent_utilities.core.execution.adapters.base.StreamFormat` maps to a handler that turns
 a backend's native stdout into a uniform stream of

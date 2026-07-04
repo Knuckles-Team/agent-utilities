@@ -1,4 +1,4 @@
-"""The serving/host plane must ship the CANONICAL embedder (CONCEPT:KG-2.3).
+"""The serving/host plane must ship the CANONICAL embedder (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).
 
 Regression for the e2e north-star ingestion profiler findings:
 

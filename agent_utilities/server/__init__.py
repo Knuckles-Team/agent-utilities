@@ -62,7 +62,7 @@ _CLEANUP_REGISTERED = False
 
 
 def _resolve_gateway_workers(is_pytest: bool, enable_terminal_ui: bool) -> int:
-    """Resolve the effective gateway worker count (CONCEPT:OS-5.23).
+    """Resolve the effective gateway worker count (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
     ``GATEWAY_WORKERS`` (AgentConfig ``gateway_workers``) defaults to 1 —
     single process, single event loop, in-process KG daemon: exactly the
@@ -90,7 +90,7 @@ def _resolve_gateway_workers(is_pytest: bool, enable_terminal_ui: bool) -> int:
 
 
 def _bind_gateway_socket(host: str, port: int):
-    """Bind the shared pre-fork listen socket (CONCEPT:OS-5.23).
+    """Bind the shared pre-fork listen socket (CONCEPT:AU-OS.observability.no-op-without-metrics).
 
     Bound once in the parent BEFORE forking; every worker serves on the
     inherited socket (the classic pre-fork model — uvicorn's own multiprocess
@@ -114,7 +114,7 @@ def _fork_gateway_workers(workers: int, host: str, port: int):
     children (each child serves as a worker; the parent is worker 0 and reaps
     the children when its server exits).
 
-    Per-process state notice (CONCEPT:OS-5.23): each worker builds its OWN
+    Per-process state notice (CONCEPT:AU-OS.observability.no-op-without-metrics): each worker builds its OWN
     app/engine connections. The KG host role is serialized by the advisory
     flock in :mod:`agent_utilities.knowledge_graph.core.host_lock` — the first
     worker to resolve wins ``host`` (consolidated daemon/ticks); the rest
@@ -127,7 +127,7 @@ def _fork_gateway_workers(workers: int, host: str, port: int):
         "listen socket (%s:%s). State is PER-PROCESS: exactly ONE worker wins "
         "the KG host flock and runs the daemon/ticks (the rest are clients); "
         "/metrics scrapes sample one worker; GATEWAY_RATE_LIMIT is effectively "
-        "multiplied by the worker count. (CONCEPT:OS-5.23)",
+        "multiplied by the worker count. (CONCEPT:AU-OS.observability.no-op-without-metrics)",
         workers,
         workers,
         host,
@@ -277,7 +277,7 @@ def _run_agent_server(
         file=sys.stderr,
     )
 
-    # Multi-worker readiness (CONCEPT:OS-5.23): fork BEFORE building the app
+    # Multi-worker readiness (CONCEPT:AU-OS.observability.no-op-without-metrics): fork BEFORE building the app
     # so every worker constructs its own app, engine connections and daemon
     # role (the host flock elects exactly one KG host among the workers).
     # Default GATEWAY_WORKERS=1 keeps the historical single-process path.
@@ -380,7 +380,7 @@ def _run_agent_server(
         return
 
     if shared_socket is not None:
-        # Pre-fork worker pool (CONCEPT:OS-5.23): every process (parent =
+        # Pre-fork worker pool (CONCEPT:AU-OS.observability.no-op-without-metrics): every process (parent =
         # worker 0 + forked children) serves on the shared inherited socket.
         try:
             _serve_on_socket(
@@ -492,7 +492,7 @@ def create_agent_server(
         _auto_ws = get_agent_workspace()
         logger.info(f"Graph Agent: Auto-detected workspace {_auto_ws}")
 
-    # Embedded engine auto-provision (CONCEPT:OS-5.61). For a tiny/embedded
+    # Embedded engine auto-provision (CONCEPT:AU-OS.deployment.embedded-auto-provision). For a tiny/embedded
     # deployment (e.g. a connector's agent_server.py) with no remote engine
     # configured, scan-or-spawn the ONE engine authority as a lifecycle-coupled
     # child via the existing machinery (it spawns coupled by default, dies with

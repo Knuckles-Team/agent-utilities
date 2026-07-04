@@ -4,7 +4,7 @@
 Reads ``deploy/mcp-fleet.registry.yml`` (the machine-generated registry of every
 ``agents/*`` connector exposing a streamable-http MCP server) and writes a
 Prometheus ``file_sd_configs`` JSON file. Each MCP exposes an unauthenticated
-``GET /metrics`` (added by ``create_mcp_server``; CONCEPT:OS-5.23), reachable on
+``GET /metrics`` (added by ``create_mcp_server``; CONCEPT:AU-OS.observability.no-op-without-metrics), reachable on
 the swarm ``caddy`` overlay at ``<stack>_<service>:<container_port>`` — the same
 ``stack_service`` DNS convention the static cross-stack jobs already use.
 

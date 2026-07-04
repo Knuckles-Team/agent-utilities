@@ -1,4 +1,4 @@
-"""KG-aware model selection for agent synthesis (CONCEPT:KG-2.10)."""
+"""KG-aware model selection for agent synthesis (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)."""
 
 from __future__ import annotations
 

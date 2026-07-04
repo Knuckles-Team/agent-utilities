@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Multi-Platform Strategy Export."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Multi-Platform Strategy Export."""
 
 import pytest
 

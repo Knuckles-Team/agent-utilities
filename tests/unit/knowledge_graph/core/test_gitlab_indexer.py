@@ -1,4 +1,4 @@
-"""Tests for whole-instance GitLab code indexing into the KG (CONCEPT:KG-2.9g).
+"""Tests for whole-instance GitLab code indexing into the KG (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 
 Validates the dependency-injected orchestration (project/file filtering, delta
 watermark skipping, id scoping, namespacing, IndexResult→entities/relationships
@@ -351,7 +351,7 @@ def test_instances_empty_without_token(monkeypatch):
 
 def test_map_index_result_maps_inherits_and_realizes():
     """Class→class structural edges pass through namespaced, with their props
-    (CONCEPT:KG-2.100)."""
+    (CONCEPT:EG-KG.compute.type-scope-resolved-call)."""
 
     def _csym(node_id, name):
         return {

@@ -6,7 +6,7 @@
 
 - [x] Design document exists and KG-nearest-concepts table completed.
 - [x] Extension target identified (ORCH-1.2, similarity 0.83 ≥ 0.70).
-- [x] New CONCEPT:ORCH-1.27 justified in design as augmentation (sub-concept of ORCH-1.2).
+- [x] New CONCEPT:AU-ORCH.routing.conductor-per-step-model justified in design as augmentation (sub-concept of ORCH-1.2).
 - [x] Wire-First confirmed: ≤2 hops from `graph_orchestrate` / `graph_configure`.
 
 ## User Stories

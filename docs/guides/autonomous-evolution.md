@@ -2,7 +2,7 @@
 
 The platform's self-evolution arcs are fully wired but **off by default**: the
 daemon ticks for the golden loop (`KG-2.7`) and failure-driven evolution
-(`AHE-3.18`) are registered in the engine's maintenance scheduler, yet their
+(`AU-AHE.harness.failure-evolution`) are registered in the engine's maintenance scheduler, yet their
 flags default to `False` in code. That is deliberate — turning a fleet
 autonomous is a *deployment* decision, made in your `.env`, never a library
 default.
@@ -17,8 +17,8 @@ can stop it:
 
 ```mermaid
 flowchart LR
-    A["Propose-only loops<br/>(golden loop, failure ingest,<br/>anomaly consumer, fleet events)"] --> B["Governed validation<br/>PromotionGovernanceValidator<br/>(AHE-3.20)"]
-    B --> C["Regression gate<br/>recorded RegressionGateResult<br/>(AHE-3.18)"]
+    A["Propose-only loops<br/>(golden loop, failure ingest,<br/>anomaly consumer, fleet events)"] --> B["Governed validation<br/>PromotionGovernanceValidator<br/>(AU-AHE.harness.promotion-governance-validator)"]
+    B --> C["Regression gate<br/>recorded RegressionGateResult<br/>(AU-AHE.harness.failure-evolution)"]
     C --> D["Merge<br/>human by default;<br/>auto only with KG_GOLDEN_AUTO_MERGE"]
     D --> E["Promotion policy gate<br/>ActionPolicy merge_promotion<br/>(OS-5.24) — deny blocks the flip"]
     E --> F["Publication<br/>same merge_promotion approval<br/>(AHE-3.21, approval by default)"]
@@ -27,8 +27,8 @@ flowchart LR
 ```
 
 1. **Propose-only loops.** The golden loop, the failure-evolution sweep, the
-   PerformanceAnomaly consumer (`AHE-3.19`) and fleet-event triage
-   (`OS-5.15`) only ever *write proposals*: `failure_gap` Concept topics, spec
+   PerformanceAnomaly consumer (`AU-AHE.optimization.performance-anomaly-consumer`) and fleet-event triage
+   (`AU-OS.config.fleet-event-ingress`) only ever *write proposals*: `failure_gap` Concept topics, spec
    drafts under `.specify/`, and `TeamSpec`/`AgentSpec` proposal nodes. No
    code executes, nothing is promoted.
 2. **Governed validation.** `GovernedAutoMerger` now constructs the
@@ -90,7 +90,7 @@ Two modules under `knowledge_graph/research/` implement the bridge:
   the target repo's default branch under `EVOLUTION_WORKTREE_ROOT` (default
   `data_dir()/evolution_worktrees` — never a checkout's working tree),
   applies the change set, runs proposal-named tests + the injected
-  regression gate (`make_regression_check`, `AHE-3.18`), and commits citing
+  regression gate (`make_regression_check`, `AU-AHE.harness.failure-evolution`), and commits citing
   the proposal + concept ids. The result (branch, sha, gate verdict) is
   recorded as a `ProposalPublication` node linked `PUBLISHED_AS` from the
   proposal, stamped onto the proposal node, and mirrored into
@@ -164,7 +164,7 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
 | `KG_GOLDEN_AUTO_MERGE` | `false` | Allow governed proposal→active promotion. Keep `false` until you trust the proposal stream. |
 | `KG_GOLDEN_MERGE_THRESHOLD` | `0.85` | Minimum proposal quality score for auto-merge eligibility. |
 | `EVOLUTION_WORKTREE_ROOT` | `data_dir()/evolution_worktrees` | Where the `AHE-3.21` bridge creates fresh git worktrees when publishing a promoted proposal as a local branch. |
-| `FLEET_EVENTS_TOKEN` | unset | Shared secret for the `POST /api/fleet/events` monitoring-webhook ingress (`OS-5.15`). |
+| `FLEET_EVENTS_TOKEN` | unset | Shared secret for the `POST /api/fleet/events` monitoring-webhook ingress (`AU-OS.config.fleet-event-ingress`). |
 | `FLEET_RECONCILER` | `false` | Desired-state fleet reconciler tick — registry vs observed, converged through the `OS-5.24` ActionPolicy gate (see [Fleet Autonomy](../architecture/fleet_autonomy.md)). |
 | `ACTION_POLICY_PATH` | shipped default | Operational action policy (tiers / rate limits / maintenance windows / blast-radius caps); the shipped default keeps every mutating action approval-required (`OS-5.24`). |
 
@@ -175,19 +175,19 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
    for a few cycles. Nothing merges.
 2. Point Alertmanager / Uptime Kuma at `POST /api/fleet/events` (set
    `FLEET_EVENTS_TOKEN`) so production incidents also feed the loop. Critical
-   events now dispatch the `OS-5.26` remediation playbooks — with the shipped
+   events now dispatch the `AU-OS.host.remediation-playbooks` remediation playbooks — with the shipped
    action policy every mutating step lands in `GET /api/fleet/approvals`
    instead of executing.
 3. Only once the proposals are consistently sane, consider
    `KG_GOLDEN_AUTO_MERGE=true`. Every promotion remains gated by the
-   `AHE-3.20` validator + regression gate and is fully audited; rejected
+   `AU-AHE.harness.promotion-governance-validator` validator + regression gate and is fully audited; rejected
    proposals stay proposal-only for human review.
 4. With auto-merge on, merged proposals additionally queue a
    `merge_promotion` approval (`AHE-3.21`). Work the approve → publish →
    merge loop above; only relax the tier to `auto` once you trust the
    published branches — even then nothing is pushed without a human.
 
-## Closing the loop: generate, verify, ratchet (AHE-3.22 / AHE-3.23 / AHE-3.24)
+## Closing the loop: generate, verify, ratchet (AHE-3.22 / AHE-3.23 / AU-AHE.evaluation.capability-benchmark-regression-ratchet)
 
 Through `AHE-3.21` the loop could *branch* a code change, but nothing on the live
 path ever **generated** the diff — every real proposal fell back to the prose SDD
@@ -208,13 +208,13 @@ everything — nothing here can auto-merge or push.
   generator self-degrades to "no edit" when no model is reachable. The LLM call lives
   in `code_synthesis.py` — `change_synthesis.py` stays generation-free.
 
-- **AHE-3.24 — capability ratchet** (`research/capability_ratchet.py`). After a
+- **AU-AHE.evaluation.capability-benchmark-regression-ratchet — capability ratchet** (`research/capability_ratchet.py`). After a
   branch is published, a standing capability suite is run **in that worktree**,
   producing a per-capability score vector compared against a persisted
   `CapabilityScoreVector` baseline node. Every tracked capability must stay
   at-or-above baseline (monotone ratchet); a passing run advances the baseline, the
   first run bootstraps it. A worktree with no probes present is *not measured* and
-  never blocks. The recorded `CapabilityRatchetResult` is consulted by the `AHE-3.20`
+  never blocks. The recorded `CapabilityRatchetResult` is consulted by the `AU-AHE.harness.promotion-governance-validator`
   promotion-governance gate as an additional predicate.
 
 - **AHE-3.23 — verified apply→verify→rollback**. The keep/abandon decision is the

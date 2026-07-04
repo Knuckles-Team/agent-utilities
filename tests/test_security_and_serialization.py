@@ -1,4 +1,4 @@
-"""Tests for safe serialization functions (CONCEPT:ORCH-1.3 Serialization Safety).
+"""Tests for safe serialization functions (CONCEPT:AU-ORCH.execution.execution-budget-caps Serialization Safety).
 
 Verifies the JSON-based safe_save_model and safe_load_model functions. The
 pickle-based save_model/load_model were removed (No-Legacy, CWE-502); JSON is the
@@ -11,8 +11,8 @@ import os
 import pytest
 
 
-# CONCEPT:ORCH-1.3 Serialization Safety
-@pytest.mark.concept("CONCEPT:OS-5.0")
+# CONCEPT:AU-ORCH.execution.execution-budget-caps Serialization Safety
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 class TestSafeSerialization:
     """Test suite for the safe serialization API."""
 
@@ -49,8 +49,8 @@ class TestSafeSerialization:
         assert loaded == data
 
 
-# CONCEPT:OS-5.0 Workspace Management
-@pytest.mark.concept("CONCEPT:ORCH-1.0")
+# CONCEPT:AU-OS.safety.doom-loop-detection Workspace Management
+@pytest.mark.concept("CONCEPT:AU-ORCH.execution.inject-signal-board-observations")
 class TestWorkspaceTraversalGuard:
     """Verify workspace path traversal protection."""
 

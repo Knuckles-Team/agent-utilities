@@ -1,4 +1,4 @@
-"""BrowseComp-Plus: multi-hop QA over a document collection (CONCEPT:AHE-3.32).
+"""BrowseComp-Plus: multi-hop QA over a document collection (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Multi-hop retrieval+reasoning across ~1K documents (the paper's BrowseComp-Plus, arXiv:2508.06600,
 whose hard-negative/nDCG components already live in ``knowledge_graph/retrieval/``). The synthetic

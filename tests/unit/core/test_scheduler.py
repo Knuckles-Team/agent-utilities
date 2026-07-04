@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:OS-5.2"""
+"""CONCEPT:AU-OS.state.cognitive-scheduler-preemption"""
 
 """Coverage push for agent_utilities.scheduler.
 

@@ -1,4 +1,4 @@
-"""ARIS process / enterprise-architecture source extractor (CONCEPT:KG-2.9, step-level lift KG-2.53).
+"""ARIS process / enterprise-architecture source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor, step-level lift KG-2.53).
 
 Self-registering extractor that maps Software AG **ARIS** models into the uniform
 ``ExtractionBatch`` shape (typed ``GraphNode`` + ``EnrichmentEdge``) so they
@@ -10,7 +10,7 @@ same cross-vendor crosswalk as Camunda (BPM) and LeanIX/ArchiMate (EA):
     process model       -> ``BusinessProcess``      id=aris_model:{id}
     architecture model  -> ``ApplicationComponent`` id=aris_model:{id}
 
-**Step-level structure lift (CONCEPT:KG-2.53).** When the injected client also
+**Step-level structure lift (CONCEPT:AU-KG.ontology.descriptive-process-world-gains).** When the injected client also
 exposes the EPC detail surface (``list_model_objects(model_id)`` +
 ``list_model_connections(model_id)`` — the ``aris-mcp`` ``aris_model
 action=objects/connections`` tools), each *process* model's
@@ -262,7 +262,7 @@ def extract(config: Any) -> ExtractionBatch:
     ``BusinessProcess`` nodes; architecture models become ``ApplicationComponent``
     nodes — so they cross-link with the BPM and EA cohorts respectively. For
     process models, the EPC step structure is lifted too when the client can
-    serve it (CONCEPT:KG-2.53 — see :func:`_lift_epc_structure`).
+    serve it (CONCEPT:AU-KG.ontology.descriptive-process-world-gains — see :func:`_lift_epc_structure`).
     """
     client = _get(config, "client")
     nodes: list[GraphNode] = []

@@ -48,7 +48,7 @@ def _is_node_class(entity: CodeEntity) -> bool:
 
 
 def discover_pydantic_graph(code: list[CodeEntity]) -> dict:
-    """Identify pydantic-graph node classes among ``code`` (CONCEPT:KG-2.10).
+    """Identify pydantic-graph node classes among ``code`` (CONCEPT:AU-KG.enrichment.a2a-capability-extraction).
 
     A node class is a ``CodeEntity`` with ``kind == "class"`` whose ``bases``
     include any of ``{"BaseNode", "Node"}`` (matched on the short name, so
@@ -117,7 +117,7 @@ def _detect_entrypoint(code: list[CodeEntity], node_names: list[str]) -> str | N
 def pydantic_graph_to_workflow(
     discovered: dict, name: str = "discovered-graph"
 ) -> WorkflowSpec:
-    """Build a :class:`WorkflowSpec` from a discovery dict (CONCEPT:KG-2.10).
+    """Build a :class:`WorkflowSpec` from a discovery dict (CONCEPT:AU-KG.enrichment.a2a-capability-extraction).
 
     Steps are the node class names; ``orchestrates`` are the node CodeEntity ids
     — so the workflow persists via the shared ``workflow_to_batch`` path and the
@@ -179,7 +179,7 @@ def propose_workflow_evolution(
     ``llm_fn`` maps a prompt string to a response string (injected for
     testability — no network here). The response is parsed leniently into a list
     of ``{"change", "rationale"}`` dicts; an empty list is returned on any parse
-    failure. (CONCEPT:KG-2.10)
+    failure. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     prompt = _build_evolution_prompt(discovered, context)
     try:
@@ -197,7 +197,7 @@ def persist(
     Converts through :func:`pydantic_graph_to_workflow` and the shared
     ``workflow_to_batch`` so the discovered orchestration graph lands in the KG
     through the one ``GraphBackend`` interface. Returns
-    ``(nodes_written, edges_written)``. (CONCEPT:KG-2.10)
+    ``(nodes_written, edges_written)``. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
     spec = pydantic_graph_to_workflow(discovered, name=name)
     batch = workflow_to_batch(spec)

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:KG-2.25 — Ontology Action System tests.
+"""CONCEPT:AU-KG.ontology.ontology-action-system — Ontology Action System tests.
 
 Covers the governed verb layer end-to-end: permission grant/deny, parameter
 validation, registry duplicate-rejection + lookup, SHACL accept/reject of action

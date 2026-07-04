@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """ACP Adapter Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module provides the integration layer between the agent ecosystem and
 the Async Control Protocol (ACP). It handles session management, approval

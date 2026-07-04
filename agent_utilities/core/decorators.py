@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Agent Decorators Module.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
 This module provides reusable decorators for agent logic. It includes
 authentication guards and other functional wrappers used to enforce

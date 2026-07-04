@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Ontology Value Types — semantic wrappers over base property types.
 
-CONCEPT:KG-2.39 — Ontology Value Types.
+CONCEPT:AU-KG.ontology.value-type-shacl-load — Ontology Value Types.
 
 Palantir Foundry doc matched: ontology *"Value types"* — a value type is a
 **semantic wrapper around a base (field) data type** that attaches *metadata and
@@ -88,7 +88,7 @@ def _ttl_number(value: int | float | Decimal) -> str:
 
 
 class ValueConstraints(BaseModel):
-    """The constraint block of a value type (CONCEPT:KG-2.39).
+    """The constraint block of a value type (CONCEPT:AU-KG.ontology.value-type-shacl-load).
 
     Palantir doc matched: the *constraints/metadata* a value type layers over its
     base type. Each field is optional; only the populated ones compile into the
@@ -149,7 +149,7 @@ class ValueConstraints(BaseModel):
 class ValueType(BaseModel):
     """A named semantic wrapper over a base property type + constraints.
 
-    CONCEPT:KG-2.39 — Ontology Value Types.
+    CONCEPT:AU-KG.ontology.value-type-shacl-load — Ontology Value Types.
 
     Palantir doc matched: ontology *Value types*. Binds a logical, reusable name
     (e.g. ``EmailAddress``) to a base
@@ -337,7 +337,7 @@ class ValueType(BaseModel):
     ) -> str:
         """Emit a SHACL turtle fragment enforcing this value type.
 
-        CONCEPT:KG-2.39 — by default emits a reusable ``sh:NodeShape``
+        CONCEPT:AU-KG.ontology.value-type-shacl-load — by default emits a reusable ``sh:NodeShape``
         (``:<Name>ValueShape``) carrying the constraints; callers reuse it with
         ``sh:node`` on a property shape. (A reusable shape must be a NodeShape,
         not a PropertyShape — a path-less ``sh:PropertyShape`` is invalid SHACL
@@ -392,7 +392,7 @@ class ValueType(BaseModel):
     def to_owl(self) -> str:
         """Emit an ``rdfs:Datatype`` defined by an OWL facet restriction.
 
-        CONCEPT:KG-2.39 — the value type becomes a named ``rdfs:Datatype``
+        CONCEPT:AU-KG.ontology.value-type-shacl-load — the value type becomes a named ``rdfs:Datatype``
         (``:<Name>``) equivalent to its base XSD datatype restricted by the
         constraint facets (``owl:withRestrictions``). Enum value types instead
         emit an ``owl:oneOf`` data range. This is the RDF/OWL-substrate form
@@ -560,7 +560,7 @@ VALUE_TYPES: dict[str, ValueType] = {
         max_value=1,
         unit="ratio",
     ),
-    # ARA — confidence attached to a /logic claim (CONCEPT:KG-2.80). A SHACL value
+    # ARA — confidence attached to a /logic claim (CONCEPT:AU-KG.ontology.verified-by-implemented-by). A SHACL value
     # type so a claim's confidence is constraint-checked at the Seal's L1 gate.
     "ClaimConfidence": _vt(
         "ClaimConfidence",
@@ -571,7 +571,7 @@ VALUE_TYPES: dict[str, ValueType] = {
         max_value=1,
         unit="ratio",
     ),
-    # CONCEPT:KG-2.94 — LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties as SHACL-bounded ontology value types plus the two-surface sampling-profile tool.
+    # CONCEPT:AU-KG.ontology.sampling-profile-coupling — LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties as SHACL-bounded ontology value types plus the two-surface sampling-profile tool.
     # A SamplingProfile (the InferenceProfile interface, KG-2.95) is SHACL-checked at the
     # graph write gate before the AHE-3.38 loop can promote it. Bounds mirror the
     # OpenAI/vLLM accepted ranges and the SamplingProfile pydantic field constraints.
@@ -688,7 +688,7 @@ def validate_value_type(name: str, value: Any) -> bool:
     return vt.validate(value)
 
 
-# CONCEPT:KG-2.94 — the coupling from a SamplingProfile's knobs to the value types
+# CONCEPT:AU-KG.ontology.sampling-profile-coupling — the coupling from a SamplingProfile's knobs to the value types
 # that bound them. The single source the governance gate (the ontology set action and
 # the AHE-3.38 promotion) uses to SHACL-check a profile before it is accepted/published.
 INFERENCE_KNOB_VALUE_TYPES: dict[str, str] = {
@@ -704,7 +704,7 @@ INFERENCE_KNOB_VALUE_TYPES: dict[str, str] = {
 
 
 def sampling_profile_violations(profile: dict[str, Any]) -> list[str]:
-    """Return value-type violations for a sampling-profile dict (CONCEPT:KG-2.94).
+    """Return value-type violations for a sampling-profile dict (CONCEPT:AU-KG.ontology.sampling-profile-coupling).
 
     Validates each present inference knob against its bounding value type
     (:data:`INFERENCE_KNOB_VALUE_TYPES`). Empty list = the profile conforms to the
@@ -727,7 +727,7 @@ def value_types_shapes_ttl(
 ) -> str:
     """Render the registry as one SHACL shapes turtle document.
 
-    CONCEPT:KG-2.39 — concatenates the reusable ``sh:NodeShape`` fragment for
+    CONCEPT:AU-KG.ontology.value-type-shacl-load — concatenates the reusable ``sh:NodeShape`` fragment for
     every value type under the shared prefix header, producing a turtle file the
     SHACL gate (``SHACLValidator``) loads exactly like ``governance.shapes.ttl``.
     """
@@ -747,7 +747,7 @@ def value_types_owl_ttl(
 ) -> str:
     """Render the registry as one OWL datatype-restriction turtle document.
 
-    CONCEPT:KG-2.39 — each value type becomes a named ``rdfs:Datatype`` restricted
+    CONCEPT:AU-KG.ontology.value-type-shacl-load — each value type becomes a named ``rdfs:Datatype`` restricted
     by its facets, under the shared prefix header, for the ``owl_bridge`` substrate.
     """
     vts = (
@@ -764,7 +764,7 @@ def value_types_owl_ttl(
 def write_value_shapes_ttl(target_path: str | None = None) -> str:
     """Materialize the value-type SHACL shapes to ``shapes/value_types.shapes.ttl``.
 
-    CONCEPT:KG-2.39 — the live consumer hook. Writes the combined SHACL document
+    CONCEPT:AU-KG.ontology.value-type-shacl-load — the live consumer hook. Writes the combined SHACL document
     next to ``governance.shapes.ttl`` so the existing SHACL gate picks it up. The
     file location is returned. Idempotent: re-running rewrites the same content.
 

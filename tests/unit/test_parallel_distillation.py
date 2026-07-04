@@ -64,7 +64,7 @@ async def test_parallel_trajectory_distiller(mock_deps, monkeypatch):
     assert added_node.condition == "Large repository data extraction"
     assert added_node.action == "Decompose the query into smaller chunks"
 
-    # Check that CONCEPT:KG-2.4 PositionalInteractionEncoder mapping occurred
+    # Check that CONCEPT:AU-KG.compute.cross-pillar-synergy PositionalInteractionEncoder mapping occurred
     assert "enc_pi" in added_node.metadata
     assert added_node.metadata["source"] == "parallel_scaling_distillation"
     assert len(added_node.metadata["enc_pi"]) > 0

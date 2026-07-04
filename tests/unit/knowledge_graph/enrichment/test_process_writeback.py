@@ -1,4 +1,4 @@
-"""Outbound process-intelligence write-back sink tests (CONCEPT:KG-2.8).
+"""Outbound process-intelligence write-back sink tests (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Fake graph reader + Camunda/ARIS clients assert all four payload sections are
 gathered, the write is hash-idempotent, and one failing client does not abort the

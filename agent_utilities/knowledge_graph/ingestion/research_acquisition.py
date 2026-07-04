@@ -1,6 +1,6 @@
 """Download research papers referenced by a page into the scholarx library.
 
-CONCEPT:KG-2.7 — the acquisition half of content-aware ingestion. Given
+CONCEPT:AU-KG.ingest.content-acquisition — the acquisition half of content-aware ingestion. Given
 :class:`PaperRef`s extracted from a research roundup, fetch the PDFs into the
 shared scholarx store (``paths.research_dir()/papers``) so the ingestion engine
 can then ingest them as documents/papers.

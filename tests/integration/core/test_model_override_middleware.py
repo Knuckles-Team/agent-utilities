@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Integration tests for the per-turn model override middleware.
 
-CONCEPT:ECO-4.0 Protocol Layer
+CONCEPT:AU-ECO.messaging.native-backend-abstraction Protocol Layer
 
 These tests cover the full plumbing that lets the terminal UI (and any
 other client) honour an ``x-agent-model-id`` header for the duration of

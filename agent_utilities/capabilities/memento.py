@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Live Memento context compaction capability.
 
-CONCEPT:KG-2.20 — Mementified Context Management (MEM-1, the live sawtooth).
+CONCEPT:AU-KG.memory.mementified-context — Mementified Context Management (MEM-1, the live sawtooth).
 
 Assimilated from *Memento: Teaching LLMs to Manage Their Own Context* (Kontonis et al., MSR AI
 Frontiers, 2026). The paper teaches a *model* to segment its chain-of-thought into blocks, compress
@@ -70,7 +70,7 @@ def _message_to_dict(msg: ModelMessage) -> dict[str, Any]:
 class MementoCompaction(AbstractCapability[Any]):
     """Evicts old completed blocks from the live context, replacing them with dense mementos.
 
-    CONCEPT:KG-2.20 — the live block-compress-evict sawtooth.
+    CONCEPT:AU-KG.memory.mementified-context — the live block-compress-evict sawtooth.
 
     Args:
         max_tokens: Token budget for the message history. If ``None``, derived from the model's

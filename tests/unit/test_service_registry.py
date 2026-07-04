@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for the Unified Service Registry (CONCEPT:ORCH-1.4)."""
+"""Tests for the Unified Service Registry (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)."""
 
 
 class TestServiceRegistry:

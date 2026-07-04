@@ -1,11 +1,11 @@
 #!/usr/bin/python
-"""Fleet-wide relevance grading (CONCEPT:AHE-3.63)."""
+"""Fleet-wide relevance grading (CONCEPT:AU-AHE.assimilation.research-source-grading)."""
 
 import pytest
 
 from agent_utilities.knowledge_graph.research import fleet_relevance as fr
 
-pytestmark = pytest.mark.concept("AHE-3.63")
+pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-source-grading")
 
 
 _PROFILES = {

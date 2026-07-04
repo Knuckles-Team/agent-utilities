@@ -660,7 +660,7 @@ async def sync_mcp_agents(
                 f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
             )
 
-            # CONCEPT:ORCH-1.2 — Invalidate hot cache after sync
+            # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate hot cache after sync
             from agent_utilities.core.config import (
                 invalidate_registry_cache,
             )

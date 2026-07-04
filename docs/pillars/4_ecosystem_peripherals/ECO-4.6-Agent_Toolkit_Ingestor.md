@@ -1,10 +1,10 @@
-# ECO-4.6: Unified Agent Toolkit Ingestor
+# AU-ECO.mcp.toolkit-live-discovery: Unified Agent Toolkit Ingestor
 
 ## Concept Summary
 
 | Field | Value |
 |-------|-------|
-| **Concept ID** | `ECO-4.6` |
+| **Concept ID** | `AU-ECO.mcp.toolkit-live-discovery` |
 | **Pillar** | 4 — Ecosystem & Peripherals |
 | **Status** | Implemented |
 | **Source Modules** | `engine_ingestion.py` |
@@ -27,18 +27,18 @@ eliminating the need for callers to know what they're ingesting.
 
 ```mermaid
 flowchart LR
-    SRC["ORCH-1.21: Mixed Sources List"] --> DETECT["ECO-4.6: Auto-Detect"]
-    DETECT -->|"JSON + mcpServers"| MCP["ECO-4.6: MCP Config Parser"]
-    DETECT -->|"directory + SKILL.md"| SKILL["ECO-4.6: Skill Parser"]
+    SRC["ORCH-1.21: Mixed Sources List"] --> DETECT["AU-ECO.mcp.toolkit-live-discovery: Auto-Detect"]
+    DETECT -->|"JSON + mcpServers"| MCP["AU-ECO.mcp.toolkit-live-discovery: MCP Config Parser"]
+    DETECT -->|"directory + SKILL.md"| SKILL["AU-ECO.mcp.toolkit-live-discovery: Skill Parser"]
     DETECT -->|"http:// URL"| A2A["ECO-4.1: A2A Card Fetcher"]
-    DETECT -->|".json URL"| REMOTE["ECO-4.6: Remote JSON Fetcher"]
-    MCP --> LIVE["ECO-4.6: Live Discovery"]
-    LIVE --> KG["ECO-4.6: KG: Server + CallableResource"]
-    MCP -->|"fallback"| FLAGS["ECO-4.6: Tool Flag Parser"]
+    DETECT -->|".json URL"| REMOTE["AU-ECO.mcp.toolkit-live-discovery: Remote JSON Fetcher"]
+    MCP --> LIVE["AU-ECO.mcp.toolkit-live-discovery: Live Discovery"]
+    LIVE --> KG["AU-ECO.mcp.toolkit-live-discovery: KG: Server + CallableResource"]
+    MCP -->|"fallback"| FLAGS["AU-ECO.mcp.toolkit-live-discovery: Tool Flag Parser"]
     FLAGS --> KG
     SKILL --> KG
     A2A --> KG
-    KG --> FRESH["ECO-4.6: Freshness Check"]
+    KG --> FRESH["AU-ECO.mcp.toolkit-live-discovery: Freshness Check"]
 ```
 
 ## Auto-Detection Heuristics
@@ -90,7 +90,7 @@ Supports the Google A2A specification:
 
 ## Related Concepts
 
-- **ECO-4.6**: MCP Live Discovery — live `list_tools()` invocation
+- **AU-ECO.mcp.toolkit-live-discovery**: MCP Live Discovery — live `list_tools()` invocation
 - **ECO-4.0**: Tool Interface & MCP Factory — the base MCP infrastructure
 - **ECO-4.1**: A2A Network — the A2A protocol layer
 - **ORCH-1.21**: Agent Runner — consumes ingested Server/CallableResource nodes

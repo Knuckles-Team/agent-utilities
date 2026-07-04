@@ -1,4 +1,4 @@
-# Verification Checklist: Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.4)
+# Verification Checklist: Spec: Stateful Harness & Sensory Verification (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 ## Functional Requirements Verification
 

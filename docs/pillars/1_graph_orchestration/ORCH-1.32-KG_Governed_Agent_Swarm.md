@@ -26,7 +26,7 @@ is **transparent, KG-grounded, and verifiable** — the way it surpasses a train
 | **SWARM-6** | **Heterogeneous-model swarm (Claw Groups)** — `AgentSpec.model_role` routes each agent to a model tier via ORCH-1.27 (reasoning vs bulk vs local) before the default fallback. | `parallel_engine.resolve_model_role` |
 | **SWARM-7** | **Scale telemetry** — per-wave cost/latency/success + critical-path/parallelism surfaced on `ExecutionResult.telemetry`; concurrency ceiling tunable toward the 300/4,000 envelope under `UsageGuard`. | `parallel_engine.execute` |
 
-SWARM-8 (native PDF/PPT/Excel/web rendering) is deferred to an ECO-4 ecosystem peripheral.
+SWARM-8 (native PDF/PPT/Excel/web rendering) is deferred to an AU-ECO.connector.plane-provisioning-auth ecosystem peripheral.
 
 ## What we deliberately did NOT adopt
 

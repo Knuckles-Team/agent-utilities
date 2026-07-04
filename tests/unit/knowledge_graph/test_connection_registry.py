@@ -1,4 +1,4 @@
-"""Unit tests for the named multi-connection graph registry (CONCEPT:KG-2.63).
+"""Unit tests for the named multi-connection graph registry (CONCEPT:AU-KG.backend.multi-connection-registry).
 
 These use lightweight fakes for the engine/backend so the registry's routing,
 caching, default-aliasing, fan-out, and partial-success contracts are verified

@@ -1,4 +1,4 @@
-"""Process write-back sink — Camunda & ARIS (CONCEPT:KG-2.8).
+"""Process write-back sink — Camunda & ARIS (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 Pushes the KG's per-process intelligence (capability/code lineage, OWL inferences,
 incidents, glossary/data lineage) onto live Camunda instances and ARIS models as a

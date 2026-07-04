@@ -1,4 +1,4 @@
-"""Tests for native database traversal tools (CONCEPT:ECO-4.33).
+"""Tests for native database traversal tools (CONCEPT:AU-ECO.toolkit.database-traversal-tools).
 
 Offline + deterministic: exercised against a temp SQLite DB (UniversalConnector
 needs no driver for sqlite), so no external database is required.
@@ -29,39 +29,39 @@ def sqlite_dsn(tmp_path):
     return f"sqlite:///{db}"
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_tools_registered():
     assert {t.__name__ for t in db_tools} == {"db_tables", "db_schema", "db_query"}
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_tables(sqlite_dsn):
     out = json.loads(asyncio.run(db_tables(None, sqlite_dsn)))
     assert set(out["tables"]) == {"users", "orders"}
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_schema(sqlite_dsn):
     out = json.loads(asyncio.run(db_schema(None, sqlite_dsn)))
     assert out["schema"]["users"] == ["id", "name"]
     assert set(out["schema"]["orders"]) == {"id", "user_id", "total"}
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_query_read(sqlite_dsn):
     out = json.loads(asyncio.run(db_query(None, sqlite_dsn, "SELECT * FROM users")))
     assert out["row_count"] == 2
     assert {r["name"] for r in out["rows"]} == {"alice", "bob"}
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_query_blocks_writes_by_default(sqlite_dsn):
     for stmt in ("DELETE FROM users", "DROP TABLE users", "UPDATE users SET name='x'"):
         out = json.loads(asyncio.run(db_query(None, sqlite_dsn, stmt)))
         assert "blocked" in out.get("error", "")
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_query_allows_write_when_opted_in(sqlite_dsn, monkeypatch):
     monkeypatch.setenv("DB_TOOLS_ALLOW_WRITE", "1")
     out = json.loads(
@@ -74,14 +74,14 @@ def test_db_query_allows_write_when_opted_in(sqlite_dsn, monkeypatch):
     assert remaining["row_count"] == 1
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_dsn_alias_resolves_from_env(monkeypatch, sqlite_dsn):
     monkeypatch.setenv("WAREHOUSE_DSN", sqlite_dsn)
     out = json.loads(asyncio.run(db_tables(None, "warehouse")))
     assert set(out["tables"]) == {"users", "orders"}
 
 
-@pytest.mark.concept("ECO-4.33")
+@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_empty_query_rejected(sqlite_dsn):
     out = json.loads(asyncio.run(db_query(None, sqlite_dsn, "   ")))
     assert out["error"] == "empty query"

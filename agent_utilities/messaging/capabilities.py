@@ -1,4 +1,4 @@
-"""Messaging Platform Capability Matrix (CONCEPT:ECO-4.0).
+"""Messaging Platform Capability Matrix (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
 Declares what each of the 17 messaging platforms supports, allowing the
 agent to dynamically adapt its behavior based on the channel context.
@@ -6,7 +6,7 @@ agent to dynamically adapt its behavior based on the channel context.
 This is the Python equivalent of OpenClaw's ``ChannelCapabilities`` system
 from ``src/channels/plugins/types.core.ts``.
 
-CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
 Usage::
 
@@ -28,7 +28,7 @@ from dataclasses import dataclass
 class MessagingCapabilities:
     """Declares the feature set supported by a messaging platform.
 
-    CONCEPT:ECO-4.0
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
     Attributes:
         send_text: Can send plain text messages.
@@ -72,7 +72,7 @@ class MessagingCapabilities:
 
 
 # ── Capability Matrix for All 17 Platforms ───────────────────────────
-# CONCEPT:ECO-4.0
+# CONCEPT:AU-ECO.messaging.native-backend-abstraction
 #
 # Each entry maps a PlatformId string to its MessagingCapabilities.
 # These are modeled after OpenClaw's per-extension capability declarations
@@ -425,7 +425,7 @@ CAPABILITY_MATRIX: dict[str, MessagingCapabilities] = {
 def get_capabilities(platform_id: str) -> MessagingCapabilities:
     """Get capabilities for a specific platform.
 
-    CONCEPT:ECO-4.0
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
     Args:
         platform_id: Platform identifier (e.g., ``"discord"``).

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for CONCEPT:KG-2.2 — Entity-Claim Extraction and MAGMA Epistemic View."""
+"""Tests for CONCEPT:AU-KG.ingest.engineering-rules — Entity-Claim Extraction and MAGMA Epistemic View."""
 
 import pytest
 from pydantic import ValidationError
@@ -176,7 +176,7 @@ class TestEntityClaimExtractor:
 
 
 class TestEdgeTypes:
-    """Test new CONCEPT:KG-2.2 edge types exist in the registry."""
+    """Test new CONCEPT:AU-KG.ingest.engineering-rules edge types exist in the registry."""
 
     def test_builds_on_exists(self):
         assert RegistryEdgeType.BUILDS_ON == "builds_on"

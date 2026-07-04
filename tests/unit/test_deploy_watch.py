@@ -1,4 +1,4 @@
-"""Health-gated deploy watch + policy-gated rollback (CONCEPT:OS-5.27).
+"""Health-gated deploy watch + policy-gated rollback (CONCEPT:AU-OS.config.health-gated-deploy-rollback).
 
 Covers: durable scheduling (the watch spec rides on the Task node so a
 requeued watch resumes its ORIGINAL deadline), the sustained-green success
@@ -7,7 +7,7 @@ queued under the shipped default policy, actuated under a permissive one —
 plus operator escalation), the unobserved path (notify, never roll back on
 zero evidence), and custom ``on_fail`` injection.
 
-@pytest.mark.concept("OS-5.27")
+@pytest.mark.concept("AU-OS.config.health-gated-deploy-rollback")
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from .fleet_autonomy_fakes import (
     write_policy,
 )
 
-pytestmark = pytest.mark.concept("OS-5.27")
+pytestmark = pytest.mark.concept("AU-OS.config.health-gated-deploy-rollback")
 
 PERMISSIVE = (
     "defaults: {tier: auto, rate_limit: {max: 100, window_s: 60},"

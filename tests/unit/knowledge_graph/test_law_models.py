@@ -1,7 +1,7 @@
 """Tests for Law Domain Pydantic Models.
 
-CONCEPT:KG-2.6 — Law Domain
-CONCEPT:KG-2.1 — Company Intelligence Graph
+CONCEPT:AU-KG.research.research-pipeline-runner — Law Domain
+CONCEPT:AU-KG.memory.tiered-memory-caching — Company Intelligence Graph
 
 Validates all law domain Pydantic models, their field constraints,
 and OWL ontology alignment.

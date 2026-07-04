@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Secret Manager CLI.
 
-CONCEPT:OS-5.1
+CONCEPT:AU-OS.config.secrets-authentication
 
 Provides a command-line interface to manage secrets using the agent_utilities
 SecretsClient. Supports setting, getting, deleting, and listing keys across

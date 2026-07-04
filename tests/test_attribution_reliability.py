@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the self-attribution reliability metric on ManifestVerifier.
 
-CONCEPT:AHE-3.0
+CONCEPT:AU-AHE.harness.harness-evolution
 """
 
 from unittest.mock import MagicMock
@@ -16,7 +16,7 @@ from agent_utilities.harness.manifest import (
 )
 from agent_utilities.harness.verifier import ManifestVerifier
 
-pytestmark = pytest.mark.concept("AHE-3.0")
+pytestmark = pytest.mark.concept("AU-AHE.harness.harness-evolution")
 
 
 def _manifest(predicted_fixes):
@@ -84,7 +84,7 @@ async def test_no_actual_fixes_is_not_reliable():
     assert result.attribution_reliable is False
 
 
-# ── Signature attribution falsifiability (CONCEPT:AHE-3.58) ──────────────────
+# ── Signature attribution falsifiability (CONCEPT:AU-AHE.evaluation.edit-claims-fix) ──────────────────
 def test_signature_fired_detects_presence_and_absence():
     present = EvidenceCorpus(
         entries=[

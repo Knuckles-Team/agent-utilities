@@ -1,6 +1,6 @@
 """Tests for the XAI OAuth PKCE authentication manager.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 """
 
 import time
@@ -52,7 +52,7 @@ class TestXaiAuthManager:
         """Pre-configured XaiAuthManager with mock secrets client."""
         return XaiAuthManager(secrets_client=mock_secrets_client)
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_pkce_generation(self):
         """PKCE code verifier and challenge should be correctly generated."""
         verifier, challenge = generate_pkce()
@@ -63,7 +63,7 @@ class TestXaiAuthManager:
         v2, c2 = generate_pkce()
         assert verifier != v2
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_validate_oauth_endpoint(self):
         """OIDC endpoints validation should pass for valid xAI origins and reject others."""
         # Valid cases
@@ -89,7 +89,7 @@ class TestXaiAuthManager:
             validate_xai_oauth_endpoint("https://evil-hacker.com/token", "token")
         assert "not on the xAI origin" in str(exc.value)
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_token_save_and_retrieve(self, manager):
         """Tokens should be saved and loaded from secrets client successfully."""
         assert manager.get_cached_tokens() is None
@@ -106,7 +106,7 @@ class TestXaiAuthManager:
         assert loaded["access_token"] == "acc_123"
         assert loaded["refresh_token"] == "ref_123"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @patch("httpx.post")
     @patch("httpx.get")
     def test_refresh_access_token_success(self, mock_get, mock_post, manager):
@@ -148,7 +148,7 @@ class TestXaiAuthManager:
         loaded = manager.get_cached_tokens()
         assert loaded["access_token"] == "new_acc"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @patch("httpx.post")
     @patch("httpx.get")
     def test_resolve_credentials(self, mock_get, mock_post, manager):
@@ -197,7 +197,7 @@ class TestXaiAuthManager:
 
         assert manager.resolve_credentials() == "refreshed_tok"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_resolve_credentials_auto_login(self, manager):
         """Should proactively trigger login() if credentials are missing and auto_login is True."""
         # 1. auto_login is False (default) -> should not trigger login and return None
@@ -241,7 +241,7 @@ class TestXaiAuthManager:
 class TestLoopbackCallbackHandler:
     """Tests for LoopbackCallbackHandler requests parsing."""
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_handler_parse_code(self):
         """Handler should extract code from redirect URL query params."""
         mock_server = MagicMock()

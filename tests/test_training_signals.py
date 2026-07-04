@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for the deterministic reward/dataset spine + RewardDecomposer wiring.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 """
 
 import pytest
@@ -17,7 +17,7 @@ from agent_utilities.graph.training_signals import (
     token_regulation,
 )
 
-pytestmark = pytest.mark.concept("AHE-3.1")
+pytestmark = pytest.mark.concept("AU-AHE.evaluation.adaptive-reasoning-effort")
 
 
 # --- batch_normalized_advantage --------------------------------------------

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Corrigibility, irreversibility-aversion and knowledge-seeking primitives.
 
-CONCEPT:SAFE-1.5 — objective-level safety primitives for rising autonomy: corrigibility that checkpoints and yields to a shutdown signal without resisting, irreversibility-aversion that routes irreversible actions to human approval, and a knowledge-seeking info-gain reward
+CONCEPT:AU-OS.safety.objective-level-safety-primitives — objective-level safety primitives for rising autonomy: corrigibility that checkpoints and yields to a shutdown signal without resisting, irreversibility-aversion that routes irreversible actions to human approval, and a knowledge-seeking info-gain reward
 
 The paper (§6) argues that as economic pressure cuts the human out of the loop,
 *policy-gating alone is brittle* — the agents' objective itself needs safety

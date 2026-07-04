@@ -1,7 +1,7 @@
 """Memory subsystem for the Knowledge Graph.
 
-CONCEPT:KG-2.1 — Tiered Memory & Context
-CONCEPT:KG-2.1 — Observational Memory Bridge
+CONCEPT:AU-KG.memory.tiered-memory-caching — Tiered Memory & Context
+CONCEPT:AU-KG.memory.tiered-memory-caching — Observational Memory Bridge
 
 This package contains:
 - Synthesis engine (KG-2.4) — Episode→Preference, Decision→Principle rules

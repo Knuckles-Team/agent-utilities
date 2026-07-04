@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Offline tests for the MemoryData graph-os adapter (CONCEPT:AHE-3.71..3.74).
+"""Offline tests for the MemoryData graph-os adapter (CONCEPT:AU-AHE.harness.hardening-transparency-surface..3.74).
 
 All tests run against the deterministic ``MockBackendClient`` (``transport="mock"``), so the
 suite passes with the live engine down and no extra dependencies. Runnable either under

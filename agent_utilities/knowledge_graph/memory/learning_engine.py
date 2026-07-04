@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.13 — Background Learning Engine.
+"""CONCEPT:AU-KG.memory.background-learning-engine — Background Learning Engine.
 
 Assimilates Quarq Agent's asynchronous targeted-edit learner (agent-oss/agent.py:99-160,
 2951-3007, 3303/3646) into agent-utilities. The learner does **targeted ADD / UPDATE / DELETE**
@@ -36,7 +36,7 @@ BACKOFF_MAX = 60.0
 class MemoryEdit(BaseModel):
     """A single targeted memory edit emitted by the learner.
 
-    CONCEPT:KG-2.13 (+ memory-os typed-extraction enhancement, ClaudioDrews/memory-os@a4ca094,
+    CONCEPT:AU-KG.memory.background-learning-engine (+ memory-os typed-extraction enhancement, ClaudioDrews/memory-os@a4ca094,
     icarus/hooks.py): beyond ADD/UPDATE/DELETE, an edit carries a typed classification, a
     training-value signal, an outcome-grounding gate, and the evidence ids it was derived from, so
     only grounded, high-value learning is persisted.
@@ -61,7 +61,7 @@ def _now_iso() -> str:
 def resolve_relative_dates(text: str, *, now: str | None = None) -> str:
     """Resolve common relative date words to absolute ISO dates at learn time.
 
-    CONCEPT:KG-2.13 — mirrors Quarq's learn-time relative→absolute rule (agent.py:3114-3161):
+    CONCEPT:AU-KG.memory.background-learning-engine — mirrors Quarq's learn-time relative→absolute rule (agent.py:3114-3161):
     "yesterday", "today", "tomorrow", and "N days/weeks/months ago" become absolute dates so the
     stored ``event_time`` is a real instant, never a floating phrase. Vague recency ("recently",
     "a while ago") is intentionally left untouched (it is report-time context, not an event date).
@@ -127,7 +127,7 @@ async def with_backoff(
 
     Returns the result, or re-raises the last exception once attempts are exhausted. Bounded
     (unlike Quarq's infinite loop) so background learning can never wedge CI. A thin wrapper
-    over the declarative ResiliencePolicy runner (CONCEPT:ORCH-1.36): any ``Exception`` is
+    over the declarative ResiliencePolicy runner (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating): any ``Exception`` is
     retryable here (persistent-queue semantics), with delays ``initial * 2**(n-1)`` capped
     at ``max_delay`` — identical to the historical hand-rolled loop.
     """
@@ -149,7 +149,7 @@ async def with_backoff(
 
 
 class BackgroundLearner:
-    """Async, semaphore-bounded targeted-edit learner (CONCEPT:KG-2.13)."""
+    """Async, semaphore-bounded targeted-edit learner (CONCEPT:AU-KG.memory.background-learning-engine)."""
 
     def __init__(
         self,
@@ -182,7 +182,7 @@ class BackgroundLearner:
 
         for edit in edits:
             try:
-                # CONCEPT:KG-2.13 — outcome-grounding gate: a decision/resolution that claims
+                # CONCEPT:AU-KG.memory.background-learning-engine — outcome-grounding gate: a decision/resolution that claims
                 # grounding must cite evidence ids to be persisted; otherwise it is dropped (not
                 # stored as an unverified fact). Notes/facts are exempt.
                 if (

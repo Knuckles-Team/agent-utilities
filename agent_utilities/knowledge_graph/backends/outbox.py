@@ -1,8 +1,8 @@
 #!/usr/bin/python
-# CONCEPT:KG-2.74 - Durable per-mirror outbox: a crash-safe append log that lets the FanOutBackend mirror every write to N durable graph stores without loss — a store that is down or slow simply replays its unapplied tail from a persisted cursor when it returns.
+# CONCEPT:AU-KG.backend.mirror-outbox - Durable per-mirror outbox: a crash-safe append log that lets the FanOutBackend mirror every write to N durable graph stores without loss — a store that is down or slow simply replays its unapplied tail from a persisted cursor when it returns.
 """Durable per-mirror write outbox for lossless multi-store mirroring.
 
-CONCEPT:KG-2.74 — Lossless N-way mirror outbox.
+CONCEPT:AU-KG.backend.mirror-outbox — Lossless N-way mirror outbox.
 
 The :class:`~agent_utilities.knowledge_graph.backends.fanout_backend.FanOutBackend`
 commits each write to a single **authority** store synchronously, then hands the
@@ -47,7 +47,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Concurrent-sqlite discipline (CONCEPT:KG-2.74). This one outbox file is opened by
+# Concurrent-sqlite discipline (CONCEPT:AU-KG.backend.mirror-outbox). This one outbox file is opened by
 # BOTH the graph-os CLIENT and the graph-os HOST — each runs ``GRAPH_BACKEND=fanout``
 # and builds a :class:`~agent_utilities.knowledge_graph.backends.fanout_backend.FanOutBackend`
 # against the same ``graph_mirror_outbox.db`` on the shared data volume, each with an

@@ -19,7 +19,7 @@ DEFAULT_KG_HOST = setting("KG_SERVER_HOST", "127.0.0.1")
 class KGCoordinator:
     """Coordinating helper for the centralized Knowledge Graph server process.
 
-    CONCEPT:KG-1.0 - Centralized KG Coordination Protocol.
+    CONCEPT:AU-KG.coordination.centralized-kg-coordination-protocol - Centralized KG Coordination Protocol.
     """
 
     @staticmethod

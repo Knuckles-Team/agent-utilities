@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.3 — Structural Fingerprint Engine.
+"""CONCEPT:AU-KG.compute.structural-fingerprint — Structural Fingerprint Engine.
 
 Generic capability for detecting structural vs. cosmetic changes in any
 workspace the agent operates on. Enables incremental KG updates by
@@ -27,7 +27,7 @@ Usage::
     change = classify_change(old_fp, new_fp)
     # change == ChangeLevel.COSMETIC  # Only formatting changed
 
-See docs/pillars/architecture_c4.md §CONCEPT:KG-2.3
+See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.compute.structural-fingerprint
 """
 
 
@@ -343,7 +343,7 @@ def detect_stale_files(
 class FingerprintManager:
     """Manages structural fingerprints for an entire workspace.
 
-    CONCEPT:KG-2.3 — Structural Fingerprint Engine
+    CONCEPT:AU-KG.compute.structural-fingerprint — Structural Fingerprint Engine
 
     Computes, stores, and compares fingerprints to determine which files
     need KG re-ingestion after code changes. Works for any workspace.
@@ -395,7 +395,7 @@ class FingerprintManager:
                     self._fingerprints[str(file_path)] = fp
 
         logger.info(
-            "[CONCEPT:KG-2.3] Fingerprinted %d files in %s",
+            "[CONCEPT:AU-KG.compute.structural-fingerprint] Fingerprinted %d files in %s",
             len(self._fingerprints),
             self.workspace_path,
         )

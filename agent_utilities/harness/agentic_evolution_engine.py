@@ -1,6 +1,6 @@
 """Agentic Evolution Engine — Synthesized Evolution Facade.
 
-CONCEPT:AHE-3.2 — Agentic Evolution Engine
+CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Evolution Engine
 
 Provides a single entry point for all evolutionary capabilities:
 - Variant pool management (AHE-3.2 via ``VariantPool``)
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class AgenticEvolutionEngine:
     """Synthesized evolution engine.
 
-    CONCEPT:AHE-3.2 — Agentic Evolution Engine
+    CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Evolution Engine
 
     Combines variant pool management (AHE-3.2) with skill neologism
     detection and evolution (ECO-4.1) into a unified lifecycle.
@@ -116,7 +116,7 @@ class AgenticEvolutionEngine:
             logger.debug("PrioritizedReplayBuffer not available: %s", e)
             self._replay_buffer = None
 
-        # Self-guided self-play (CONCEPT:AHE-3.37, SGS arXiv:2604.20209): a
+        # Self-guided self-play (CONCEPT:AU-AHE.harness.when-task-is-scope, SGS arXiv:2604.20209): a
         # Conjecturer proposes difficulty-matched tasks, the Guide gatekeeps quality
         # (rejecting gamed/illogical conjectures — the anti-plateau mechanism), and a
         # Solver attempts them, raising a curriculum. Deterministic defaults run with
@@ -144,10 +144,10 @@ class AgenticEvolutionEngine:
             logger.debug("SelfGuidedSelfPlay not available: %s", e)
             self._self_play = None
 
-        # Fast-Slow learning controller (FST arXiv:2605.12484, CONCEPT:ORCH-1.56).
+        # Fast-Slow learning controller (FST arXiv:2605.12484, CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast).
         # Each cycle's outcome is a trace; the FAST loop updates the harness now and
         # the SLOW loop absorbs what RECURS across bases via the REAL SubstrateTrainer
-        # (CONCEPT:ORCH-1.57).
+        # (CONCEPT:AU-ORCH.execution.substrate-training-job-emission).
         # It builds a GRPO corpus from the recurring group and emits a training-job
         # spec to the gradient substrate (DSM/GPU); the gradient step runs in
         # data-science-mcp and is GPU-gated; jobs are recorded (queued) when no
@@ -289,7 +289,7 @@ class AgenticEvolutionEngine:
     def _record_skill(self, skill: Any, source: str) -> None:
         """Mirror a created/merged skill into the unified EvolvingMemoryStore.
 
-        CONCEPT:KG-2.1 — routes skill evolution through the single graph-native
+        CONCEPT:AU-KG.memory.tiered-memory-caching — routes skill evolution through the single graph-native
         SKILL bank (dedup + resolve shared with insights/workspace banks). Best-effort.
         """
         if self._memory_store is None or skill is None:
@@ -344,12 +344,12 @@ class AgenticEvolutionEngine:
             winners = self.tournament_select(base_id, top_k=top_k)
             report["winners"] = winners
             report["pruned"] = self.prune_losers(base_id, keep=top_k)
-            # CONCEPT:AHE-3.2 — population-drift / diversity-collapse signal
+            # CONCEPT:AU-AHE.harness.evolutionary-aggregation — population-drift / diversity-collapse signal
             health = self._variant_pool.population_health(base_id)
             report["population_health"] = health
             report["early_stop_recommended"] = bool(health.get("collapsed"))
 
-            # CONCEPT:KG-2.1 — capture the cycle outcome as a reusable INSIGHT.
+            # CONCEPT:AU-KG.memory.tiered-memory-caching — capture the cycle outcome as a reusable INSIGHT.
             if self._memory_store is not None and winners:
                 from .evolving_memory import MemoryBank
 
@@ -370,7 +370,7 @@ class AgenticEvolutionEngine:
                 if generalized:
                     report["insights_generalized"] = generalized
 
-            # CONCEPT:KG-2.82 / AHE-3.33 — record this base's winners as reusable
+            # CONCEPT:AU-KG.memory.ahe-record-this-base / AHE-3.33 — record this base's winners as reusable
             # trajectories in ITS OWN exploitation pool, and feed the cycle outcome
             # back to its bandit: a healthy spread rewards exploitation, a collapse
             # rewards exploration so the next cycle diversifies (DecentMem routing).
@@ -406,7 +406,7 @@ class AgenticEvolutionEngine:
                 )
                 report["replay_buffer_size"] = len(self._replay_buffer)
 
-        # CONCEPT:AHE-3.37 — when a task is in scope, run a short self-guided
+        # CONCEPT:AU-AHE.harness.when-task-is-scope — when a task is in scope, run a short self-guided
         # self-play curriculum for it: the Guide rejects gamed conjectures so the
         # solver trains on quality tasks, and the plateau-breaker fires if progress
         # stalls. Surfaces accept/solve rates + plateau flag for the loop.
@@ -419,7 +419,7 @@ class AgenticEvolutionEngine:
                 "rounds": len(play.rounds),
             }
 
-        # CONCEPT:ORCH-1.56 — feed the cycle outcome to the Fast-Slow controller:
+        # CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast — feed the cycle outcome to the Fast-Slow controller:
         # observe it as a trace (keyed by base so recurrence is detectable), run the
         # FAST harness update now, then a SLOW step that absorbs recurring bases (the
         # GRPO advantage spine runs; real weight training is the deferred trainer).
@@ -456,13 +456,13 @@ class AgenticEvolutionEngine:
         coder_fn: Any = None,
         evaluate_fn: Any = None,
     ) -> dict[str, Any]:
-        """Evolve a solution by Monte-Carlo GRAPH search (CONCEPT:KG-2.92, MLEvolve).
+        """Evolve a solution by Monte-Carlo GRAPH search (CONCEPT:AU-KG.retrieval.monte-carlo-graph-search, MLEvolve).
 
         Unlike tournament evolution, this searches a GRAPH of candidate solutions
         with cross-branch fusion edges + a global code memory. ``coder_fn`` /
         ``evaluate_fn`` default to deterministic, zero-infra implementations (used by
         tests and offline runs); the MCP ``evolve_code`` action injects an LLM-backed
-        coder (CONCEPT:ORCH-1.54 ``RLM``) for real production code evolution.
+        coder (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client ``RLM``) for real production code evolution.
         """
         from .graph_search_evolution import GraphSearchEvolver
 
@@ -491,7 +491,7 @@ class AgenticEvolutionEngine:
         }
 
     def sample_replay(self, n: int = 1, *, seed: int | None = None) -> list[Any]:
-        """Sample decisive past cycles to re-evaluate (CONCEPT:AHE-3.0, b4-03 F4).
+        """Sample decisive past cycles to re-evaluate (CONCEPT:AU-AHE.harness.harness-evolution, b4-03 F4).
 
         Returns prioritized (rare/decisive) cycle states from the replay buffer —
         the daemon can re-run these instead of only fresh bases. Empty when no

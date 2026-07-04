@@ -15,7 +15,7 @@
 All documentation is organized under the **5-Pillar Architecture**. Each pillar has:
 - A **summary page** (`{pillar_name}.md`) explaining the rationale, implementation, and benefits
 - A **directory** containing detailed concept references, guides, and deep-dives
-- **Concept IDs** (`CONCEPT:ORCH-1.x`, `KG-2.x`, etc.) linking docs to source code 1:1
+- **Concept IDs** (`CONCEPT:AU-ORCH.planning.orchestration-overview`, `KG-2.x`, etc.) linking docs to source code 1:1
 
 ```
 docs/
@@ -181,9 +181,9 @@ All concepts are uniquely identified and traceable to source code:
 
 | Prefix | Pillar | Range |
 |:-------|:-------|:------|
-| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.29 |
+| `AU-ORCH.planning.orchestration-overview` | Graph Orchestration Engine | 1.0 – 1.29 |
 | `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.20 |
-| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.16 |
+| `AU-AHE.optimization.telemetry-optimization` | Agentic Harness Engineering | 3.0 – 3.16 |
 | `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.23 |
 | `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.10 |
 | `GW-1.x` | Gateway Service Dashboard | 1.0 |

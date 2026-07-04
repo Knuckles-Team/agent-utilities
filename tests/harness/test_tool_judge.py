@@ -1,4 +1,4 @@
-"""Agentic tool-judge over large/complex traces (CONCEPT:AHE-3.66)."""
+"""Agentic tool-judge over large/complex traces (CONCEPT:AU-AHE.harness.instead-context-stuffing-small)."""
 
 from __future__ import annotations
 

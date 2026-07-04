@@ -1,4 +1,4 @@
-"""Bound the PostgreSQL authority-write tail (CONCEPT:KG-2.152).
+"""Bound the PostgreSQL authority-write tail (CONCEPT:AU-KG.backend.authority-write-tail).
 
 Profiling showed the authority (L3, pg-age) write path is the ingestion ceiling:
 ``write[authority:PostgreSQLBackend]`` p50 ~3ms but MAX 11.7-16.4s under sustained
@@ -36,7 +36,7 @@ class _PoolTimeout(Exception):
 _PoolTimeout.__name__ = "PoolTimeout"
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_pool_timeout_is_retryable_contention():
     # A starved-pool acquire must be treated like a lock wait so the resilience
     # policy backs off + retries (bounded) instead of dropping the write — and so
@@ -44,13 +44,13 @@ def test_pool_timeout_is_retryable_contention():
     assert PostgreSQLBackend._is_lock_contention(_PoolTimeout("timed out")) is True
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_pool_timeout_phrase_is_retryable():
     exc = Exception("couldn't get a connection after 5.0 sec")
     assert PostgreSQLBackend._is_lock_contention(exc) is True
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_schema_error_still_not_contention():
     # Regression guard: the new branches must not reclassify a schema-drift error.
     exc = Exception('column "x" of relation "idea_block" does not exist')
@@ -74,7 +74,7 @@ class _FakeConn:
         self.calls: list[str] = []
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_session_prepared_once_per_connection():
     be = AGEBackend.__new__(AGEBackend)  # no real DSN/pool needed
     conn = _FakeConn()
@@ -91,7 +91,7 @@ def test_age_session_prepared_once_per_connection():
     assert getattr(conn, "_age_prepared", False) is True
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_session_reprepares_a_fresh_connection():
     be = AGEBackend.__new__(AGEBackend)
     c1, c2 = _FakeConn(), _FakeConn()
@@ -105,7 +105,7 @@ def test_age_session_reprepares_a_fresh_connection():
 # ── 3. Pool ceiling is env-tunable and defaults higher than the old 10 ───────
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_pool_defaults_raised_and_env_tunable(monkeypatch):
     import agent_utilities.knowledge_graph.backends as backends_pkg
 
@@ -215,7 +215,7 @@ def _age_backend_with_pool(pool) -> AGEBackend:  # noqa: ANN001
     return be
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_execute_retries_pool_timeout_then_succeeds():
     # PoolTimeout on the first acquire, success on the second: the resilience policy
     # must re-drive the AGE write and ultimately commit it — NOT hang, NOT drop.
@@ -230,13 +230,13 @@ def test_age_execute_retries_pool_timeout_then_succeeds():
     assert pool.conn.executed  # SQL ran on the second (live) acquire
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_execute_classifies_pool_timeout_as_retryable():
     # The classifier the policy relies on must flag the live-path PoolTimeout.
     assert AGEBackend._is_lock_contention(_PoolTimeout("timed out")) is True
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_execute_bounded_when_pool_never_frees():
     # If the pool never frees, the retry budget is bounded (does NOT hang forever)
     # and the terminal PoolTimeout surfaces rather than being silently swallowed.
@@ -252,7 +252,7 @@ def test_age_execute_bounded_when_pool_never_frees():
     assert type(ei.value).__name__ in ("PoolTimeout", "PostgresLockContentionError")
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_age_add_embedding_retries_pool_timeout():
     # The embedding write override is on the same live path → same protection.
     pool = _FlakyPool(fail_times=1)
@@ -264,7 +264,7 @@ def test_age_add_embedding_retries_pool_timeout():
     assert pool.conn.committed == 1
 
 
-@pytest.mark.concept("KG-2.152")
+@pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_pool_acquire_timeout_default_is_bounded(monkeypatch):
     from agent_utilities.knowledge_graph.backends import postgresql_backend as pgb
 

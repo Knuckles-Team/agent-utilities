@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for the research-craft discipline primitives (CONCEPT:AHE-3.36)."""
+"""Tests for the research-craft discipline primitives (CONCEPT:AU-AHE.evaluation.disconfirming-evidence-log)."""
 
 from dataclasses import dataclass, field
 

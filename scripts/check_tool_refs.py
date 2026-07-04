@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""CONCEPT:ECO-4.45 — Reference-integrity gate for agent tool/skill references (Layer 1).
+"""CONCEPT:AU-ECO.toolkit.tool-ref-integrity-gate — Reference-integrity gate for agent tool/skill references (Layer 1).
 
 The problem this catches: ``prompts/*.json`` blueprints (and skill docs) reference tools/skills
 by *literal display name*. When a tool/skill is renamed, or when the mcp-multiplexer adds a

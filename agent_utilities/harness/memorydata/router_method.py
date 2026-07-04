@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Family-aware retrieval router over the graph-os memory configs (CONCEPT:AHE-3.73).
+"""Family-aware retrieval router over the graph-os memory configs (CONCEPT:AU-AHE.harness.callers-feed-back-per).
 
 A single retrieval surface is rarely best across MemoryData's heterogeneous families: an
 update/conflict family wants bi-temporal point-in-time recall, a code family wants
@@ -36,7 +36,7 @@ _DEFAULT_CONFIG = "graphos_semantic_hnsw"
 
 
 class GraphOSRouterMethod(GraphOSMemoryMethod):
-    """Routes each query to a retrieval config by family tag (CONCEPT:AHE-3.73).
+    """Routes each query to a retrieval config by family tag (CONCEPT:AU-AHE.harness.callers-feed-back-per).
 
     Subclasses :class:`GraphOSMemoryMethod`, so it satisfies the same MemoryData
     ``send_message`` contract; it only overrides *which* retrieval spec a query uses. Keep it
@@ -114,7 +114,7 @@ class GraphOSRouterMethod(GraphOSMemoryMethod):
     def record_outcome(self, config: str, reward: float) -> float:
         """Update the EMA weight for ``config`` with ``reward`` and return the new weight.
 
-        Online-learning hook (CONCEPT:AHE-3.73): callers feed back a per-query reward so the
+        Online-learning hook (CONCEPT:AU-AHE.harness.callers-feed-back-per): callers feed back a per-query reward so the
         router can bias future selection toward configs that performed well.
         """
         if config not in self.weights:

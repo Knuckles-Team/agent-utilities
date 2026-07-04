@@ -8,7 +8,7 @@ tags: [architecture, pillars, orch, kg, ahe, eco, os]
 
 # agent-utilities — 5-Pillar Architecture
 
-## Pillar 1: Graph Orchestration Engine (ORCH-1.x)
+## Pillar 1: Graph Orchestration Engine (AU-ORCH.planning.orchestration-overview)
 
 **Purpose**: Multi-agent coordination, HTN planning, specialist routing, workflow execution.
 
@@ -19,11 +19,11 @@ tags: [architecture, pillars, orch, kg, ahe, eco, os]
 | `ORCH-1.2` | Specialist Routing & Discovery | `graph/routing.py` |
 | `ORCH-1.3` | Execution Safety & State | `graph/executor.py`, `graph/hsm.py` |
 | `ORCH-1.4` | Capability Wiring Engine | `graph/nodes.py` |
-| `ORCH-1.5` | Agent Orchestrator | `graph/agent_orchestrator.py` |
-| `ORCH-1.5` | DSTDD Pipeline | `sdd/orchestrator.py` |
+| `AU-ORCH.planning.legal-automation-roadmap` | Agent Orchestrator | `graph/agent_orchestrator.py` |
+| `AU-ORCH.planning.legal-automation-roadmap` | DSTDD Pipeline | `sdd/orchestrator.py` |
 | `ORCH-1.8` | Workflow Distillation | `workflows/distillation_hook.py` |
-| `ORCH-1.26` | Workflow-TeamConfig Unification | `workflows/skill_compiler.py` |
-| `ORCH-1.9` | Autonomous Department Orchestration | `models/company.py` |
+| `AU-ORCH.execution.rlm-synthesis-failed-falling` | Workflow-TeamConfig Unification | `workflows/skill_compiler.py` |
+| `AU-ORCH.execution.autonomous-department-orchestration` | Autonomous Department Orchestration | `models/company.py` |
 
 **Architecture**: Tasks flow through the HTN planner → routing selects specialist
 agents → executor manages state via HSM → results feed back to KG.
@@ -46,7 +46,7 @@ agents → executor manages state via HSM → results feed back to KG.
 | `KG-2.7` | Research Intelligence | `knowledge_graph/research/` |
 | `KG-2.12` | Company Operations Domain | `ontology_company.ttl`, `models/company.py` |
 | `KG-2.13` | Company Intelligence Graph | `models/company.py` |
-| `KG-2.14` | Skill-Graph ↔ KG Sync | `skill-graph-builder` |
+| `AU-KG.memory.ground-truth-preamble-declaring` | Skill-Graph ↔ KG Sync | `skill-graph-builder` |
 
 **Architecture**: NetworkX in-memory graph + optional LadybugDB backend.
 OWL ontologies loaded via RDFLib/OWLReady2. Tiered memory: episodic →
@@ -54,7 +54,7 @@ semantic → procedural with decay/consolidation.
 
 ---
 
-## Pillar 3: Agentic Harness Engineering (AHE-3.x)
+## Pillar 3: Agentic Harness Engineering (AU-AHE.optimization.telemetry-optimization)
 
 **Purpose**: Self-improvement, testing, evolution, team composition, curriculum learning.
 
@@ -65,7 +65,7 @@ semantic → procedural with decay/consolidation.
 | `AHE-3.2` | Agentic Evolution Engine | `harness/agentic_evolution_engine.py` |
 | `AHE-3.3` | Team & Synergy Optimization | `graph/team_composer.py` |
 | `AHE-3.4` | Distributed Agentic Evolution | `harness/distributed_state_manager.py` |
-| `AHE-3.5` | Heavy Thinking & Background Intelligence | `agentic_evolution/forge.py` |
+| `AU-AHE.harness.self-evolution-narrative` | Heavy Thinking & Background Intelligence | `agentic_evolution/forge.py` |
 
 **Architecture**: Evaluation engine scores agent outputs → evolution engine
 proposes improvements → team composer optimizes coalition membership →
@@ -81,10 +81,10 @@ successful teams promoted to TeamConfigNode for reuse.
 |---------|------|-----------|
 | `ECO-4.0` | Tool Interface & MCP Factory | `mcp/server_factory.py` |
 | `ECO-4.1` | A2A Network & Consensus | `protocols/a2a_graph_skill.py` |
-| `ECO-4.5` | Native Messaging Backend | `ecosystem/bridge.py` |
-| `ECO-4.12` | Self-Documenting Skill-Graph | `skill_graphs/agent-utilities/` |
-| `ECO-4.7` | Company Infrastructure Orchestration | `ontology_company_infra.ttl` |
-| `ECO-4.8` | Infrastructure Blueprint Library | `skill_graphs/infrastructure-blueprints/` |
+| `AU-ECO.toolkit.journey-map-milestones` | Native Messaging Backend | `ecosystem/bridge.py` |
+| `AU-ECO.toolkit.self-documenting-plugin-bundle` | Self-Documenting Skill-Graph | `skill_graphs/agent-utilities/` |
+| `AU-OS.deployment.infra-orchestration` | Company Infrastructure Orchestration | `ontology_company_infra.ttl` |
+| `AU-OS.deployment.blueprint-library` | Infrastructure Blueprint Library | `skill_graphs/infrastructure-blueprints/` |
 
 **Architecture**: MCP servers expose tools → server_factory creates
 standardized endpoints → tool_filtering selects relevant tools for each agent.
@@ -100,8 +100,8 @@ standardized endpoints → tool_filtering selects relevant tools for each agent.
 | `OS-5.0` | Agent OS Kernel & XDG Paths | `core/paths.py`, `core/config.py` |
 | `OS-5.1` | Security & Auth | `security/guardrails.py`, `security/tool_guard.py` |
 | `OS-5.2` | Resource Scheduling | `core/cognitive_scheduler.py` |
-| `OS-5.3` | Guardrails & Safety | `security/guardrails.py` |
-| `OS-5.4` | Telemetry & Observability | `observability/token_tracker.py` |
+| `AU-OS.governance.reactive-multi-axis-budget` | Guardrails & Safety | `security/guardrails.py` |
+| `AU-OS.governance.wasm-micro-agent-sandbox` | Telemetry & Observability | `observability/token_tracker.py` |
 
 **Architecture**: XDG-compliant paths → config.json at `~/.config/agent-utilities/` →
 cognitive scheduler manages LLM load → guardrails enforce safety contracts.

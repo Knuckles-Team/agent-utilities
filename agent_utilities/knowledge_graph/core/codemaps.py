@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:KG-2.0"""
+"""CONCEPT:AU-KG.query.object-graph-mapper"""
 
 import uuid
 from typing import Literal

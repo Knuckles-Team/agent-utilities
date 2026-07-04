@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Operational action policy — the single autonomy decision point.
 
-CONCEPT:OS-5.24 — Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance windows, and blast-radius caps consulted before any autonomous mutating fleet action
+CONCEPT:AU-OS.governance.action-policy-decision-point — Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance windows, and blast-radius caps consulted before any autonomous mutating fleet action
 
 Until now every autonomy gate in the platform was a binary env flag
 (``KG_GOLDEN_AUTO_MERGE``, ``FLEET_RECONCILER`` …) — an action was either
@@ -40,7 +40,7 @@ accounting reads those same nodes back, so the ledger is durable and shared
 across processes. Queue-approval reuses the existing fleet approvals flow:
 it files an ``ActionApproval`` node that ``GET /api/fleet/approvals`` lists
 and ``POST /api/fleet/approvals/grant`` resolves; the fleet reconciler tick
-executes granted entries (CONCEPT:OS-5.25).
+executes granted entries (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 """
 
 import fnmatch
@@ -87,23 +87,23 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "diagnose", "target": "*", "tier": TIER_AUTO},
         {"kind": "observe", "target": "*", "tier": TIER_AUTO},
         {"kind": "notify", "target": "*", "tier": TIER_AUTO},
-        # Outbound user messaging (CONCEPT:ECO-4.48): governed but default-on —
+        # Outbound user messaging (CONCEPT:AU-ECO.messaging.messaging-reach-service-governed): governed but default-on —
         # auto+notify so reaching the user is auditable; operators may tighten a
         # ``message.send`` rule to approval_required for a stricter posture.
         {"kind": "message.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
-        # Reactions/emotes (CONCEPT:ECO-4.80) are cosmetic, low-risk output any
+        # Reactions/emotes (CONCEPT:AU-ECO.reactions.one-emote-registry-governance) are cosmetic, low-risk output any
         # entrypoint may render — auto by default. Tighten to forbidden to disable
         # reactions for a principal/context, or scope by target (the channel/surface).
         {"kind": "reaction", "target": "*", "tier": TIER_AUTO},
-        # Agent-to-agent bus traffic (CONCEPT:ECO-4.84): a message between sessions is
-        # auto+notify so it's auditable but frictionless; a dispatch (CONCEPT:ORCH-1.80)
+        # Agent-to-agent bus traffic (CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent): a message between sessions is
+        # auto+notify so it's auditable but frictionless; a dispatch (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)
         # hands an objective to the fleet — also auto+notify, since the Loop's own mutating
         # steps re-enter this gate individually (same posture as run_playbook). Tighten a
         # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
         {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
-        # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
+        # Sandboxed developer-workspace actions (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating) default to
         # auto: the workspace container/process IS the containment boundary.
         # Operators override any of these to approval_required to require human
         # sign-off on in-sandbox shell/file mutations.
@@ -111,7 +111,7 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "workspace.write", "target": "*", "tier": TIER_AUTO},
         {"kind": "workspace.edit", "target": "*", "tier": TIER_AUTO},
         {"kind": "workspace.browse", "target": "*", "tier": TIER_AUTO},
-        # GUI computer-use (CONCEPT:OS-5.57): driving a desktop in a gui-sandbox
+        # GUI computer-use (CONCEPT:AU-OS.governance.action-policy-rule): driving a desktop in a gui-sandbox
         # container. The sandbox is the containment boundary (like the other
         # workspace.* actions), but a click/type is more notable than a file write
         # and per-click approval would make the agent loop unusable — so auto+notify:
@@ -127,13 +127,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "deploy_service", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "redeploy_stack", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "merge_promotion", "target": "*", "tier": TIER_APPROVAL},
-        # Spec-level review/veto (CONCEPT:OS-5.73): a distilled :SpecProposal must
+        # Spec-level review/veto (CONCEPT:AU-OS.config.autonomous-spec-develop-off): a distilled :SpecProposal must
         # clear this gate before it becomes a develop Loop — the EARLY checkpoint
         # before any code is synthesized (merge_promotion is the LATE, publish-time
         # gate). Default approval_required so the 24/7 loop holds specs for Claude/
         # human review; relax this tier to auto-develop selected specs.
         {"kind": "spec_promotion", "target": "*", "tier": TIER_APPROVAL},
-        # Secret-store mutations (CONCEPT:OS-5.66): writing or deleting a secret in
+        # Secret-store mutations (CONCEPT:AU-OS.identity.encrypted-secret-store): writing or deleting a secret in
         # the engine-encrypted ``__secrets__`` store is sensitive — approval_required.
         # (Reads — secret.get / secret.list — are not gated, mirroring read posture.)
         {"kind": "secret.set", "target": "*", "tier": TIER_APPROVAL},
@@ -159,7 +159,7 @@ class ActionRequest:
     params: dict[str, Any] = field(default_factory=dict)
     source: str = "manual"  # reconciler | playbook | deploy_watch | manual | ...
     reason: str = ""
-    actor_id: str = ""  # CONCEPT:OS-5.49 — who proposes it (for the autonomy ramp)
+    actor_id: str = ""  # CONCEPT:AU-OS.governance.autonomy-change-proposer — who proposes it (for the autonomy ramp)
 
     def summary(self) -> str:
         return f"{self.kind}({self.target})" + (
@@ -288,7 +288,7 @@ class ActionPolicy:
             str(policy_path) if policy_path else None
         )
         self._file_cache: tuple[float, dict[str, Any]] | None = None
-        # CONCEPT:SAFE-1.5 — irreversibility aversion (opt-in; default off so the
+        # CONCEPT:AU-OS.safety.irreversibility-aversion — irreversibility aversion (opt-in; default off so the
         # shipped behavior is unchanged). When on, an irreversible action that the
         # tier would auto-execute is downgraded to a human approval.
         from agent_utilities.core.config import setting
@@ -329,7 +329,7 @@ class ActionPolicy:
 
         Deployment-tunable behavior knobs that are policy (not config) —
         e.g. ``watch_scale_down: true`` makes the autoscaler schedule an
-        OS-5.27 health watch after scale-DOWN actions too (CONCEPT:OS-5.29).
+        OS-5.27 health watch after scale-DOWN actions too (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
         Missing file/section/key ⇒ ``default``.
         """
         options = self._load_file_policy().get("options")
@@ -447,7 +447,7 @@ class ActionPolicy:
     # ── the decision ────────────────────────────────────────────────
 
     def _graduates(self, request: ActionRequest) -> bool:
-        """Whether the autonomy ramp lifts this ask→allow (CONCEPT:OS-5.49).
+        """Whether the autonomy ramp lifts this ask→allow (CONCEPT:AU-OS.governance.autonomy-change-proposer).
 
         Requires (1) an actor, (2) the action kind on the policy's ``ramp_eligible``
         allowlist (empty by default → never graduates), and (3) an earned trust
@@ -478,14 +478,14 @@ class ActionPolicy:
 
         For surfaces that need the governed *verdict* per call without the
         durable fleet-accounting side effects — e.g. the Claude Code PreToolUse
-        gate (CONCEPT:OS-5.41), which would otherwise spam the KG with an audit
+        gate (CONCEPT:AU-OS.deployment.dynamic-two-fail-closed), which would otherwise spam the KG with an audit
         node for every IDE tool call. Never raises — fails CLOSED to
         ``forbidden`` on any internal error.
         """
         try:
             rule, _defaults = self._match(request)
             tier = rule.tier
-            # CONCEPT:OS-5.49 — earned-autonomy ramp: an allowlisted action kind the
+            # CONCEPT:AU-OS.governance.autonomy-change-proposer — earned-autonomy ramp: an allowlisted action kind the
             # actor has performed verifiably correctly enough times graduates one rung
             # (ask → auto_notify). Safe by default: the allowlist is empty unless an
             # operator opts a kind in, and forbidden is never graduated.
@@ -563,7 +563,7 @@ class ActionPolicy:
             base.approval_id = self.queue_approval(request, reason=base.reason)
             return base
 
-        # CONCEPT:SAFE-1.5 — irreversibility aversion (opt-in). An irreversible
+        # CONCEPT:AU-OS.safety.irreversibility-aversion — irreversibility aversion (opt-in). An irreversible
         # action that would otherwise auto-execute is routed to a human, since
         # policy-gating alone is brittle as autonomy rises.
         if self._irreversibility_aversion:
@@ -596,7 +596,7 @@ class ActionPolicy:
 
         Listed by ``GET /api/fleet/approvals``; resolved by
         ``POST /api/fleet/approvals/grant`` (job_id = this node id); executed
-        by the fleet reconciler's approved-action drain (CONCEPT:OS-5.25).
+        by the fleet reconciler's approved-action drain (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
         Deliberately NOT a ``Task`` node: pending Tasks are claimed by the
         engine's task workers, which would execute the action unapproved.
         """

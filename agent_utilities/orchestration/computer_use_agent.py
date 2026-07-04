@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.85 — Computer-use agent: the Observe→Ground→Decide→Act session.
+"""CONCEPT:AU-ORCH.execution.computer-use-agent — Computer-use agent: the Observe→Ground→Decide→Act session.
 
 Mirrors :mod:`agent_utilities.orchestration.swe_agent` but for GUI computer-use. It
 assembles a vision agent bound to the computer-use tools (``capture_screen`` /

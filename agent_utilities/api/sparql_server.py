@@ -1,6 +1,6 @@
 """Local SPARQL endpoint router.
 
-CONCEPT:KG-2.7 — a zero-dependency SPARQL surface over the OWL/RDF bridge
+CONCEPT:AU-KG.query.sparql-surface — a zero-dependency SPARQL surface over the OWL/RDF bridge
 (rdflib materialization of the live LPG + OWL inferences). The canonical mount is
 :func:`agent_utilities.gateway.graph_api.register_graph_routes` (``{prefix}/sparql``);
 this standalone router is provided for apps that want to mount SPARQL on its own.

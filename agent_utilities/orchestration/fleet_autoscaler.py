@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Reactive replica autoscaler — load signals → bounds → gated scale actions.
 
-CONCEPT:OS-5.29 — Reactive replica autoscaling: a leader-only tick reads
+CONCEPT:AU-OS.scaling.reactive-replica-autoscaling — Reactive replica autoscaling: a leader-only tick reads
 pluggable load signals, applies registry-declared min/max replica bounds via
 target tracking, and converges through the ActionPolicy gate, the actuator
 seam and the deploy-watch safety net.
@@ -36,7 +36,7 @@ entirely from the existing autonomy primitives:
   entry in the durable ActionDecision/ActionExecution ledger — which also
   guarantees no opposite-direction flapping inside the window.
 * **gate → actuate → watch** — proposals go through ActionPolicy
-  (CONCEPT:OS-5.24; ``scale_service`` is approval_required under the shipped
+  (CONCEPT:AU-OS.deployment.fleet-lifecycle-control; ``scale_service`` is approval_required under the shipped
   default policy) and the FleetActuator seam; successful scale-UPs schedule
   an OS-5.27 deploy watch (scale-downs too when the policy file sets
   ``options: {watch_scale_down: true}``).
@@ -164,7 +164,7 @@ class FleetAutoscaler:
             except Exception:  # noqa: BLE001
                 max_actions = 5
         self.max_actions = max(1, int(max_actions))
-        # CONCEPT:OS-5.35 — cost-aware scale-up budget (opt-in; unset ⇒ no cap, so
+        # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost-aware scale-up budget (opt-in; unset ⇒ no cap, so
         # the autoscaler behaves exactly as before). ``setting()`` keeps these
         # config.json-driven without a new typed field.
         from agent_utilities.core.config import setting
@@ -245,7 +245,7 @@ class FleetAutoscaler:
             )
 
         desired = compute_desired_replicas(current, value, spec)
-        # CONCEPT:OS-5.35 — cost-aware scale-up cap. Keep the target-tracking math
+        # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost-aware scale-up cap. Keep the target-tracking math
         # unchanged; only trim a scale-up that would breach the hourly budget, and
         # carry the cost estimate forward for the audit row + ActionRequest.
         cost_reason = ""
@@ -297,7 +297,7 @@ class FleetAutoscaler:
                 "signal": spec.signal,
                 "value": round(float(value), 3),
                 "target": spec.target,
-                # CONCEPT:OS-5.35 — cost lens on every scaling action.
+                # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost lens on every scaling action.
                 "est_cost_usd_per_hour": round(cost_per_hour, 4),
             },
             source="autoscaler",
@@ -412,7 +412,7 @@ TASK_LABEL = "Task"
 def fleet_autoscale_subscription(engine: Any) -> Any:
     """Reactive change-feed subscription over control-plane ``:Task`` mutations.
 
-    CONCEPT:KG-2.253 — the poll→push seam for autoscaling: instead of waiting for
+    CONCEPT:AU-KG.compute.change-feed-subscription — the poll→push seam for autoscaling: instead of waiting for
     the next leader poll interval, the daemon polls this subscription and, when the
     engine pushes a ``:Task`` change (the queue-depth signal moved), fires an
     autoscale evaluation immediately — so scaling reacts to the change-EVENT, not
@@ -420,7 +420,7 @@ def fleet_autoscale_subscription(engine: Any) -> Any:
     safety-net reconcile.
 
     Subscribes on the engine's **control graph** (``__control__`` — where ``:Task``
-    lives, CONCEPT:KG-2.148), resolved via the engine's control backend. The
+    lives, CONCEPT:AU-KG.backend.schedule-on-control-graph), resolved via the engine's control backend. The
     handler bumps ``sub.pending_state["pending"]``; the caller reads it to decide
     whether to evaluate now. Returns a
     :class:`~agent_utilities.graph.reactive.EngineSubscription` whose ``.available``

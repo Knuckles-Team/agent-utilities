@@ -115,7 +115,7 @@ def _is_secret(env_key: str) -> bool:
 
 #: Settings that only take effect on an engine/daemon rebuild — a live `set_config`
 #: persists + updates the value but cannot apply it to the running process; callers
-#: should restart the daemon (CONCEPT:KG-2.89).
+#: should restart the daemon (CONCEPT:AU-KG.backend.connection-registry).
 _RESTART_REQUIRED: frozenset[str] = frozenset(
     {
         "GRAPH_BACKEND",
@@ -137,7 +137,7 @@ def is_restart_required(env_key: str) -> bool:
 
     Engine/daemon-rebuild settings (backend, durable DSN, auth secret, sharding,
     queue backend) are wired at startup; everything else is read live via
-    ``config.setting`` / re-parsed fields (CONCEPT:KG-2.89)."""
+    ``config.setting`` / re-parsed fields (CONCEPT:AU-KG.backend.connection-registry)."""
     up = (env_key or "").upper()
     return up in _RESTART_REQUIRED or up.startswith(("AUTH_", "GRAPH_SERVICE_"))
 
@@ -211,7 +211,7 @@ def _default_config_path() -> Path:
 def generate_mcp_config(profile: str = "tiny", *, fleet: bool = True) -> dict[str, Any]:
     """Return the minimal ``{"mcpServers": {...}}`` an IDE registers.
 
-    CONCEPT:OS-5.65 doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+    CONCEPT:AU-OS.deployment.doctor-minimal-mcp-config doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
 
     Two console scripts front the platform, and which one you register decides what
     the agent sees:

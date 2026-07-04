@@ -1,4 +1,4 @@
-# Verification Checklist: Spec: Latent-Space Retrieval Optimization (CONCEPT:KG-2.3)
+# Verification Checklist: Spec: Latent-Space Retrieval Optimization (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 ## Functional Requirements Verification
 

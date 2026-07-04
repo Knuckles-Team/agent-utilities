@@ -1,4 +1,4 @@
-"""Tests for the dynamic tool gateway (CONCEPT:ECO-4.36).
+"""Tests for the dynamic tool gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
 Covers the lazy-mount refactor, KG-backed discovery + (server, tool) mapping,
 the load/unload resolution logic, and the FastMCP meta-tool wiring. Children and
@@ -612,7 +612,7 @@ def test_prefix_sanity():
 
 
 # --------------------------------------------------------------------------- #
-# Verbose tools held in catalog (load on demand) — CONCEPT:ECO-4.82
+# Verbose tools held in catalog (load on demand) — CONCEPT:AU-ECO.mcp.tool-mode-standardization
 # --------------------------------------------------------------------------- #
 def test_tool_is_verbose_tag_detection():
     assert _tool_is_verbose(_fake_tool("x", tags=["graph_write", "verbose"])) is True
@@ -657,7 +657,7 @@ async def test_always_on_holds_verbose_tools_in_catalog(tmp_path):
 
 
 async def test_server_load_holds_verbose(tmp_path):
-    """CONCEPT:ECO-4.82 — load_tools(servers=[X]) exposes only X's condensed tools; verbose
+    """CONCEPT:AU-ECO.mcp.tool-mode-standardization — load_tools(servers=[X]) exposes only X's condensed tools; verbose
     1:1 tools stay loadable only by EXPLICIT name, so a server-load never floods context."""
     servers = {"svc": {"command": "python", "args": ["-m", "svc"]}}
     mux = MCPMultiplexer(_write_config(tmp_path, servers))

@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.redaction (CONCEPT:ECO-4.35).
+"""Tests for agent_utilities.http.redaction (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Pins the promoted security_sanitizer patterns: scheme credentials, DSN
 passwords, well-known token shapes, secret assignments, literal secrets,

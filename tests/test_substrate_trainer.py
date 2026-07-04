@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for the substrate trainer (CONCEPT:ORCH-1.57).
+"""Tests for the substrate trainer (CONCEPT:AU-ORCH.execution.substrate-training-job-emission).
 
 Deterministic stubs only — no GPU, no DSM, no network. Exercises the GRPO corpus
 build (asserting it matches the real ``batch_normalized_advantage``), the

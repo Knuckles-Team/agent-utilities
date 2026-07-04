@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Fleet actuators — the injectable hands of the autonomy control plane.
 
-CONCEPT:OS-5.25 — Desired-state fleet reconciler (actuation seam).
+CONCEPT:AU-OS.config.desired-state-fleet-reconciler — Desired-state fleet reconciler (actuation seam).
 
 agent-utilities deliberately takes NO hard dependency on the ecosystem's MCP
 actuators (portainer-mcp, container-manager, …). Actuation is a protocol:
@@ -209,7 +209,7 @@ def execute_action(
     """Apply ``request`` via ``actuator`` and stamp an ``ActionExecution`` node.
 
     The caller MUST have passed the request through the ActionPolicy gate
-    first (CONCEPT:OS-5.24); this function only actuates + records.
+    first (CONCEPT:AU-OS.deployment.fleet-lifecycle-control); this function only actuates + records.
     """
     act = actuator or get_fleet_actuator()
     try:

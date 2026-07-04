@@ -1,4 +1,4 @@
-# Code Intelligence — type/scope-resolved call graph (CONCEPT:KG-2.100)
+# Code Intelligence — type/scope-resolved call graph (CONCEPT:EG-KG.compute.type-scope-resolved-call)
 
 The Knowledge Graph models code as `:Code` symbols linked by `:calls`, `:inherits`,
 `:realizes`, `:dependsOn`, `:covers`. The accuracy of those links is set by **how
@@ -75,7 +75,7 @@ flowchart LR
 | Reasoning | `agent_utilities/knowledge_graph/core/owl_bridge.py` |
 | Surfaces | `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/mcp/kg_server.py` |
 
-## Model-free similarity (CONCEPT:KG-2.101)
+## Model-free similarity (CONCEPT:EG-KG.compute.model-free-similar-code)
 
 Code search and clone detection must keep working when the embedder is offline (the
 recurring GB10 502s). So similarity is **model-free**, computed in the same Rust
@@ -95,7 +95,7 @@ round-trip:
 
 This is the near-clone signal B4 reuses for `CodeClone`.
 
-## Code ↔ service linking (CONCEPT:KG-2.102)
+## Code ↔ service linking (CONCEPT:AU-KG.compute.http-route-graph)
 
 Routes are the seam between a service's code and the live ecosystem. From the route
 decorators the parser captured, the `routes` pass emits `Route` nodes (method+path)
@@ -106,22 +106,22 @@ siloed per-repo code tool can't produce because it never sees the topology. Quer
 it: `graph_analyze(action="routes")` / `GET /graph/analyze/routes`. (gRPC/GraphQL
 detection and event channels are later increments.)
 
-## Infra, coupling, clones, decisions (CONCEPT:KG-2.103–2.105)
+## Infra, coupling, clones, decisions (CONCEPT:AU-KG.enrichment.read-them-here-so–2.105)
 
 The graph spans past the code itself:
 
-- **IaC → Resource (KG-2.103).** Dockerfiles, K8s/Kustomize manifests, and
+- **IaC → Resource (AU-KG.enrichment.read-them-here-so).** Dockerfiles, K8s/Kustomize manifests, and
   Terraform are parsed into `Resource` nodes (image/kind/name) and linked to the
   deployed `Service` they `provision` — so code → infra → topology is one graph.
-- **Git change-coupling → FILE_CHANGES_WITH (KG-2.104).** Files that keep changing
+- **Git change-coupling → FILE_CHANGES_WITH (AU-KG.ingest.mine-git-history-files).** Files that keep changing
   together get a symmetric weighted edge — the hidden blast radius the AST can't
   see. `graph_analyze(action="change_coupling", target=<repo>)`.
-- **Near-clones** are the `similar_to` edges from KG-2.101 (MinHash) — no separate
+- **Near-clones** are the `similar_to` edges from EG-KG.compute.model-free-similar-code (MinHash) — no separate
   pass needed.
-- **ADRs (KG-2.105).** `graph_analyze(action="adr")` creates/lists
+- **ADRs (AU-KG.compute.adr-crud).** `graph_analyze(action="adr")` creates/lists
   `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.
 
-## Grammar coverage (CONCEPT:KG-2.106)
+## Grammar coverage (CONCEPT:AU-KG.compute.built-ast-extended)
 
 The core `ast` tier parses 9 languages (Python/JS/TS/Go/Rust/Java/C/C++/C#). The
 feature-gated `ast-extended` tier (folded into the engine's `full` build) adds

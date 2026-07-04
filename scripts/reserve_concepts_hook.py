@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Auto-reserve CONCEPT: markers on write — invisible coordination (CONCEPT:OS-5.51).
+"""Auto-reserve CONCEPT: markers on write — invisible coordination (CONCEPT:AU-OS.governance.reserve-concepts-hook).
 
 Removes the reserve-via-CLI papercut: the act of *writing* a ``CONCEPT:<ID>`` marker
 reserves it. Run as a pre-commit hook (or manually with file args), it scans the
@@ -25,7 +25,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LEDGER = REPO / "docs" / "concept_reservations.yaml"
-_MARKER = re.compile(r"CONCEPT:([A-Z]+-[0-9]+(?:\.[0-9a-z]+)*)")
+# OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): SLUG-PILLAR.domain.concept grammar.
+_MARKER = re.compile(
+    r"CONCEPT:([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+)"
+)
 
 
 def _staged_files() -> list[str]:

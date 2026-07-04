@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """DSPy optimization of classifier/policy decisions from existing supervision.
 
-CONCEPT:AHE-3.45 — Concept-matching and routing-policy optimization.
+CONCEPT:AU-AHE.optimization.concept-matching-routing-policy — Concept-matching and routing-policy optimization.
 
 Two decisions in the system are *classifiers* whose ground truth the graph already holds,
 so DSPy can optimize them with free supervision:
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def classification_accuracy(
     predictions: Sequence[bool], labels: Sequence[bool]
 ) -> float:
-    """Accuracy of boolean predictions against labels (CONCEPT:AHE-3.45)."""
+    """Accuracy of boolean predictions against labels (CONCEPT:AU-AHE.optimization.concept-matching-routing-policy)."""
     pairs = list(zip(predictions, labels, strict=False))
     if not pairs:
         return 0.0
@@ -43,7 +43,7 @@ def classification_accuracy(
 
 
 def routing_success_rate(decisions: Sequence[Any]) -> float:
-    """Mean realized success of a set of routing decisions (CONCEPT:AHE-3.45).
+    """Mean realized success of a set of routing decisions (CONCEPT:AU-AHE.optimization.concept-matching-routing-policy).
 
     Each item is a trace exposing ``success: bool`` (and optionally ``quality_score``);
     returns the mean success in [0, 1]. The objective a routing optimizer maximizes.
@@ -66,7 +66,7 @@ def optimize_concept_matcher(
     *,
     optimizer_name: str = "BootstrapFewShot",
 ) -> dict[str, Any] | None:
-    """DSPy-optimize the concept→source relevance classifier (CONCEPT:AHE-3.45).
+    """DSPy-optimize the concept→source relevance classifier (CONCEPT:AU-AHE.optimization.concept-matching-routing-policy).
 
     ``labeled_pairs`` are ``(article_text, concept_text, is_relevant)`` drawn from the
     KG's ``ADDRESSES`` edges (positives) and sampled non-edges (negatives). Optimizes a
@@ -125,7 +125,7 @@ def optimize_routing_policy(
     *,
     optimizer_name: str = "BootstrapFewShot",
 ) -> dict[str, Any] | None:
-    """DSPy-optimize the routing policy from historical execution outcomes (CONCEPT:AHE-3.45).
+    """DSPy-optimize the routing policy from historical execution outcomes (CONCEPT:AU-AHE.optimization.concept-matching-routing-policy).
 
     Each trace exposes ``task_text``, the chosen ``primitive_used``/``model_used``, and
     ``success``. Optimizes a ``task → primitive`` Signature using only the *successful*

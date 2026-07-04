@@ -1,4 +1,4 @@
-# CONCEPT:KG-2.60 - Hierarchical org-to-user data segmentation: private-by-default owner/scope markers over KG-2.58 tenant graphs, with in-place org sharing, cross-graph commons promotion, and marking-based sharing
+# CONCEPT:AU-KG.compute.data-is-private-its - Hierarchical org-to-user data segmentation: private-by-default owner/scope markers over KG-2.58 tenant graphs, with in-place org sharing, cross-graph commons promotion, and marking-based sharing
 """Per-client data segmentation with explicit, private-by-default sharing.
 
 Builds directly on **KG-2.58** (tenant → named-graph routing) and the markings

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for the Document Processing → Ontology pipeline (CONCEPT:KG-2.48).
+"""Tests for the Document Processing → Ontology pipeline (CONCEPT:AU-KG.ingest.chunk-overlap-stage).
 
 Self-contained against existing stable code: text is passed inline (no PDF/OCR
 dependency), embeddings are injected (no network/model), and the live write path

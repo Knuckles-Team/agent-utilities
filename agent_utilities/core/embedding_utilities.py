@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Embedding Utilities Module.
 
-CONCEPT:KG-2.3
+CONCEPT:AU-KG.memory.auto-similarity-memory-graph
 
 This module provides factory functions for initializing LlamaIndex-compatible
 embedding models. It supports various providers including OpenAI, Ollama,
@@ -32,7 +32,7 @@ except ImportError:
 __version__ = "0.2.40"
 
 
-# CONCEPT:KG-2.294 — process-scoped embedder-client cache.
+# CONCEPT:AU-KG.compute.config-keyed-embedder-client — process-scoped embedder-client cache.
 #
 # ``create_embedding_model`` was rebuilding a fresh LlamaIndex embedding client on
 # EVERY call. On the ingest hot path that is per-window / per-document / per-fact
@@ -53,7 +53,7 @@ _EMBED_MODEL_LOCK = threading.Lock()
 
 
 def clear_embedding_model_cache() -> None:
-    """Drop every cached embedder client (CONCEPT:KG-2.294).
+    """Drop every cached embedder client (CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
     Mainly for tests / config hot-reload — the next ``create_embedding_model`` for a
     given key rebuilds the client.
@@ -91,7 +91,7 @@ def create_embedding_model(
     """
     # Resolve defaults from the model registry. When the caller pins nothing
     # explicit (the "give me the default embedder" call — make_embed_fn and every
-    # enrichment/query embed), resolve the ACTIVE failover endpoint (CONCEPT:KG-2.299)
+    # enrichment/query embed), resolve the ACTIVE failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active)
     # instead of the static primary: while the primary embedder is down its breaker
     # is OPEN and this returns the FALLBACK endpoint's base_url/provider, so every
     # embed caller transparently follows the failover. The cache below keys on the
@@ -145,7 +145,7 @@ def create_embedding_model(
     if provider_str == "openai" and not api_key_str:
         api_key_str = config.openai_api_key or "Test-1234"
 
-    # CONCEPT:KG-2.294 — return the cached client for this exact resolved config
+    # CONCEPT:AU-KG.compute.config-keyed-embedder-client — return the cached client for this exact resolved config
     # instead of constructing a new one on every call. Key on every input that
     # changes the client's identity/behaviour.
     cache_key: tuple[Any, ...] = (
@@ -187,7 +187,7 @@ def _build_embedding_model(
     timeout: float,
     provider: str | None,
 ) -> "BaseEmbedding":
-    """Construct a fresh embedding client (the un-cached path, CONCEPT:KG-2.294).
+    """Construct a fresh embedding client (the un-cached path, CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
     Split out of :func:`create_embedding_model` so the cache wraps exactly one
     construction site. Logs once per distinct config because the caller only

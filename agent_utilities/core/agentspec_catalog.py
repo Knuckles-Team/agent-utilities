@@ -1,5 +1,5 @@
 """
-AgentSpecs Catalog Generator (CONCEPT:AHE-3.4)
+AgentSpecs Catalog Generator (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 Compiles agent topologies, team configurations, and adaptive_agent_router into
 OWL-driven JSON blueprints for shareability and reproducible trading architectures.

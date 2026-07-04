@@ -1,6 +1,6 @@
 """SQLite + FTS5 usage backend — the zero-dependency native default.
 
-CONCEPT:ECO-4.39. Connects directly via :mod:`sqlite3` so FTS5 and connection
+CONCEPT:AU-OS.observability.usage-analytics-store. Connects directly via :mod:`sqlite3` so FTS5 and connection
 lifecycle are fully controlled. Path resolves to a per-host XDG data file, the
 same convention the sessions/durable-exec stores use.
 """

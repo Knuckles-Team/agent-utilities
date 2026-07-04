@@ -1,4 +1,4 @@
-"""Antigravity IDE session parser (CONCEPT:ECO-4.38).
+"""Antigravity IDE session parser (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
 Google's Antigravity IDE keeps each session under ``~/.gemini/antigravity/``::
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 """Capability-benchmark regression ratchet and verified apply-verify-rollback.
 
-CONCEPT:AHE-3.24 — capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline and abandoning the branch on any tracked-capability regression
-CONCEPT:AHE-3.23 — verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over measured before-and-after capability scores
+CONCEPT:AU-AHE.evaluation.capability-benchmark-regression-ratchet — capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline and abandoning the branch on any tracked-capability regression
+CONCEPT:AU-AHE.harness.capability-ratchet — verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over measured before-and-after capability scores
 
 Before this, the deployed evolution loop's only regression gate was an occurrence-
 count *spike* monitor over Langfuse (``failure_analyzer.make_regression_check``) —

@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Tests for KG-2.7 Observational Memory Bridge.
 
-CONCEPT:KG-2.1 — Observational Memory Bridge
-CONCEPT:ECO-4.0 — Agent Hook Installer
+CONCEPT:AU-KG.memory.tiered-memory-caching — Observational Memory Bridge
+CONCEPT:AU-ECO.messaging.native-backend-abstraction — Agent Hook Installer
 
 Covers:
 - MemoryMaterializer: KG -> Markdown rendering + bidirectional sync
@@ -179,7 +179,7 @@ class TestMemoryMaterializer:
         m = MemoryMaterializer(engine)
         paths = m.materialize()
         active = paths["active.md"].read_text()
-        assert "cross-agent memory bridge" in active.lower() or "KG-2.7" in active
+        assert "cross-agent memory bridge" in active.lower() or "AU-KG.query.vendor-agnostic-traversal" in active
 
     def test_detect_edits_after_modification(self, engine, memory_tmpdir):
         from agent_utilities.knowledge_graph.memory import MemoryMaterializer

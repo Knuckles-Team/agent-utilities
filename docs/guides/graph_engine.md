@@ -1,6 +1,6 @@
 # Graph Engine: One Authority + Mirrors
 
-> **CONCEPT:KG-2.0** — The epistemic-graph engine as the single database.
+> **CONCEPT:AU-KG.query.object-graph-mapper** — The epistemic-graph engine as the single database.
 
 ## Overview
 

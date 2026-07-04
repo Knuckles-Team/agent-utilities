@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Tests for Prompt Injection Scanner (CONCEPT:OS-5.1)."""
+"""Tests for Prompt Injection Scanner (CONCEPT:AU-OS.config.secrets-authentication)."""
 
 
 import pytest

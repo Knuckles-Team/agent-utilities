@@ -1,13 +1,13 @@
 # Spec: Preference-Corpus Reliability (DPO-family: RAPPO + TI-DPO + InSPO)
 
-> **Status: PROPOSED.** Concept: new **AHE-3.x**. Sources: RAPPO (OpenReview LrHfYPFTtg,
+> **Status: PROPOSED.** Concept: new **AU-AHE.optimization.telemetry-optimization**. Sources: RAPPO (OpenReview LrHfYPFTtg,
 > *Keep the Best, Forget the Rest*), TI-DPO (arXiv:2505.19653), InSPO (arXiv:2512.23126),
 > DPO (arXiv:2305.18290). Rank 3 in `COMPARATIVE_ANALYSIS.md` — cheap and broadly enabling.
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
 - [ ] **KG search completed** — `.specify/design/preference-corpus-reliability/design.md` exists
-- [ ] **Extension point identified** — extends `harness/eval_corpus.py` + `trace_distiller` (New Concept: AHE-3.x)
+- [ ] **Extension point identified** — extends `harness/eval_corpus.py` + `trace_distiller` (New Concept: AU-AHE.optimization.telemetry-optimization)
 - [ ] **C4 diagram created** — PreferencePair export pipeline into the eval/training substrate
 - [ ] **No new CONCEPT: tag** without pillar reference
 - [ ] **`code-enhancer` audit** run against proposed changes

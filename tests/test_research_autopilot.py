@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.6 — Research Autopilot."""
+"""Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Research Autopilot."""
 
 from agent_utilities.domains.finance.research_autopilot import (
     AutopilotConfig,

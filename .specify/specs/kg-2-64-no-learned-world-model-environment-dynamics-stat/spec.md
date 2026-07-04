@@ -9,10 +9,10 @@
 ## Pre-Flight Checklist
 - [x] Extension target identified: `formal_reasoning_core.py` Markov/SCM kernels + `KnowledgeGraph`
   facade; rollouts persisted as KG nodes alongside `OutcomeEvaluationNode` transitions.
-- [x] New CONCEPT:KG-2.64 justified — the descriptive KG (KG-2.1/2.6/2.23) has no agent-facing
+- [x] New CONCEPT:AU-KG.enrichment.atomic-triple-extraction justified — the descriptive KG (KG-2.1/2.6/2.23) has no agent-facing
   `state × action → next_state + predicted_reward` seam; this adds the *predictive/imaginative* axis.
 - [x] Wire-First confirmed: `KnowledgeGraph.world_model().rollout(...)` → existing Markov/SCM kernels
-  + KG-2.23 OWL closure + historical `OutcomeEvaluationNode` transitions, ≤ 3 hops from the facade.
+  + AU-KG.domains.legal-automation OWL closure + historical `OutcomeEvaluationNode` transitions, ≤ 3 hops from the facade.
 - [x] Success metric: a planner can score ≥ 2 candidate actions by simulated next-state/reward
   **without** mutating the live graph; symbolic backend forecasts match the Markov kernel on a held-out
   transition set (parity), and every rollout is replayable from its persisted KG node.
@@ -33,7 +33,7 @@ next-state delta + reward, **so that** I can imagine futures instead of only ret
 ### US-2 — Symbolic forward-simulation backend (reuse kernels)
 **As** the default backend, **I want** to predict deltas from existing machinery, **so that** no new
 predictive model is built.
-- **AC4**: `SymbolicForwardSimBackend` derives next-state from (a) KG-2.23 OWL-RL closure over the
+- **AC4**: `SymbolicForwardSimBackend` derives next-state from (a) AU-KG.domains.legal-automation OWL-RL closure over the
   action's asserted effects, and (b) `MarkovTransitionModel.predict_next_states` /
   `forecast_from_state` fitted from historical `OutcomeEvaluationNode` transitions; `predicted_reward`
   reuses the recorded outcome distribution.

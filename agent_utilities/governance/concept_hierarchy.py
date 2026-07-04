@@ -1,6 +1,6 @@
 """Concept-hierarchy grammar: flat ↔ 3-level ``NS-<pillar>.<concept>.<segment>``.
 
-CONCEPT:OS-5.76 — concept-hierarchy standardization (B5).
+CONCEPT:AU-OS.governance.concept-hierarchy-standardization — concept-hierarchy standardization (B5).
 
 This is the ONE canonical place that knows how to parse, classify, and
 canonicalize a concept id. ``scripts/migrate_concepts_hierarchy.py``,
@@ -157,6 +157,20 @@ def parse_concept_id(
     Deterministic + reversible. Raises :class:`ValueError` for a string that is
     not a well-formed concept id at all (caller flags it as *unmappable*).
     """
+    if is_okf_id(cid):
+        # OKF-CIS grammar (post-cutover): SLUG-PILLAR.domain.concept[.facet].
+        # namespace == SLUG, pillar == PILLAR, concept == the dotted tail; so
+        # ``canonical`` reconstructs the exact id and the pillar group is SLUG-PILLAR.
+        p = parse_okf_id(cid)
+        return ConceptId(
+            raw=cid,
+            namespace=p.slug,
+            pillar=p.pillar,
+            concept=".".join(p.segments),
+            segment=None,
+            is_project=True,
+            flags=("okf",),
+        )
     m = ID_RE.match(cid)
     if not m:
         raise ValueError(f"unparseable concept id: {cid!r}")
@@ -259,7 +273,7 @@ def derive_part_of_edges(
 
 
 # ===========================================================================
-# CONCEPT:OS-5.77 — OKF-CIS: the unified cross-repo Concept-ID standard.
+# CONCEPT:AU-OS.governance.concept-2 — OKF-CIS: the unified cross-repo Concept-ID standard.
 #
 # Grammar:
 #

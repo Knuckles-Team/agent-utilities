@@ -1,4 +1,4 @@
-"""Sentiment Fusion — CONCEPT:KG-2.29 — Sentiment Fusion Signals
+"""Sentiment Fusion — CONCEPT:AU-KG.domains.sentiment-fusion-signals — Sentiment Fusion Signals
 
 Turns raw, heterogeneous sentiment observations (news headlines, social posts,
 analyst notes, filing tone) into **first-class KG signals** the trading swarm and
@@ -369,7 +369,7 @@ def fused_sentiment_to_agent_signal(
             "fused_score": fused.fused_score,
             "agreement": fused.agreement,
             "n_observations": fused.n_observations,
-            "concept": "KG-2.29",
+            "concept": "AU-KG.domains.sentiment-fusion-signals",
         },
     )
 
@@ -435,7 +435,7 @@ def sentiment_facts_batch(signals: list[SentimentSignal]) -> Any:
                     "weight": s.weight,
                     "timestamp": s.timestamp,
                     "text": s.text[:500],
-                    "concept": "KG-2.29",
+                    "concept": "AU-KG.domains.sentiment-fusion-signals",
                 },
             )
         )

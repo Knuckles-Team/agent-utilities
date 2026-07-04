@@ -1,5 +1,5 @@
-# CONCEPT:KG-2.287 - Big-repo structural-ingest split: partition a large repo's source files into K balanced, deterministic buckets keyed on a coarse path prefix so each bucket routes to its OWN per-repo-shard graph and the K buckets commit in parallel across the engine's K redb shard writers, instead of one giant repo pinning a single worker/shard for minutes.
-"""Deterministic big-repo split planner (CONCEPT:KG-2.287).
+# CONCEPT:AU-KG.ingest.big-repo-structural-split - Big-repo structural-ingest split: partition a large repo's source files into K balanced, deterministic buckets keyed on a coarse path prefix so each bucket routes to its OWN per-repo-shard graph and the K buckets commit in parallel across the engine's K redb shard writers, instead of one giant repo pinning a single worker/shard for minutes.
+"""Deterministic big-repo split planner (CONCEPT:AU-KG.ingest.big-repo-structural-split).
 
 The tail problem this removes. A single huge repo (agent-utilities, epistemic-graph:
 thousands of files) is ONE ``codebase`` :Task → ONE per-repo graph (``code:<repo>``,

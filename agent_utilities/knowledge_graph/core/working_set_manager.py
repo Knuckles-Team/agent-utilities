@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Working Set Manager — LRU Subgraph Cache.
 
-CONCEPT:KG-2.21 — Working Set Eviction & Memory Management
+CONCEPT:AU-KG.memory.working-set-eviction — Working Set Eviction & Memory Management
 
 Manages an LRU-evicting cache of subgraphs loaded into the Rust
 ``GraphComputeEngine`` (L1). Prevents memory explosion by enforcing

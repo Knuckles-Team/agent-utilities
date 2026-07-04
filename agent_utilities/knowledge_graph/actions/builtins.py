@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — built-in actions (CONCEPT:KG-2.25).
+"""Ontology Action System — built-in actions (CONCEPT:AU-KG.ontology.ontology-action-system).
 
 Real, live-path verbs registered into the default registry at import time. Each
 wraps an existing safe capability so the action layer is *invoked*, not a shell:
@@ -128,7 +128,7 @@ def _handle_forensic_screen(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ── kg.annotate_concept ─────────────────────────────────────────────────────
-# A REAL mutating built-in (CONCEPT:KG-2.42): it sets a review annotation on a
+# A REAL mutating built-in (CONCEPT:AU-KG.ontology.batch-actions-executor): it sets a review annotation on a
 # concept object purely via a typed side-effect applied through the C1 Edit
 # Ledger — no bespoke handler write path. Because the mutation is journaled as an
 # ``object_edit``, the action is fully audited and revertible (``executor.undo``).

@@ -1,4 +1,4 @@
-"""LongBench-v2 CodeQA: multiple-choice code-repository understanding (CONCEPT:AHE-3.32).
+"""LongBench-v2 CodeQA: multiple-choice code-repository understanding (CONCEPT:AU-AHE.rlm.long-context-benchmark).
 
 Multi-choice QA over a large synthetic code repository spread across many files — the model must
 trace a call relationship it cannot see in a single window. The synthetic generator builds a call

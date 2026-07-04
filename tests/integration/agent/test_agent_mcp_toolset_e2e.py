@@ -2,7 +2,7 @@
 ``agent-packages/agents/*`` MCP server toolset, and that toolset's tool both
 lists and executes.
 
-CONCEPT:OS-5.0 (Agent Creation) — Wire-First proof that:
+CONCEPT:AU-OS.safety.doom-loop-detection (Agent Creation) — Wire-First proof that:
 
 1. a toolset built from a real fleet MCP server (``repository-manager``) is
    **assigned to the agent** by the ``create_agent`` factory (``agent.toolsets``
@@ -36,7 +36,7 @@ pytest.importorskip(
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.asyncio,
-    pytest.mark.concept("OS-5.0"),
+    pytest.mark.concept("AU-OS.safety.doom-loop-detection"),
 ]
 
 

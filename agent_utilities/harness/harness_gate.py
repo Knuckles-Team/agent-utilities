@@ -1,4 +1,4 @@
-"""Harness-evolution SHACL gate (CONCEPT:AHE-3.53).
+"""Harness-evolution SHACL gate (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard).
 
 The formal seesaw HarnessX (arXiv:2606.14249) lacks. The paper's per-edit pass@2
 gate cannot see *sub-threshold coupling*: its τ³-Bench Telecom run shipped 5
@@ -42,7 +42,7 @@ class GateVerdict:
 
 # The two read-only lifecycle hooks (HarnessX Table 1): an edit may not modify a
 # field here. Stamped into the data graph so the hook-contract shape is
-# self-contained (CONCEPT:KG-2.109).
+# self-contained (CONCEPT:AU-KG.ontology.harness-gate).
 _READ_ONLY_HOOKS = {"step_end", "task_end"}
 
 
@@ -52,13 +52,13 @@ def build_evolution_graph(
     pathologies: list[dict[str, Any]] | None = None,
     processors: list[dict[str, Any]] | None = None,
 ) -> rdflib.Graph:
-    """Build a harness-evolution RDF graph from plain dicts (CONCEPT:AHE-3.53).
+    """Build a harness-evolution RDF graph from plain dicts (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard).
 
     ``edits``: ``{id, dimension, round, status?, regresses?:[task_ids],
         at_hook?, modifies_field?, operation?}``.
     ``variants``: ``{id, status, applies:[edit_ids]}``.
     ``pathologies``: ``{id, kind, exhibited_by?:node_id}``.
-    ``processors``: ``{id, hook, singleton_group, status?}`` (CONCEPT:KG-2.109).
+    ``processors``: ``{id, hook, singleton_group, status?}`` (CONCEPT:AU-KG.ontology.harness-gate).
     """
     g = rdflib.Graph()
     g.bind("kg", _KG)
@@ -72,7 +72,7 @@ def build_evolution_graph(
         g.add((eid, _KG.editRound, rdflib.Literal(int(e.get("round", 0)))))
         for t in e.get("regresses", []) or []:
             g.add((eid, _KG.causesRegression, _KG[t]))
-        # Substitution-algebra facts (CONCEPT:KG-2.109).
+        # Substitution-algebra facts (CONCEPT:AU-KG.ontology.harness-gate).
         if e.get("operation"):
             g.add((eid, _KG.editOperation, rdflib.Literal(e["operation"])))
         if e.get("at_hook"):

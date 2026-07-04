@@ -1,6 +1,6 @@
 """Skill Compiler — Natively Parse SKILL.md into Workflows.
 
-CONCEPT:ORCH-1.8 — Skill-to-Workflow Compilation
+CONCEPT:AU-ORCH.execution.skill-workflow-compilation — Skill-to-Workflow Compilation
 
 Translates standard SKILL.md prose descriptions into executable
 `GraphPlan` objects for the orchestration engine. Supports extracting
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class SkillCompiler:
     """Compile a SKILL.md into a GraphPlan.
 
-    CONCEPT:ORCH-1.8 — Skill-to-Workflow Compilation
+    CONCEPT:AU-ORCH.execution.skill-workflow-compilation — Skill-to-Workflow Compilation
 
     Parses procedural steps from SKILL.md markdown body into
     ExecutionStep sequences.

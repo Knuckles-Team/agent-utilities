@@ -1,6 +1,6 @@
 """A spawned agent inherits service-account auth for remote MCP toolsets.
 
-CONCEPT:ORCH-1.21 / OS-5.32 — `execute_agent` resolves a fleet Server and binds
+CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — `execute_agent` resolves a fleet Server and binds
 its remote (SSE/streamable-HTTP) toolset. Those toolsets must carry the same
 service-account bearer the multiplexer attaches to its children, or a
 jwt-protected `*.arpa` server rejects the call `401`. These tests pin that the

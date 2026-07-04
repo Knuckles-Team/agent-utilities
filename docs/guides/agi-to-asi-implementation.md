@@ -18,12 +18,12 @@ bound cost, and stay corrigible** — the substrate for moving along that contin
 
 | Concept | Module | What it does | How to use |
 |---|---|---|---|
-| **KG-2.68** | `knowledge_graph/core/reasoner.py` | Outcome-learning paradigm router (keystone) | `kg.reason(ReasoningTask(goal, tags, payload))` |
-| **KG-2.69** | `harness/program_synthesis.py` | Inductive program synthesis + MDL/Occam prior | `synthesize(primitives, examples)`; `select_top_k(..., method="mdl")` |
-| **KG-2.67** | `knowledge_graph/core/world_model.py` | Action-conditioned world model | `WorldModel().observe(...); wm.rollout(start, policy, horizon)` |
+| **AU-KG.compute.first-class-reasoner-paradigm** | `knowledge_graph/core/reasoner.py` | Outcome-learning paradigm router (keystone) | `kg.reason(ReasoningTask(goal, tags, payload))` |
+| **AU-KG.coordination.inductive-program-synthesis-search** | `harness/program_synthesis.py` | Inductive program synthesis + MDL/Occam prior | `synthesize(primitives, examples)`; `select_top_k(..., method="mdl")` |
+| **AU-KG.compute.first-class-action-conditioned** | `knowledge_graph/core/world_model.py` | Action-conditioned world model | `WorldModel().observe(...); wm.rollout(start, policy, horizon)` |
 | **AHE-3.22** | `knowledge_graph/research/code_synthesis.py` | Autonomous single-file code generation in the evolution loop | `governed_publish(...)` (default-on, sandbox + ActionPolicy gated) |
 | **AHE-3.23 / 3.24** | `knowledge_graph/research/capability_ratchet.py` | Verified apply→verify→rollback + monotone capability ratchet | runs post-publish in `governed_publish`; consulted by promotion governance |
-| **AHE-3.26 / SAFE-1.3** | `knowledge_graph/research/improvement_ledger.py` | RSI velocity ledger (improving/stalling) | `ImprovementLedger(engine).summarize()`; auto-recorded each golden-loop cycle |
+| **AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / AU-OS.audit.recursive-improvement-velocity-tracker** | `knowledge_graph/research/improvement_ledger.py` | RSI velocity ledger (improving/stalling) | `ImprovementLedger(engine).summarize()`; auto-recorded each golden-loop cycle |
 | **SAFE-1.1** | `harness/frontier_scorers.py` | Non-saturating progress: compression, Elo, saturation detector | `CompressionScorer` (in reliability suite); `saturation_detector(pass_rates)` |
 | **SAFE-1.5** | `core/corrigibility.py` | Corrigibility + irreversibility aversion + knowledge-seeking reward | wired into the goal loop; `ACTION_IRREVERSIBILITY_AVERSION=1` for the policy gate |
 | **OS-5.35** | `orchestration/cost_governor.py` | Throughput-per-dollar scale-up cap | `FLEET_SCALE_BUDGET_USD_PER_HOUR` (opt-in; unset = unchanged) |
@@ -36,7 +36,7 @@ from agent_utilities.knowledge_graph.core.reasoner import ReasoningTask
 
 kg = KnowledgeGraph()
 
-# Inductive: learn the shortest program fitting examples (routes to KG-2.69)
+# Inductive: learn the shortest program fitting examples (routes to AU-KG.coordination.inductive-program-synthesis-search)
 kg.reason(ReasoningTask(
     goal="learn the mapping", tags=("induction",),
     payload={"primitives": {"double": lambda x: x*2}, "examples": [(1, 2), (3, 6)]},
@@ -61,7 +61,7 @@ paradigm with `get_reasoner_router().register(my_reasoner)`; it needs only a `na
   irreversible actions (delete/destroy/merge/deploy) to a human even under an auto tier.
 - **Cost (OS-5.35):** set `FLEET_SCALE_BUDGET_USD_PER_HOUR` to cap autoscaler scale-ups at a
   throughput-per-dollar budget; every scaling action carries an `est_cost_usd_per_hour`.
-- **Capability ratchet (AHE-3.24):** a published evolution branch that measurably regresses
+- **Capability ratchet (AU-AHE.evaluation.capability-benchmark-regression-ratchet):** a published evolution branch that measurably regresses
   capability is abandoned; the verdict feeds promotion governance.
 
 ## Measuring the loop
@@ -74,8 +74,8 @@ golden-loop cycle as an `ImprovementVelocity` node.
 
 ## Status & roadmap
 
-Implemented + merged (local `main`): KG-2.67/2.68/2.69, AHE-3.22/3.23/3.24/3.26, SAFE-1.1/1.3/1.5,
-OS-5.35. Extending the same loop next: **OS-5.34/AHE-3.25** (distil winning reasoning traces into
-training data, model-collapse-guarded by **SAFE-1.4**) and **ORCH-1.46/47/48** (the router at
+Implemented + merged (local `main`): AU-KG.compute.first-class-action-conditioned/2.68/2.69, AHE-3.22/3.23/3.24/3.26, SAFE-1.1/1.3/1.5,
+OS-5.35. Extending the same loop next: **AU-OS.scaling.kg-provenance-panel-data/AHE-3.25** (distil winning reasoning traces into
+training data, model-collapse-guarded by **AU-OS.safety.model-collapse-guard-self**) and **ORCH-1.46/47/48** (the router at
 population scale — market allocation, emergent specialists, hierarchical coordination). Tracked
 in `reports/agi-to-asi-gap-analysis-2026-06-13.md`.

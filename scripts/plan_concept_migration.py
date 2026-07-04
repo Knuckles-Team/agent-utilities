@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only OKF-CIS migration planner (CONCEPT:OS-5.77).
+"""Read-only OKF-CIS migration planner (CONCEPT:AU-OS.governance.concept-2).
 
 Scans one or more repos for legacy ``CONCEPT:<id>`` markers *per occurrence*,
 derives the new ``<SLUG>-<PILLAR>.<domain>.<concept>`` id for each, disambiguates
@@ -415,7 +415,7 @@ def main() -> int:
     out_dir.mkdir(exist_ok=True)
     plan = {
         "generated_by": "scripts/plan_concept_migration.py",
-        "concept": "OS-5.77",
+        "concept": "AU-OS.governance.concept-2",
         "summary": summary,
         "domains_used": new_domains,
         "entries": [_entry_dict(e) for e in sorted(entries, key=lambda e: e.old_id)],

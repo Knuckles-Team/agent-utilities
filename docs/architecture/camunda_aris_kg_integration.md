@@ -10,7 +10,7 @@ instances and ARIS models.
 It is built almost entirely on machinery that already existed — the canonical
 ArchiMate ontology, the self-registering source-extractor framework, the OWL
 bridge, and the ontology reasoning driver — so this is mostly *wiring*, not new
-substrate. (CONCEPT:KG-2.8, KG-2.9, KG-2.53, KG-2.79.)
+substrate. (CONCEPT:EG-KG.storage.nonblocking-checkpoint, CONCEPT:AU-KG.ingest.enterprise-source-extractor, CONCEPT:AU-KG.ontology.descriptive-process-world-gains, CONCEPT:AU-KG.research.best-effort-lightweight-never.)
 
 ## The one ontology
 

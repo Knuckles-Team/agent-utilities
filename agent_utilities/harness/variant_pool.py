@@ -1,19 +1,19 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.2 — Evolutionary Variant Selection.
+"""CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Variant Selection.
 
 Manages competing variants of prompts, skills, or sub-graph configurations
 using a dual-strategy generation approach (LLM-driven + parametric mutations)
 and tournament-based fitness selection.
 
 Integrates with:
-    - CONCEPT:ORCH-1.1 (AHE): ``EvolveAgent`` generates LLM-driven variants
-    - CONCEPT:KG-2.0 (OGM): ``KGMapper`` for declarative persistence
+    - CONCEPT:AU-ORCH.planning.recursion-nesting-depth (AHE): ``EvolveAgent`` generates LLM-driven variants
+    - CONCEPT:AU-KG.query.object-graph-mapper (OGM): ``KGMapper`` for declarative persistence
     - Existing KG: ``OutcomeEvaluationNode.reward`` for fitness signals
     - Existing edges: ``EVOLVED_FROM``, ``SUPERSEDES``, ``VARIANT_OF``
 
-See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.0
+See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.execution.inject-signal-board-observations
 """
 
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class VariantPool:
     """Manages competing variants with dual generation and tournament selection.
 
-    CONCEPT:AHE-3.2 — Evolutionary Variant Selection
+    CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Variant Selection
 
     This module provides a lightweight evolutionary harness that operates on
     existing Pydantic node types (``SystemPromptNode``, ``ProposedSkillNode``,
@@ -65,7 +65,7 @@ class VariantPool:
     def __init__(self, engine: IntelligenceGraphEngine) -> None:
         self.engine = engine
         self.ogm = KGMapper(engine)
-        # CONCEPT:AHE-3.2 — per-base population-drift monitors (W1 collapse detection)
+        # CONCEPT:AU-AHE.harness.evolutionary-aggregation — per-base population-drift monitors (W1 collapse detection)
         self._drift_monitors: dict[str, Any] = {}
 
     def population_health(
@@ -75,7 +75,7 @@ class VariantPool:
         collapse_threshold: float = 0.05,
         patience: int = 2,
     ) -> dict[str, Any]:
-        """Assess population diversity / collapse for a base's variants (CONCEPT:AHE-3.2).
+        """Assess population diversity / collapse for a base's variants (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
         Tracks the variant-fitness distribution across calls with a
         :class:`PopulationDriftMonitor`: ``spread`` (within-generation dispersion),
@@ -331,7 +331,7 @@ class VariantPool:
             base_id: The base component node ID.
             top_k: Number of winners to select.
             tournament_size: Competitors per tournament round (``tournament`` strategy).
-            strategy: Selection operator (CONCEPT:ORCH-1.30). ``"tournament"``
+            strategy: Selection operator (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data). ``"tournament"``
                 (default) keeps the stochastic tournament; ``"score"`` takes the
                 top-k by mean fitness; ``"lcb"`` takes the top-k by the
                 uncertainty-aware lower bound ``fitness − κ·fitness_std`` so a
@@ -403,7 +403,7 @@ class VariantPool:
         )
         logger.info("Promoted variant %s → supersedes base %s", variant_id, base_id)
 
-    # CONCEPT:AHE-3.38 — Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA and tournament-promoted per task-class into the live model registry.
+    # CONCEPT:AU-AHE.harness.evolvable-sampling-profiles — Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA and tournament-promoted per task-class into the live model registry.
     # The parametric-variant dimension this module's docstring has always named
     # ("mutating configuration parameters (temperature, ...)") wired into a live
     # tournament: mutate a task-class profile, score each child by the capability
@@ -411,7 +411,7 @@ class VariantPool:
     # task_class_profiles — which the router/factory (ORCH-1.58) read on the next run.
 
     def _profile_id(self, task_class: str, profile: Any) -> str:
-        """Stable reward-EMA key for a profile variant (CONCEPT:AHE-3.38)."""
+        """Stable reward-EMA key for a profile variant (CONCEPT:AU-AHE.harness.evolvable-sampling-profiles)."""
         knobs = profile.model_dump(
             include={
                 "temperature",
@@ -437,7 +437,7 @@ class VariantPool:
     ) -> list[Any]:
         """Produce ``count`` jittered child profiles within the ontology bounds.
 
-        CONCEPT:AHE-3.38. Gaussian jitter on the float knobs and ±1-step jitter on
+        CONCEPT:AU-AHE.harness.evolvable-sampling-profiles. Gaussian jitter on the float knobs and ±1-step jitter on
         the integer knobs, clamped to the pydantic field ranges and then filtered
         through the KG-2.94 value-type SHACL gate (``sampling_profile_violations``),
         so a malformed mutation can never enter the tournament. ``source`` is set to
@@ -489,7 +489,7 @@ class VariantPool:
     ) -> Any:
         """Run one mutate→score→tournament→promote round for a task-class profile.
 
-        CONCEPT:AHE-3.38 — the live loop. Mutates the current
+        CONCEPT:AU-AHE.harness.evolvable-sampling-profiles — the live loop. Mutates the current
         :meth:`~agent_utilities.models.model_registry.ModelRegistry.pick_profile_for_task`
         profile, evaluates each candidate (and the incumbent) via ``evaluator``
         (a ``Callable[[SamplingProfile], float]`` returning a reward in ``[0, 1]``

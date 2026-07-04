@@ -1,4 +1,4 @@
-"""ARD registry publish-side tests (CONCEPT:ECO-4.95 / OS-5.60).
+"""ARD registry publish-side tests (CONCEPT:AU-ECO.mcp.eco-serves-two-ard / OS-5.60).
 
 Offline: the multiplexer catalog is injected as a pre-probed dict and the KG engine is a
 fake, so no server is spawned and no graph is required.

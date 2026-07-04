@@ -1,8 +1,8 @@
 #!/usr/bin/python
-# CONCEPT:KG-2.74 - Native cross-backend graph migration: copy a graph's nodes+edges (+embeddings) from any source (the L1 compute store or a full-cypher durable backend) into any target backend, writing through the engine's proven dialect-aware MERGE upserts so pg-age, Neo4j, FalkorDB and LadybugDB all receive a correct native write — the backfill/interchange primitive behind the fan-out mirror set.
+# CONCEPT:AU-KG.backend.mirror-health-repair - Native cross-backend graph migration: copy a graph's nodes+edges (+embeddings) from any source (the L1 compute store or a full-cypher durable backend) into any target backend, writing through the engine's proven dialect-aware MERGE upserts so pg-age, Neo4j, FalkorDB and LadybugDB all receive a correct native write — the backfill/interchange primitive behind the fan-out mirror set.
 """Backend-agnostic graph data migration.
 
-CONCEPT:KG-2.74 — Interchangeable storage across backends.
+CONCEPT:AU-KG.backend.mirror-health-repair — Interchangeable storage across backends.
 
 ``copy_graph(source, target)`` reads every node + edge (+ node embeddings) from a
 source and writes them into a target backend. The WRITE side reuses the engine's

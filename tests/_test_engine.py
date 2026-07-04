@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Ephemeral REAL epistemic-graph engine for the test suite (CONCEPT:KG-2.238).
+"""Ephemeral REAL epistemic-graph engine for the test suite (CONCEPT:AU-KG.memory.provides-real-ephemeral-one).
 
 USER DIRECTIVE: tests validate against the ACTUAL database we ship — NOT SQLite,
 NOT mocks. This module owns the lifecycle of ONE real ``epistemic-graph-server``
@@ -39,7 +39,7 @@ import uuid
 from pathlib import Path
 
 #: Shared HMAC secret the test engine runs under. The engine REFUSES to start
-#: without one (CONCEPT:OS-5.14); every client authenticates with this exact
+#: without one (CONCEPT:AU-OS.identity.authenticated-identity-enforcement); every client authenticates with this exact
 #: value, exported as ``GRAPH_SERVICE_AUTH_SECRET`` so the resolver/EngineResolver
 #: pick it up. Test-only; never a real credential.
 TEST_AUTH_SECRET = "agent-utilities-test-engine-secret"  # nosec B105 — test-only
@@ -52,7 +52,7 @@ TEST_AUTH_SECRET = "agent-utilities-test-engine-secret"  # nosec B105 — test-o
 IDLE_SHUTDOWN_SECS = 120
 
 #: The lean tier we build when no binary exists. ``pi-max`` = the lean ``pi`` tier
-#: PLUS the ``blob`` (CONCEPT:KG-2.206) and ``tsdb`` (CONCEPT:KG-2.210/211)
+#: PLUS the ``blob`` (CONCEPT:EG-KG.storage.blob-namespace) and ``tsdb`` (CONCEPT:AU-KG.retrieval.god-nodes-communities/211)
 #: substrates the multimodal-memory + time-series tests exercise — still pure-Rust
 #: (no DataFusion, no openraft), so fast to build and run, and a durable source of
 #: truth (redb-authoritative). The bare ``pi`` tier omits blob+tsdb, so building it
@@ -63,7 +63,7 @@ BUILD_TIER = "pi-max"
 #: under ``target/`` from an unrelated build is reused ONLY if it serves these — a
 #: bare ``pi`` / ``server`` binary lacks ``blob``/``tsdb`` and would skip the
 #: multimodal + time-series suites; we rebuild ``pi-max`` instead of silently
-#: degrading. Probed once via :func:`_binary_serves_features` (CONCEPT:KG-2.251/252).
+#: degrading. Probed once via :func:`_binary_serves_features` (CONCEPT:AU-KG.ingest.list-durable-media/252).
 REQUIRED_FEATURES = ("blob", "tsdb")
 
 #: How long to wait for the engine's socket to appear after spawn, and for the
@@ -104,7 +104,7 @@ def _binary_serves_features(binary: Path) -> bool:
     """Whether ``binary`` actually serves the :data:`REQUIRED_FEATURES` (blob+tsdb).
 
     A prebuilt engine binary may have been built at a feature-slim tier (bare
-    ``pi``/``server``) that lacks the blob (CONCEPT:KG-2.206) and tsdb (CONCEPT:
+    ``pi``/``server``) that lacks the blob (CONCEPT:EG-KG.storage.blob-namespace) and tsdb (CONCEPT:
     KG-2.210/211) substrates. There is no static feature manifest on the binary, so
     we probe it the only reliable way: start it ephemerally and attempt one blob +
     one tsdb call. A "method not available in this server build" error ⇒ the

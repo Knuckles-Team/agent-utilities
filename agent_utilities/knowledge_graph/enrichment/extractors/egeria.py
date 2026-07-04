@@ -1,4 +1,4 @@
-"""Apache Egeria open-metadata source extractor (CONCEPT:KG-2.9).
+"""Apache Egeria open-metadata source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Self-registering extractor that folds Egeria's open-metadata / glossary /
 governance / lineage records into the uniform ``ExtractionBatch`` shape (typed

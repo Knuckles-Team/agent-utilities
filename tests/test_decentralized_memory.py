@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unit tests for decentralized-but-collaborative agent memory (CONCEPT:KG-2.82).
+"""Unit tests for decentralized-but-collaborative agent memory (CONCEPT:AU-KG.memory.ahe-record-this-base).
 
 Covers DecentMem (arXiv:2605.22721) behaviour: per-agent privacy, exploit/explore
 pool separation, promotion explore->exploit, and the collaboration-aware trace.

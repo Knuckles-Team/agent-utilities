@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.17 — Memory Hygiene (decay scanner + semantic merge).
+"""CONCEPT:EG-KG.compute.compiled-semantic-reasoner — Memory Hygiene (decay scanner + semantic merge).
 
 Assimilated from memory-os (ClaudioDrews/memory-os@a4ca094, scripts/decay_scanner.py &
 scripts/semantic_dedup.py). A maintenance pass that bounds memory growth WITHOUT destroying
@@ -58,7 +58,7 @@ def _age_days(created_at: str | None, now: datetime) -> float:
 
 
 def classify_node(node: dict[str, Any], now: datetime) -> str:
-    """Classify a node: ``exempt`` | ``alert`` | ``archive`` | ``keep`` (CONCEPT:KG-2.17)."""
+    """Classify a node: ``exempt`` | ``alert`` | ``archive`` | ``keep`` (CONCEPT:EG-KG.compute.compiled-semantic-reasoner)."""
     source_type = str(node.get("source_type") or node.get("source") or "").lower()
     importance = float(node.get("importance_score", node.get("importance", 0.0)) or 0.0)
     if source_type in EXEMPT_SOURCE_TYPES:
@@ -119,7 +119,7 @@ def semantic_merge_groups(
 def merge_plan(
     nodes: list[dict[str, Any]], groups: list[list[str]]
 ) -> list[dict[str, Any]]:
-    """Compute the merge-write for each near-duplicate group (pure, CONCEPT:KG-2.17).
+    """Compute the merge-write for each near-duplicate group (pure, CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
     For each group the first id is the **survivor**. Returns
     ``{"survivor": id, "tags": [union], "importance": max, "retired": [ids]}`` — the survivor absorbs
@@ -156,7 +156,7 @@ def merge_plan(
 
 
 class MemoryHygiene:
-    """Applies the decay + merge plan to the durable backend (CONCEPT:KG-2.17)."""
+    """Applies the decay + merge plan to the durable backend (CONCEPT:EG-KG.compute.compiled-semantic-reasoner)."""
 
     def __init__(self, engine: Any) -> None:
         self.engine = engine
@@ -205,7 +205,7 @@ class MemoryHygiene:
                     )
                 except Exception as e:  # pragma: no cover
                     logger.debug("archive failed for %s: %s", nid, e)
-            # CONCEPT:KG-2.17 — APPLY the semantic merge: survivor absorbs union(tags)+max(importance);
+            # CONCEPT:EG-KG.compute.compiled-semantic-reasoner — APPLY the semantic merge: survivor absorbs union(tags)+max(importance);
             # each duplicate is soft-retired (status=MERGED + valid_to) and linked MERGED_INTO survivor
             # (never hard-deleted, so as-of queries before the merge still resolve the duplicate).
             for p in plans:
@@ -247,5 +247,5 @@ class MemoryHygiene:
 
 
 def run_hygiene(engine: Any, *, dry_run: bool = False) -> dict[str, Any]:
-    """CLI/daemon entry point for a memory-hygiene pass (CONCEPT:KG-2.17)."""
+    """CLI/daemon entry point for a memory-hygiene pass (CONCEPT:EG-KG.compute.compiled-semantic-reasoner)."""
     return MemoryHygiene(engine).run(dry_run=dry_run)

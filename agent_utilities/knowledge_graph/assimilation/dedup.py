@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Cross-source feature deduplication (CONCEPT:KG-2.7).
+"""Cross-source feature deduplication (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The same capability often appears in a paper, an OSS library, AND our own code —
 three nodes for one idea. This collapses them in the graph so downstream gap
@@ -46,12 +46,12 @@ class DedupReport:
     clusters: int = 0
     duplicates_superseded: int = 0
     survivors: list[str] = field(default_factory=list)
-    # entropy-gated name-resolution fast-path (CONCEPT:AHE-3.69)
+    # entropy-gated name-resolution fast-path (CONCEPT:AU-AHE.assimilation.merge-entities)
     name_resolved_pairs: int = 0
     low_entropy_skipped: int = 0
-    # version-variant pairs LINKED (not merged) as VARIANT_OF (CONCEPT:AHE-3.70)
+    # version-variant pairs LINKED (not merged) as VARIANT_OF (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe)
     variants_linked: int = 0
-    # proposals applied from the engine ResolveCandidates escalation (CONCEPT:KG-2.260)
+    # proposals applied from the engine ResolveCandidates escalation (CONCEPT:AU-KG.compute.when-exposes-native)
     engine_proposals: int = 0
 
 
@@ -104,8 +104,8 @@ def iter_typed_nodes(
     ``GetNodes`` dump.
 
     On a large multi-tenant engine a full node list is refused by the response guard
-    (``RESULT_TOO_LARGE``, CONCEPT:KG-2.264) and resets the socket, so the assimilation
-    collectors must scope their pull by label (CONCEPT:KG-2.51/2.193). Falls back to a
+    (``RESULT_TOO_LARGE``, CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) and resets the socket, so the assimilation
+    collectors must scope their pull by label (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.193). Falls back to a
     filtered whole-graph scan ONLY when no label index exists (a test-double dict/NX
     graph). Dedups by id so case-variant label buckets can't double-count a node.
     """
@@ -261,7 +261,7 @@ def dedup_features(
                 properties={"_rel": "SIMILAR_TO", "score": round(s, 6)},
             )
 
-    # Entropy-gated name-resolution fast-path (CONCEPT:AHE-3.69): merge entities
+    # Entropy-gated name-resolution fast-path (CONCEPT:AU-AHE.assimilation.merge-entities): merge entities
     # whose normalized names match exactly or fuzzy-match (MinHash/LSH Jaccard) —
     # LLM-free and embedding-independent, so it catches same-entity duplicates even
     # when their vectors disagree (cosine < dup_threshold). Generic low-entropy
@@ -282,7 +282,7 @@ def dedup_features(
                 properties={"_rel": "SIMILAR_TO", "score": round(score, 6)},
             )
 
-    # Version-variant pairs are LINKED as VARIANT_OF, never merged (CONCEPT:AHE-3.70):
+    # Version-variant pairs are LINKED as VARIANT_OF, never merged (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe):
     # a base and its versioned sibling are distinct entities with a real relationship.
     for base, variant, score, _kind in name_res.variants:
         if restrict_to and base not in restrict_to and variant not in restrict_to:
@@ -295,12 +295,12 @@ def dedup_features(
                 RegistryEdgeType.VARIANT_OF,
                 properties={
                     "_rel": "VARIANT_OF",
-                    "concept": "AHE-3.70",
+                    "concept": "AU-AHE.assimilation.transliteration-singularization-extend-ahe",
                     "score": round(score, 6),
                 },
             )
 
-    # Server-side escalation (CONCEPT:KG-2.260): when the engine exposes the native
+    # Server-side escalation (CONCEPT:AU-KG.compute.when-exposes-native): when the engine exposes the native
     # ResolveCandidates op, escalate the ambiguous residual to it — embedding
     # similarity + clustering yields same_as (merge) AND extends (variant) proposals
     # the local name-only pass can't produce. Capability-gated + best-effort: a no-op
@@ -325,7 +325,7 @@ def dedup_features(
                             canonical,
                             m,
                             RegistryEdgeType.VARIANT_OF,
-                            properties={"_rel": "VARIANT_OF", "concept": "KG-2.260"},
+                            properties={"_rel": "VARIANT_OF", "concept": "AU-KG.compute.when-exposes-native"},
                         )
             else:  # same_as → feed the duplicate clustering below
                 score = float(prop.get("score", dup_threshold))
@@ -354,7 +354,7 @@ def dedup_features(
                     properties={
                         "_rel": "SUPERSEDES",
                         "reason": "duplicate",
-                        "concept": "KG-2.7",
+                        "concept": "AU-KG.query.vendor-agnostic-traversal",
                     },
                 )
             report.duplicates_superseded += 1

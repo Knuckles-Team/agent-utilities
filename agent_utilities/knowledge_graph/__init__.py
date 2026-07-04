@@ -39,7 +39,7 @@ def __getattr__(name: str):
         return ige
 
     if name == "tenant_graph_name":
-        # Tenant → named graph naming discipline (CONCEPT:KG-2.58): the one
+        # Tenant → named graph naming discipline (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw): the one
         # helper facade/backends use so tenant-scoped operations land on
         # per-tenant named graphs (and therefore one HRW shard) consistently.
         from .core.shard_topology import tenant_graph_name as tgn

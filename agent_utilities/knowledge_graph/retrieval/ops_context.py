@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Operational health diagnosis over the live task/lane/queue state (CONCEPT:KG-2.137).
+"""Operational health diagnosis over the live task/lane/queue state (CONCEPT:AU-KG.retrieval.ops-context).
 
 The ``ops`` provider of the context plane (KG-2.136): answers *"is the system
 healthy / why is the maint lane backing up / what's blocked?"* by synthesizing the
@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
 
 VALID_INTENTS = ("health", "why", "impact")
 
-# Lanes the scheduler stamps (CONCEPT:ORCH-1.75/1.76/1.77) — used to focus a
+# Lanes the scheduler stamps (CONCEPT:AU-ORCH.execution.two-level-fair-rotation/1.76/1.77) — used to focus a
 # "why is the <lane> lane …" question without importing the scheduler.
 _KNOWN_LANES = ("queries", "ingestion", "connectors", "research", "extraction", "maint")
 

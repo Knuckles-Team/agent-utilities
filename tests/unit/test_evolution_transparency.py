@@ -1,9 +1,9 @@
 """Transparent + steerable self-evolution flywheel.
 
-CONCEPT:KG-2.290 — live EvolutionState surface + per-stage progress beacon.
-CONCEPT:KG-2.291 — saturation gauge (open_gaps trend + velocity + coverage) + request-more.
-CONCEPT:KG-2.292 — distill→develop seam: a distilled spec becomes a develop-able node.
-CONCEPT:OS-5.73 — spec-level review/veto checkpoint before develop.
+CONCEPT:AU-KG.research.evolutionstate-live-surface-per — live EvolutionState surface + per-stage progress beacon.
+CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge (open_gaps trend + velocity + coverage) + request-more.
+CONCEPT:AU-KG.research.close-distill-develop-seam — distill→develop seam: a distilled spec becomes a develop-able node.
+CONCEPT:AU-OS.config.autonomous-spec-develop-off — spec-level review/veto checkpoint before develop.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ class _Spec:
 
 
 # ── KG-2.290: live beacon ────────────────────────────────────────────────
-@pytest.mark.concept("KG-2.290")
+@pytest.mark.concept("AU-KG.research.evolutionstate-live-surface-per")
 def test_beacon_reflects_live_stage():
     eng = FakeEngine()
     beacon = es.StageBeacon(eng, cycle_id="evo_cycle_x", why="mine open gaps")
@@ -139,7 +139,7 @@ def test_beacon_reflects_live_stage():
 
 
 # ── KG-2.291: saturation gauge ───────────────────────────────────────────
-@pytest.mark.concept("KG-2.291")
+@pytest.mark.concept("AU-KG.research.saturation-gauge-aggregates-four")
 def test_gauge_fires_request_more_when_saturated_and_stalling():
     g = es.saturation_gauge(
         coverage_pct=95.0, velocity_verdict="stalling", gaps_recent=10, gaps_prior=10
@@ -150,7 +150,7 @@ def test_gauge_fires_request_more_when_saturated_and_stalling():
     assert g["gauge"] >= es.SATURATION_THRESHOLD
 
 
-@pytest.mark.concept("KG-2.291")
+@pytest.mark.concept("AU-KG.research.saturation-gauge-aggregates-four")
 def test_gauge_quiet_while_improving():
     g = es.saturation_gauge(
         coverage_pct=20.0, velocity_verdict="improving", gaps_recent=2, gaps_prior=20
@@ -159,7 +159,7 @@ def test_gauge_quiet_while_improving():
     assert g["gauge"] < es.SATURATION_THRESHOLD
 
 
-@pytest.mark.concept("KG-2.291")
+@pytest.mark.concept("AU-KG.research.saturation-gauge-aggregates-four")
 def test_gauge_does_not_request_more_without_stalling_even_if_high():
     # High coverage + flat gaps but velocity NOT stalling → no request-more.
     g = es.saturation_gauge(
@@ -168,7 +168,7 @@ def test_gauge_does_not_request_more_without_stalling_even_if_high():
     assert g["request_more"] is False
 
 
-@pytest.mark.concept("KG-2.291")
+@pytest.mark.concept("AU-KG.research.saturation-gauge-aggregates-four")
 def test_emit_saturation_signal_only_when_requested():
     eng = FakeEngine()
     quiet = es.saturation_gauge(
@@ -183,7 +183,7 @@ def test_emit_saturation_signal_only_when_requested():
 
 
 # ── KG-2.292: distill→develop seam ───────────────────────────────────────
-@pytest.mark.concept("KG-2.292")
+@pytest.mark.concept("AU-KG.research.close-distill-develop-seam")
 def test_distilled_spec_becomes_developable_node_with_provenance():
     eng = FakeEngine()
     sid = sp.persist_spec_proposal(
@@ -204,7 +204,7 @@ def test_distilled_spec_becomes_developable_node_with_provenance():
     assert summ["counts"][sp.STATUS_PENDING] == 1
 
 
-@pytest.mark.concept("KG-2.292")
+@pytest.mark.concept("AU-KG.research.close-distill-develop-seam")
 def test_spec_to_proposal_shape_feeds_promotion_path():
     from agent_utilities.knowledge_graph.research.change_synthesis import (
         synthesize_change_set,
@@ -229,7 +229,7 @@ def test_spec_to_proposal_shape_feeds_promotion_path():
 
 
 # ── OS-5.73: spec review / veto checkpoint ───────────────────────────────
-@pytest.mark.concept("OS-5.73")
+@pytest.mark.concept("AU-OS.config.autonomous-spec-develop-off")
 def test_review_approve_binds_develop_loop():
     eng = FakeEngine()
     sid = sp.persist_spec_proposal(eng, _Spec("Build X"))
@@ -243,7 +243,7 @@ def test_review_approve_binds_develop_loop():
     assert eng.nodes[loop_id]["loop_kind"] == "develop"
 
 
-@pytest.mark.concept("OS-5.73")
+@pytest.mark.concept("AU-OS.config.autonomous-spec-develop-off")
 def test_review_reject_vetoes_spec():
     eng = FakeEngine()
     sid = sp.persist_spec_proposal(eng, _Spec("Bad idea"))
@@ -254,7 +254,7 @@ def test_review_reject_vetoes_spec():
     assert sp.develop_spec(eng, sid)["status"] == "not_approved"
 
 
-@pytest.mark.concept("OS-5.73")
+@pytest.mark.concept("AU-OS.config.autonomous-spec-develop-off")
 def test_review_edit_holds_spec_pending():
     eng = FakeEngine()
     sid = sp.persist_spec_proposal(eng, _Spec("Tweak me"))
@@ -265,7 +265,7 @@ def test_review_edit_holds_spec_pending():
     assert got["status"] == sp.STATUS_PENDING  # still held for review
 
 
-@pytest.mark.concept("OS-5.73")
+@pytest.mark.concept("AU-OS.config.autonomous-spec-develop-off")
 def test_develop_holds_for_approval_default_review_first(monkeypatch):
     # An approved spec is fed into governed_publish, which (default merge_promotion
     # tier = approval_required) QUEUES a human approval — never auto-merges.
@@ -288,7 +288,7 @@ def test_develop_holds_for_approval_default_review_first(monkeypatch):
     assert sp.get_spec(eng, sid)["status"] == sp.STATUS_DEVELOPING
 
 
-@pytest.mark.concept("OS-5.73")
+@pytest.mark.concept("AU-OS.config.autonomous-spec-develop-off")
 def test_auto_advance_holds_specs_under_default_policy():
     # KG_LOOP_AUTO_DEVELOP path: with the shipped spec_promotion=approval_required
     # tier the auto path does NOT approve — it queues for the human (review-first).
@@ -301,7 +301,7 @@ def test_auto_advance_holds_specs_under_default_policy():
 
 
 # ── integration: _advance_develop routes a spec-bound loop ───────────────
-@pytest.mark.concept("KG-2.292")
+@pytest.mark.concept("AU-KG.research.close-distill-develop-seam")
 def test_advance_develop_routes_spec_bound_loop(monkeypatch):
     from agent_utilities.knowledge_graph.research import spec_proposals as sp_mod
     from agent_utilities.knowledge_graph.research.loop_controller import LoopController
@@ -315,7 +315,7 @@ def test_advance_develop_routes_spec_bound_loop(monkeypatch):
 
 
 # ── KG-2.290: aggregated EvolutionState read ─────────────────────────────
-@pytest.mark.concept("KG-2.290")
+@pytest.mark.concept("AU-KG.research.evolutionstate-live-surface-per")
 def test_evolution_state_aggregates_everything():
     eng = FakeEngine()
     # a finished beacon

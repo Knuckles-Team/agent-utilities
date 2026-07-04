@@ -1,4 +1,4 @@
-"""Hardening (CONCEPT:ORCH-1.39): an unscoped query must NOT silently return the whole graph.
+"""Hardening (CONCEPT:AU-ORCH.session.invoker-agent-handoff): an unscoped query must NOT silently return the whole graph.
 
 This was the `graph_context list` "garbage" over-match: an unparsed WHERE fell through to a
 legacy reader that returned every node. It now returns [] unless KG_ALLOW_FULL_SCAN is set.
@@ -36,7 +36,7 @@ def _backend():
     return b
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_unscoped_query_returns_empty_not_all_nodes(monkeypatch):
     monkeypatch.delenv("KG_ALLOW_FULL_SCAN", raising=False)
     b = _backend()
@@ -44,7 +44,7 @@ def test_unscoped_query_returns_empty_not_all_nodes(monkeypatch):
     assert b._legacy_execute({}) == []
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_id_lookup_still_precise(monkeypatch):
     monkeypatch.delenv("KG_ALLOW_FULL_SCAN", raising=False)
     b = _backend()
@@ -52,7 +52,7 @@ def test_id_lookup_still_precise(monkeypatch):
     assert len(rows) == 1 and rows[0]["id"] == "ctx:s1:a"
 
 
-@pytest.mark.concept("ORCH-1.39")
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_explicit_opt_in_allows_full_scan(monkeypatch):
     monkeypatch.setenv("KG_ALLOW_FULL_SCAN", "true")
     b = _backend()

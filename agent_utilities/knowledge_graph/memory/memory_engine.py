@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # --- FROM memory_engine.py ---
-"""CONCEPT:KG-2.1 — Unified Memory Manager.
+"""CONCEPT:AU-KG.memory.tiered-memory-caching — Unified Memory Manager.
 
 Single entry point for the full memory lifecycle:
   startup → active context → compaction → consolidation → retrieval
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 class MemoryEngine:
     """Coordinates memory subsystems through startup → compaction → consolidation → retrieval.
 
-    CONCEPT:KG-2.1 — Memory Lifecycle Manager
+    CONCEPT:AU-KG.memory.tiered-memory-caching — Memory Lifecycle Manager
 
     Provides a facade over the independent memory implementations,
     ensuring they are used in the correct lifecycle order and with
@@ -284,7 +284,7 @@ class MemoryEngine:
         agent_id: str = "",
         threshold: int = 10,
     ) -> int:
-        """Compact memory traces to prevent graph explosion (CONCEPT:KG-2.17).
+        """Compact memory traces to prevent graph explosion (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
         Delegates to :class:`MemoryHygiene`, which decays stale memory nodes
         (soft bi-temporal close) and applies semantic-merge of near-duplicate
@@ -367,7 +367,7 @@ class MemoryEngine:
 
 """KG -> Markdown Memory Materializer.
 
-CONCEPT:KG-2.1 -- Observational Memory Bridge
+CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
 
 Renders KG memory state into human-inspectable Markdown files (materialized views).
 The KG is the single source of truth; Markdown files are projections that can be
@@ -428,7 +428,7 @@ def _ensure_memory_dir() -> Path:
 class MemoryMaterializer:
     """Renders KG memory state into beautiful, inspectable Markdown files.
 
-    CONCEPT:KG-2.1 -- Observational Memory Bridge
+    CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
     """
 
     def __init__(self, engine: IntelligenceGraphEngine) -> None:
@@ -791,7 +791,7 @@ def ingest_memory_edits(engine: IntelligenceGraphEngine) -> dict[str, int]:
 
 """Budgeted Startup Context Builder.
 
-CONCEPT:KG-2.1 -- Observational Memory Bridge
+CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
 
 Produces a deterministic, budget-bounded startup payload for injecting into
 external agent hooks (Claude Code SessionStart, Codex startup, Grok Build, etc.).
@@ -813,7 +813,7 @@ DEFAULT_BUDGET_CHARS = 24000
 MIN_BUDGET_CHARS = 2000
 
 
-# CONCEPT:KG-2.14 -- Ground-Truth Context Authority.
+# CONCEPT:AU-KG.memory.ground-truth-preamble-declaring -- Ground-Truth Context Authority.
 # Assimilated from memory-os Layer 7 "Ground Truth Hierarchy" (ClaudioDrews/memory-os@a4ca094,
 # layers/07-ground-truth.md): injected memory is declared authoritative so the agent stops
 # re-fetching/rediscovering context already in its prompt ("memory-zero behavior"). agent-utilities
@@ -826,7 +826,7 @@ AUTHORITY_BOOST = 6
 
 
 def _authority_for(source: str, heading: str) -> str:
-    """Classify a startup chunk's authority tier (CONCEPT:KG-2.14).
+    """Classify a startup chunk's authority tier (CONCEPT:AU-KG.memory.ground-truth-preamble-declaring).
 
     Durable, user/agent-curated memory (profile facts, preferences, identity, active goals, team
     conventions, layered project rules) is *authoritative*; transient recall hints are *advisory*.
@@ -859,7 +859,7 @@ class StartupChunk:
     body: str
     handle: str
     priority: int
-    source_authority: str = AUTHORITY_STANDARD  # CONCEPT:KG-2.14
+    source_authority: str = AUTHORITY_STANDARD  # CONCEPT:AU-KG.memory.ground-truth-preamble-declaring
 
     @property
     def size(self) -> int:
@@ -887,7 +887,7 @@ class StartupPayload:
 class StartupContextBuilder:
     """Builds budgeted startup context from KG memory.
 
-    CONCEPT:KG-2.1 -- Observational Memory Bridge
+    CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
 
     Queries the KG via HybridRetriever, scores and ranks chunks by relevance
     to the current agent/task/cwd, then assembles a budget-bounded Markdown
@@ -942,7 +942,7 @@ class StartupContextBuilder:
         # Assemble payload
         header = self._build_header(budget, cwd=cwd, task=task, agent=agent)
         footer = self._build_footer(task=task, cwd=cwd)
-        # CONCEPT:KG-2.14 -- Ground-Truth preamble declaring authoritative sources up front.
+        # CONCEPT:AU-KG.memory.ground-truth-preamble-declaring -- Ground-Truth preamble declaring authoritative sources up front.
         auth_sources = sorted(
             {c.source for c in chunks if c.source_authority == AUTHORITY_AUTHORITATIVE}
         )
@@ -1089,7 +1089,7 @@ class StartupContextBuilder:
         terms = self._route_terms(cwd=cwd, task=task, agent=agent)
         if terms and any(t in body.lower() or t in h for t in terms):
             priority += 5
-        # CONCEPT:KG-2.14 -- authoritative (durable, injected) memory outranks advisory hints.
+        # CONCEPT:AU-KG.memory.ground-truth-preamble-declaring -- authoritative (durable, injected) memory outranks advisory hints.
         if _authority_for(source, heading) == AUTHORITY_AUTHORITATIVE:
             priority += AUTHORITY_BOOST
         return priority
@@ -1133,7 +1133,7 @@ class StartupContextBuilder:
         return "\n".join(lines)
 
     def _build_authority_preamble(self, auth_sources: list[str]) -> str:
-        """Emit the Ground-Truth Hierarchy preamble (CONCEPT:KG-2.14).
+        """Emit the Ground-Truth Hierarchy preamble (CONCEPT:AU-KG.memory.ground-truth-preamble-declaring).
 
         Declares that the memory injected below is authoritative and must be used directly, so the
         agent stops re-fetching context it was already given. Assimilated from memory-os Layer 7;
@@ -1183,7 +1183,7 @@ class StartupContextBuilder:
     def _load_team_context(self, team: str) -> list[StartupChunk]:
         """Load team-specific context from KG TeamConfigNode nodes.
 
-        CONCEPT:ECO-4.10 — Team-Specific Startup Context
+        CONCEPT:AU-KG.memory.team-startup-context — Team-Specific Startup Context
 
         Queries the KG for ``TeamConfigNode`` or ``team_config`` nodes
         matching the team name and converts their conventions/preferences
@@ -1224,7 +1224,7 @@ class StartupContextBuilder:
     def _load_layered_agents_md(self, cwd: str) -> StartupChunk | None:
         """Load hierarchically layered AGENTS.md content from CWD.
 
-        CONCEPT:KG-2.1 — Layered Project-Aware Context
+        CONCEPT:AU-KG.memory.tiered-memory-caching — Layered Project-Aware Context
 
         Uses ``load_agents_md_layered`` to walk upward from CWD and collect
         all AGENTS.md files, assembling them root-first.

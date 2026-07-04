@@ -1,4 +1,4 @@
-"""Cross-source inventory push (CONCEPT:KG-2.9).
+"""Cross-source inventory push (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 The capstone of bidirectional enrichment: take the KG's reconciled technology
 inventory (infra/topology nodes + LeanIX ITComponents/Applications + TRM products/

@@ -1,4 +1,4 @@
-"""Synthesis → live execution bridge (CONCEPT:KG-2.10).
+"""Synthesis → live execution bridge (CONCEPT:AU-KG.enrichment.a2a-capability-extraction).
 
 Wires the KG-driven synthesis layer to the production orchestration:
 * :func:`make_capability_search` backs ``synthesize_*`` with the real
@@ -106,7 +106,7 @@ def persist_skill_as_runnable(
 ) -> tuple[int, int]:
     """Bind an ingested ``:Skill`` node into a runnable ``CallableResource``.
 
-    CONCEPT:ORCH-1.96 — the dispatch half of skill ingestion. An ingested atomic
+    CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — the dispatch half of skill ingestion. An ingested atomic
     skill (whether a bare ``:Skill`` node written by ``skill_workflow_ingest`` or
     an ``AGENT_SKILL`` CallableResource that only carries a ``skill_code_path``) is
     *search corpus* until something makes it executable. This reuses the
@@ -155,7 +155,7 @@ async def execute_agent_spec(
     """Execute a synthesized agent via the live KG-to-LLM runner.
 
     Brackets execution with the background throttle's foreground flag so the KG
-    daemons yield the GPU to this interactive run. (CONCEPT:KG-2.7/2.10)
+    daemons yield the GPU to this interactive run. (CONCEPT:AU-KG.query.vendor-agnostic-traversal/2.10)
     """
     run = runner or _runner()
     logger.info("[KG-2.10] executing synthesized agent %s", spec.name)

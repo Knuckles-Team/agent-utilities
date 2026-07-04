@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Exploration graph — the ARA ``/trace`` layer producer (CONCEPT:KG-2.80).
+"""Exploration graph — the ARA ``/trace`` layer producer (CONCEPT:AU-KG.ontology.verified-by-implemented-by).
 
 The paper's high-signal forensic layer is the exploration DAG: not just what worked, but
 the questions asked, the decisions taken, and crucially the **dead-ends** and **pivots**.
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResearchTrajectory(BaseModel):
-    """An ordered exploration DAG under one root question (CONCEPT:KG-2.80)."""
+    """An ordered exploration DAG under one root question (CONCEPT:AU-KG.ontology.verified-by-implemented-by)."""
 
     root_id: str
     nodes: list[ExplorationNode] = Field(default_factory=list)

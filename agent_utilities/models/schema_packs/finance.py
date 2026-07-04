@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Finance Schema Pack — financial services domain profile.
 
-CONCEPT:KG-2.6, KG-2.7, AHE-3.8
+CONCEPT:AU-KG.research.research-pipeline-runner, CONCEPT:AU-KG.query.vendor-agnostic-traversal, CONCEPT:AU-AHE.harness.self-improvement-overview
 
 Optimized for financial agents managing instruments, transactions,
 accounts, regulations, trading pipelines, risk assessment, and
@@ -20,7 +20,7 @@ from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode
 class FinanceSchemaPack(SchemaPack):
     """Finance domain pack: instruments, trading, risk, and backtesting.
 
-    CONCEPT:KG-2.6, KG-2.7, AHE-3.8
+    CONCEPT:AU-KG.research.research-pipeline-runner, CONCEPT:AU-KG.query.vendor-agnostic-traversal, CONCEPT:AU-AHE.harness.self-improvement-overview
 
     Activates the full financial domain including:
     - Core financial entities (instruments, transactions, accounts)
@@ -49,7 +49,7 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.DECISION,
         RegistryNodeType.EVIDENCE,
         RegistryNodeType.SYSTEM,
-        # Trading pipeline (CONCEPT:KG-2.6)
+        # Trading pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)
         RegistryNodeType.TRADING_SIGNAL,
         RegistryNodeType.ORDER,
         RegistryNodeType.POSITION,
@@ -59,20 +59,20 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.VERSIONED_TRADE_COMMIT,
         RegistryNodeType.EXECUTION_GUARD,
         RegistryNodeType.UNIFIED_TRADING_ACCOUNT,
-        # Data connectors (CONCEPT:ECO-4.0)
+        # Data connectors (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
         RegistryNodeType.DATA_CONNECTOR,
         RegistryNodeType.DATA_FETCH_RECORD,
-        # Risk scoring (CONCEPT:KG-2.6)
+        # Risk scoring (CONCEPT:AU-KG.research.research-pipeline-runner)
         RegistryNodeType.RISK_ASSESSMENT,
         RegistryNodeType.RISK_FACTOR,
         RegistryNodeType.RISK_MITIGATION,
-        # Backtest evaluation (CONCEPT:AHE-3.4)
+        # Backtest evaluation (CONCEPT:AU-AHE.evaluation.backtest-harness)
         RegistryNodeType.BACKTEST_RUN,
         RegistryNodeType.BACKTEST_METRIC,
-        # Microstructure signals + trade journal (CONCEPT:EE-033, EE-034)
+        # Microstructure signals + trade journal (CONCEPT:AU-AHE.assimilation.microstructure-signal-fusion, CONCEPT:AU-AHE.assimilation.decision-distillation)
         RegistryNodeType.MICROSTRUCTURE_SIGNAL,
         RegistryNodeType.TRADE_JOURNAL,
-        # Curated book/PDF trading knowledge taxonomy (CONCEPT:EE-036)
+        # Curated book/PDF trading knowledge taxonomy (CONCEPT:AU-AHE.assimilation.trading-curator)
         RegistryNodeType.TRADING_KNOWLEDGE,
         RegistryNodeType.STRATEGY_CONCEPT,
         RegistryNodeType.RISK_CONCEPT,
@@ -89,7 +89,7 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.DEPENDS_ON_SYSTEM,
         RegistryEdgeType.WAS_ATTRIBUTED_TO,
         RegistryEdgeType.CITES_SOURCE,
-        # Trading pipeline edges (CONCEPT:KG-2.6)
+        # Trading pipeline edges (CONCEPT:AU-KG.research.research-pipeline-runner)
         RegistryEdgeType.GENERATED_SIGNAL,
         RegistryEdgeType.PLACED_ORDER,
         RegistryEdgeType.OPENED_POSITION,
@@ -99,15 +99,15 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.FORECASTED,
         RegistryEdgeType.VERSIONED_IN,
         RegistryEdgeType.GUARDED_BY,
-        # Data connector edges (CONCEPT:ECO-4.0)
+        # Data connector edges (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
         RegistryEdgeType.FETCHED_FROM,
         RegistryEdgeType.FALLS_BACK_TO,
-        # Risk scoring edges (CONCEPT:KG-2.6)
+        # Risk scoring edges (CONCEPT:AU-KG.research.research-pipeline-runner)
         RegistryEdgeType.ASSESSED_RISK,
         RegistryEdgeType.HAS_RISK_FACTOR,
         RegistryEdgeType.MITIGATED_BY,
         RegistryEdgeType.PROPAGATES_RISK_TO,
-        # Backtest evaluation edges (CONCEPT:AHE-3.4)
+        # Backtest evaluation edges (CONCEPT:AU-AHE.evaluation.backtest-harness)
         RegistryEdgeType.EVALUATED_STRATEGY,
         RegistryEdgeType.HAS_METRIC,
         RegistryEdgeType.COMPARED_TO_BENCHMARK,

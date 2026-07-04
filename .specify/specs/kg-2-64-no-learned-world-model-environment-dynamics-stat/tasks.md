@@ -9,7 +9,7 @@ Wire-First, ordered. Cite the real files; reuse the Markov/SCM kernels — do no
 ## T2 — Symbolic forward-sim backend (US-2)  [code]
 - [ ] `SymbolicForwardSimBackend` reusing `formal_reasoning_core.py`
   (`MarkovTransitionModel.predict_next_states`/`forecast_from_state`, `CausalScm.do_intervention`,
-  `CounterfactualGenerator`) + KG-2.23 OWL closure + historical `OutcomeEvaluationNode` transitions.
+  `CounterfactualGenerator`) + AU-KG.domains.legal-automation OWL closure + historical `OutcomeEvaluationNode` transitions.
   Register it as the default; leave a named `parametric` backend slot (registered, unimplemented).
 
 ## T3 — Facade wiring (US-1)  [code]
@@ -26,4 +26,4 @@ Wire-First, ordered. Cite the real files; reuse the Markov/SCM kernels — do no
 
 ## T6 — Artifacts (NFR)  [docs]
 - [ ] `docs/concepts.yaml` regen (KG-2.64) via `scripts/build_concepts_yaml.py`; `scripts/check_concepts.py`;
-  CHANGELOG; README/AGENTS KG-2 count; per-concept doc under `docs/pillars/2_epistemic_knowledge_graph/`.
+  CHANGELOG; README/AGENTS EG-KG.compute.backend count; per-concept doc under `docs/pillars/2_epistemic_knowledge_graph/`.

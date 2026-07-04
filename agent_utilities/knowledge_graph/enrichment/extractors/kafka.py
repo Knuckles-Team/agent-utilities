@@ -1,4 +1,4 @@
-"""Kafka source extractor (CONCEPT:KG-2.9).
+"""Kafka source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Topics → :Topic, consumer groups → :Service. Stamped externalToolId +
 domain="kafka". Client injected; tolerant of native/REST list shapes.

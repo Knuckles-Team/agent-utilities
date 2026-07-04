@@ -1,4 +1,4 @@
-"""Shared per-paper research grading + prioritized enqueue (CONCEPT:KG-2.114/2.121).
+"""Shared per-paper research grading + prioritized enqueue (CONCEPT:AU-KG.research.scholarx-rss-research-feed/2.121).
 
 The single research decision every feed source funnels through. Extracted from the
 old scholarx-only ``run_rss_feed_screen`` so the native ``rss`` connector, the

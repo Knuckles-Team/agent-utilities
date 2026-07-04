@@ -1,10 +1,10 @@
-# Spec: Ground-Truth Context Authority (KG-2.14)
+# Spec: Ground-Truth Context Authority (AU-KG.memory.ground-truth-preamble-declaring)
 
 > References design: `.specify/design/kg-2-14-ground-truth-hierarchy/design.md`. Status: **shipped**.
 
 ## Pre-Flight Checklist
 - [x] Design exists; KG-nearest-concepts table completed.
-- [x] Extension target identified (KG-2.1); new CONCEPT:KG-2.14 justified (authority axis).
+- [x] Extension target identified (KG-2.1); new CONCEPT:AU-KG.memory.ground-truth-preamble-declaring justified (authority axis).
 - [x] Wire-First confirmed: 2 hops from the memory CLI/MCP context / `MemoryEngine.build_startup_context`.
 - [x] Success metric defined (redundant re-fetch reduction).
 
@@ -21,5 +21,5 @@ use it directly instead of re-fetching what is already in my prompt.
 - **AC4**: the preamble is budget-reserved (never crowds out content); behavior is backward-compatible.
 
 ## Non-Functional Requirements
-- `tests/unit/knowledge_graph/test_kg_2_14_ground_truth_authority.py` (`@pytest.mark.concept(id="KG-2.14")`), ≤60s.
+- `tests/unit/knowledge_graph/test_kg_2_14_ground_truth_authority.py` (`@pytest.mark.concept(id="AU-KG.memory.ground-truth-preamble-declaring")`), ≤60s.
 - `pre-commit` green; concept registry regenerated; per-concept doc authored.

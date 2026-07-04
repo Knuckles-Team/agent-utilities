@@ -1,4 +1,4 @@
-"""Twenty CRM source extractor (CONCEPT:KG-2.9).
+"""Twenty CRM source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Full-CRM bidirectional read: companies → :Customer, people → :Person,
 opportunities → :SalesOrder (consistent with the Salesforce mapping), with

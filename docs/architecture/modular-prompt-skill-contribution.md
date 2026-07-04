@@ -1,7 +1,7 @@
 # Modular prompt & skill contribution
 
-> CONCEPT:OS-5.52 (entry-point discovery) · CONCEPT:ORCH-1.80 (canonical prompt
-> schema) · CONCEPT:KG-2.141 (KG prompt-library ingestion + XDG overlay)
+> CONCEPT:AU-OS.deployment.agent-factory-autoload (entry-point discovery) · CONCEPT:AU-ORCH.routing.resolve-body-single-canonical (canonical prompt
+> schema) · CONCEPT:AU-KG.compute.user-override-prompt-library (KG prompt-library ingestion + XDG overlay)
 
 ## Why
 

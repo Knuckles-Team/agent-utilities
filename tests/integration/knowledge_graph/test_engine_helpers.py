@@ -1,9 +1,9 @@
 """Tests for IntelligenceGraphEngine KG-first helpers.
 
-CONCEPT:KG-2.0 — Identity Management
-CONCEPT:KG-2.0 — Prompt Management
-CONCEPT:KG-2.0 — Granular Resource Queries
-CONCEPT:KG-2.0 — Workspace Reload
+CONCEPT:AU-KG.query.object-graph-mapper — Identity Management
+CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
+CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
+CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 """
 
 import pytest
@@ -33,12 +33,12 @@ def engine():
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONCEPT:KG-2.0 — Identity Management
+#  CONCEPT:AU-KG.query.object-graph-mapper — Identity Management
 # ─────────────────────────────────────────────────────────────────────
 
 
 class TestIdentityManagement:
-    """Tests for get/add/update_agent_identity (CONCEPT:KG-2.0)."""
+    """Tests for get/add/update_agent_identity (CONCEPT:AU-KG.query.object-graph-mapper)."""
 
     def test_get_identity_empty_graph(self, engine: IntelligenceGraphEngine):
         """Returns a default identity when graph is empty."""
@@ -103,12 +103,12 @@ class TestIdentityManagement:
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONCEPT:KG-2.0 — Prompt Management
+#  CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
 # ─────────────────────────────────────────────────────────────────────
 
 
 class TestPromptManagement:
-    """Tests for prompt CRUD and versioning (CONCEPT:KG-2.0)."""
+    """Tests for prompt CRUD and versioning (CONCEPT:AU-KG.query.object-graph-mapper)."""
 
     def test_add_prompt(self, engine: IntelligenceGraphEngine):
         """Creates a new prompt node."""
@@ -148,7 +148,7 @@ class TestPromptManagement:
 
 
 class TestPromptVersioning:
-    """Tests for prompt versioning and rollback (CONCEPT:KG-2.0)."""
+    """Tests for prompt versioning and rollback (CONCEPT:AU-KG.query.object-graph-mapper)."""
 
     def test_update_creates_new_version(self, engine: IntelligenceGraphEngine):
         """update_prompt creates a SUPERSEDES link."""
@@ -198,12 +198,12 @@ class TestPromptVersioning:
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONCEPT:KG-2.0 — Granular Resource Queries
+#  CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
 # ─────────────────────────────────────────────────────────────────────
 
 
 class TestGranularResourceQueries:
-    """Tests for get_skills, get_tools, toggle_resource (CONCEPT:KG-2.0)."""
+    """Tests for get_skills, get_tools, toggle_resource (CONCEPT:AU-KG.query.object-graph-mapper)."""
 
     def test_get_skills_empty(self, engine: IntelligenceGraphEngine):
         """Returns empty list when no skills are in the graph."""
@@ -285,12 +285,12 @@ class TestGranularResourceQueries:
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONCEPT:KG-2.0 — Workspace Reload
+#  CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 # ─────────────────────────────────────────────────────────────────────
 
 
 class TestWorkspaceReload:
-    """Tests for reload_from_workspace (CONCEPT:KG-2.0)."""
+    """Tests for reload_from_workspace (CONCEPT:AU-KG.query.object-graph-mapper)."""
 
     def test_reload_returns_summary(self, engine: IntelligenceGraphEngine):
         """reload_from_workspace returns a change summary dict."""

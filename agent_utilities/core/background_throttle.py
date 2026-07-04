@@ -1,4 +1,4 @@
-"""Global background-work throttle + foreground pause (CONCEPT:KG-2.7).
+"""Global background-work throttle + foreground pause (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 The KG runs several background daemons (evolution, analysis, compaction, ingest)
 that issue LLM/embedding/GPU work. On a single-GPU box they contend with

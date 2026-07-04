@@ -2,23 +2,23 @@
 """Tests for all 6 research-driven enhancements.
 
 Tests cover:
-1. Learned Agent Routing (CONCEPT:ORCH-1.2)
-2. Elastic Context Operators (CONCEPT:KG-2.1)
-3. Dynamic Skill Evolution (CONCEPT:ECO-4.0)
-4. Multi-Timescale Memory (CONCEPT:KG-2.1)
-5. Versioned KG Mutations (CONCEPT:KG-2.0)
-6. Jailbreak Robustness (CONCEPT:OS-5.1)
+1. Learned Agent Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
+2. Elastic Context Operators (CONCEPT:AU-KG.memory.tiered-memory-caching)
+3. Dynamic Skill Evolution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
+4. Multi-Timescale Memory (CONCEPT:AU-KG.memory.tiered-memory-caching)
+5. Versioned KG Mutations (CONCEPT:AU-KG.query.object-graph-mapper)
+6. Jailbreak Robustness (CONCEPT:AU-OS.config.secrets-authentication)
 """
 
 from typing import Any
 
 import pytest
 
-# ── Enhancement 1: Learned Agent Routing (CONCEPT:ORCH-1.2) ─────────────────
+# ── Enhancement 1: Learned Agent Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation) ─────────────────
 
 
 class TestRoutingPolicy:
-    """Tests for adaptive_agent_router.py — CONCEPT:ORCH-1.2"""
+    """Tests for adaptive_agent_router.py — CONCEPT:AU-ORCH.adapter.hot-cache-invalidation"""
 
     def test_extract_task_features(self):
         from agent_utilities.graph.adaptive_agent_router import extract_task_features
@@ -119,11 +119,11 @@ class TestRoutingPolicy:
         assert decision.selected.model_id == "cheap"
 
 
-# ── Enhancement 2: Elastic Context Operators (CONCEPT:KG-2.1) ──────────────
+# ── Enhancement 2: Elastic Context Operators (CONCEPT:AU-KG.memory.tiered-memory-caching) ──────────────
 
 
 class TestElasticContext:
-    """Tests for elastic_context_manager.py elastic operators — CONCEPT:KG-2.1"""
+    """Tests for elastic_context_manager.py elastic operators — CONCEPT:AU-KG.memory.tiered-memory-caching"""
 
     def _make_messages(self, n=5):
         return [
@@ -215,11 +215,11 @@ class TestElasticContext:
             ecm.rollback()
 
 
-# ── Enhancement 3: Dynamic Skill Evolution (CONCEPT:ECO-4.0) ────────────────
+# ── Enhancement 3: Dynamic Skill Evolution (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ────────────────
 
 
 class TestSkillEvolver:
-    """Tests for skill_evolver.py — CONCEPT:ECO-4.0"""
+    """Tests for skill_evolver.py — CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
     def test_gap_detection_empty_skills(self):
         from agent_utilities.knowledge_graph.adaptation.skill_evolver import (
@@ -296,11 +296,11 @@ class TestSkillEvolver:
         assert merged.provenance == "merge"
 
 
-# ── Enhancement 4: Multi-Timescale Memory (CONCEPT:KG-2.1) ──────────────────
+# ── Enhancement 4: Multi-Timescale Memory (CONCEPT:AU-KG.memory.tiered-memory-caching) ──────────────────
 
 
 class TestTimescaleMemory:
-    """Tests for elastic_context_manager.py — CONCEPT:KG-2.1"""
+    """Tests for elastic_context_manager.py — CONCEPT:AU-KG.memory.tiered-memory-caching"""
 
     def test_store_and_retrieve(self):
         from agent_utilities.knowledge_graph.memory import (
@@ -365,11 +365,11 @@ class TestTimescaleMemory:
         assert activation > 0.9
 
 
-# ── Enhancement 5: Versioned KG Mutations (CONCEPT:KG-2.0) ──────────────────
+# ── Enhancement 5: Versioned KG Mutations (CONCEPT:AU-KG.query.object-graph-mapper) ──────────────────
 
 
 class TestKGVersioning:
-    """Tests for kg_versioning.py — CONCEPT:KG-2.0"""
+    """Tests for kg_versioning.py — CONCEPT:AU-KG.query.object-graph-mapper"""
 
     def test_commit_adds_nodes(self):
         from agent_utilities.knowledge_graph.core.kg_versioning import (
@@ -444,11 +444,11 @@ class TestKGVersioning:
         assert len(engine.history) == 3
 
 
-# ── Enhancement 6: Jailbreak Robustness (CONCEPT:OS-5.1) ────────────────────
+# ── Enhancement 6: Jailbreak Robustness (CONCEPT:AU-OS.config.secrets-authentication) ────────────────────
 
 
 class TestJailbreakPatterns:
-    """Tests for jailbreak patterns in threat_defense_engine.py — CONCEPT:OS-5.1"""
+    """Tests for jailbreak patterns in threat_defense_engine.py — CONCEPT:AU-OS.config.secrets-authentication"""
 
     def test_dan_jailbreak_detection(self):
         from agent_utilities.security.threat_defense_engine import (

@@ -1,4 +1,4 @@
-"""L1 native traversal (CONCEPT:KG-2.7 P1).
+"""L1 native traversal (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1).
 
 Exercises EpistemicGraphBackend's relationship interpreters against an injected
 fake compute graph (no running engine needed): single-hop outbound/inbound,

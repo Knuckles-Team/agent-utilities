@@ -6,7 +6,7 @@
 
 - [x] Design document exists; KG-nearest-concepts table completed.
 - [x] Extension target identified (KG-2.1, similarity 0.86 ≥ 0.70; +KG-2.3 temporal facet).
-- [x] New CONCEPT:KG-2.11 justified as augmentation (valid-time axis + procedural layer).
+- [x] New CONCEPT:AU-KG.temporal.bi-temporal-memory-layers justified as augmentation (valid-time axis + procedural layer).
 - [x] Wire-First confirmed: stamping on the `link_nodes` hot path; as-of via `graph_query`.
 
 ## User Stories

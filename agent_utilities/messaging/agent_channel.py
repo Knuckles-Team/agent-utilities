@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.40 — Session-anchored collections and native invoker↔spawned-agent message channels
+"""CONCEPT:AU-ORCH.session.session-anchored-collections-native — Session-anchored collections and native invoker↔spawned-agent message channels
 
 Built on the engine's native Communication Channels (KG-2.0).
 
@@ -83,7 +83,7 @@ def send(
 ) -> bool:
     """Send a message; returns True on success.
 
-    CONCEPT:ORCH-1.40 (Phase 4) — when ``durable`` is set, dual-write the message as a
+    CONCEPT:AU-ORCH.session.session-anchored-collections-native (Phase 4) — when ``durable`` is set, dual-write the message as a
     ``Session -[:HAS_MESSAGE]-> AgentMessage`` node so the dialogue survives engine restart and
     is replayable via :func:`history` (the live channel is in-RAM; the graph node is the record).
     """
@@ -193,7 +193,7 @@ def send_elicitation(
     sender: str = "agent",
     durable: bool = True,
 ) -> bool:
-    """CONCEPT:ORCH-1.40 (Phase 4) — a spawned agent asks its invoker (→ user) a question.
+    """CONCEPT:AU-ORCH.session.session-anchored-collections-native (Phase 4) — a spawned agent asks its invoker (→ user) a question.
 
     Encodes a tagged JSON payload the invoker recognises on the channel; durable by default so
     the request is not lost if the invoker is not actively polling. Bridge with

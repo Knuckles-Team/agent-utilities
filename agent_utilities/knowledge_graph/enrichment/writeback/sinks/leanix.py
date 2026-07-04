@@ -1,4 +1,4 @@
-"""LeanIX write-back sink (CONCEPT:KG-2.9).
+"""LeanIX write-back sink (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Backfeeds inferred relationships, enrichment, and new fact sheets into LeanIX —
 fail-closed (``LEANIX_ENABLE_WRITE``), dry-run-first, reversible (inferred links

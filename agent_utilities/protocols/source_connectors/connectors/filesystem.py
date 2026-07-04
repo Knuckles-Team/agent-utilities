@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Filesystem document-source connector.
 
-CONCEPT:ECO-4.25 — reference ``Load`` + ``Poll`` + permission-sync connector.
-CONCEPT:ECO-4.26 — incremental poll keyed on a max-mtime watermark.
-CONCEPT:ECO-4.28 — POSIX owner/group → :class:`ExternalAccess`.
+CONCEPT:AU-ECO.connector.document-source-framework — reference ``Load`` + ``Poll`` + permission-sync connector.
+CONCEPT:AU-ECO.connector.incremental-poll-watermark — incremental poll keyed on a max-mtime watermark.
+CONCEPT:AU-ECO.connector.posix-owner-mapping — POSIX owner/group → :class:`ExternalAccess`.
 
 Walks a directory, reading document files into :class:`SourceDocument`s. Reuses
 the ingestion engine's document-extension allow-list and skip-dirs, and the
@@ -46,7 +46,7 @@ def _skip_dirs() -> set[str]:
 class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
     """Ingest document files under a root directory.
 
-    CONCEPT:ECO-4.25.
+    CONCEPT:AU-ECO.connector.document-source-framework.
 
     Config:
         root: Directory to walk (required).
@@ -147,7 +147,7 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Yield only files modified since the watermark; advance it to the new max.
 
-        CONCEPT:ECO-4.26 — the watermark is the max ``st_mtime_ns`` seen so far,
+        CONCEPT:AU-ECO.connector.incremental-poll-watermark — the watermark is the max ``st_mtime_ns`` seen so far,
         so a re-poll over an unchanged tree returns zero documents.
         """
         prior = int(checkpoint.watermark) if checkpoint and checkpoint.watermark else -1

@@ -1,4 +1,4 @@
-"""Unit tests for the EA tool clients (CONCEPT:KG-2.9)."""
+"""Unit tests for the EA tool clients (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

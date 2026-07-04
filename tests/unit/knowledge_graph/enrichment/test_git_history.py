@@ -1,4 +1,4 @@
-"""Git commit-history → KG ingestion (CONCEPT:KG-2.282 / KG-2.283)."""
+"""Git commit-history → KG ingestion (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also / KG-2.283)."""
 
 from __future__ import annotations
 

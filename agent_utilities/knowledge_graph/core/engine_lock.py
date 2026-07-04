@@ -1,6 +1,6 @@
 """Single-instance spawn guard for the local epistemic-graph engine.
 
-CONCEPT:KG-2.8 / OS-5.9 — companion to :mod:`host_lock`. The host-lock elects ONE
+CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9 — companion to :mod:`host_lock`. The host-lock elects ONE
 *daemon* owner; this elects ONE *engine* process per socket path.
 
 Engine autostart (``graph_compute`` connect → ``subprocess.Popen`` of

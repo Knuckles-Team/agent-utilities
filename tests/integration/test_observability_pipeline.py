@@ -1,6 +1,6 @@
 """End-to-End Observability Pipeline Tests.
 
-CONCEPT:OS-5.1 — Observability Pipeline Validation
+CONCEPT:AU-OS.config.secrets-authentication — Observability Pipeline Validation
 
 Tests the full tracing pipeline:
     1. OTel setup via setup_otel()
@@ -60,13 +60,13 @@ class TestOTelPipelineSetup:
     """Tests for the OTel pipeline initialization."""
 
     def test_otel_pipeline_initializes(self, otel_setup):
-        """CONCEPT:OS-5.1 — Pipeline initializes without errors."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Pipeline initializes without errors."""
         report = verify_otel_pipeline()
         assert report["initialized"] is True
         assert report["logfire_available"] is True
 
     def test_otel_endpoint_configured(self, otel_setup):
-        """CONCEPT:OS-5.1 — OTLP endpoint is set."""
+        """CONCEPT:AU-OS.config.secrets-authentication — OTLP endpoint is set."""
         report = verify_otel_pipeline()
         assert report["endpoint"], "OTLP endpoint should be configured"
         assert (
@@ -75,12 +75,12 @@ class TestOTelPipelineSetup:
         )
 
     def test_otel_headers_generated(self, otel_setup):
-        """CONCEPT:OS-5.1 — Auth headers are generated from Langfuse keys."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Auth headers are generated from Langfuse keys."""
         report = verify_otel_pipeline()
         assert report["headers_set"] is True, "OTLP headers should be set"
 
     def test_otel_exporter_reachable(self, otel_setup):
-        """CONCEPT:OS-5.1 — Langfuse OTLP endpoint is reachable."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Langfuse OTLP endpoint is reachable."""
         report = verify_otel_pipeline()
         # The endpoint might not respond to GET, but should not error
         assert (
@@ -88,14 +88,14 @@ class TestOTelPipelineSetup:
         )
 
     def test_otel_status_summary(self, otel_setup):
-        """CONCEPT:OS-5.1 — Status summary is human-readable."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Status summary is human-readable."""
         summary = get_otel_status_summary()
         assert "OTel Pipeline Status" in summary
         assert "Initialized" in summary
         assert "Endpoint" in summary
 
     def test_agents_instrumented(self, otel_setup):
-        """CONCEPT:OS-5.1 — pydantic-ai agents are instrumented."""
+        """CONCEPT:AU-OS.config.secrets-authentication — pydantic-ai agents are instrumented."""
         report = verify_otel_pipeline()
         assert report["agent_instrumented"], (
             "Agents should be instrumented after setup_otel()"
@@ -106,7 +106,7 @@ class TestTracingDecorator:
     """Tests for the @trace decorator with proper nesting."""
 
     def test_trace_decorator_creates_trace(self, otel_setup):
-        """CONCEPT:OS-5.1 — @trace creates Langfuse traces."""
+        """CONCEPT:AU-OS.config.secrets-authentication — @trace creates Langfuse traces."""
         from agent_utilities.harness.tracing import trace
 
         @trace(name="test_sync_function")
@@ -118,7 +118,7 @@ class TestTracingDecorator:
 
     @pytest.mark.asyncio
     async def test_async_trace_decorator(self, otel_setup):
-        """CONCEPT:OS-5.1 — @trace works with async functions."""
+        """CONCEPT:AU-OS.config.secrets-authentication — @trace works with async functions."""
         from agent_utilities.harness.tracing import trace
 
         @trace(name="test_async_function")
@@ -129,7 +129,7 @@ class TestTracingDecorator:
         assert result == 12
 
     def test_trace_nesting(self, otel_setup):
-        """CONCEPT:OS-5.1 — Nested @trace creates parent-child hierarchy."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Nested @trace creates parent-child hierarchy."""
         from agent_utilities.harness.tracing import get_trace_id, trace
 
         outer_trace_id = None
@@ -155,7 +155,7 @@ class TestTracingDecorator:
         assert inner_trace_id == outer_trace_id
 
     def test_session_id_propagation(self, otel_setup):
-        """CONCEPT:OS-5.1 — Session IDs propagate through context."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Session IDs propagate through context."""
         from agent_utilities.harness.tracing import (
             get_session_id,
             set_session_id,
@@ -176,7 +176,7 @@ class TestTracingDecorator:
         assert captured_session == "test-session-123"
 
     def test_trace_disabled_without_keys(self, otel_setup, monkeypatch):
-        """CONCEPT:OS-5.1 — Tracing is no-op without Langfuse keys."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Tracing is no-op without Langfuse keys."""
         monkeypatch.setattr(config, "langfuse_secret_key", None)
 
         from agent_utilities.harness.tracing import trace
@@ -194,7 +194,7 @@ class TestMermaidCapture:
     """Tests for mermaid diagram generation and capture."""
 
     def test_graph_plan_mermaid(self):
-        """CONCEPT:OS-5.1 — GraphPlan generates mermaid diagrams."""
+        """CONCEPT:AU-OS.config.secrets-authentication — GraphPlan generates mermaid diagrams."""
         from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
         plan = GraphPlan(
@@ -223,7 +223,7 @@ class TestMermaidCapture:
         logger.info("Generated mermaid:\n%s", mermaid)
 
     def test_graph_agent_mermaid(self, otel_setup):
-        """CONCEPT:OS-5.1 — Graph agent generates mermaid visualization."""
+        """CONCEPT:AU-OS.config.secrets-authentication — Graph agent generates mermaid visualization."""
         os.environ.setdefault("OPENAI_API_KEY", "test-key")
         os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
@@ -242,7 +242,7 @@ class TestWorkflowStore:
     """Tests for KG-native workflow storage."""
 
     def test_save_and_load_workflow(self, engine):
-        """CONCEPT:ORCH-1.22 — Workflows round-trip through KG."""
+        """CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Workflows round-trip through KG."""
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
         from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
@@ -278,7 +278,7 @@ class TestWorkflowStore:
         assert loaded.steps[1].id == "summarizer"
 
     def test_list_workflows(self, engine):
-        """CONCEPT:ORCH-1.22 — List all stored workflows."""
+        """CONCEPT:AU-ORCH.execution.workflow-persistence-replay — List all stored workflows."""
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
@@ -286,7 +286,7 @@ class TestWorkflowStore:
         assert isinstance(workflows, list)
 
     def test_workflow_mermaid(self, engine):
-        """CONCEPT:ORCH-1.22 — Stored workflows have mermaid diagrams."""
+        """CONCEPT:AU-ORCH.execution.workflow-persistence-replay — Stored workflows have mermaid diagrams."""
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
@@ -301,7 +301,7 @@ class TestWorkflowCompiler:
 
     @pytest.mark.asyncio
     async def test_compile_simple_workflow(self, engine):
-        """CONCEPT:ORCH-1.23 — Compile NL into GraphPlan."""
+        """CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Compile NL into GraphPlan."""
         from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 
         compiler = WorkflowCompiler(engine)
@@ -316,7 +316,7 @@ class TestWorkflowCompiler:
 
     @pytest.mark.asyncio
     async def test_compile_and_store(self, engine):
-        """CONCEPT:ORCH-1.23 — Compile and persist workflow."""
+        """CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Compile and persist workflow."""
         from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 
         compiler = WorkflowCompiler(engine)
@@ -328,7 +328,7 @@ class TestWorkflowCompiler:
 
     @pytest.mark.asyncio
     async def test_compile_parallel_steps(self, engine):
-        """CONCEPT:ORCH-1.23 — Detect parallel execution intent."""
+        """CONCEPT:AU-ORCH.execution.nl-compilation-pipeline — Detect parallel execution intent."""
         from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 
         compiler = WorkflowCompiler(engine)

@@ -1,4 +1,4 @@
-"""Embedding + semantic cross-linking (CONCEPT:KG-2.8 Phase 3).
+"""Embedding + semantic cross-linking (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 3).
 
 Embeds entities into one space and uses the **engine's vector search** (HNSW/
 cosine — the compute layer) to discover cross-category relationships: a paper
@@ -26,7 +26,7 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # big LIST of inputs in ONE ``/v1/embeddings`` POST rather than re-chunking it into
 # tiny sub-requests. This caps a single POST's payload (and is also the value we
 # pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
-# chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:KG-2.280)
+# chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
 
 # Memoized cpu/load-derived embed concurrency (computed once; cheap to reuse).
@@ -40,9 +40,9 @@ def _embed_concurrency() -> int:
     — the same ~36%-of-cores, Pi-OOM-capped budget the ingest pools use) rather than
     inventing a new knob. Embedding is network/GPU-bound (the bge-m3 vLLM endpoint
     services many requests at once), not local-cpu-bound, so we allow ~2× that anchor,
-    capped at 16. The model's *declared* parallel capacity (CONCEPT:KG-2.143) is the
+    capped at 16. The model's *declared* parallel capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing) is the
     floor, so an explicitly-configured higher capacity always wins. Never below 1.
-    (CONCEPT:KG-2.280)
+    (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
     """
     global _EMBED_CONCURRENCY
     if _EMBED_CONCURRENCY is not None:
@@ -55,7 +55,7 @@ def _embed_concurrency() -> int:
         )
 
         declared = max(1, resolve_capacity("embedding"))
-        # CONCEPT:ORCH-1.102 — the embed fan-out is local-cpu-derived (~2× the ingest
+        # CONCEPT:AU-ORCH.dispatch.embedding-fanout — the embed fan-out is local-cpu-derived (~2× the ingest
         # anchor); never let it exceed the embedder SERVER's real capacity ceiling.
         ceiling = max(1, server_ceiling("embedding"))
     except Exception:  # noqa: BLE001 — capacity is best-effort
@@ -77,8 +77,8 @@ def _embed_concurrency() -> int:
 def _joint_budget_cap(model_key: str, concurrency: int) -> int:
     """Bound the embed fan-out by the ACTIVE endpoint's shared-GPU joint budget.
 
-    CONCEPT:KG-2.300 (the fallback's capacity-guard inheritance / OOM-safety) over
-    CONCEPT:KG-2.299 (failover) / KG-2.146 (the budget). The fan-out passes an explicit ``capacity`` to
+    CONCEPT:AU-KG.ingest.keys-off (the fallback's capacity-guard inheritance / OOM-safety) over
+    CONCEPT:AU-KG.enrichment.each-call-resolves-active (failover) / KG-2.146 (the budget). The fan-out passes an explicit ``capacity`` to
     ``map_concurrent_sync`` (the cpu/load-derived :func:`_embed_concurrency` anchor),
     which bypasses ``resolve_capacity`` — and therefore the per-GPU joint budget.
     That is exactly right for the PRIMARY embedder on its own dedicated endpoint
@@ -114,7 +114,7 @@ def _auto_batch(n_texts: int, concurrency: int) -> int:
 
     A single huge batch would serialize the whole job on one POST; tiny batches
     waste round-trips. Aim for ~``concurrency`` chunks, each a big LIST, clamped to
-    ``[32, _EMBED_MAX_BATCH]``. (CONCEPT:KG-2.280)
+    ``[32, _EMBED_MAX_BATCH]``. (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
     """
     if n_texts <= 0:
         return 1
@@ -128,7 +128,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     """Batched + concurrent embedding fn backed by the configured embedder (bge-m3).
 
     Two compounding throughput wins over the historical one-text-per-request loop
-    (CONCEPT:KG-2.280, applying the AGENTS.md *batch-never-per-element* rule to
+    (CONCEPT:AU-KG.ingest.applying-agents-md-batch, applying the AGENTS.md *batch-never-per-element* rule to
     embeddings):
 
     * **BATCH** — every request carries a big LIST of inputs (auto-sized up to
@@ -137,7 +137,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
       re-splitting it into ``DEFAULT_EMBED_BATCH_SIZE`` (=10) sub-POSTs.
     * **CONCURRENCY** — chunks are fanned out CONCURRENTLY up to
       :func:`_embed_concurrency` (cpu/load-derived, ≥ the model's declared
-      capacity) via the shared controller (CONCEPT:KG-2.143), so the ENRICH stage
+      capacity) via the shared controller (CONCEPT:AU-KG.compute.concurrency-controller-sizing), so the ENRICH stage
       is never one-request-in-flight.
 
     ``batch_size`` pins the per-request batch explicitly (mainly for tests);
@@ -146,7 +146,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     same vectors come out in the same order. The fail-loud KG-2.3 contract below is
     unchanged: a missing/unreachable embedder raises rather than returning a stub.
 
-    **Automatic failover (CONCEPT:KG-2.299).** Each call resolves the ACTIVE
+    **Automatic failover (CONCEPT:AU-KG.enrichment.each-call-resolves-active).** Each call resolves the ACTIVE
     embedder endpoint (:func:`active_embedding_endpoint`): the PRIMARY normally, or
     the configured FALLBACK while the primary's circuit breaker is OPEN. The client
     is rebuilt for that endpoint (the cache swaps it, no stale primary client) and
@@ -161,7 +161,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
         from agent_utilities.core.model_concurrency import map_concurrent_sync
 
         def _resolve_active() -> tuple[Any, Any]:
-            """Resolve the ACTIVE endpoint + its cached client (CONCEPT:KG-2.299)."""
+            """Resolve the ACTIVE endpoint + its cached client (CONCEPT:AU-KG.enrichment.each-call-resolves-active)."""
             endpoint = active_embedding_endpoint()
             # Build for the resolved endpoint explicitly so the client matches the
             # capacity-guard key we gate with. The cache keys on the base_url, so
@@ -190,7 +190,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
             if not texts:
                 return []
             # Resolve the ACTIVE endpoint per call so a primary outage fails over —
-            # and recovery routes back — transparently mid-run (CONCEPT:KG-2.299).
+            # and recovery routes back — transparently mid-run (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
             endpoint, model = _resolve_active()
             concurrency = _embed_concurrency()
             concurrency = _joint_budget_cap(endpoint.model_key, concurrency)
@@ -227,7 +227,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
         # so the failure was invisible (embed_calls=0, no real embeddings) instead of
         # loud. Fail loud here; every production caller wraps embedding as best-effort
         # in try/except, so this degrades to "no enrichment edges" — observable and
-        # safe — rather than silent vector-store corruption. (CONCEPT:KG-2.3)
+        # safe — rather than silent vector-store corruption. (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
         logger.error("make_embed_fn unavailable (%s)", e)
         raise RuntimeError(
             f"embedding model unavailable: {e}. The KG embedding plane requires the "
@@ -302,7 +302,7 @@ def link_concepts_to_code(
     # Search a WIDER pool than top_k: vector search mixes all node labels, so
     # Code/Feature candidates can be crowded out of a small top_k by other
     # densely-embedded labels (Skill/Agent/Message). Fetch more, then keep the
-    # best ``top_k`` Code/Feature matches per concept. (CONCEPT:KG-2.8)
+    # best ``top_k`` Code/Feature matches per concept. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     search_k = max(top_k * 6, 30)
     for c, vec in zip(concepts, vecs, strict=False):
         kept = 0

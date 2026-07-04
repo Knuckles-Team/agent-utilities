@@ -1,4 +1,4 @@
-"""BusFederationRelay — cross-hub forwarding for the agent bus (CONCEPT:ECO-4.86).
+"""BusFederationRelay — cross-hub forwarding for the agent bus (CONCEPT:AU-ECO.bus.federation-relay).
 
 Drives two in-process hubs (each its own engine) and asserts forward → apply, idempotent
 dedup, loop-break, and marking-scope, plus the KG-native peer registry helpers.

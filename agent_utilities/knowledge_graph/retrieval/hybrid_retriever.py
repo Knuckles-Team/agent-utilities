@@ -4,7 +4,7 @@ from __future__ import annotations
 """Hybrid Retriever for Knowledge Graph.
 
 Combines semantic vector similarity with topological graph traversal
-and optional backlink-density retrieval weighting (CONCEPT:KG-2.2).
+and optional backlink-density retrieval weighting (CONCEPT:AU-KG.ingest.engineering-rules).
 """
 
 import json
@@ -31,7 +31,7 @@ def _parse_instant(value: Any) -> datetime | None:
     """Coerce a timestamp (ISO string or ``datetime``) to a tz-aware UTC instant.
 
     Returns ``None`` for missing/unparsable values so callers can treat unknown
-    dates as neutral (CONCEPT:KG-2.22 recency, CONCEPT:KG-2.11 bi-temporal).
+    dates as neutral (CONCEPT:EG-KG.compute.rust-native-training-loss recency, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers bi-temporal).
     """
     if value is None:
         return None
@@ -48,9 +48,9 @@ class HybridRetriever:
     """Retrieves relevant subgraph context using Hybrid GraphRAG.
 
     Combines semantic vector similarity, topological graph traversal,
-    backlink-density retrieval weighting (CONCEPT:KG-2.2), positional interaction
-    encodings (CONCEPT:KG-2.4) for inductive hypergraph reasoning, and
-    retrieval quality gating (CONCEPT:KG-2.6) for faithfulness scoring.
+    backlink-density retrieval weighting (CONCEPT:AU-KG.ingest.engineering-rules), positional interaction
+    encodings (CONCEPT:AU-KG.compute.cross-pillar-synergy) for inductive hypergraph reasoning, and
+    retrieval quality gating (CONCEPT:AU-KG.research.research-pipeline-runner) for faithfulness scoring.
 
     When a pack is configured, its ``backlink_boost_strategy``,
     ``backlink_boost_factor``, and ``min_relevance_threshold`` govern
@@ -70,7 +70,7 @@ class HybridRetriever:
         self.engine = engine
         self._schema_pack = schema_pack
 
-        # CONCEPT:KG-2.6 — Reasoning-aware reranking (default ON): reorder an
+        # CONCEPT:AU-KG.research.research-pipeline-runner — Reasoning-aware reranking (default ON): reorder an
         # over-fetched candidate pool by query-relevance before capping to the
         # context window so the most relevant nodes drive context assembly.
         if enable_rerank:
@@ -81,7 +81,7 @@ class HybridRetriever:
             self._reranker = None
         self._rerank_overfetch = 4
 
-        # Backlink boost config from schema pack (CONCEPT:KG-2.2)
+        # Backlink boost config from schema pack (CONCEPT:AU-KG.ingest.engineering-rules)
         if schema_pack:
             self._boost_strategy = schema_pack.backlink_boost_strategy
             self._boost_factor = schema_pack.backlink_boost_factor
@@ -94,14 +94,14 @@ class HybridRetriever:
             self._boost_factor = 0.1
             self._relevance_threshold = 0.6
 
-        # CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs
+        # CONCEPT:AU-KG.compute.cross-pillar-synergy: Inductive Knowledge Hypergraphs
         self._enc_pi = PositionalInteractionEncoder()
 
-        # CONCEPT:KG-2.6: Retrieval Quality Gate
+        # CONCEPT:AU-KG.research.research-pipeline-runner: Retrieval Quality Gate
         self._quality_gate: Any = None  # Lazy-initialized
         self._last_quality_report = None
 
-        # CONCEPT:KG-2.3: Lazy embedding model — defer HTTP connection to first use
+        # CONCEPT:AU-KG.memory.auto-similarity-memory-graph: Lazy embedding model — defer HTTP connection to first use
         # (typed Any to avoid importing the heavy llama_index BaseEmbedding onto the
         # retrieval path — dependency discipline).
         self._embed_model: Any = None
@@ -135,7 +135,7 @@ class HybridRetriever:
         corpus_doc_ids: set[str] | None = None,
         label: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Vector candidates from the engine's native ANN (CONCEPT:KG-2.250).
+        """Vector candidates from the engine's native ANN (CONCEPT:AU-KG.compute.kg-2).
 
         The vector neighbourhood is ALWAYS computed by the engine — never by an
         O(N) Python cosine scan.
@@ -143,7 +143,7 @@ class HybridRetriever:
         * **Composed (unified plan).** When the query is scoped to a node label, the
           arm builds ONE cross-modal unified plan — ``Scan(label) |> Rank(query) |>
           Limit`` — that the engine sequences over a single off-lock snapshot
-          (``query.unified``, CONCEPT:KG-2.208): the vector ``Rank`` leg composes
+          (``query.unified``, CONCEPT:AU-KG.compute.vector): the vector ``Rank`` leg composes
           with the relational ``Scan``/``Filter`` in one costed round-trip. (The
           engine's ``Rank`` is a kNN over the full store intersected with the seeded
           RowSet, so it *requires* a source op — a bare ``Rank`` has no candidate
@@ -178,7 +178,7 @@ class HybridRetriever:
         if not ranked:
             return []
 
-        # Threshold on the engine similarity (CONCEPT:KG-2.6), then hydrate the
+        # Threshold on the engine similarity (CONCEPT:AU-KG.research.research-pipeline-runner), then hydrate the
         # surviving ids to full node dicts in ONE batched property fetch.
         ids = [nid for nid, score in ranked if score > threshold]
         if not ids:
@@ -214,7 +214,7 @@ class HybridRetriever:
         """Return ``(id, score)`` from the engine's vector index — ONE round-trip.
 
         When a ``label`` is given, the ranking is the unified plan
-        ``Scan(label) |> Rank(query) |> Limit`` (CONCEPT:KG-2.208) — the engine
+        ``Scan(label) |> Rank(query) |> Limit`` (CONCEPT:AU-KG.compute.vector) — the engine
         composing the relational seed with the vector ``Rank`` in one costed plan.
         Otherwise it is the engine's native ``semantic_search`` ANN primitive (the
         unseeded full-store kNN). Both read the SAME engine vector index; on any
@@ -257,7 +257,7 @@ class HybridRetriever:
     def _batch_node_properties(self, ids: list[str]) -> dict[str, dict[str, Any]]:
         """Fetch properties for many node ids in ONE engine round-trip.
 
-        Uses the engine's batched ``properties_batch`` (CONCEPT:KG-2.16) when the
+        Uses the engine's batched ``properties_batch`` (CONCEPT:EG-KG.compute.graph-compute-engine) when the
         client exposes it, else the resident GraphComputeEngine projection — never
         N per-id round-trips.
         """
@@ -288,13 +288,13 @@ class HybridRetriever:
     def _compute_positional_interactions(self, pos_a: int, pos_b: int) -> list[float]:
         """Computes the hyperedge interaction embedding for two positions.
 
-        CONCEPT:KG-2.4: Provides the structural vector to match novel relation topologies
+        CONCEPT:AU-KG.compute.cross-pillar-synergy: Provides the structural vector to match novel relation topologies
         by assessing their positional intersections.
         """
         return self._enc_pi.encode_interaction(pos_a, pos_b)
 
     def _backlink_boost(self, node_id: str) -> float:
-        """Compute retrieval boost from inbound edge density (CONCEPT:KG-2.2).
+        """Compute retrieval boost from inbound edge density (CONCEPT:AU-KG.ingest.engineering-rules).
 
         Uses logarithmic scaling to prevent hub nodes from dominating:
         ``boost = 1.0 + factor * log(1 + in_degree)``
@@ -323,10 +323,10 @@ class HybridRetriever:
         return 1.0 + (len(words) * 0.01)
 
     def _recency_boost(self, node: dict[str, Any], as_of: str | None = None) -> float:
-        """Pack-driven temporal recency boost for a node (CONCEPT:KG-2.22).
+        """Pack-driven temporal recency boost for a node (CONCEPT:EG-KG.compute.rust-native-training-loss).
 
         Reads the active pack's :class:`RecencyDecaySpec` for the node's type/label
-        and decays against the node's bi-temporal ``event_time`` (CONCEPT:KG-2.11),
+        and decays against the node's bi-temporal ``event_time`` (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers),
         falling back to ``timestamp``/``created_at``. The boost is always ``>= 1.0``;
         a missing/unparsable date yields a neutral ``1.0`` so unknown-date nodes are
         never penalised. The ``core`` pack (no ``recency_decay``) is a strict no-op.
@@ -354,7 +354,7 @@ class HybridRetriever:
         return 1.0 + spec.coefficient * decay
 
     def _source_trust_boost(self, node: dict[str, Any]) -> float:
-        """Pack-driven source-trust/authority boost for a node (CONCEPT:KG-2.22).
+        """Pack-driven source-trust/authority boost for a node (CONCEPT:EG-KG.compute.rust-native-training-loss).
 
         Looks up the node's source identifier (``source``/``source_id``/``domain``)
         in the active pack's ``source_trust`` table. Unknown source or ``core`` pack
@@ -388,18 +388,18 @@ class HybridRetriever:
             context_window: The maximum number of base nodes to retrieve.
             multi_hop_depth: How many edges out to traverse for context assembly.
             corpus_id: Optional corpus ID to constrain search scope
-                (CONCEPT:KG-2.3 — Fixed Corpus Evaluation Mode).
+                (CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Fixed Corpus Evaluation Mode).
             hard_negatives: Optional set of document IDs to penalize
-                (CONCEPT:KG-2.3 — Hard Negative Mining).
+                (CONCEPT:AU-KG.memory.auto-similarity-memory-graph — Hard Negative Mining).
             as_of: Optional ISO-8601 instant. Pack-driven recency decay is measured
                 relative to this reference time, enabling knowledge-state-as-of-date-D
                 retrieval over bi-temporal ``event_time``. Defaults to now
-                (CONCEPT:KG-2.22, CONCEPT:KG-2.11).
+                (CONCEPT:EG-KG.compute.rust-native-training-loss, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers).
 
         Returns:
             A list of nodes with extended graph context.
         """
-        # Query analysis (CONCEPT:ECO-4.32) — opt-in. Derive a time window
+        # Query analysis (CONCEPT:AU-ECO.connector.apply-any-query-analysis) — opt-in. Derive a time window
         # (``as_of``) and source-type restriction from the natural-language query.
         # Default off so existing callers are unaffected; when on, a derived
         # ``as_of`` only fills an unset one (explicit caller value always wins),
@@ -416,7 +416,7 @@ class HybridRetriever:
             except Exception as e:  # noqa: BLE001 — analysis must never break retrieval
                 logger.debug("query analysis failed: %s", e)
 
-        # Resolve corpus constraint (CONCEPT:KG-2.3)
+        # Resolve corpus constraint (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
         corpus_doc_ids: set[str] | None = None
         if corpus_id:
             try:
@@ -429,7 +429,7 @@ class HybridRetriever:
             except Exception as e:
                 logger.debug("Corpus resolution failed: %s", e)
 
-        # 0. Relational-intent arm (CONCEPT:KG-2.34): deterministic, zero-LLM.
+        # 0. Relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval): deterministic, zero-LLM.
         # Parses "which papers support X" / "what contradicts Y" using the active
         # pack's verb vocabulary and walks typed edges. No-op (empty) for
         # non-relational queries or when the pack declares no relational verbs.
@@ -444,7 +444,7 @@ class HybridRetriever:
             except Exception as e:
                 logger.debug("Relational-intent arm failed: %s", e)
 
-        # 1. Semantic Search (Vector) — ONE engine unified plan (CONCEPT:KG-2.250).
+        # 1. Semantic Search (Vector) — ONE engine unified plan (CONCEPT:AU-KG.compute.kg-2).
         # The vector neighbourhood is computed by the engine's native ANN inside a
         # single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
         # Python cosine scan. There is no SQLite-style fallback: if the engine has
@@ -470,12 +470,12 @@ class HybridRetriever:
                 for node in scored_nodes:
                     node["_score"] *= self._compute_query_weight(query)
 
-                # 1b. Apply backlink-density boost (CONCEPT:KG-2.2)
+                # 1b. Apply backlink-density boost (CONCEPT:AU-KG.ingest.engineering-rules)
                 if self._boost_strategy == "global":
                     for node in scored_nodes:
                         node["_score"] *= self._backlink_boost(node["id"])
 
-                # 1b'. Pack-driven retrieval signals (CONCEPT:KG-2.22):
+                # 1b'. Pack-driven retrieval signals (CONCEPT:EG-KG.compute.rust-native-training-loss):
                 # temporal recency decay + source-trust authority weighting. Both
                 # are no-ops under the default ``core`` pack (empty config).
                 if self._schema_pack and (
@@ -532,7 +532,7 @@ class HybridRetriever:
                     except Exception as e:
                         logger.debug("Active task boost computation failed: %s", e)
 
-                # Apply hard negative penalties (CONCEPT:KG-2.3)
+                # Apply hard negative penalties (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
                 if hard_negatives:
                     for node in scored_nodes:
                         if node.get("id") in hard_negatives:
@@ -559,7 +559,7 @@ class HybridRetriever:
             # Fallback to keyword search
             base_nodes = self.engine._search_keyword(query, top_k=context_window)
 
-        # 1d. Merge the relational-intent arm (CONCEPT:KG-2.34) additively: typed-edge
+        # 1d. Merge the relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval) additively: typed-edge
         # hits are prepended (high priority) without displacing the vector arm, so
         # recall never regresses. De-duplicate by node id, keeping the first seen.
         if relational_nodes:
@@ -569,7 +569,7 @@ class HybridRetriever:
             ]
 
         # 1e. Autocut: trim the long tail at the largest relative score drop. Gated
-        # by the active pack; recall-safe — never trims < min (CONCEPT:KG-2.22).
+        # by the active pack; recall-safe — never trims < min (CONCEPT:EG-KG.compute.rust-native-training-loss).
         if self._schema_pack and self._schema_pack.autocut_enabled and base_nodes:
             from .autocut import autocut
 
@@ -602,7 +602,7 @@ class HybridRetriever:
                         continue
                     m = n_row.get("m")
                     if m and isinstance(m, dict) and m.get("id") not in visited:
-                        # Apply backlink boost during context assembly (CONCEPT:KG-2.2)
+                        # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
                         if self._boost_strategy == "context_only":
                             m_id = m.get("id", "")
                             boost = self._backlink_boost(m_id)
@@ -665,7 +665,7 @@ class HybridRetriever:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
 
-        # CONCEPT:ECO-4.32 — apply any query-analysis source-type restriction to
+        # CONCEPT:AU-ECO.connector.apply-any-query-analysis — apply any query-analysis source-type restriction to
         # the assembled result (no-op when query_analysis is off / no types).
         def _qa(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if not qa_source_types:
@@ -674,7 +674,7 @@ class HybridRetriever:
 
             return filter_nodes_by_source(nodes, qa_source_types)
 
-        # CONCEPT:KG-2.6 — Assess retrieval quality
+        # CONCEPT:AU-KG.research.research-pipeline-runner — Assess retrieval quality
         if skip_quality_gate:
             return _qa(assembled_subgraph)
 
@@ -693,7 +693,7 @@ class HybridRetriever:
             self._last_quality_report = report
             if not report.gate_passed:
                 logger.warning(
-                    "[CONCEPT:KG-2.6] Retrieval quality gate failed: %s",
+                    "[CONCEPT:AU-KG.research.research-pipeline-runner] Retrieval quality gate failed: %s",
                     [m.value for m in report.failure_modes_detected],
                 )
             return _qa(filtered if report.gate_passed else assembled_subgraph)
@@ -711,7 +711,7 @@ class HybridRetriever:
         """Reasoning-aware rerank of the candidate pool, capped to the window.
 
         Over-fetches ``context_window * _rerank_overfetch`` vector-ranked
-        candidates, reorders them by blended query-relevance (CONCEPT:KG-2.6),
+        candidates, reorders them by blended query-relevance (CONCEPT:AU-KG.research.research-pipeline-runner),
         and returns the top ``context_window``. With reranking disabled this is
         the plain vector-order top-``context_window`` slice — identical to the
         prior behaviour.
@@ -743,7 +743,7 @@ class HybridRetriever:
         labels: tuple[str, ...] = ("Article", "Code", "Concept", "KBFact", "KBConcept"),
         limit_per_label: int = 500,
     ) -> Any:
-        """Direct Corpus Interaction — literal/term search over node text (CONCEPT:KG-2.12).
+        """Direct Corpus Interaction — literal/term search over node text (CONCEPT:AU-KG.retrieval.memory-first-retrieval).
 
         A precise, auditable retrieval mode that greps document text directly
         instead of dense-vector similarity, returning ranked hits with line-level
@@ -785,7 +785,7 @@ class HybridRetriever:
         token_budget: int | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """``retrieve_hybrid`` capped to a context-token budget (CONCEPT:KG-2.1).
+        """``retrieve_hybrid`` capped to a context-token budget (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         Retrieves as usual, then keeps the highest-ranked nodes that fit within
         ``token_budget`` (no budget → unchanged). This is the retrieval-side fix
@@ -808,7 +808,7 @@ class HybridRetriever:
         answer_fn: Any = None,
         use_planner: bool = False,
     ) -> Any:
-        """Executable multi-hop RAG over retrieve()/answer() steps (CONCEPT:KG-2.12).
+        """Executable multi-hop RAG over retrieve()/answer() steps (CONCEPT:AU-KG.retrieval.memory-first-retrieval).
 
         Runs a deterministic program that dispatches each retrieve step to a mode
         — ``vector`` (``retrieve_hybrid``) or ``grep`` (``direct_search``) — with
@@ -871,7 +871,7 @@ class HybridRetriever:
 
         Returns a list of :class:`~.executable_rag.PlanStep`. Always succeeds — a
         planner/LLM failure degrades to :func:`~.executable_rag.build_linear_plan`
-        through :func:`~.executable_rag.parse_executable_plan` (CONCEPT:KG-2.12).
+        through :func:`~.executable_rag.parse_executable_plan` (CONCEPT:AU-KG.retrieval.memory-first-retrieval).
         """
         from .executable_rag import parse_executable_plan
 
@@ -912,7 +912,7 @@ class HybridRetriever:
         hard_negatives: set[str] | None = None,
         active_task: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve using decomposed subqueries (CONCEPT:AHE-3.4)."""
+        """Retrieve using decomposed subqueries (CONCEPT:AU-AHE.evaluation.backtest-harness)."""
         subqueries = self._decompose_query(query, max_subtasks=max_subtasks)
 
         # If it didn't decompose, just run normal retrieval
@@ -952,7 +952,7 @@ class HybridRetriever:
         return all_nodes[:context_window]
 
     def _decompose_query(self, query: str, max_subtasks: int = 3) -> list[str]:
-        """Decompose a complex query into sub-queries for targeted retrieval (CONCEPT:AHE-3.4)."""
+        """Decompose a complex query into sub-queries for targeted retrieval (CONCEPT:AU-AHE.evaluation.backtest-harness)."""
         try:
             model = create_model()
             agent = Agent(
@@ -979,7 +979,7 @@ class HybridRetriever:
             logger.warning(f"Query decomposition failed: {e}")
             return [query]
 
-    # ── CONCEPT:KG-2.12 — Memory-First Retrieval ──────────────────────────────────
+    # ── CONCEPT:AU-KG.retrieval.memory-first-retrieval — Memory-First Retrieval ──────────────────────────────────
 
     def _generate_hyde_plan(self, query: str, mode_hint: str | None = None):
         """Generate a structured HyDE retrieval plan via the ORCH-1.27 ``planner`` role.
@@ -1020,7 +1020,7 @@ class HybridRetriever:
     ) -> list[dict[str, Any]] | dict[str, Any]:
         """Memory-first retrieval: HyDE plan → dual-threshold multi-query → gated 2nd pass.
 
-        CONCEPT:KG-2.12. Assimilates Quarq's retrieval policy (agent-oss/agent.py:1817-2825):
+        CONCEPT:AU-KG.retrieval.memory-first-retrieval. Assimilates Quarq's retrieval policy (agent-oss/agent.py:1817-2825):
 
         - ``mode="standard"|"deep"``: a single ``retrieve_hybrid`` at the matching threshold
           (0.38 / 0.28) — Quarq's dual-threshold behavior.
@@ -1043,7 +1043,7 @@ class HybridRetriever:
             threshold_for_mode,
         )
 
-        # CONCEPT:KG-2.15 — social-closer gate: trivial turns skip the planner + retrieval entirely.
+        # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
         if is_trivial_query(query):
             empty: list[dict[str, Any]] = []
             if with_ledger:
@@ -1095,14 +1095,14 @@ class HybridRetriever:
             ]
             nodes = merge_retrievals([nodes, *second_lists], context_window)
 
-        # CONCEPT:KG-2.15 — 4-level fallback cascade: hybrid (above) → dense-only is already
+        # CONCEPT:AU-KG.retrieval.triviality-gate — 4-level fallback cascade: hybrid (above) → dense-only is already
         # inside retrieve_hybrid → lexical keyword scan → backend scan. If the vector path yielded
         # nothing (e.g. embeddings/HNSW unavailable or offline), degrade to a lexical fallback so a
         # query always returns *something* instead of an empty result.
         if not nodes:
             nodes = self._lexical_fallback(query, context_window, corpus_id=corpus_id)
 
-        # CONCEPT:KG-2.18 — record that these memories were RECALLED, on the live retrieval path.
+        # CONCEPT:AU-KG.retrieval.recall-feedback — record that these memories were RECALLED, on the live retrieval path.
         # The usage half (which recalled nodes actually informed the answer) is closed by the
         # generation step via record_answer_usage(); trust is then trained from the two counts.
         self.usage_telemetry.record_recall(
@@ -1147,7 +1147,7 @@ class HybridRetriever:
     def _lexical_fallback(
         self, query: str, context_window: int, *, corpus_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """Keyword/lexical fallback when the vector path returns nothing (CONCEPT:KG-2.15).
+        """Keyword/lexical fallback when the vector path returns nothing (CONCEPT:AU-KG.retrieval.triviality-gate).
 
         Degradation tiers 3-4 of the cascade: a backend ``CONTAINS`` scan over node content/name
         for the query's distinctive tokens. Returns [] if no backend is available (tier-4 no-op).

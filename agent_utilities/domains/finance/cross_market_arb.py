@@ -1,5 +1,5 @@
 """
-Cross-Market Statistical Arbitrage (CONCEPT:KG-2.6).
+Cross-Market Statistical Arbitrage (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Contains cointegration models, Ornstein-Uhlenbeck parameter estimation,
 and optimal execution threshold derivation for predicting cross-platform spreads.
@@ -142,7 +142,7 @@ class OrnsteinUhlenbeckModel:
 
 class CostAwareThresholdFilter:
     """
-    Cost-Aware Edge Thresholding — CONCEPT:KG-2.6
+    Cost-Aware Edge Thresholding — CONCEPT:AU-KG.research.research-pipeline-runner
     Ensures that an arbitrage signal strictly outpaces the cost of doing business
     (taker fees + slippage + model error) before entering a trade.
     """
@@ -161,7 +161,7 @@ class CostAwareThresholdFilter:
 
 class EventArbitrageEngine:
     """
-    Dual-Platform Event Arbitrage Scanner — CONCEPT:KG-2.6
+    Dual-Platform Event Arbitrage Scanner — CONCEPT:AU-KG.research.research-pipeline-runner
     Evaluates identical event probabilities across two distinct venues against
     a single deterministic model baseline (e.g. Polymarket vs Kalshi vs Open-Meteo).
     """

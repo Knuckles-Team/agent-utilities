@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum.
+"""Tests for CONCEPT:AU-AHE.evaluation.backtest-harness — Horizon-Aware Task Curriculum.
 
 Validates macro-action composition, progressive horizon scheduling,
 promotion policies, and curriculum state management.

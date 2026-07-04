@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Source-partitioned named-graph routing for SPARQL triple stores.
 
-CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction.
+CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction.
 
 A SPARQL store can hold many *named graphs*. When KG instance data lands in a
 triplestore (Stardog), partitioning it by the **source system** it came from

@@ -1,6 +1,6 @@
 """Workflow Visualizer — Programmatically generate beautiful Mermaid diagrams of parallel workflows.
 
-CONCEPT:ORCH-1.8 — Parallel Engine Visualizer
+CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine Visualizer
 """
 
 from __future__ import annotations

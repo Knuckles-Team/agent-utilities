@@ -1,12 +1,12 @@
 # Registry Hot Cache
 
-> **CONCEPT:ORCH-1.2** — Session-Scoped Registry Optimization
+> **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation** — Session-Scoped Registry Optimization
 
 This document provides a focused deep-dive into the Registry Hot Cache layer, the performance architecture that eliminates redundant specialist lookups and reduces prompt bloat.
 
 ## Motivation
 
-In a system with 30+ MCP servers, each contributing 5-15 tools, the specialist registry can contain 50+ entries. Before CONCEPT:ORCH-1.2, **every routing call** performed:
+In a system with 30+ MCP servers, each contributing 5-15 tools, the specialist registry can contain 50+ entries. Before CONCEPT:AU-ORCH.adapter.hot-cache-invalidation, **every routing call** performed:
 
 1. A full Cypher query against the Knowledge Graph to fetch all specialists
 2. Serialization of all specialist descriptions into the LLM prompt
@@ -67,8 +67,8 @@ The cache uses an **event-driven invalidation** model — it is never TTL-based.
 ```mermaid
 graph TD
     subgraph Triggers ["Invalidation Event Sources"]
-        MCP["ECO-4.6: POST /mcp/reload\n(New tools discovered)"]
-        Pipeline["ECO-4.6: Pipeline Completion\n(Code graph changed)"]
+        MCP["AU-ECO.mcp.toolkit-live-discovery: POST /mcp/reload\n(New tools discovered)"]
+        Pipeline["AU-ECO.mcp.toolkit-live-discovery: Pipeline Completion\n(Code graph changed)"]
         SelfModel["AHE-3.3: SelfModel.update_after_session()\n(New proficiency data)"]
         TeamConfig["AHE-3.3: promote_coalition_to_template()\n(New team template)"]
     end
@@ -126,6 +126,6 @@ The cache integrates at these specific locations in the codebase:
 
 ## Related Documentation
 
-- [First Principles Architecture](first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview
+- [First Principles Architecture](first-principles.md) — Complete CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction overview
 - [Architecture](architecture.md) — Full system architecture
 - [Emergent Architecture](emergent-architecture.md) — Self-Model and Workspace Attention

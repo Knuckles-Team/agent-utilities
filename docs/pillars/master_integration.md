@@ -29,8 +29,8 @@ graph TD
         ORCH13("ORCH-1.3: Execution Safety & State")
         ORCH14("ORCH-1.4: Capability Wiring Engine")
         ORCH15("ORCH-1.0: Agent Orchestrator 🔬")
-        ORCH16("ORCH-1.5: DSTDD Pipeline")
-        ORCH17("ORCH-1.6: Prediction Linkage Layer 🔬")
+        ORCH16("AU-ORCH.planning.legal-automation-roadmap: DSTDD Pipeline")
+        ORCH17("AU-ORCH.planning.spec-driven-pipeline: Prediction Linkage Layer 🔬")
 
         ORCH10 --> ORCH11
         ORCH11 --> ORCH15
@@ -70,9 +70,9 @@ graph TD
         AHE32("AHE-3.2: Agentic Evolution Engine")
         AHE33("AHE-3.3: Team & Synergy Optimization")
         AHE34("AHE-3.4: Distributed Agentic Evolution")
-        AHE35("AHE-3.5: Heavy Thinking & Background Intelligence")
-        AHE36("AHE-3.6: Backtest & Curriculum")
-        AHE37("AHE-3.7: KG-Native Task Detection")
+        AHE35("AU-AHE.harness.self-evolution-narrative: Heavy Thinking & Background Intelligence")
+        AHE36("AU-AHE.harness.evolution-checkpoint: Backtest & Curriculum")
+        AHE37("AU-AHE.harness.concept-2: KG-Native Task Detection")
 
         AHE30 --> AHE31
         AHE31 --> AHE32
@@ -87,11 +87,11 @@ graph TD
         direction TB
         ECO40("ECO-4.0: Tool Interface & MCP Factory")
         ECO41("ECO-4.1: A2A Network & Consensus 🔬")
-        ECO42("ECO-4.2: Community Telemetry & Ecosystem Map")
-        ECO43("ECO-4.3: Market Data KG Node Models")
-        ECO44("ECO-4.4: KG MCP Server & Execution")
-        ECO410("ECO-4.6: Agent Toolkit Ingestor")
-        ECO411("ECO-4.6: MCP Live Discovery")
+        ECO42("AU-ECO.toolkit.journey-map-narrative: Community Telemetry & Ecosystem Map")
+        ECO43("AU-ECO.ui.company-infrastructure-orchestration: Market Data KG Node Models")
+        ECO44("AU-ECO.toolkit.journey-map-adoption: KG MCP Server & Execution")
+        ECO410("AU-ECO.mcp.toolkit-live-discovery: Agent Toolkit Ingestor")
+        ECO411("AU-ECO.mcp.toolkit-live-discovery: MCP Live Discovery")
 
         ECO40 --> ECO411
         ECO410 --> ECO40
@@ -104,8 +104,8 @@ graph TD
         OS50("OS-5.0: Agent OS Kernel & XDG Paths")
         OS51("OS-5.1: Security & Auth")
         OS52("OS-5.2: Resource Scheduling 🔬")
-        OS53("OS-5.3: Guardrails & Safety")
-        OS54("OS-5.4: Telemetry & Observability")
+        OS53("AU-OS.governance.reactive-multi-axis-budget: Guardrails & Safety")
+        OS54("AU-OS.governance.wasm-micro-agent-sandbox: Telemetry & Observability")
 
         OS50 --> OS51
         OS51 --> OS53
@@ -155,18 +155,18 @@ graph TD
 To achieve maximum system stability and clean 1:1:1 traceability, the legacy conceptual layout was pruned and synthesized down to a compact concept set:
 * **Legacy ORCH Consolidation**:
   * `ORCH-1.0` -> Merged into `ORCH-1.3` (Execution Safety & State).
-  * `ORCH-1.5` -> Merged into `ORCH-1.0` (Agent Orchestrator).
+  * `AU-ORCH.planning.legal-automation-roadmap` -> Merged into `ORCH-1.0` (Agent Orchestrator).
   * `ORCH-1.14` & `ORCH-1.17` -> Merged into `ORCH-1.2` (Specialist Routing & Discovery).
   * `ORCH-1.15` & `ORCH-1.16` -> Merged into `ORCH-1.1` (HTN Planning Pipeline).
-  * `ORCH-1.18`, `ORCH-1.19`, `ORCH-1.20` -> Merged into `ORCH-1.4` (Capability Wiring Engine).
+  * `ORCH-1.18`, `ORCH-1.19`, `AU-ORCH.execution.service-registry-initialization` -> Merged into `ORCH-1.4` (Capability Wiring Engine).
 * **Legacy KG Consolidation**:
   * `KG-2.7` (External Graph Federation) -> Eliminated due to collision with multi-domain structure.
   * `KG-2.3` (Dynamic AR-Graph) -> Merged into `KG-2.2` (Ontology & Epistemics).
   * `KG-2.6` (Time-Series Weighted Graph) -> Merged into `KG-2.6` (Domain: Finance).
 * **Legacy AHE Consolidation**:
   * `AHE-3.4` (Distributed Agentic Evolution) -> Merged into `AHE-3.2` (Agentic Evolution Engine).
-  * `AHE-3.7` (Distributed Agent State Manager) -> Displaced by `ORCH-1.3` (Execution Safety & State).
+  * `AU-AHE.harness.concept-2` (Distributed Agent State Manager) -> Displaced by `ORCH-1.3` (Execution Safety & State).
 * **Legacy ECO Consolidation**:
-  * `ECO-4.5` (Terminal Agent Launcher) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
-  * `ECO-4.6` (Agent Hook Installer) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
-  * `ECO-4.7`, `ECO-4.8`, `ECO-4.9` (Quant ecosystem) -> Synthesized into `ECO-4.3` (Market Data Connectors).
+  * `AU-ECO.toolkit.journey-map-milestones` (Terminal Agent Launcher) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
+  * `AU-ECO.mcp.toolkit-live-discovery` (Agent Hook Installer) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
+  * `AU-OS.deployment.infra-orchestration`, `AU-OS.deployment.blueprint-library`, `AU-ECO.bus.pluggable-queue-backend` (Quant ecosystem) -> Synthesized into `AU-ECO.ui.company-infrastructure-orchestration` (Market Data Connectors).

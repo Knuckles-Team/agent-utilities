@@ -1,4 +1,4 @@
-"""Unit tests for the Stardog SPARQL DATA backend (CONCEPT:KG-2.7).
+"""Unit tests for the Stardog SPARQL DATA backend (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Mocks pystardog so we assert the Cypher→SPARQL write translation, named-graph
 routing, and native passthrough without a live server. The complement to the live

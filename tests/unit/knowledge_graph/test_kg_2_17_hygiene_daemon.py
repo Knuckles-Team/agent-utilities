@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.17 — hygiene registered as a recurring maintenance daemon job.
+"""CONCEPT:EG-KG.compute.compiled-semantic-reasoner — hygiene registered as a recurring maintenance daemon job.
 
 Verifies the hygiene tick is in the consolidated maintenance-job registry and that
 the tick runs without raising. The per-daemon ``KG_HYGIENE_DAEMON`` toggle was
@@ -35,7 +35,7 @@ def _maint_specs():
     return {s.name: s for s in _se._load_all(inst)}
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_hygiene_job_registered_by_default(monkeypatch):
     monkeypatch.delenv("KG_DEV_MODE", raising=False)
     # hygiene is now a durable :Schedule the unified scheduler enqueues (OS-5.44).
@@ -45,7 +45,7 @@ def test_hygiene_job_registered_by_default(monkeypatch):
     assert spec.interval_s == 86400.0
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_all_maintenance_daemons_disabled_via_dev_mode(monkeypatch):
     # KG_HYGIENE_DAEMON (and every other per-daemon KG_*_DAEMON toggle) was
     # collapsed into one KG_DEV_MODE switch. The registry still lists hygiene —
@@ -60,7 +60,7 @@ def test_all_maintenance_daemons_disabled_via_dev_mode(monkeypatch):
     assert _kg_dev_mode() is False
 
 
-@pytest.mark.concept(id="KG-2.17")
+@pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_tick_hygiene_runs_without_raising():
     inst = _bare_mixin()
 

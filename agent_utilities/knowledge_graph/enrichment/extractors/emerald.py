@@ -1,4 +1,4 @@
-"""Emerald-Exchange source extractor (CONCEPT:KG-2.9).
+"""Emerald-Exchange source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Reads the trading account state from an Emerald exchange backend into canonical
 quant OWL nodes: account → :Account, a synthetic :Portfolio, open positions →

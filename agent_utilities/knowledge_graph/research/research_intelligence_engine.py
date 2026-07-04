@@ -1,6 +1,6 @@
 """Research Intelligence Engine — Synthesized Research Facade.
 
-CONCEPT:KG-2.6/2.33/2.39 — Research Intelligence Engine
+CONCEPT:AU-KG.research.research-pipeline-runner/2.33/2.39 — Research Intelligence Engine
 
 Provides a single entry point for all research intelligence capabilities:
 - Automated paper discovery and ingestion pipeline (KG-2.7)
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ResearchIntelligenceEngine:
     """Synthesized research intelligence engine.
 
-    CONCEPT:KG-2.6/2.33/2.39 — Research Intelligence Engine
+    CONCEPT:AU-KG.research.research-pipeline-runner/2.33/2.39 — Research Intelligence Engine
 
     Unifies paper discovery, citation traversal, and research-to-KG
     orchestration into a single facade.
@@ -209,7 +209,7 @@ class ResearchIntelligenceEngine:
         synthesize: bool,
         focus_query: str = "",
     ) -> dict[str, Any]:
-        """Run the single canonical research-intelligence cycle (CONCEPT:KG-2.77).
+        """Run the single canonical research-intelligence cycle (CONCEPT:AU-KG.research.research-intelligence-loop).
 
         The golden loop IS the research-pipeline runner: its intake stage discovers
         + ingests + LLM-extracts papers, and its assimilate stage matches them
@@ -245,7 +245,7 @@ class ResearchIntelligenceEngine:
         """Execute the unified research-to-KG cycle (intake → match → synthesize).
 
         A non-empty ``query`` biases intake toward that focus topic. Delegates to
-        the single canonical cycle (CONCEPT:KG-2.77).
+        the single canonical cycle (CONCEPT:AU-KG.research.research-intelligence-loop).
         """
         return await self._run_unified_cycle(papers, synthesize=True, focus_query=query)
 
@@ -255,7 +255,7 @@ class ResearchIntelligenceEngine:
     ) -> Any:
         """Execute the unified cycle's intake + matcher (no synthesis).
 
-        Delegates to the single canonical cycle (CONCEPT:KG-2.77).
+        Delegates to the single canonical cycle (CONCEPT:AU-KG.research.research-intelligence-loop).
         """
         return await self._run_unified_cycle(papers, synthesize=False)
 

@@ -1,5 +1,5 @@
 """
-Tests for JupyterKernelAdapter and SandboxExecutor (CONCEPT:ECO-4.0).
+Tests for JupyterKernelAdapter and SandboxExecutor (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 """
 
 from agent_utilities.tools.jupyter_adapter import JupyterKernelAdapter

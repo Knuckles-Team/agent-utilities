@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.32 — Multi-Market Composite Backtester.
+"""Tests for CONCEPT:AU-KG.domains.multi-market-composite-backtester — Multi-Market Composite Backtester.
 
 Known-value assertions on the path-dependent simulation, an explicit
 no-look-ahead test (a signal on the *final* bar must never affect P&L), and a

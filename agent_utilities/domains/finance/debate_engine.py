@@ -1,5 +1,5 @@
 """
-Debate Engine — CONCEPT:KG-2.6
+Debate Engine — CONCEPT:AU-KG.research.research-pipeline-runner
 Orchestrates multi-round Bull vs Bear structured debate for financial assets.
 Inspired by TradingAgents (arxiv:2412.20138).
 """
@@ -91,7 +91,7 @@ class DebateEngine:
     ``agent_utilities/prompts``), each side speaks in that investor's actual
     voice — e.g. Buffett (value) vs Burry (forensic) — by loading the persona's
     identity + core directive as the system prompt. Otherwise generic Bull/Bear
-    voices are used, so existing callers are unaffected. CONCEPT:KG-2.6
+    voices are used, so existing callers are unaffected. CONCEPT:AU-KG.research.research-pipeline-runner
     """
 
     def __init__(

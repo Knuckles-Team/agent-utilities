@@ -1,4 +1,4 @@
-"""L1 backend support for the resolved code graph (CONCEPT:KG-2.9g).
+"""L1 backend support for the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 
 Exercises EpistemicGraphBackend against an injected mutable fake compute graph
 (no running engine): UNWIND-batch writes actually PERSIST, the MERGE label is

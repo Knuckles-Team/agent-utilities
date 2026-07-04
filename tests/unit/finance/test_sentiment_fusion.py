@@ -1,4 +1,4 @@
-"""Sentiment Fusion tests — CONCEPT:KG-2.29.
+"""Sentiment Fusion tests — CONCEPT:AU-KG.domains.sentiment-fusion-signals.
 
 Lexicon scoring, credibility-weighted fusion, KG provenance seeding, and a
 LIVE-PATH wiring test proving the fused sentiment reaches both the swarm
@@ -45,7 +45,7 @@ class _FakeBackend:
 
     # The KG persist path now writes via the materialization core's UNWIND
     # MERGE batches (write_batch -> write_entities -> execute_batch,
-    # CONCEPT:KG-2.9), so decode those into the same (id, type, props) /
+    # CONCEPT:AU-KG.ingest.enterprise-source-extractor), so decode those into the same (id, type, props) /
     # (src, tgt, rel) shape the assertions inspect.
     def execute(self, query, params=None):
         return []  # content-hash prefetch -> nothing stored -> full write
@@ -218,5 +218,5 @@ def test_ingest_and_fuse_persists_when_backend_present():
     backend = _FakeBackend()
     fused, signal = ingest_and_fuse(obs, entity="ACME", backend=backend)
     assert backend.nodes  # facts were written
-    assert signal.metadata["concept"] == "KG-2.29"
+    assert signal.metadata["concept"] == "AU-KG.domains.sentiment-fusion-signals"
     assert fused.fused_score == pytest.approx(0.5, abs=0.5)

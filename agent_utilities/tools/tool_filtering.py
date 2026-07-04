@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Tool Filtering Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module provides utility functions for filtering skills and MCP tools based
 on tags, categories, and frontmatter metadata. It supports dynamic discovery

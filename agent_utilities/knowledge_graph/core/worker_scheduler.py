@@ -1,4 +1,4 @@
-"""Reserved-worker fair admission scheduler (CONCEPT:ORCH-1.81).
+"""Reserved-worker fair admission scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
 The KG ingest worker pool drains ONE shared queue partitioned into functional
 *lanes* (see :mod:`.task_lanes`). The existing two-level rotation in
@@ -56,12 +56,12 @@ __all__ = [
     "set_engine_shard_writers",
 ]
 
-# CONCEPT:KG-2.279 - Floor the codebase admission cap at the engine's durable K-way redb shard-writer width so concurrent cross-graph ingests fan across all K shard writers instead of the derived one-to-three that leaves most writers idle
+# CONCEPT:AU-KG.ingest.floor-codebase-admission-cap - Floor the codebase admission cap at the engine's durable K-way redb shard-writer width so concurrent cross-graph ingests fan across all K shard writers instead of the derived one-to-three that leaves most writers idle
 
 # The heavy task type that must never be allowed to occupy the whole pool.
 HEAVY_TYPE = "codebase"
 
-# CONCEPT:KG-2.281 — the ENGINE's real shard-writer width, resolved once from the
+# CONCEPT:AU-KG.compute.resolve — the ENGINE's real shard-writer width, resolved once from the
 # live engine and cached. In split-storage the engine is REMOTE (e.g. R510, K=4
 # from its 8 cpus) while the scheduling host is a DIFFERENT box (e.g. RW710, 16
 # cpus → the cpu-derived estimate would say 8, over-admitting against an engine
@@ -73,7 +73,7 @@ _ENGINE_SHARD_LOCK = threading.Lock()
 
 
 def set_engine_shard_writers(k: int | None) -> None:
-    """Seed/override the cached engine shard-writer width (CONCEPT:KG-2.281).
+    """Seed/override the cached engine shard-writer width (CONCEPT:AU-KG.compute.resolve).
 
     Callers that already know the engine's K (e.g. a daemon that just queried it)
     use this so :func:`durable_shard_writers` returns the authoritative value with
@@ -90,7 +90,7 @@ def resolve_engine_shard_writers(engine: Any) -> int | None:
     The engine's rebalance planner reports one entry per shard ("all K shards
     represented incl. empties"), so ``len(rebalance_plan()["shards"]) == K`` — the
     authoritative width straight from the process that owns the redb backend
-    (CONCEPT:KG-2.281). Accepts a ``GraphComputeEngine``, a backend wrapping one
+    (CONCEPT:AU-KG.compute.resolve). Accepts a ``GraphComputeEngine``, a backend wrapping one
     (``._graph``/``.graph``), or a raw sync client. Cached on success; returns the
     cached value on later calls and ``None`` when the engine can't answer (non-redb
     build, unreachable, older engine) so the caller degrades to the cpu/env estimate.
@@ -137,11 +137,11 @@ def _resolve_sync_client(engine: Any) -> Any:
 
 
 def durable_shard_writers() -> int:
-    """The engine's durable K-way redb shard-writer width (CONCEPT:KG-2.279/2.281).
+    """The engine's durable K-way redb shard-writer width (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap/2.281).
 
     Resolution order, most-authoritative first:
 
-    1. The width resolved from the live ENGINE and cached (CONCEPT:KG-2.281) — the
+    1. The width resolved from the live ENGINE and cached (CONCEPT:AU-KG.compute.resolve) — the
        ground truth in split-storage, where the engine is a remote box with a
        different cpu count than this scheduling host. Seeded via
        :func:`set_engine_shard_writers` / :func:`resolve_engine_shard_writers`.
@@ -151,7 +151,7 @@ def durable_shard_writers() -> int:
        auto-size — the safe fallback when the engine hasn't been queried yet.
 
     Each codebase ingest routes its structural writes to a per-repo graph
-    (``code:<repo>``, CONCEPT:KG-2.269) that hashes to ONE of these K shard writers;
+    (``code:<repo>``, CONCEPT:AU-KG.ingest.unified-query-routing) that hashes to ONE of these K shard writers;
     so K concurrent codebase ingests spread across K *independent* writer threads.
     The codebase admission cap uses this as a FLOOR so it never throttles
     durable-write concurrency below the substrate's own width (the submission-side
@@ -179,7 +179,7 @@ def durable_shard_writers() -> int:
 
 @dataclass(frozen=True)
 class SchedulerConfig:
-    """Tunable reservation/cap knobs (CONCEPT:ORCH-1.81).
+    """Tunable reservation/cap knobs (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
     ``worker_count`` is the size of the pool the policy reasons about.
     ``reserved`` is the hot-spare count. ``per_lane_min`` is the minimum number of
@@ -195,7 +195,7 @@ class SchedulerConfig:
 
 
 def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
-    """Build a :class:`SchedulerConfig` from env knobs (CONCEPT:ORCH-1.81).
+    """Build a :class:`SchedulerConfig` from env knobs (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
     * ``KG_SCHED_RESERVED`` (default ``1``) — hot-spare worker count.
     * ``KG_SCHED_PER_LANE_MIN`` (default ``1``) — per-lane minimum coverage.
@@ -238,7 +238,7 @@ def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
 
 @dataclass
 class WorkerRegistry:
-    """Live registry of what each worker is processing (CONCEPT:ORCH-1.81).
+    """Live registry of what each worker is processing (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
     Thread-safe. Workers ``start`` a claim (stamping their lane/type), and
     ``finish`` on ack/fail (clearing it). A worker not present, or mapped to
@@ -298,7 +298,7 @@ class _Decision:
 
 
 class AdmissionPolicy:
-    """Decide whether a free worker may claim a candidate now (CONCEPT:ORCH-1.81).
+    """Decide whether a free worker may claim a candidate now (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
     Construct with the pool config + the live :class:`WorkerRegistry`. Call
     :meth:`admit` with the candidate's lane/type and a ``pending_by_lane`` snapshot
@@ -307,7 +307,7 @@ class AdmissionPolicy:
     * the heavy-type cap (``codebase`` concurrency ≤ cap), then
     * the best-effort lane cap (a ``BEST_EFFORT_LANES`` lane — maint interval ticks —
       may run at most its floor ``max(1, per_lane_min)`` workers, so a periodic-tick
-      backlog never expands into the throughput lanes; CONCEPT:ORCH-1.82), then
+      backlog never expands into the throughput lanes; CONCEPT:AU-ORCH.scheduling.low-value-high-volume), then
     * per-lane minimum coverage steering (don't pile onto a covered lane while an
       uncovered pending lane exists and this is the worker that could cover it),
       then
@@ -321,7 +321,7 @@ class AdmissionPolicy:
 
     # -- cap derivation ------------------------------------------------------
     def codebase_cap(self, pending_by_lane: dict[str, int]) -> int:
-        """Effective concurrent-``codebase`` cap (CONCEPT:ORCH-1.81).
+        """Effective concurrent-``codebase`` cap (CONCEPT:AU-ORCH.dispatch.worker-scheduling).
 
         Explicit ``config.codebase_cap`` wins; otherwise derive
         ``workers − reserved − Σ(per-lane min for OTHER pending lanes)`` so the
@@ -329,7 +329,7 @@ class AdmissionPolicy:
         lane's minimum coverage.
 
         The derived cap is then **floored at the engine's durable shard-writer
-        width** (CONCEPT:KG-2.279). The original derivation collapses to ~1-3 on a
+        width** (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap). The original derivation collapses to ~1-3 on a
         busy box (many pending lanes), which throttles concurrent codebase ingests
         — and therefore the count of DISTINCT per-repo graphs written at once — far
         below the engine's K independent redb shard writers, leaving K-1 of them
@@ -362,7 +362,7 @@ class AdmissionPolicy:
 
     # -- interactive reservation --------------------------------------------
     def interactive_floor(self) -> int:
-        """Workers that NON-interactive lanes may never consume (CONCEPT:KG-2.289).
+        """Workers that NON-interactive lanes may never consume (CONCEPT:AU-KG.compute.interactive-lane-floor).
 
         The HARD guarantee that the host always has a free worker for interactive /
         MCP work even under a saturating bulk ingest. Auto-sized as
@@ -407,7 +407,7 @@ class AdmissionPolicy:
             if running_by_type.get(HEAVY_TYPE, 0) >= cap:
                 return _Decision(False, f"codebase_cap reached ({cap})")
 
-        # 1b) Best-effort lane cap (CONCEPT:ORCH-1.82) — a low-value/high-volume
+        # 1b) Best-effort lane cap (CONCEPT:AU-ORCH.scheduling.low-value-high-volume) — a low-value/high-volume
         #     lane (maint interval ticks) is guaranteed its floor coverage but never
         #     EXPANDS beyond it, so a backlog of cheap periodic ticks can't crowd out
         #     the throughput lanes. Below the floor it falls through to the normal
@@ -417,7 +417,7 @@ class AdmissionPolicy:
             if running_by_lane.get(lane, 0) >= floor:
                 return _Decision(False, f"{lane} best-effort cap ({floor})")
 
-        # 1c) Interactive reservation (CONCEPT:KG-2.289) — the HARD floor that keeps
+        # 1c) Interactive reservation (CONCEPT:AU-KG.compute.interactive-lane-floor) — the HARD floor that keeps
         #     the host responsive. A NON-interactive task is refused if claiming would
         #     drop the free-worker count below the interactive floor, and — unlike the
         #     hot-spare (rule 3) — this is NOT relaxed to cover an uncovered ingestion

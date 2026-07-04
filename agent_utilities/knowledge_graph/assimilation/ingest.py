@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Multi-source ingest adapters + granular idempotency (CONCEPT:KG-2.7).
+"""Multi-source ingest adapters + granular idempotency (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Brings documents (PRD/BRD/SOW/tasks → `Requirement` nodes) and conversations /
 SDD transcripts (→ `Decision` nodes) into the assimilation graph, with the
@@ -32,7 +32,7 @@ _REQUIREMENT = RegistryNodeType.REQUIREMENT.value
 _DECISION = RegistryNodeType.DECISION.value
 _CONCEPT = RegistryNodeType.CONCEPT.value
 # Gate matching gap_analysis._concept_key — a real concept id is letters-then-digit.
-_CONCEPT_ID_GATE = re.compile(r"^[A-Z]{2,6}-\d")
+_CONCEPT_ID_GATE = re.compile(r"^[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\.")  # OKF-CIS (OS-5.77)
 
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d+\.\d+)(?:v\d+)?", re.IGNORECASE)
 _DOI = re.compile(r"(?:doi\.org/|doi:)\s*(10\.\S+)", re.IGNORECASE)
@@ -152,9 +152,9 @@ def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport
     + ``CONCEPT:<ID>`` code markers, keyed by canonical concept id (``KG-2.7``).
     Idempotent via ``content_hash``; embeddings are filled by the daemon's
     embed-backfill (so the embedding-fallback match works once backfilled, while
-    the explicit-id match works immediately). (CONCEPT:KG-2.7)
+    the explicit-id match works immediately). (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
-    Each item: ``{"id": "KG-2.7", "name": "...", "pillar": "KG-2", "status": "live",
+    Each item: ``{"id": "AU-KG.query.vendor-agnostic-traversal", "name": "...", "pillar": "EG-KG.compute.backend", "status": "live",
     "source": "..."}`` (only ``id`` is required).
     """
     report = IngestReport()
@@ -213,13 +213,13 @@ def enrich_concepts(
     stage is then blind until backfill catches up. This fills them on demand from
     each concept's rich text via the shared embedder (no second model), writing
     through ``backend.add_embedding``. Idempotent: concepts that already carry an
-    embedding are skipped. Returns the number embedded. (CONCEPT:KG-2.75)
+    embedding are skipped. Returns the number embedded. (CONCEPT:AU-KG.ingest.world-model-gate)
     """
     graph = getattr(engine, "graph", None)
     backend = getattr(engine, "backend", None)
     if graph is None or backend is None or not hasattr(backend, "add_embedding"):
         return 0
-    # BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a whole-graph
+    # BOUNDED per-label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.264) — never a whole-graph
     # ``GetNodes`` dump (refused as RESULT_TOO_LARGE on a large engine).
     pending: list[tuple[str, str]] = []
     for nid, data in iter_typed_nodes(graph, concept_types):

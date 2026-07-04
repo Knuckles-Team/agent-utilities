@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for CONCEPT:ORCH-1.1: Recursive Graph Orchestration."""
+"""Tests for CONCEPT:AU-ORCH.planning.recursion-nesting-depth: Recursive Graph Orchestration."""
 
 
 import pytest
@@ -91,4 +91,4 @@ class TestStepDescriptionsIncludesRecursive:
 
         desc = get_step_descriptions()
         assert "recursive_orchestrator" in desc
-        assert "CONCEPT:ORCH-1.1" in desc
+        assert "CONCEPT:AU-ORCH.planning.recursion-nesting-depth" in desc

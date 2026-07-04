@@ -10,7 +10,7 @@ class UsageStatistics(BaseModel):
 
 class CostModel(BaseModel):
     """Per-token price pair. Defaults retained for back-compat, but cost is now
-    derived from the unified pricing catalog (CONCEPT:ECO-4.40) when a model id
+    derived from the unified pricing catalog (CONCEPT:AU-ECO.toolkit.model-pricing-catalog) when a model id
     is known. Prefer :meth:`for_model` over the hard-coded defaults.
     """
 
@@ -46,7 +46,7 @@ import time
 
 
 class ExecutionBudget(BaseModel):
-    """CONCEPT:ORCH-1.3 — Execution Budget.
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget.
     Tracks limits for cost, tokens, and time to prevent runaway recursive executions.
     """
 

@@ -1,8 +1,8 @@
 """Core subsystem for agent-utilities.
 
-CONCEPT:OS-5.2 — Cognitive Scheduler
-CONCEPT:OS-5.4 — WASM Micro-Agent Sandbox
-CONCEPT:ORCH-1.11 — Compiled Orchestration Kernel
+CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler
+CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox — WASM Micro-Agent Sandbox
+CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel — Compiled Orchestration Kernel
 
 This package provides:
 - Cognitive scheduler (OS-5.2) — Priority-aware preemptive scheduling

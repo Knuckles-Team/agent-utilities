@@ -6,7 +6,7 @@ Validates that :class:`AGUIGraphEmitter` correctly translates graph
 execution events from :func:`run_graph_iter` into the AG-UI wire
 protocol format (``0:``, ``2:``, ``8:``, ``9:`` line prefixes).
 
-CONCEPT:ORCH-1.0 Graph Orchestration
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations Graph Orchestration
 """
 
 

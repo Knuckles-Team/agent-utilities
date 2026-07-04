@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.0"""
+"""CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -9,7 +9,7 @@ from agent_utilities.models.knowledge_graph import (
 )
 
 # These are pure-Pydantic property tests — they never touch the engine. But the
-# suite now runs the REAL ephemeral epistemic-graph engine (CONCEPT:KG-2.238)
+# suite now runs the REAL ephemeral epistemic-graph engine (CONCEPT:AU-KG.memory.provides-real-ephemeral-one)
 # alongside them, so the box is under heavy load and Hypothesis's *timing*-based
 # health checks (``too_slow`` example generation, the per-example ``deadline``)
 # fire non-deterministically — a flake that has nothing to do with the property

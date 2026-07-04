@@ -1,4 +1,4 @@
-# Document-Source Connector Framework (CONCEPT:ECO-4.25)
+# Document-Source Connector Framework (CONCEPT:AU-ECO.connector.document-source-framework)
 
 ## Overview
 A `load` / `poll` / `slim` connector abstraction for ingesting external **documents**
@@ -6,7 +6,7 @@ A `load` / `poll` / `slim` connector abstraction for ingesting external **docume
 `Document` + `Chunk` ontology objects. Ports the Onyx/Danswer connector surface
 (`LoadConnector`/`PollConnector`/`SlimConnector`) onto agent-utilities' semantic core:
 documents ingested this way inherit OWL semantics, bitemporal slicing, reified
-`HAS_CHUNK`/`CHUNK_OF` links, and entailment-aware ACLs (KG-2.46) — a strict superset
+`HAS_CHUNK`/`CHUNK_OF` links, and entailment-aware ACLs (AU-KG.ontology.redact-object-materialize-restricted) — a strict superset
 of a flat vector index.
 
 ## Implementation Details
@@ -17,7 +17,7 @@ of a flat vector index.
   `connectors/rest.py`, `connectors/database.py` (Postgres via `UniversalConnector` —
   the proven native path; other dialects route through `mcp_tool` instead),
   `connectors/mcp_package.py` (ECO-4.29 fleet adapter), `connectors/mcp_tool.py`
-  (KG-2.59 universal MCP-tool source — sql-mcp/objectstore-mcp/servicenow/… as
+  (AU-KG.ingest.mcp-tool-connector universal MCP-tool source — sql-mcp/objectstore-mcp/servicenow/… as
   declarative, checkpointed sources)
 - **Ingestion**: `ContentType.CONNECTOR` adaptor in `knowledge_graph/ingestion/engine.py`;
   facade `kg.ontology.run_connector(...)`; MCP tool `source_connector`; REST `/connector/*`.

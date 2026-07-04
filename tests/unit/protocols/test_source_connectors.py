@@ -1,4 +1,4 @@
-"""Tests for the document-source connector framework (CONCEPT:ECO-4.25–4.28).
+"""Tests for the document-source connector framework (CONCEPT:AU-ECO.connector.document-source-framework–4.28).
 
 Offline + deterministic: the web/rest/mcp connectors are driven by injected
 fetch/transport callables, the filesystem connector by a temp dir, and the
@@ -21,20 +21,20 @@ from agent_utilities.protocols.source_connectors import (
 )
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_registry_discovers_builtin_connectors():
     sources = list_sources()
     assert {"web", "filesystem", "rest", "database", "mcp"} <= set(sources)
 
 
-@pytest.mark.concept("ECO-4.27")
+@pytest.mark.concept("AU-ECO.connector.factory-ingestion-adaptor")
 def test_build_connector_unknown_lists_available():
     with pytest.raises(KeyError) as exc:
         build_connector("nope", {})
     assert "Available" in str(exc.value)
 
 
-@pytest.mark.concept("ECO-4.26")
+@pytest.mark.concept("AU-ECO.connector.incremental-poll-watermark")
 def test_checkpoint_json_roundtrip():
     cp = ConnectorCheckpoint(
         has_more=True,
@@ -49,7 +49,7 @@ def test_checkpoint_json_roundtrip():
     assert ConnectorCheckpoint.from_json("not-json") is None
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_filesystem_connector_load_and_poll(tmp_path):
     (tmp_path / "a.md").write_text("# A\nalpha content about graphs\n")
     (tmp_path / "b.txt").write_text("beta content about ontologies\n")
@@ -69,7 +69,7 @@ def test_filesystem_connector_load_and_poll(tmp_path):
     assert again.documents == []
 
 
-@pytest.mark.concept("ECO-4.28")
+@pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 def test_filesystem_perm_sync_groups(tmp_path):
     (tmp_path / "c.md").write_text("secret content\n")
     conn = build_connector("filesystem", {"root": str(tmp_path), "public": False})
@@ -79,7 +79,7 @@ def test_filesystem_perm_sync_groups(tmp_path):
     assert access[key].is_public is False
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_web_connector_offline_crawl():
     pages = {
         "http://x/": "<title>Home</title><a href='/a'>a</a><a href='/b'>b</a>",
@@ -95,7 +95,7 @@ def test_web_connector_offline_crawl():
     assert all(d.external_access and d.external_access.is_public for d in docs)
 
 
-@pytest.mark.concept("ECO-4.26")
+@pytest.mark.concept("AU-ECO.connector.incremental-poll-watermark")
 def test_web_connector_poll_dedup():
     pages = {"http://y/": "<title>Y</title>body"}
     conn = build_connector("web", {"base_url": "http://y/", "fetch_fn": pages.get})
@@ -105,7 +105,7 @@ def test_web_connector_poll_dedup():
     assert b2.documents == []
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_rest_connector_pagination():
     pages = {
         None: {"items": [{"id": 1, "title": "T1", "body": "x"}], "next": "cur2"},
@@ -130,7 +130,7 @@ def test_rest_connector_pagination():
     assert [d.id for d in docs] == ["1", "2"]
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_database_connector_watermark():
     rows = [
         {"id": 1, "title": "A", "body": "alpha", "ts": "2026-01-01"},
@@ -162,7 +162,7 @@ def test_database_connector_watermark():
     assert b2.documents == []
 
 
-@pytest.mark.concept("ECO-4.28")
+@pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 def test_permission_sync_maps_acl_and_markings():
     access = ExternalAccess(
         is_public=False, group_ids=["eng"], user_emails=["a@x"], markings=["SECRET"]
@@ -180,14 +180,14 @@ def test_permission_sync_maps_acl_and_markings():
     assert sync_access("doc:2", ExternalAccess.public(), []) is None
 
 
-@pytest.mark.concept("ECO-4.25")
+@pytest.mark.concept("AU-ECO.connector.document-source-framework")
 def test_source_document_shape():
     doc = SourceDocument(id="1", text="hello", title="T")
     assert doc.doc_type == "document"
     assert doc.external_access is None
 
 
-# ── Native RSS/Atom connector (CONCEPT:KG-2.121) ─────────────────────────────
+# ── Native RSS/Atom connector (CONCEPT:AU-KG.ingest.rss-feed-connector) ─────────────────────────────
 
 _RSS_XML = """<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Tech News</title>
@@ -210,12 +210,12 @@ _ATOM_XML = """<?xml version="1.0" encoding="utf-8"?>
 </feed>"""
 
 
-@pytest.mark.concept("KG-2.121")
+@pytest.mark.concept("AU-KG.ingest.rss-feed-connector")
 def test_rss_connector_registered():
     assert "rss" in set(list_sources())
 
 
-@pytest.mark.concept("KG-2.121")
+@pytest.mark.concept("AU-KG.ingest.rss-feed-connector")
 def test_rss_connector_parses_rss_and_atom():
     feeds = {"http://feed/rss": _RSS_XML, "http://feed/atom": _ATOM_XML}
     conn = build_connector("rss", {"feed_urls": list(feeds), "fetch_fn": feeds.get})
@@ -236,7 +236,7 @@ def test_rss_connector_parses_rss_and_atom():
     assert "research" in atom.metadata["record"]["categories"]
 
 
-@pytest.mark.concept("KG-2.121")
+@pytest.mark.concept("AU-KG.ingest.rss-feed-connector")
 def test_rss_connector_poll_watermark_dedup():
     feeds = {"http://feed/rss": _RSS_XML}
     conn = build_connector(
@@ -249,7 +249,7 @@ def test_rss_connector_poll_watermark_dedup():
     assert b2.documents == []
 
 
-@pytest.mark.concept("KG-2.121")
+@pytest.mark.concept("AU-KG.ingest.rss-feed-connector")
 def test_rss_connector_dead_feed_is_skipped():
     def _boom(url):
         raise RuntimeError("dns fail")
@@ -258,7 +258,7 @@ def test_rss_connector_dead_feed_is_skipped():
     assert list(conn.load()) == []  # a dead feed never aborts
 
 
-@pytest.mark.concept("KG-2.121")
+@pytest.mark.concept("AU-KG.ingest.rss-feed-connector")
 def test_rss_connector_fetches_feeds_concurrently():
     # Many feeds, each fetch sleeps: a concurrent sweep costs ~one feed's latency,
     # not N×. Guards the serial stall that timed out the 19-feed sweep (>300s) —

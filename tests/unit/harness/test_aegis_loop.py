@@ -1,4 +1,4 @@
-"""AEGIS unified loop (CONCEPT:AHE-3.52): cross-round self-correction.
+"""AEGIS unified loop (CONCEPT:AU-AHE.harness.run-aegis-loop-over): cross-round self-correction.
 
 The integration win over HarnessX: because the Critic is the SHACL gate reasoning
 over accumulated edits, a naive evolver that keeps hammering one dimension is
@@ -73,7 +73,7 @@ def test_manifest_verifier_rejects_before_gate():
     assert loop.shipped == []
 
 
-# ── Variant isolation / ensemble routing (CONCEPT:AHE-3.59) ──────────────────
+# ── Variant isolation / ensemble routing (CONCEPT:AU-AHE.harness.variant-pool) ──────────────────
 def test_variant_isolation_forks_mixed_edit_instead_of_rejecting():
     """A mixed edit (fixes one cluster, regresses another) is rejected by the
     single-harness seesaw but SHIPS as a forked variant under isolation."""
@@ -111,7 +111,7 @@ def test_single_harness_seesaw_rejects_in_scope_regression():
     )
 
 
-# ── Selective invocation + patience (CONCEPT:AHE-3.57) ───────────────────────
+# ── Selective invocation + patience (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome) ───────────────────────
 def test_empty_landscape_short_circuits_as_idle():
     def evolver(_l):
         return {}  # nothing actionable
@@ -131,7 +131,7 @@ def test_patience_early_stops_on_consecutive_idle():
     assert len(decisions) == 2
 
 
-# ── Reputation audit / declining-yield diversion (CONCEPT:AHE-3.57) ──────────
+# ── Reputation audit / declining-yield diversion (CONCEPT:AU-AHE.harness.per-dimension-ship-outcome) ──────────
 def test_reputation_audit_discourages_declining_dimension():
     # An evolver that keeps shipping into D4 but a verifier that fails it every time
     # builds a low hit-rate ledger for D4 → it becomes discouraged with a concern.
@@ -148,7 +148,7 @@ def test_reputation_audit_discourages_declining_dimension():
     assert any("strategy_concern" in c for c in land["strategy_concerns"])
 
 
-# ── Deterministic gate sequence: smoke + normalize (CONCEPT:AHE-3.60) ────────
+# ── Deterministic gate sequence: smoke + normalize (CONCEPT:AU-AHE.harness.manifest-verify) ────────
 def test_smoke_test_blocks_uninstantiable_edit():
     def evolver(_l):
         return {"id": "e:bad", "dimension": "D4_tools"}

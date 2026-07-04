@@ -1,4 +1,4 @@
-"""Nextcloud: calendar/contacts extract + calendar/file write-back (CONCEPT:KG-2.9)."""
+"""Nextcloud: calendar/contacts extract + calendar/file write-back (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 

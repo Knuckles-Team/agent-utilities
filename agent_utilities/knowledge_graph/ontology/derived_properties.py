@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Derived (function-backed / computed) properties — CONCEPT:KG-2.40.
+"""Derived (function-backed / computed) properties — CONCEPT:AU-KG.ontology.derived-property-registry.
 
 Palantir Foundry doc matched: *derived / computed / function-backed properties*
 (Workshop function-backed columns and ontology computed fields). In Foundry a
@@ -64,7 +64,7 @@ RESOURCE_DERIVED = "derived_property"
 
 
 class DerivedBacking(StrEnum):
-    """The strategy that backs a derived property (CONCEPT:KG-2.40).
+    """The strategy that backs a derived property (CONCEPT:AU-KG.ontology.derived-property-registry).
 
     ``FUNCTION`` invokes a registered typed function; ``CYPHER`` / ``SPARQL``
     evaluate a graph expression through the facade / OWL bridge; ``EMBEDDING``
@@ -79,7 +79,7 @@ class DerivedBacking(StrEnum):
 
 
 class EmbeddingDerivation(StrEnum):
-    """What an ``EMBEDDING``-backed derived property emits (CONCEPT:KG-2.40).
+    """What an ``EMBEDDING``-backed derived property emits (CONCEPT:AU-KG.ontology.derived-property-registry).
 
     ``NEAREST_ID`` returns the designated entity id; ``NEAREST_LABEL`` returns
     that entity's capability label (or id when unlabelled); ``SIMILARITY``
@@ -92,7 +92,7 @@ class EmbeddingDerivation(StrEnum):
 
 
 class DerivedProperty(BaseModel):
-    """A computed-at-read-time property declaration (CONCEPT:KG-2.40).
+    """A computed-at-read-time property declaration (CONCEPT:AU-KG.ontology.derived-property-registry).
 
     Palantir doc matched: *function-backed / computed property*. A derived
     property is never stored on the object: it declares an output
@@ -198,7 +198,7 @@ class DerivedProperty(BaseModel):
 
 
 class DerivedPropertyResult(BaseModel):
-    """The outcome of computing one derived property (CONCEPT:KG-2.40)."""
+    """The outcome of computing one derived property (CONCEPT:AU-KG.ontology.derived-property-registry)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -286,7 +286,7 @@ def _first_scalar(rows: list[dict[str, Any]]) -> Any:
 # Registry (import-populated — never an empty shell)
 # ---------------------------------------------------------------------------
 class DerivedPropertyRegistry:
-    """Registry of :class:`DerivedProperty` declarations. CONCEPT:KG-2.40.
+    """Registry of :class:`DerivedProperty` declarations. CONCEPT:AU-KG.ontology.derived-property-registry.
 
     Keyed by ``(object_type, name)`` so the same derived-property name can be
     declared differently per object type, with a global fallback for
@@ -346,7 +346,7 @@ class DerivedPropertyRegistry:
 class DerivedPropertyEngine:
     """Computes derived properties live, dispatching across all four backings.
 
-    CONCEPT:KG-2.40 — function-backed / computed properties.
+    CONCEPT:AU-KG.ontology.derived-property-registry — function-backed / computed properties.
 
     Args:
         registry: The :class:`DerivedPropertyRegistry` of declarations.
@@ -701,7 +701,7 @@ def register_builtins(registry: DerivedPropertyRegistry) -> None:
     )
 
 
-# CONCEPT:KG-2.40 — import-populated registry + a default engine bound to it and
+# CONCEPT:AU-KG.ontology.derived-property-registry — import-populated registry + a default engine bound to it and
 # to the default function runtime, so derived properties have a live compute
 # entry (consumed by the ontology facade / MCP read path).
 DEFAULT_DERIVED_REGISTRY = DerivedPropertyRegistry()

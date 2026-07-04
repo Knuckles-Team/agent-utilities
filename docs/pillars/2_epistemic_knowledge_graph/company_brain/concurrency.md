@@ -131,7 +131,7 @@ The `ActorType` is recorded for provenance but does not affect concurrency behav
 
 ## Integration with KGVersionEngine
 
-The `GraphConcurrencyManager` extends the existing `KGVersionEngine` (CONCEPT:KG-2.0):
+The `GraphConcurrencyManager` extends the existing `KGVersionEngine` (CONCEPT:AU-KG.query.object-graph-mapper):
 
 | KGVersionEngine | GraphConcurrencyManager |
 |:----------------|:-----------------------|

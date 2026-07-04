@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.0"""
+"""CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
 """Regression guard: every ``/api/enhanced/*`` route has at least one consumer.
 

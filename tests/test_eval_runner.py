@@ -1,6 +1,6 @@
-"""Tests for EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.1).
+"""Tests for EvalRunner — Multi-Strategy Scoring (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
-@pytest.mark.concept("AHE-3.12")
+@pytest.mark.concept("AU-AHE.evaluation.longmemeval-validation-harness")
 """
 
 import pytest
@@ -310,7 +310,7 @@ class TestThreshold:
         assert result.passed is False
 
 
-# ── live-LLM judge wiring (CONCEPT:AHE-3.1 fix) — the judge wraps the model in an
+# ── live-LLM judge wiring (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort fix) — the judge wraps the model in an
 # Agent (a pydantic-ai Model has no run_sync); mock _run_llm to assert parsing. ──
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """First-class preference-pair corpus — the DPO-family substrate.
 
-CONCEPT:AHE-3.17 — Preference-Corpus Reliability
+CONCEPT:AU-AHE.harness.preference-corpus-reliability — Preference-Corpus Reliability
 
 We already generate *implicit* preference signal in three places, but never
 consolidated it into one clean, DPO-ready store:

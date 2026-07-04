@@ -1,4 +1,4 @@
-"""Tests for voice input transcription wiring (CONCEPT:ECO-4.68)."""
+"""Tests for voice input transcription wiring (CONCEPT:AU-ECO.messaging.telegram-voice-note)."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ async def test_transcribe_voice_disabled(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_get_backend_falls_back_to_faster_whisper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CONCEPT:ECO-4.68 — when the full audio-transcriber package (pyaudio-bound) is absent,
+    """CONCEPT:AU-ECO.messaging.telegram-voice-note — when the full audio-transcriber package (pyaudio-bound) is absent,
     _get_backend uses faster-whisper's WhisperModel directly: the lean messaging path."""
     import sys
     import types
@@ -86,7 +86,7 @@ def test_get_backend_falls_back_to_faster_whisper(
 
 
 def test_sniff_image_media_type() -> None:
-    """CONCEPT:ECO-4.67 — magic-byte sniff for generic/absent content-types (Telegram)."""
+    """CONCEPT:AU-ECO.messaging.image-attachment-fallback — magic-byte sniff for generic/absent content-types (Telegram)."""
     from agent_utilities.messaging.router import _sniff_image_media_type
 
     assert _sniff_image_media_type(b"\xff\xd8\xff\xe0junk") == "image/jpeg"

@@ -4,9 +4,9 @@ from __future__ import annotations
 """Tests for RAG-KG Unification, Research Orchestration, and Graph Distillation.
 
 Covers:
-- CONCEPT:KG-2.3 — KGNativeRetrievalRetriever (unified retrieval pipeline)
-- CONCEPT:KG-2.6 — ResearchOrchestrator (orchestration integration)
-- CONCEPT:KG-2.6 — GraphDistillationMigrator (similarity shortcut migration)
+- CONCEPT:AU-KG.memory.auto-similarity-memory-graph — KGNativeRetrievalRetriever (unified retrieval pipeline)
+- CONCEPT:AU-KG.research.research-pipeline-runner — ResearchOrchestrator (orchestration integration)
+- CONCEPT:AU-KG.research.research-pipeline-runner — GraphDistillationMigrator (similarity shortcut migration)
 """
 
 
@@ -58,7 +58,7 @@ def _similar_embedding(
 
 
 # =====================================================================
-# CONCEPT:KG-2.3 — KGNativeRetrievalRetriever Tests
+# CONCEPT:AU-KG.memory.auto-similarity-memory-graph — KGNativeRetrievalRetriever Tests
 # =====================================================================
 
 
@@ -232,7 +232,7 @@ class TestKGNativeRetrievalRetriever:
 
 
 # =====================================================================
-# CONCEPT:KG-2.6 — ResearchOrchestrator Tests
+# CONCEPT:AU-KG.research.research-pipeline-runner — ResearchOrchestrator Tests
 # =====================================================================
 
 
@@ -331,7 +331,7 @@ class TestResearchOrchestrator:
 
 
 # =====================================================================
-# CONCEPT:KG-2.6 — GraphDistillationMigrator Tests
+# CONCEPT:AU-KG.research.research-pipeline-runner — GraphDistillationMigrator Tests
 # =====================================================================
 
 

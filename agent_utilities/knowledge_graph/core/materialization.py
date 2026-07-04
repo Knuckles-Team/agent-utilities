@@ -1,4 +1,4 @@
-"""The one KG materialization core (CONCEPT:KG-2.9).
+"""The one KG materialization core (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 A single write path for every connector. Both ingestion adapters delegate here:
 
@@ -200,7 +200,7 @@ def write_entities(
     delta: bool = True,
 ) -> dict[str, Any]:
     """Persist standardized entity/relationship dicts to ``backend`` — the single
-    materialization implementation (CONCEPT:KG-2.9).
+    materialization implementation (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
     Stamps the shared provenance contract, applies the content-hash write-delta
     (unless ``KG_WRITE_DELTA=0`` or ``delta=False``), then writes via per-type

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for pack-driven retrieval signals: recency + source-trust.
 
-CONCEPT:KG-2.22 — Pack-Driven Retrieval Signals
+CONCEPT:EG-KG.compute.rust-native-training-loss — Pack-Driven Retrieval Signals
 """
 
 

@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.20 — Mementified Context Management (state compression).
+"""CONCEPT:AU-KG.memory.mementified-context — Mementified Context Management (state compression).
 
 Assimilated from *Memento: Teaching LLMs to Manage Their Own Context* (Kontonis et al.,
 Microsoft Research AI Frontiers, 2026). A **memento** is not a human summary — it is a *lemma*:
@@ -14,7 +14,7 @@ Two pieces, both grounded in the paper:
 
 * :func:`compress_to_memento` — single generation pass that compresses a block into a memento and
   persists it as a KG ``Memento`` node.
-* **Judge-refine loop** (CONCEPT:KG-2.20 / paper §Stage 4) — a compressor→judge→recompress cycle.
+* **Judge-refine loop** (CONCEPT:AU-KG.memory.mementified-context / paper §Stage 4) — a compressor→judge→recompress cycle.
   The paper measured single-shot mementos at a **28%** rubric pass-rate vs **92%** after two judge
   iterations: initial mementos routinely drop an exact formula or intermediate value a downstream
   block needs. :func:`compress_to_memento` runs this loop by default (``refine=True``), scoring each
@@ -25,7 +25,7 @@ Two pieces, both grounded in the paper:
 **Honest limitation (orchestration layer).** We run hosted/API models via pydantic-ai and do not
 control the inference engine's KV cache, so an external memento is the paper's *"restart mode"* — it
 loses the implicit dual-channel KV side-information the paper measured at −15pp. The mitigation is
-lossless recoverability (CONCEPT:KG-2.20 MEM-4): evicted blocks keep a ``SUMMARIZES`` pointer so they
+lossless recoverability (CONCEPT:AU-KG.memory.mementified-context MEM-4): evicted blocks keep a ``SUMMARIZES`` pointer so they
 can be re-fetched on demand. This is a substitute for, not an equivalent of, the in-engine channel.
 """
 
@@ -124,7 +124,7 @@ def _block_text(messages: list[dict[str, str]]) -> str:
 
 
 def judge_memento(block_text: str, memento_text: str) -> tuple[int, str]:
-    """Score a candidate memento against its source block (CONCEPT:KG-2.20, paper §Stage 4).
+    """Score a candidate memento against its source block (CONCEPT:AU-KG.memory.mementified-context, paper §Stage 4).
 
     Returns ``(score 0-10, feedback)``. If the judge LLM is unavailable, returns
     ``(MEMENTO_ACCEPT_THRESHOLD, "")`` — i.e. *accept* — so judging never blocks compression in
@@ -159,7 +159,7 @@ def compress_to_memento(
     max_refine_iters: int = MEMENTO_MAX_REFINE_ITERS,
     persist_raw: bool = True,
 ) -> str | None:
-    """Compress a block of messages into a dense memento and persist it (CONCEPT:KG-2.20).
+    """Compress a block of messages into a dense memento and persist it (CONCEPT:AU-KG.memory.mementified-context).
 
     Args:
         engine: IntelligenceGraphEngine instance (for persistence).
@@ -204,14 +204,14 @@ def compress_to_memento(
                 break
             memento_text = retry
 
-    # Convergence-guaranteed escalation (CONCEPT:KG-2.20 / Root-Theorem F4): the
+    # Convergence-guaranteed escalation (CONCEPT:AU-KG.memory.mementified-context / Root-Theorem F4): the
     # judge-refine loop can terminate with a memento that did NOT actually shrink the
     # block (LLM ignored the budget). Guarantee output < input by deterministic
     # truncation so eviction always reduces footprint (the raw block stays
     # losslessly recoverable via SUMMARIZES).
     memento_text = _guarantee_shorter(memento_text, block_text)
 
-    # External verification gate (CONCEPT:KG-2.20): an *independent*, deterministic
+    # External verification gate (CONCEPT:AU-KG.memory.mementified-context): an *independent*, deterministic
     # faithfulness check (AHE-3.1 FaithfulnessScorer) of the memento against its
     # source block — distinct from the LLM self-judge above. The verdict is stamped
     # as provenance; a failure never blocks persistence (the raw block is kept
@@ -238,7 +238,7 @@ def compress_to_memento(
 def verify_memento(block_text: str, memento_text: str) -> dict[str, Any]:
     """External, deterministic faithfulness check of a memento vs its source block.
 
-    CONCEPT:KG-2.20. Reuses the AHE-3.1 :class:`FaithfulnessScorer` as an
+    CONCEPT:AU-KG.memory.mementified-context. Reuses the AHE-3.1 :class:`FaithfulnessScorer` as an
     *external* verifier (independent of the LLM judge-refine loop) so a
     compaction's grounding is auditable and gate-able. Returns
     ``{verified, faithful_ratio, ungrounded, verifier}``.
@@ -264,7 +264,7 @@ def _persist_memento(
 ) -> str | None:
     """Persist the memento as a ``Memento`` node and return its id.
 
-    CONCEPT:KG-2.20 (MEM-4 lossless recoverability). When ``raw_block`` is provided, the full evicted
+    CONCEPT:AU-KG.memory.mementified-context (MEM-4 lossless recoverability). When ``raw_block`` is provided, the full evicted
     block is stored as an ``EvictedBlock`` node linked ``Memento -[:SUMMARIZES]-> EvictedBlock`` — the
     orchestration-layer substitute for the in-engine implicit KV channel the paper relies on. Eviction
     is therefore never lossy: :func:`recover_evicted_block` can re-fetch the raw block on demand.
@@ -284,7 +284,7 @@ def _persist_memento(
         "recoverable": bool(raw_block),
     }
     if verification is not None:
-        # Provenance stamp (CONCEPT:KG-2.20) — the external-verification verdict
+        # Provenance stamp (CONCEPT:AU-KG.memory.mementified-context) — the external-verification verdict
         # travels with the memento so downstream trust/re-expansion is auditable.
         props["provenance_verified"] = bool(verification.get("verified"))
         props["provenance_faithfulness"] = float(
@@ -318,7 +318,7 @@ def _persist_memento(
 def recover_evicted_block(
     engine: IntelligenceGraphEngine, memento_id: str
 ) -> str | None:
-    """Re-fetch the raw block a memento replaced (CONCEPT:KG-2.20 MEM-4, lossless recall).
+    """Re-fetch the raw block a memento replaced (CONCEPT:AU-KG.memory.mementified-context MEM-4, lossless recall).
 
     Follows the ``Memento -[:SUMMARIZES]-> EvictedBlock`` pointer. Returns the raw block text, or
     ``None`` if the memento was not persisted with recoverability.
@@ -344,7 +344,7 @@ def _guarantee_shorter(
 ) -> str:
     """Guarantee a memento is strictly smaller than the block it replaces.
 
-    CONCEPT:KG-2.20 (Root-Theorem F4). If compression failed to reduce size, the
+    CONCEPT:AU-KG.memory.mementified-context (Root-Theorem F4). If compression failed to reduce size, the
     memento is head-truncated to ``max_ratio`` of the block length with a marker —
     a deterministic terminal guarantee that eviction always shrinks the footprint.
     """
@@ -359,7 +359,7 @@ def _guarantee_shorter(
 def recover_chain(
     engine: IntelligenceGraphEngine, memento_id: str, *, max_depth: int = 16
 ) -> str | None:
-    """Recover the leaf raw block by walking the SUMMARIZES DAG (CONCEPT:KG-2.20 MEM-4).
+    """Recover the leaf raw block by walking the SUMMARIZES DAG (CONCEPT:AU-KG.memory.mementified-context MEM-4).
 
     Generalizes :func:`recover_evicted_block` to a hierarchical summary DAG:
     follows ``Memento -[:SUMMARIZES]-> (Memento|EvictedBlock)`` edges down to the
@@ -397,7 +397,7 @@ def link_parent_memento(
 ) -> int:
     """Add a hierarchy level: ``parent_memento -[:SUMMARIZES]-> child_memento`` edges.
 
-    CONCEPT:KG-2.20 — builds the summary DAG (summaries-of-summaries). Returns the
+    CONCEPT:AU-KG.memory.mementified-context — builds the summary DAG (summaries-of-summaries). Returns the
     number of edges linked. The parent's compressed content is produced by
     :func:`compress_to_memento` over the children's text; this wires the lineage.
     """
@@ -413,7 +413,7 @@ def link_parent_memento(
     return linked
 
 
-# ── Semantic-boundary segmentation (CONCEPT:KG-2.20 MEM-3, paper §Stage 1-3) ────────────────────
+# ── Semantic-boundary segmentation (CONCEPT:AU-KG.memory.mementified-context MEM-3, paper §Stage 1-3) ────────────────────
 #
 # The paper segments a flat CoT by scoring each inter-unit boundary 0-3 (a *local* question LLMs do
 # well) then placing cuts via DP that maximises boundary quality minus a coefficient-of-variation

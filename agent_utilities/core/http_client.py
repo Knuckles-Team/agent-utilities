@@ -12,7 +12,7 @@ inline, so the safety defaults are uniform and auditable in ONE place:
   beneath any caller-supplied headers (caller wins on conflict).
 * **Optional declarative retry** — pass a
   :class:`~agent_utilities.orchestration.resilience.ResiliencePolicy` and
-  transport-level failures are retried under it (CONCEPT:ORCH-1.36), instead
+  transport-level failures are retried under it (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating), instead
   of each call site hand-rolling a retry loop. :func:`http_retry_policy`
   builds a policy whose ``retry_on`` matches httpx's transport errors.
 

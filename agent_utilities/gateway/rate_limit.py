@@ -1,6 +1,6 @@
 """Per-tenant token-bucket rate limiting for the API gateway.
 
-CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening.
+CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening.
 
 Pure-ASGI middleware mounted by
 :func:`agent_utilities.gateway.graph_api.register_graph_routes` INSIDE the
@@ -70,7 +70,7 @@ class _TokenBucket:
 
 
 class GatewayRateLimitMiddleware:
-    """Pure-ASGI per-tenant token-bucket rate limiter (CONCEPT:OS-5.23)."""
+    """Pure-ASGI per-tenant token-bucket rate limiter (CONCEPT:AU-OS.observability.no-op-without-metrics)."""
 
     def __init__(
         self,

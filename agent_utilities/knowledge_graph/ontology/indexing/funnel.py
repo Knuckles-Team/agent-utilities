@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Object Data Funnel — graph-to-search-index sync (CONCEPT:KG-2.44).
+"""Object Data Funnel — graph-to-search-index sync (CONCEPT:AU-KG.ontology.batch-incremental-sync-live).
 
 Palantir provenance: *object-indexing/overview* (the **Object Data Funnel**) and
 *object-backend*. Foundry funnels objects from the source-of-truth store into a

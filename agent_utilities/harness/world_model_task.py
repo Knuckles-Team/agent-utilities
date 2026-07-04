@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""World-model prediction as a SAI specialization domain (CONCEPT:KG-2.73).
+"""World-model prediction as a SAI specialization domain (CONCEPT:AU-KG.compute.kg-3).
 
 The second concrete specialization track for the SAI factory (AHE-3.29), alongside
 GPU kernels — a *non-LLM, learned-dynamics* track that honours the paper's
@@ -134,7 +134,7 @@ WORLD_MODEL_TRANSITION_LABEL = "WorldModelTransition"
 def world_model_subscription(engine: Any) -> Any:
     """Build the reactive change-feed subscription over ``WorldModelTransition``.
 
-    CONCEPT:KG-2.253 — the poll→push seam that replaces the every-tick full
+    CONCEPT:AU-KG.compute.change-feed-subscription — the poll→push seam that replaces the every-tick full
     history re-scan: the daemon polls this on its tick and only re-specializes the
     world model when the engine pushed a NEW transition (or on cold-start
     catch-up), instead of re-querying the entire transition corpus each time.

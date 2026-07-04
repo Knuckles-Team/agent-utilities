@@ -12,7 +12,7 @@ Usage in a handler::
     from agent_utilities.mcp_utilities import run_blocking
     response = await run_blocking(client.get_repositories, **kwargs)
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 from __future__ import annotations

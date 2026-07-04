@@ -11,7 +11,7 @@ by computing the **inverse mutation** of an :class:`Edit` and applying it throug
 forward edits with), then recording the reversal as its own durable
 compensating edit so the audit trail stays append-only.
 
-CONCEPT:KG-2.43
+CONCEPT:AU-KG.ontology.edit-ledger-writeback
 """
 
 import logging

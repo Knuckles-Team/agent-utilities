@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.34 / OS-5.3 — Egress (SSRF) guard for operator-supplied endpoints.
+"""CONCEPT:AU-ORCH.adapter.byok-provider-proxy / OS-5.3 — Egress (SSRF) guard for operator-supplied endpoints.
 
 Assimilated from open-design's ``validateBaseUrl`` / ``validateBaseUrlResolved`` (connectionTest.ts):
 when a BYOK/custom ``base_url`` is accepted, the host is **DNS-resolved** and every resolved IP is

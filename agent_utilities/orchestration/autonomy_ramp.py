@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Earned-autonomy ramp for the governance gate (CONCEPT:OS-5.49).
+"""Earned-autonomy ramp for the governance gate (CONCEPT:AU-OS.governance.autonomy-change-proposer).
 
 Closes the trust half of the operating loop: an action class an actor has performed
 *verifiably correctly* enough times graduates from ``approval_required`` ("ask") to

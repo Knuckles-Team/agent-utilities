@@ -1,4 +1,4 @@
-"""Test-quality classification rules (CONCEPT:KG-2.8 Phase 1).
+"""Test-quality classification rules (CONCEPT:EG-KG.storage.nonblocking-checkpoint Phase 1).
 
 Pure functions over the extracted ``TestEntity`` metrics. These mirror the
 "needs work" axioms the software ontology asserts in OWL — keeping the logic in

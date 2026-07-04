@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single-Shot SIRA (Sparsity-Induced Retrieval Alignment).
 
-Implements CONCEPT:KG-2.5 (Single-Shot SIRA)
+Implements CONCEPT:AU-KG.compute.spectral-cluster-navigator (Single-Shot SIRA)
 Optimizes context window limits by leveraging topological sparsity during context accumulation.
 """
 

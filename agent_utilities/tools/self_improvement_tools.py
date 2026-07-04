@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Self-Improvement Tools Module.
 
-CONCEPT:AHE-3.2
+CONCEPT:AU-AHE.harness.evolutionary-aggregation
 
 This module provides AI tools for autonomous self-improvement, allowing agents
 to trigger background optimization cycles (Lightning style) and propose

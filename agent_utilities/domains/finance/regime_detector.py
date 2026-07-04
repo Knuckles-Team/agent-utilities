@@ -1,5 +1,5 @@
 """
-Regime Detector — CONCEPT:KG-2.6
+Regime Detector — CONCEPT:AU-KG.research.research-pipeline-runner
 Detects market regimes (Bull, Bear, Sideways, High Volatility) using heuristics.
 Inspired by qlib's regime-aware model switching.
 """

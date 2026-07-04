@@ -1,4 +1,4 @@
-"""Tests for query analysis: source/time filters + citations (CONCEPT:ECO-4.32)."""
+"""Tests for query analysis: source/time filters + citations (CONCEPT:AU-ECO.connector.apply-any-query-analysis)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from agent_utilities.knowledge_graph.retrieval.query_analysis import (
 )
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_detects_source_types_and_time_window():
     f = analyze_query("show me recent arxiv papers about graphs")
     assert "paper" in f.source_types
@@ -19,7 +19,7 @@ def test_detects_source_types_and_time_window():
     assert f.time_range == "recent"
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_detects_last_n_window():
     f = analyze_query("list tickets from the last 3 weeks")
     assert "ticket" in f.source_types
@@ -27,14 +27,14 @@ def test_detects_last_n_window():
     assert "3 week" in f.time_range
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_no_filters_for_plain_query():
     f = analyze_query("what is the architecture of the system")
     assert f.source_types == []
     assert f.as_of is None
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_llm_path_augments_sources():
     def llm(prompt: str) -> str:
         return '{"source_types": ["email"], "since_days": 5}'
@@ -44,7 +44,7 @@ def test_llm_path_augments_sources():
     assert f.as_of is not None
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_filter_nodes_by_source_keeps_unclassified():
     nodes = [
         {"id": "1", "doc_type": "paper"},
@@ -56,7 +56,7 @@ def test_filter_nodes_by_source_keeps_unclassified():
     assert filter_nodes_by_source(nodes, []) == nodes  # no filter → passthrough
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_citation_processor_builds_and_annotates():
     nodes = [
         {"id": "1", "name": "Doc A", "source_url": "http://a"},
@@ -71,7 +71,7 @@ def test_citation_processor_builds_and_annotates():
     assert "[9]" in annotated  # out-of-range marker left intact
 
 
-@pytest.mark.concept("ECO-4.32")
+@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
 def test_retriever_accepts_query_analysis_flag():
     import inspect
 

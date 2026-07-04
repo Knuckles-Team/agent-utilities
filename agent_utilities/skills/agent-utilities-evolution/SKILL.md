@@ -95,7 +95,7 @@ The evolution pipeline runs as a background daemon (`KG-Evolution-Daemon`) in th
 The daemon is enabled by default and can be configured via `KG_EVOLUTION_INTERVAL`
 environment variable (seconds, default: 3600).
 
-## Graph-Native Assimilation Engine (CONCEPT:KG-2.7)
+## Graph-Native Assimilation Engine (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
 The comparative-analysis → plan-generation work is now a **graph-compute pipeline**
 (`agent_utilities/knowledge_graph/assimilation/`), not per-source LLM reading. After
@@ -362,7 +362,7 @@ structure, documentation, and concept traceability.
 
 ### CONCEPT ID Bridge Strategy
 
-All agent-packages projects connect to agent-utilities via `CONCEPT:ECO-4.0`
+All agent-packages projects connect to agent-utilities via `CONCEPT:AU-ECO.messaging.native-backend-abstraction`
 (Unified Toolkit Ingestion). Each project has:
 
 - A unique CONCEPT prefix (e.g., `PORT-` for portainer-agent, `SNOW-` for servicenow-api)

@@ -12,7 +12,7 @@ from agent_utilities.numeric import xp as np   # instead of `import numpy as np`
 Every numeric call site imports `xp`, so the body stays unchanged — only the import line
 differs from plain numpy.
 
-## P5 final — the hard numpy/scipy drop (CONCEPT:KG-2.324)
+## P5 final — the hard numpy/scipy drop (CONCEPT:AU-KG.compute.numpy-scipy-drop)
 
 numpy and scipy are **fully removed from agent-utilities**. The package **imports numpy
 nowhere** and **declares it in no dependency** — `requirements.txt` and `pyproject.toml`
@@ -22,7 +22,7 @@ carry neither numpy nor scipy. The compiled `epistemic_graph.numeric` kernel is 
 - `from agent_utilities.numeric import xp` **raises `ImportError`** when the compiled
   kernel is absent. There is **NO numpy fallback** for a missing kernel — the old
   `HAVE_KERNEL`-false path and the `import numpy as _np` binding are gone.
-- The four scipy ops are now **native kernel exports** (engine CONCEPT:EG-356), reached as
+- The four scipy ops are now **native kernel exports** (engine CONCEPT:EG-KG.compute.concept-5), reached as
   `xp.eigsh` (`scipy.sparse.linalg.eigsh`, k smallest-magnitude symmetric eigenpairs),
   `xp.spearmanr`, `xp.ks_2samp`, and `xp.norm_ppf` / `xp.norm_pdf`
   (`scipy.stats.norm.ppf` / `.pdf`). No scipy import remains anywhere in agent-utilities.
@@ -54,7 +54,7 @@ whole numeric surface flows through this one module.
 
 | Where | Contents | Role |
 |-------|----------|------|
-| base `dependencies` | `epistemic-graph[numeric]>=2.7.0` (a **loose floor**) | The kernel is a HARD base dependency: `agent_utilities.numeric` is kernel-LIVE in every install. There is ONE published package — the `eg-numeric` `.so` is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:EG-346); `[numeric]` also pulls the numpy the kernel uses internally. No separate `eg-numeric` on PyPI. |
+| base `dependencies` | `epistemic-graph[numeric]>=2.7.0` (a **loose floor**) | The kernel is a HARD base dependency: `agent_utilities.numeric` is kernel-LIVE in every install. There is ONE published package — the `eg-numeric` `.so` is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery); `[numeric]` also pulls the numpy the kernel uses internally. No separate `eg-numeric` on PyPI. |
 | `numeric-kernel` extra | `epistemic-graph[numeric]>=2.7.0` | Explicit named alias for operators who want to pull the kernel deliberately; resolves the same single package. |
 | `[test]` extra | `numpy>=2.4.6` | **Dev/test-only** ground-truth reference for `tests/test_numeric_parity.py`. NEVER a runtime dependency. |
 
@@ -65,7 +65,7 @@ whole numeric surface flows through this one module.
 - All floors are **loose** (`>=`), never exact pins.
 - Parity is enforced: `tests/test_numeric_parity.py` asserts `np.allclose(kernel, numpy)`
   on randomized inputs (incl. nan/inf/singular matrices), and the engine's `numeric-parity`
-  CI job (engine CONCEPT:EG-346) gates the kernel against numpy so the two can never diverge.
+  CI job (engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery) gates the kernel against numpy so the two can never diverge.
 
 ## Dev vs prod: two different install paths
 
@@ -102,7 +102,7 @@ With the kernel installed, `test_numeric_parity.py` exercises the KERNEL path ag
 ground truth. Rename/remove the kernel `.so` and `from agent_utilities.numeric import xp`
 raises the clean `ImportError` — proving there is no silent numpy fallback.
 
-## Honest status — the drop is complete (CONCEPT:KG-2.324)
+## Honest status — the drop is complete (CONCEPT:AU-KG.compute.numpy-scipy-drop)
 
 - numpy/scipy are **gone from agent-utilities' declared dependencies and source imports**
   (grep for `import numpy` / `import scipy` across `agent_utilities/` + `scripts/` is zero;

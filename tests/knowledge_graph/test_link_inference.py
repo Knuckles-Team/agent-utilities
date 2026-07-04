@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for zero-LLM, pack-driven typed-edge extraction.
 
-CONCEPT:KG-2.33 — Zero-LLM Pack-Driven Link Inference
+CONCEPT:AU-KG.research.zero-llm-pack-link — Zero-LLM Pack-Driven Link Inference
 """
 
 

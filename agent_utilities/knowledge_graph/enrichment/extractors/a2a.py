@@ -1,4 +1,4 @@
-"""A2A (Agent-to-Agent) agent-card source extractor (CONCEPT:KG-2.10).
+"""A2A (Agent-to-Agent) agent-card source extractor (CONCEPT:AU-KG.enrichment.a2a-capability-extraction).
 
 Self-registering extractor that maps externally-defined **A2A AgentCards** into
 the uniform ``ExtractionBatch`` shape (typed ``GraphNode`` + ``EnrichmentEdge``)

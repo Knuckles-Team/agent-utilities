@@ -1,7 +1,7 @@
 # Design Document: Developer-Workspace Runtime
 
 > Phase 1 of the OpenHands-parity SWE platform. Bundles three tightly-coupled concepts:
-> **OS-5.33** (the runtime), **ORCH-1.46** (the action/observation protocol), and
+> **AU-OS.scaling.bridge-developer-workspace-mutating** (the runtime), **ORCH-1.46** (the action/observation protocol), and
 > **KG-2.64** (provenance mirroring). See
 > [`../../reports/openhands-comparative-analysis-2026-06-13.md`](../../reports/openhands-comparative-analysis-2026-06-13.md).
 
@@ -12,7 +12,7 @@
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
 | ORCH-1.38 | RLM Sandbox Tiering (local/monty/wasm/docker) | 0.55 | ORCH |
-| ORCH-1.35 | Mid-turn tool-result injection (`WAITING_HOST`) | 0.50 | ORCH |
+| AU-ORCH.execution.held-turn-registry-mid | Mid-turn tool-result injection (`WAITING_HOST`) | 0.50 | ORCH |
 | OS-5.11 | Run-scoped tool token | 0.45 | OS |
 | KG-2.26 | Link semantics | 0.40 | KG |
 | OS-5.24 | Fail-closed ActionPolicy | 0.40 | OS |
@@ -28,7 +28,7 @@
 
 ### New Concept Proposal
 
-- **Proposed IDs**: `CONCEPT:OS-5.33` (runtime), `CONCEPT:ORCH-1.46` (protocol), `CONCEPT:KG-2.64` (provenance)
+- **Proposed IDs**: `CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating` (runtime), `CONCEPT:AU-ORCH.reactive.action-dispatcher` (protocol), `CONCEPT:AU-KG.enrichment.atomic-triple-extraction` (provenance)
 - **Augments Pillars**: OS (process/infra lifecycle), ORCH (loop protocol), KG (provenance graph)
 - **15-Phase Pipeline Integration**: wires a new CODEBASE-adjacent runtime under the execution
   plane; provenance writes land in the KG ingestion/enrichment graph.
@@ -42,7 +42,7 @@ C4Context
     title Developer-Workspace Runtime — Integration Context
 
     System_Boundary(b1, "agent-utilities Core") {
-        System(rt, "DevWorkspace Runtime (OS-5.33)", "Long-lived container/local: shell, files, tests, ports")
+        System(rt, "DevWorkspace Runtime (AU-OS.scaling.bridge-developer-workspace-mutating)", "Long-lived container/local: shell, files, tests, ports")
         System(proto, "Action/Observation Protocol (ORCH-1.46)", "Typed events over a UDS bridge")
         System(prov, "Provenance Mirror (KG-2.64)", "Actions/observations -> KG nodes grounded to Code symbols")
         System_Ext(bridge, "RLM docker UDS bridge (ORCH-1.38)", "Reused transport + container hardening")

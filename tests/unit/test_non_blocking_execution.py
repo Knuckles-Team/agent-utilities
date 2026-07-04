@@ -3,14 +3,14 @@
 Covers the P0/P1 items of ``docs/architecture/non-blocking-execution.md`` at the
 wiring level (engine/vLLM may be offline — these assert the contract, not a live run):
 
-* CONCEPT:ORCH-1.62 — the ``chat`` execution profile yields bounded node timeouts and is
+* CONCEPT:AU-ORCH.execution.chat-profile-timeouts — the ``chat`` execution profile yields bounded node timeouts and is
   threaded from the messaging reply path into ``execute_agent``/``run_agent``/the config;
   the ``task`` profile keeps the long defaults; a backend timeout does NOT double-call.
-* CONCEPT:ORCH-1.63 — the widened fast-path classifier catches normal simple questions and
+* CONCEPT:AU-ORCH.routing.original-rule-was-far — the widened fast-path classifier catches normal simple questions and
   escalates tool/plan-shaped turns.
-* CONCEPT:ORCH-1.64 — the built graph topology is cached across two turns of one config.
-* CONCEPT:ORCH-1.65 — the hot-path KG resolution runs off the event loop.
-* CONCEPT:KG-2.131 — the per-session memento cache primes from memory, refreshed in the bg.
+* CONCEPT:AU-ORCH.routing.structural-build-reuse — the built graph topology is cached across two turns of one config.
+* CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the hot-path KG resolution runs off the event loop.
+* CONCEPT:AU-KG.memory.refresh-per-session-memento — the per-session memento cache primes from memory, refreshed in the bg.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def _reset_shape_state() -> Any:
     """Each test starts from a clean shape planner. The recipe cache and the learned shape
     policy are process-global, so a test that runs a turn (recording an outcome via
     ``record_shape_outcome``) must not bias another test's classification
-    (CONCEPT:ORCH-1.70/1.72)."""
+    (CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.72)."""
     from agent_utilities.orchestration.execution_profile import (
         reset_recipe_cache,
         reset_shape_policy,
@@ -73,7 +73,7 @@ def test_task_profile_keeps_long_defaults() -> None:
 
 def test_chat_profile_stays_under_reply_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """The chat node budget must be far below the messaging reply timeout so a turn resolves
-    INSIDE the graph instead of being killed and retried via plain-chat (CONCEPT:ORCH-1.62)."""
+    INSIDE the graph instead of being killed and retried via plain-chat (CONCEPT:AU-ORCH.execution.chat-profile-timeouts)."""
     from agent_utilities.orchestration.execution_profile import (
         resolve_execution_profile,
     )
@@ -91,7 +91,7 @@ def test_chat_profile_stays_under_reply_budget(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_build_execution_config_applies_chat_profile() -> None:
-    """The chat profile's bounded node timeouts reach the graph config (CONCEPT:ORCH-1.62)."""
+    """The chat profile's bounded node timeouts reach the graph config (CONCEPT:AU-ORCH.execution.chat-profile-timeouts)."""
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
@@ -116,7 +116,7 @@ def test_build_execution_config_applies_chat_profile() -> None:
 
 
 def test_build_execution_config_injects_code_context_prime() -> None:
-    """The task-start code_context prime reaches the run's tag_prompts (CONCEPT:KG-2.134)."""
+    """The task-start code_context prime reaches the run's tag_prompts (CONCEPT:AU-KG.retrieval.synthesized-cited-answer)."""
     from agent_utilities.orchestration.agent_runner import _build_execution_config
 
     meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
@@ -135,7 +135,7 @@ def test_build_execution_config_injects_code_context_prime() -> None:
 
 @pytest.mark.asyncio
 async def test_prime_code_context_skips_chat_profile() -> None:
-    """The prime is skipped on the latency-sensitive chat profile (CONCEPT:KG-2.134)."""
+    """The prime is skipped on the latency-sensitive chat profile (CONCEPT:AU-KG.retrieval.synthesized-cited-answer)."""
     from agent_utilities.orchestration.agent_runner import _prime_code_context
 
     out = await _prime_code_context(
@@ -200,7 +200,7 @@ async def test_timeout_does_not_double_call_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The messaging reply path passes ``chat`` and a backend timeout does NOT trigger a
-    second full LLM call (CONCEPT:ORCH-1.62 — removes the measured double-LLM tax)."""
+    second full LLM call (CONCEPT:AU-ORCH.execution.chat-profile-timeouts — removes the measured double-LLM tax)."""
     import asyncio
 
     from agent_utilities.messaging import router as router_mod
@@ -261,7 +261,7 @@ def test_fast_path_catches_normal_simple_questions() -> None:
 
 
 def test_fast_path_escalates_structural_turns() -> None:
-    """Structural escalation only (CONCEPT:EG-010/ORCH-1.73): slash-command, multi-clause, or
+    """Structural escalation only (CONCEPT:EG-ORCH.routing.lexical-capability-escalation/ORCH-1.73): slash-command, multi-clause, or
     over-length. Capability/action turns are NOT escalated here anymore — the engine lexical
     gate handles them against the live KG (see test_cascade_lexical_gate_hit_escalates)."""
     from agent_utilities.graph.routing.strategies.fast_path import (
@@ -294,7 +294,7 @@ def test_fast_path_escalates_structural_turns() -> None:
 def test_built_graph_is_cached_across_two_turns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The structural topology is built ONCE for a routing-config and reused (CONCEPT:ORCH-1.64)."""
+    """The structural topology is built ONCE for a routing-config and reused (CONCEPT:AU-ORCH.routing.structural-build-reuse)."""
     from agent_utilities.graph import builder
 
     builder._GRAPH_CACHE.clear()
@@ -345,7 +345,7 @@ def test_graph_cache_key_is_structural_only() -> None:
     assert k1 != k3
     # The graph ``name`` is stamped onto the returned graph, so two same-topology
     # graphs with different names are distinct objects and MUST NOT share a cache
-    # entry (CONCEPT:ORCH-1.64 — otherwise a cached agent leaks the prior name).
+    # entry (CONCEPT:AU-ORCH.routing.structural-build-reuse — otherwise a cached agent leaks the prior name).
     k_other_name = _graph_cache_key(
         tag_prompts={"a": "x", "b": "y"}, **{**base, "name": "B"}
     )
@@ -360,10 +360,10 @@ async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_agent`` must resolve the agent via ``to_thread`` so the sync KG round-trips never
-    stall the loop (CONCEPT:ORCH-1.65). Uses a non-trivial (specialist-targeting) task because
-    CONCEPT:ORCH-1.68 skips KG resolution entirely for a trivial/direct-completion turn, so the
+    stall the loop (CONCEPT:AU-ORCH.routing.offload-sync-roundtrip). Uses a non-trivial (specialist-targeting) task because
+    CONCEPT:AU-ORCH.execution.direct-completion-shape skips KG resolution entirely for a trivial/direct-completion turn, so the
     off-loop hop is only exercised when the shape sets ``resolve_agent=True``. Targets a named
-    specialist (NOT the universal ``messaging-assistant``, which CONCEPT:ORCH-1.72 exempts from
+    specialist (NOT the universal ``messaging-assistant``, which CONCEPT:AU-ORCH.execution.passthrough-identity exempts from
     resolution as a pass-through identity)."""
     import asyncio
     import threading
@@ -411,7 +411,7 @@ async def test_resolve_agent_runs_off_the_event_loop(
 async def test_passthrough_agent_skips_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CONCEPT:ORCH-1.72 — the universal ``messaging-assistant`` is a pass-through identity:
+    """CONCEPT:AU-ORCH.execution.passthrough-identity — the universal ``messaging-assistant`` is a pass-through identity:
     even on a non-trivial (resolve_agent=True) turn it must NOT hit ``_resolve_agent_from_kg``
     (that ~21 s semantic search both wastes time and mis-binds it to ``prepare_messages``)."""
     from agent_utilities.orchestration import agent_runner
@@ -447,7 +447,7 @@ async def test_passthrough_agent_skips_resolution(
 
 
 def test_reply_budget_scales_with_shape() -> None:
-    """CONCEPT:ORCH-1.72 — the reply budget is derived from the shape: a direct/lean turn is
+    """CONCEPT:AU-ORCH.execution.passthrough-identity — the reply budget is derived from the shape: a direct/lean turn is
     short and answered inline; a full multi-agent tool turn earns a much larger budget and is
     delivered as a deferred follow-up."""
     import dataclasses
@@ -497,7 +497,7 @@ def test_session_memento_cache_lru_and_copy() -> None:
 async def test_prime_recent_mementos_reads_cache_without_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cache hit must NOT touch the backend (zero I/O on the hot path, CONCEPT:KG-2.131)."""
+    """A cache hit must NOT touch the backend (zero I/O on the hot path, CONCEPT:AU-KG.memory.refresh-per-session-memento)."""
     from agent_utilities.knowledge_graph.memory import session_memento_cache as smc
     from agent_utilities.orchestration import agent_runner
 
@@ -548,7 +548,7 @@ def test_refresh_session_memento_cache_populates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The background ``_persist_and_enrich`` pass refreshes the cache so turn N+1 reads
-    turn N's memento from memory (CONCEPT:KG-2.131 / ECO-4.74)."""
+    turn N's memento from memory (CONCEPT:AU-KG.memory.refresh-per-session-memento / ECO-4.74)."""
     import agent_utilities.knowledge_graph.memory.memento_compressor as mc
     from agent_utilities.knowledge_graph.memory.session_memento_cache import (
         SessionMementoCache,
@@ -569,7 +569,7 @@ def test_refresh_session_memento_cache_populates(
 def test_plan_shape_trivial_turn_is_lean() -> None:
     """A trivial conversational/Q&A turn gets the lean shape: direct-completion on a local
     model with NO KG agent resolution, NO usage-guard LLM round, NO discovery/verifier, and
-    reasoning OFF (CONCEPT:ORCH-1.67/1.68)."""
+    reasoning OFF (CONCEPT:AU-ORCH.execution.dynamic-execution-profile/1.68)."""
     from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
     for q in ("what is 2 plus 2?", "hello", "what can you do?"):
@@ -587,7 +587,7 @@ def test_plan_shape_trivial_turn_is_lean() -> None:
 
 def test_plan_shape_real_task_keeps_full_graph() -> None:
     """A tool/plan-shaped turn keeps the full graph: resolve the specialist, run the
-    usage-guard / discovery / verifier, reasoning ON (CONCEPT:ORCH-1.67/1.68)."""
+    usage-guard / discovery / verifier, reasoning ON (CONCEPT:AU-ORCH.execution.dynamic-execution-profile/1.68)."""
     from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
     for q in (
@@ -605,7 +605,7 @@ def test_plan_shape_real_task_keeps_full_graph() -> None:
 
 def test_plan_shape_defaults_preserve_full_behaviour() -> None:
     """An ExecutionProfile built without the planner keeps the prior full-graph behaviour so
-    direct callers that plan no shape are unchanged (CONCEPT:ORCH-1.67)."""
+    direct callers that plan no shape are unchanged (CONCEPT:AU-ORCH.execution.dynamic-execution-profile)."""
     from agent_utilities.orchestration.execution_profile import (
         resolve_execution_profile,
     )
@@ -622,7 +622,7 @@ def test_plan_shape_defaults_preserve_full_behaviour() -> None:
 
 
 def test_graph_deps_carries_execution_shape() -> None:
-    """The shape threads onto GraphDeps so graph nodes can read it (CONCEPT:ORCH-1.68)."""
+    """The shape threads onto GraphDeps so graph nodes can read it (CONCEPT:AU-ORCH.execution.direct-completion-shape)."""
     from agent_utilities.graph.state import GraphDeps
     from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
@@ -644,7 +644,7 @@ def test_graph_deps_carries_execution_shape() -> None:
 
 def test_memory_selection_doc_scan_pruned_and_capped(tmp_path) -> None:
     """The workspace doc inventory must prune vendor/build trees and cap its output, not
-    rglob the whole 234-repo tree + read_text every file on the event loop (CONCEPT:ORCH-1.68).
+    rglob the whole 234-repo tree + read_text every file on the event loop (CONCEPT:AU-ORCH.execution.direct-completion-shape).
     """
     from agent_utilities.graph.hierarchical_planner import (
         _DOC_SCAN_CAP,
@@ -669,7 +669,7 @@ def test_memory_selection_doc_scan_pruned_and_capped(tmp_path) -> None:
 
 
 class _FakeGraphCompute:
-    """Stand-in for engine.graph_compute exposing the lexical gate (CONCEPT:EG-010)."""
+    """Stand-in for engine.graph_compute exposing the lexical gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation)."""
 
     def __init__(self, terms: Any) -> None:
         self._terms = terms
@@ -699,7 +699,7 @@ class _FakeSearchEngine:
 
 
 def test_signal_strength_grades() -> None:
-    """The graded classifier is now PURELY STRUCTURAL (CONCEPT:EG-010/ORCH-1.73): 0 = no
+    """The graded classifier is now PURELY STRUCTURAL (CONCEPT:EG-ORCH.routing.lexical-capability-escalation/ORCH-1.73): 0 = no
     structural signal (domain escalation is the lexical gate's job), 2+ = clearly complex."""
     from agent_utilities.graph.routing.strategies.fast_path import (
         orchestration_signal_strength as strength,
@@ -717,7 +717,7 @@ def test_signal_strength_grades() -> None:
 
 
 def test_focused_tools_shape_carries_named_servers() -> None:
-    """CONCEPT:ORCH-1.74 — a lexical hit naming concrete server(s) yields the FOCUSED-TOOLS
+    """CONCEPT:AU-ORCH.execution.focused-tools-altitude — a lexical hit naming concrete server(s) yields the FOCUSED-TOOLS
     altitude: origin='lexical' + tool_servers = the distinct matched servers, best-score first."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
@@ -759,7 +759,7 @@ def test_focused_tools_shape_carries_named_servers() -> None:
 
 
 def test_focused_tools_wins_over_structural_signal() -> None:
-    """CONCEPT:ORCH-1.74 — a turn that NAMES concrete capabilities takes the focused-tools
+    """CONCEPT:AU-ORCH.execution.focused-tools-altitude — a turn that NAMES concrete capabilities takes the focused-tools
     altitude even when it is multi-clause + over-length (strength>=2). The real Telegram
     regression: 'fetch my github issues? ... ? list my portainer stacks?' was going to the
     full planning graph instead of one parallel tool loop."""
@@ -839,7 +839,7 @@ _SUBSTANTIAL = "can you find everything related to the archived revenue records 
 
 
 def test_cascade_lexical_gate_hit_escalates() -> None:
-    """CONCEPT:EG-010 — a turn naming a real fleet capability escalates via the FREE lexical
+    """CONCEPT:EG-ORCH.routing.lexical-capability-escalation — a turn naming a real fleet capability escalates via the FREE lexical
     gate (no vector search), the path that fixes the portainer/github classification bug."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
@@ -950,7 +950,7 @@ def test_recipe_cache_reuses_and_resets() -> None:
 
 def test_recipe_outcome_evicts_on_failure_keeps_on_success() -> None:
     """The cached recipe self-corrects: a failed run evicts it (re-plan next time); a
-    successful run keeps it (reuse next time) — CONCEPT:ORCH-1.70."""
+    successful run keeps it (reuse next time) — CONCEPT:AU-ORCH.execution.planner-failure-feedback."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
         record_shape_outcome,
@@ -1030,7 +1030,7 @@ def test_outcome_router_is_per_task_class() -> None:
 
 def test_shape_policy_overlay_flips_after_learning() -> None:
     """The planner's heuristic shape is a prior the learned policy refines per task-class
-    (CONCEPT:ORCH-1.71); a reset restores the pure heuristic."""
+    (CONCEPT:AU-ORCH.execution.shape-policy-learning); a reset restores the pure heuristic."""
     from dataclasses import replace
 
     from agent_utilities.orchestration.execution_profile import (
@@ -1064,7 +1064,7 @@ def test_shape_policy_overlay_flips_after_learning() -> None:
 
 
 def test_focused_tools_reply_budget_is_tighter_than_full() -> None:
-    """CONCEPT:ORCH-1.74 — a focused-tools turn (one parallel tool loop) gets a much tighter
+    """CONCEPT:AU-ORCH.execution.focused-tools-altitude — a focused-tools turn (one parallel tool loop) gets a much tighter
     reply budget than a full multi-agent turn (~190s); it grows mildly per bound server."""
     from dataclasses import replace
 

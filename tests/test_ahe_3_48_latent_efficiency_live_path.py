@@ -1,4 +1,4 @@
-"""Latent-native efficiency benchmark (CONCEPT:AHE-3.48).
+"""Latent-native efficiency benchmark (CONCEPT:AU-AHE.harness.empirical-evidence-that-latent).
 
 Unit + live-path: each latent-native mechanism (rollout latent memory KG-2.73b,
 ontology-prior retrieval KG-2.44b) beats its round-tripped/flat baseline under a
@@ -12,7 +12,7 @@ import pytest
 from agent_utilities.harness.latent_efficiency_benchmark import run_all, to_markdown
 from agent_utilities.mcp import kg_server
 
-pytestmark = pytest.mark.concept("AHE-3.48")
+pytestmark = pytest.mark.concept("AU-AHE.harness.empirical-evidence-that-latent")
 
 
 def test_run_all_reports_lift_for_each_mechanism():
@@ -37,8 +37,8 @@ async def test_latent_efficiency_benchmark_live_path(monkeypatch):
     assert report["total"] >= 2
     assert report["reproduced"] == report["total"]
     names = {r["name"] for r in report["results"]}
-    assert any("KG-2.73b" in n for n in names)
-    assert any("KG-2.44b" in n for n in names)
+    assert any("AU-KG.compute.reuse-model-latent" in n for n in names)
+    assert any("AU-KG.ontology.optional-populated-from" in n for n in names)
     for r in report["results"]:
         assert "baseline" in r and "ours" in r and "lift" in r
     assert "markdown" in report and "claims reproduced" in report["markdown"]

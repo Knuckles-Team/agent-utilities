@@ -48,7 +48,7 @@ class GoalStatus(StrEnum):
     CANCELLED = "cancelled"
     PAUSED = "paused"
     # A non-terminal goal whose owning process died (detected at restart
-    # rehydration, CONCEPT:ORCH-1.44): visible + explicitly resumable, never
+    # rehydration, CONCEPT:AU-ORCH.session.durable-goal-registry-goals): visible + explicitly resumable, never
     # silently lost.
     ORPHANED = "orphaned"
 

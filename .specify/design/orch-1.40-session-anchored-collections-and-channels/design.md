@@ -1,4 +1,4 @@
-# Design: Session-Anchored Collections + Native Channel Messaging (ORCH-1.40)
+# Design: Session-Anchored Collections + Native Channel Messaging (AU-ORCH.session.session-anchored-collections-native)
 
 > A robust solution to the two ORCH-1.39 deferrals — (a) reliable session-scoped queries
 > (`graph_context list`) and (b) a real invoker↔spawned message channel — by attacking their
@@ -22,7 +22,7 @@ So "find/list by session" must NOT be a property scan. It must be an **id-anchor
 
 ## The powerful discovery (deferral 2)
 
-The engine ships a native **Communication Channels** subsystem (CONCEPT:KG-2.0,
+The engine ships a native **Communication Channels** subsystem (CONCEPT:AU-KG.query.object-graph-mapper,
 `epistemic-graph/src/channels.rs`): `create/join/leave/send_message/get_messages/list/close`,
 running **inside the shared UDS server** → inherently **cross-process + totally ordered**
 (~0.19 ms/op), with P2P channels enforcing exactly 2 members (ideal for invoker↔spawned). The
@@ -89,7 +89,7 @@ defer this unless a hot, large-N, non-anchorable property-listing requirement em
 5. **(Defer)** engine property index unless a concrete hot path appears.
 
 ## Concept & wiring
-- **Proposed CONCEPT:ORCH-1.40** — sub-concept of ORCH-1.39; composes with KG-2.0 (channels) and
+- **Proposed CONCEPT:AU-ORCH.session.session-anchored-collections-native** — sub-concept of ORCH-1.39; composes with KG-2.0 (channels) and
   ORCH-1.21 (execution bridge). Wire-First: `graph_orchestrate`/`run_agent` → `agent_channel` /
   session-anchor writes → engine channels/edges (≤2 hops).
 - Schema additions (`Session`, `AgentMessage`, `HAS_MESSAGE`, `HAS_RUN`) → extend the OWL layer in

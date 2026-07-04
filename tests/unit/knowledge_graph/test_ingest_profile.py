@@ -1,4 +1,4 @@
-"""Unit tests for the unified ingestion profiler (CONCEPT:OS-5.69/70/71)."""
+"""Unit tests for the unified ingestion profiler (CONCEPT:AU-OS.observability.ingestion-profile-report/70/71)."""
 
 from __future__ import annotations
 

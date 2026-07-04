@@ -1,10 +1,10 @@
-"""Invoker→spawned-agent curated-context handoff (CONCEPT:ORCH-1.38, MVP Phase 1).
+"""Invoker→spawned-agent curated-context handoff (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox, MVP Phase 1).
 
 Covers: the budgeted ``### INVOKER CONTEXT`` section helper, the ``GraphState.invoker_context``
 field, and that ``run_agent(context=...)`` threads the curated context into the execution
 config that seeds ``GraphState`` (and thus the spawn assemblers).
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 """
 
 from __future__ import annotations
@@ -15,14 +15,14 @@ from agent_utilities.graph.executor import invoker_context_section
 from agent_utilities.graph.state import GraphState
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_section_empty_when_no_context():
     state = GraphState(query="q")
     assert state.invoker_context == ""
     assert invoker_context_section(state) == ""
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_section_rendered_when_present():
     state = GraphState(query="q", invoker_context="The user prefers metric units.")
     section = invoker_context_section(state)
@@ -30,7 +30,7 @@ def test_section_rendered_when_present():
     assert "metric units" in section
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_section_budgeted_to_window():
     # 200k chars of context must be trimmed to fit a 32K-token window fraction (~19.6K chars).
     big = "x" * 200_000
@@ -42,7 +42,7 @@ def test_section_budgeted_to_window():
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 async def test_run_agent_threads_context_into_config(monkeypatch):
     """run_agent(context=...) must place the curated context on the execution config
     that seeds GraphState (proves the entrypoint→state thread)."""
@@ -79,7 +79,7 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 async def test_run_agent_resolves_context_ref(monkeypatch):
     """context_ref resolves a persisted ContextBlob's content into invoker_context
     (Phase 2 cross-process handoff)."""
@@ -118,7 +118,7 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
     assert captured["invoker_context"] == "RESOLVED BLOB CONTENT"
 
 
-@pytest.mark.concept("ORCH-1.37")
+@pytest.mark.concept("AU-ORCH.execution.orchestration-flow-mermaid")
 def test_plan_output_type_uses_promptedoutput_for_non_json_models(monkeypatch):
     """FU-2: planner wraps GraphPlan in PromptedOutput when the model can't do native JSON."""
     from pydantic_ai import PromptedOutput
@@ -146,7 +146,7 @@ def test_plan_output_type_uses_promptedoutput_for_non_json_models(monkeypatch):
     assert hp._plan_output_type(_M()) is hp.GraphPlan
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_apply_tool_scope_filters_to_allow_list():
     from agent_utilities.graph.executor import apply_tool_scope
 
@@ -181,7 +181,7 @@ def test_apply_tool_scope_filters_to_allow_list():
     assert ts.predicate(None, td_no) is False
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_cred_ref_resolves_to_auth_token_only_on_transient_deps():
     """Phase 4: cred_ref (a reference) resolves to the raw token onto AgentDeps.auth_token via
     the secrets client; the raw secret is never placed on GraphState."""
@@ -217,7 +217,7 @@ def test_cred_ref_resolves_to_auth_token_only_on_transient_deps():
     assert agent_deps2.auth_token is None
 
 
-@pytest.mark.concept("ORCH-1.38")
+@pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 def test_spawn_usage_limits_enforces_budget():
     from agent_utilities.graph.executor import spawn_usage_limits
 

@@ -1,4 +1,4 @@
-"""Ed25519 ARD datapoint signing tests (CONCEPT:OS-5.60)."""
+"""Ed25519 ARD datapoint signing tests (CONCEPT:AU-OS.identity.ard-datapoint-signing)."""
 
 from __future__ import annotations
 

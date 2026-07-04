@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontology Action System — submission criteria + typed side-effects (CONCEPT:KG-2.42).
+"""Ontology Action System — submission criteria + typed side-effects (CONCEPT:AU-KG.ontology.submission-criteria-gate).
 
 Provenance (Palantir AIP doc: *action-types/overview*): an Action Type validates
 its parameters against **submission criteria** and, on submission, applies a list
@@ -118,7 +118,7 @@ def evaluate_submission_criteria(
 ) -> list[str]:
     """Return the messages of any submission criteria that FAIL (empty == pass).
 
-    CONCEPT:KG-2.42 — Palantir submission-criteria gate. An action with no
+    CONCEPT:AU-KG.ontology.submission-criteria-gate — Palantir submission-criteria gate. An action with no
     criteria always passes (preserving KG-2.25 semantics).
     """
     failures: list[str] = []

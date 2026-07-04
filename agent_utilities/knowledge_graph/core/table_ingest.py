@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Connector / ETL → native engine SQL tables (CONCEPT:KG-2.266).
+"""Connector / ETL → native engine SQL tables (CONCEPT:AU-KG.ingest.mirror-inbound).
 
 The engine gained arbitrary user tables (DataFusion + pg-wire). This module makes
 that reachable from the platform: mirror any registered source connector's documents

@@ -1,10 +1,10 @@
-"""Ingest whole GitLab instances as a resolved code-symbol graph (CONCEPT:KG-2.9g).
+"""Ingest whole GitLab instances as a resolved code-symbol graph (CONCEPT:AU-KG.backend.declared-columns-so-schema).
 
 This is the piece that assimilates *all of GitLab* — personal instance and
 enterprise — into the one ontology-driven KG, surpassing GitLab's own
 single-repo `gitlab-org/rust/knowledge-graph` (gkg): we reuse the
 ``epistemic-graph`` engine's cross-file resolver (``index_repository``,
-CONCEPT:KG-2.8r) to turn each project's source tree into ``:Code`` symbols with
+CONCEPT:EG-KG.compute.turn-each-project) to turn each project's source tree into ``:Code`` symbols with
 RESOLVED ``calls``/``depends_on`` edges, then write them under a per-instance
 ``source_system`` so the code graph shares an ontology with the issues/MRs/
 pipelines (API objects) and the EA feeds (Egeria/LeanIX/ArchiMate/ERPNext).
@@ -51,7 +51,7 @@ CODE_EXTENSIONS: frozenset[str] = frozenset(
         "hxx",
         "hh",
         "cs",
-        # Extended-language tier (CONCEPT:KG-2.106).
+        # Extended-language tier (CONCEPT:AU-KG.compute.built-ast-extended).
         "rb",
         "php",
         "sh",
@@ -165,7 +165,7 @@ def index_instance(
 
     # Iterate defensively: project enumeration is paginated, so a transient blip
     # (after _get's own retries) must end this instance with partial results +
-    # a recorded error, never abort the whole sweep mid-flight. (CONCEPT:KG-2.9g)
+    # a recorded error, never abort the whole sweep mid-flight. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
     project_iter = iter(source.list_projects())
     while True:
         try:
@@ -553,7 +553,7 @@ def _host_slug(url: str) -> str:
     return host.lower()
 
 
-# ── Incremental: GitLab webhook → scoped re-index (CONCEPT:KG-2.9g) ────────────
+# ── Incremental: GitLab webhook → scoped re-index (CONCEPT:AU-KG.backend.declared-columns-so-schema) ────────────
 
 
 @dataclass

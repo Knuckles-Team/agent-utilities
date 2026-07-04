@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.33 — Multi-CLI Agent Adapter Registry (declarative adapter contract).
+"""CONCEPT:AU-ORCH.adapter.multi-cli-adapter-dispatch — Multi-CLI Agent Adapter Registry (declarative adapter contract).
 
 Assimilated from open-design's ``RuntimeAgentDef`` pattern (apps/daemon/src/runtimes/types.ts):
 agent CLI behaviour is **data**, not bespoke per-CLI code. Each installed coding-agent CLI (or

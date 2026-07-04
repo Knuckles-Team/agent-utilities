@@ -1,6 +1,6 @@
 """
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 Concept: building-mcp-servers
 
 Tests for MCP utilities.
@@ -45,7 +45,7 @@ def test_create_mcp_server_basic(mock_fastmcp):
 
 def test_create_mcp_server_exposes_metrics_health_and_tool_middleware(monkeypatch):
     """A factory-built server mounts unauthenticated /metrics + /health routes
-    and the per-tool metrics middleware (CONCEPT:OS-5.23). Uses the real FastMCP
+    and the per-tool metrics middleware (CONCEPT:AU-OS.observability.no-op-without-metrics). Uses the real FastMCP
     (no mock) so the registered HTTP routes can be inspected."""
     monkeypatch.setattr("sys.argv", ["test-mcp"])  # defaults: auth none, eunomia none
     args, mcp, middlewares = mcp_utilities.create_mcp_server(

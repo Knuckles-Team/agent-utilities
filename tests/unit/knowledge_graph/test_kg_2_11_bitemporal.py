@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.11 — Bi-Temporal Memory Layers.
+"""CONCEPT:AU-KG.temporal.bi-temporal-memory-layers — Bi-Temporal Memory Layers.
 
 Covers the pure temporal core (stamp / as-of validity / event-time precedence / supersede)
 and the additive procedural-layer fields on MemoryNode.
@@ -18,7 +18,7 @@ from agent_utilities.knowledge_graph.core.bitemporal import (
 from agent_utilities.models.knowledge_graph import MemoryNode
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_stamp_sets_all_four_time_concepts():
     props = stamp_bitemporal({}, now="2026-06-04T00:00:00+00:00")
     assert props["storage_time"] == "2026-06-04T00:00:00+00:00"
@@ -28,7 +28,7 @@ def test_stamp_sets_all_four_time_concepts():
     assert props["valid_to"] is None  # open interval
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_stamp_preserves_explicit_event_time_distinct_from_storage():
     # The hallmark Temporal Truth case: event happened long before it was stored.
     props = stamp_bitemporal(
@@ -39,7 +39,7 @@ def test_stamp_preserves_explicit_event_time_distinct_from_storage():
     assert props["valid_from"] == "2023-03-04T00:00:00+00:00"
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_stamp_is_idempotent():
     props = stamp_bitemporal({}, event_time="2023-01-01T00:00:00+00:00")
     again = stamp_bitemporal(dict(props), now="2099-01-01T00:00:00+00:00")
@@ -47,7 +47,7 @@ def test_stamp_is_idempotent():
     assert again["storage_time"] == props["storage_time"]
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_is_valid_as_of_within_and_outside_interval():
     props = {
         "valid_from": "2023-01-01T00:00:00+00:00",
@@ -60,13 +60,13 @@ def test_is_valid_as_of_within_and_outside_interval():
     )  # after (>= valid_to)
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_open_interval_is_valid_forever():
     props = {"valid_from": "2023-01-01T00:00:00+00:00", "valid_to": None}
     assert is_valid_as_of(props, "2099-01-01T00:00:00+00:00") is True
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_filter_as_of_selects_temporally_correct_row():
     old = {
         "id": "a",
@@ -87,7 +87,7 @@ def test_filter_as_of_selects_temporally_correct_row():
     assert len(filter_as_of(rows, None)) == 2  # type: ignore[arg-type]
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_precedence_later_event_time_wins():
     a = {"id": "a", "event_time": "2023-01-01T00:00:00+00:00"}
     b = {"id": "b", "event_time": "2024-01-01T00:00:00+00:00"}
@@ -98,7 +98,7 @@ def test_precedence_later_event_time_wins():
     assert winner2["id"] == "b" and loser2["id"] == "a"
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_supersede_closes_loser_interval_without_deleting():
     winner = {"id": "b", "event_time": "2024-01-01T00:00:00+00:00"}
     loser = {"id": "a", "event_time": "2023-01-01T00:00:00+00:00", "valid_to": None}
@@ -109,7 +109,7 @@ def test_supersede_closes_loser_interval_without_deleting():
     assert is_valid_as_of(loser, "2024-06-01T00:00:00+00:00") is False
 
 
-@pytest.mark.concept(id="KG-2.11")
+@pytest.mark.concept(id="AU-KG.temporal.bi-temporal-memory-layers")
 def test_memory_node_procedural_layer_fields():
     rule = MemoryNode(
         id="m1",

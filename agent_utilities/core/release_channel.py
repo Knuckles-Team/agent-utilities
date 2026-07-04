@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Release-Channel System (CONCEPT:OS-5.13).
+"""Release-Channel System (CONCEPT:AU-OS.scaling.resolve-active-channel-once).
 
 Palantir AIP ships capabilities on release *tracks* (stable / beta / edge) so a
 component can be exposed to early adopters without affecting the stable surface.
@@ -47,7 +47,7 @@ T = TypeVar("T")
 
 
 class ReleaseChannel(IntEnum):
-    """Ordered release tracks (stable < beta < edge). CONCEPT:OS-5.13.
+    """Ordered release tracks (stable < beta < edge). CONCEPT:AU-OS.scaling.resolve-active-channel-once.
 
     Higher channels are *more* permissive: running on ``edge`` exposes
     everything; running on ``stable`` (the default) exposes only stable
@@ -100,7 +100,7 @@ _ACTIVE: ReleaseChannel | None = None
 
 
 def active_channel(refresh: bool = False) -> ReleaseChannel:
-    """Resolve the active release channel. CONCEPT:OS-5.13.
+    """Resolve the active release channel. CONCEPT:AU-OS.scaling.resolve-active-channel-once.
 
     Resolution order: ``AGENT_UTILITIES_RELEASE_CHANNEL`` env → ``release_channel``
     in the loaded config (best-effort) → ``stable``. Cached after first read;
@@ -156,7 +156,7 @@ def channel_visible(
 
     A component is visible iff ``active >= component_channel`` — i.e. an ``edge``
     component is hidden on ``stable``/``beta`` and visible only on ``edge``; a
-    ``stable`` component is visible everywhere. CONCEPT:OS-5.13.
+    ``stable`` component is visible everywhere. CONCEPT:AU-OS.scaling.resolve-active-channel-once.
     """
     comp = ReleaseChannel.parse(component_channel, default=ReleaseChannel.STABLE)
     act = active if active is not None else active_channel()
@@ -164,7 +164,7 @@ def channel_visible(
 
 
 def release_channel(channel: Any) -> Callable[[T], T]:
-    """Decorator stamping a component's release channel. CONCEPT:OS-5.13.
+    """Decorator stamping a component's release channel. CONCEPT:AU-OS.scaling.resolve-active-channel-once.
 
     Usage::
 
@@ -211,7 +211,7 @@ def component_visible(obj: Any, active: ReleaseChannel | None = None) -> bool:
 
 
 class ChannelRegistry:
-    """An in-memory registry that gates components by the active channel. CONCEPT:OS-5.13.
+    """An in-memory registry that gates components by the active channel. CONCEPT:AU-OS.scaling.resolve-active-channel-once.
 
     Components register with a name + (decorated/explicit) channel; :meth:`active`
     returns only those visible on the active channel, so discovery surfaces an

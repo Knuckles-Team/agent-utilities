@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """XDG-Compliant Path Resolution Module.
 
-CONCEPT:OS-5.0 — Agent OS Infrastructure (Extension)
+CONCEPT:AU-OS.config.agent-os-infrastructure — Agent OS Infrastructure (Extension)
 
 Centralizes all file path resolution for the agent-utilities ecosystem using
 the XDG Base Directory Specification via ``platformdirs``. This replaces 10+
@@ -124,7 +124,7 @@ def prompts_dir() -> Path:
 
     Override via ``AGENT_UTILITIES_PROMPTS_DIR`` environment variable.
 
-    CONCEPT:KG-2.141 — the user-override layer of the prompt library, mirroring
+    CONCEPT:AU-KG.compute.user-override-prompt-library — the user-override layer of the prompt library, mirroring
     :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
     the packaged base prompts and fleet-contributed (``agent_utilities.prompt_providers``)
     prompts of the same id when the KG prompt registry is ingested
@@ -142,7 +142,7 @@ def unified_prompts_dir() -> Path:
 
     Default: ``~/.local/share/agent-utilities/prompts/``
 
-    CONCEPT:OS-5.77 — one leg of the unified install tree. The
+    CONCEPT:AU-OS.governance.concept-2 — one leg of the unified install tree. The
     ``agent-utilities install`` command materializes every ``prompt_providers``
     contribution (plus the hub's own base prompts) here as
     ``prompts/<provider>/*.json``, and the prompt ``registry_builder`` reads it
@@ -250,7 +250,7 @@ def research_dir() -> Path:
 def memory_view_dir() -> Path:
     """Return the path for materialized memory views.
 
-    CONCEPT:KG-2.1 — Observational Memory Bridge
+    CONCEPT:AU-KG.memory.observational-memory-bridge — Observational Memory Bridge
 
     Default: ``~/.local/share/agent-utilities/memory/``
 
@@ -272,7 +272,7 @@ def memory_view_dir() -> Path:
 def messaging_sessions_dir() -> Path:
     """Return the path for messaging backend session data.
 
-    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
     Default: ``~/.local/share/agent-utilities/messaging/``
 
@@ -286,7 +286,7 @@ def messaging_sessions_dir() -> Path:
 def messaging_config_path() -> Path:
     """Return the path to the messaging section in the global config.
 
-    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+    CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
     Default: ``~/.config/agent-utilities/config.json``
     (messaging keys are inside the same config.json, not a separate file)
@@ -302,7 +302,7 @@ def messaging_config_path() -> Path:
 def services_config_path() -> Path:
     """Return the path to the dashboard services YAML configuration.
 
-    CONCEPT:OS-5.9 — Gateway Service Dashboard
+    CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
     Default: ``~/.config/agent-utilities/services.yaml``
 
@@ -315,7 +315,7 @@ def services_config_path() -> Path:
 def dashboard_layout_path() -> Path:
     """Return the path to persisted dashboard layout state.
 
-    CONCEPT:OS-5.9 — Gateway Service Dashboard
+    CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
     Default: ``~/.local/share/agent-utilities/layout.yaml``
 

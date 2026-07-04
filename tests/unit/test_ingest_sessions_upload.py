@@ -1,4 +1,4 @@
-"""Non-blocking ``ingest_sessions`` upload path (CONCEPT:KG-2.272).
+"""Non-blocking ``ingest_sessions`` upload path (CONCEPT:AU-KG.ingest.drain-session-bundle).
 
 A large remote session-bundle upload must ENQUEUE a durable ``session_upload``
 background task and return a ``job_id`` immediately (mirroring ``source_sync`` /

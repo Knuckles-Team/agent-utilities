@@ -1,4 +1,4 @@
-"""Unit tests for the GRAPH_MIRROR_TARGETS parser (CONCEPT:KG-2.203).
+"""Unit tests for the GRAPH_MIRROR_TARGETS parser (CONCEPT:AU-KG.backend.tolerant-parse).
 
 Regression for the live bug where ``create_backend(backend_type="fanout")``
 naively comma-split a JSON-array string, so ``["prod-neo4j","team-falkor"]``

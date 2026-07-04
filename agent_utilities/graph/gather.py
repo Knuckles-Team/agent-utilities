@@ -1,4 +1,4 @@
-"""Shared concurrent execution utility — CONCEPT:ORCH-1.8.
+"""Shared concurrent execution utility — CONCEPT:AU-ORCH.execution.parallel-engine-visualizer.
 
 Centralizes the ``asyncio.gather + return_exceptions=True`` pattern
 that was copy-pasted across 5+ files.  Provides a single function

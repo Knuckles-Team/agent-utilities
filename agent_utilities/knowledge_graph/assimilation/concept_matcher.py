@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Robust research → ecosystem-Concept matcher (CONCEPT:KG-2.75).
+"""Robust research → ecosystem-Concept matcher (CONCEPT:AU-KG.ingest.world-model-gate).
 
 The first gap matcher (:func:`gap_analysis.auto_satisfy`) recognised a built
 capability only when a feature *cited its concept id*, with a single weak cosine
@@ -184,7 +184,7 @@ def _concept_text(data: dict[str, Any]) -> str:
 # matcher
 # --------------------------------------------------------------------------- #
 class ConceptMatcher:
-    """Robust multi-signal feature → ecosystem-Concept matcher (CONCEPT:KG-2.75)."""
+    """Robust multi-signal feature → ecosystem-Concept matcher (CONCEPT:AU-KG.ingest.world-model-gate)."""
 
     def __init__(
         self,
@@ -216,7 +216,7 @@ class ConceptMatcher:
     def _hnsw_recall_fn(
         self, engine: Any, concept_ids: set[str]
     ) -> Callable[[list[float]], list[tuple[str, float]]] | None:
-        """Build a recall fn over the engine HNSW (CONCEPT:KG-2.193).
+        """Build a recall fn over the engine HNSW (CONCEPT:AU-KG.ingest.fetch-only-requested-ids).
 
         ``add_embedding``/``enrich_concepts`` store concept vectors in the engine's
         HNSW index, not the node ``embedding`` property — so when the in-memory
@@ -286,7 +286,7 @@ class ConceptMatcher:
 
         # Stage 1 — embedding retrieval (recall: candidate generation only).
         # The feature vector is embedded ON-THE-FLY from its text when it has no
-        # stored node embedding (CONCEPT:KG-2.193) — embeddings live in the engine
+        # stored node embedding (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — embeddings live in the engine
         # HNSW, not the node property, so we never rely on a node-level vector here.
         if not feature_vec:
             ftext0 = _feature_text(fdata)
@@ -355,7 +355,7 @@ class ConceptMatcher:
         # When concepts carry no node-level embedding (the live engine stores vectors
         # in its HNSW via add_embedding/enrich_concepts, not on the node property),
         # recall candidates from the engine HNSW and filter to concept ids — instead
-        # of the empty in-memory cosine index. (CONCEPT:KG-2.193)
+        # of the empty in-memory cosine index. (CONCEPT:AU-KG.ingest.fetch-only-requested-ids)
         recall_fn = (
             self._hnsw_recall_fn(engine, set(concepts)) if not concept_vecs else None
         )

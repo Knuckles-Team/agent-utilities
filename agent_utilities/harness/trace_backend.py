@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Agnostic Trace Backend Abstraction.
 
-CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
+CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Experience Observability)
 
 Provides a pluggable backend abstraction for trace ingestion, following
 the same pattern as the database backend abstraction in
@@ -101,7 +101,7 @@ class TraceBackend(ABC):
         """
         return True
 
-    # ── failure-read surface (CONCEPT:AHE-3.18)
+    # ── failure-read surface (CONCEPT:AU-AHE.harness.failure-evolution)
     # Default no-ops so a backend that has no failure feed (OTel/File without
     # fixtures) degrades gracefully; ``LangfuseTraceBackend`` overrides them.
     async def get_error_observations(
@@ -268,7 +268,7 @@ class LangfuseTraceBackend(TraceBackend):
             scores[tid] = summary.get("score", 0.0)
         return scores
 
-    # ── failure-read surface (CONCEPT:AHE-3.18)
+    # ── failure-read surface (CONCEPT:AU-AHE.harness.failure-evolution)
     async def get_error_observations(
         self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
     ) -> list[dict[str, Any]]:
@@ -399,7 +399,7 @@ class LangfuseTraceBackend(TraceBackend):
                 out.append(row_out)
         return out
 
-    # ── dataset-based regression (CONCEPT:AHE-3.18, Phase 4)
+    # ── dataset-based regression (CONCEPT:AU-AHE.harness.failure-evolution, Phase 4)
     async def create_regression_dataset(self, name: str, description: str = "") -> bool:
         """Create (idempotent) a Langfuse dataset used for remediation regression."""
         api = self._get_api()
@@ -650,7 +650,7 @@ class FileTraceBackend(TraceBackend):
             scores[tid] = summary.get("score", 0.0)
         return scores
 
-    # ── failure-read surface from JSON fixtures (CONCEPT:AHE-3.18)
+    # ── failure-read surface from JSON fixtures (CONCEPT:AU-AHE.harness.failure-evolution)
     def _read_fixture(self, name: str) -> list[dict[str, Any]]:
         import json
 
@@ -696,7 +696,7 @@ class FileTraceBackend(TraceBackend):
 
 
 class KGTraceBackend(TraceBackend):
-    """KG-native trace sink (CONCEPT:OS-5.68) — the moat over an opaque trace store.
+    """KG-native trace sink (CONCEPT:AU-OS.config.model-factory-passthrough) — the moat over an opaque trace store.
 
     Every trace persists as a ``TraceNode → SpanNode/GenerationNode`` subgraph
     (HAS_SPAN/HAS_GENERATION edges) in the SAME OWL/RDF engine that holds the
@@ -717,7 +717,7 @@ class KGTraceBackend(TraceBackend):
         self._traces: dict[str, dict[str, Any]] = {}
         self._max_traces = max_traces  # bound in-memory mirror (oldest evicted)
         # Optional fast hook fired when a ROOT trace completes (set by the
-        # OnlineScoringSampler, CONCEPT:AHE-3.64). Receives the trace_id; must only
+        # OnlineScoringSampler, CONCEPT:AU-AHE.harness.receives-trace-id-must). Receives the trace_id; must only
         # schedule/enqueue — never run the judge inline (keeps the hot path fast).
         self.on_trace_complete: Any = None
 
@@ -750,7 +750,7 @@ class KGTraceBackend(TraceBackend):
         input_text: str = "",
         output_text: str = "",
     ) -> None:
-        """Incrementally record ONE trace/span/generation event (CONCEPT:OS-5.68).
+        """Incrementally record ONE trace/span/generation event (CONCEPT:AU-OS.config.model-factory-passthrough).
 
         The decorator path (``@trace``/``@generation``) emits events one at a time — a
         root trace, then child spans/generations — so this upserts the TraceNode bucket
@@ -802,7 +802,7 @@ class KGTraceBackend(TraceBackend):
         if is_root:
             # Root span = trace finished. Fire the completion hook (best-effort, fast —
             # the hook only schedules/enqueues; it must NOT run the judge inline, so a
-            # traced call never pays scoring latency). CONCEPT:AHE-3.64.
+            # traced call never pays scoring latency). CONCEPT:AU-AHE.harness.receives-trace-id-must.
             cb = getattr(self, "on_trace_complete", None)
             if callable(cb):
                 try:
@@ -1006,7 +1006,7 @@ def create_trace_backend(
         return FileTraceBackend(trace_dir=kwargs.get("trace_dir", "."))
 
     # Auto-detect. Langfuse/OTel, when configured, become fan-out sinks; otherwise the
-    # KG-native backend is the default so traces are graph-queryable (CONCEPT:OS-5.68).
+    # KG-native backend is the default so traces are graph-queryable (CONCEPT:AU-OS.config.model-factory-passthrough).
     # An explicit ``trace_dir`` still selects the file backend for offline fixtures.
     if config.langfuse_secret_key or setting("LANGFUSE_SECRET_KEY"):
         logger.info("TraceBackend: Auto-detected Langfuse credentials.")

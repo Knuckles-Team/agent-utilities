@@ -49,7 +49,7 @@ services:
     # Fleet-standard auth ON by default: the shared agent_utilities server factory
     # verifies Keycloak-issued JWTs (audience agent-services) + enforces eunomia
     # policy. Non-secret internal URLs. The multiplexer presents a service token
-    # (MCP_CLIENT_AUTH=oidc-client-credentials). CONCEPT:OS-5.32.
+    # (MCP_CLIENT_AUTH=oidc-client-credentials). CONCEPT:AU-OS.identity.so-jwt-protected-children.
     - AUTH_TYPE=jwt
     - FASTMCP_SERVER_AUTH_JWT_AUDIENCE=agent-services
     - FASTMCP_SERVER_AUTH_JWT_ISSUER=http://keycloak.arpa/realms/master

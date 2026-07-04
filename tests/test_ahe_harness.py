@@ -1,6 +1,6 @@
 """Tests for the AHE (Agentic Harness Engineering) harness package.
 
-CONCEPT:AHE-3.0
+CONCEPT:AU-AHE.harness.harness-evolution
 
 Tests cover:
     - Manifest models (ComponentType, ComponentEdit, ChangeManifest, VerificationResult)

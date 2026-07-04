@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """HSM/BT Infrastructure Module.
 
-CONCEPT:ORCH-1.0
+CONCEPT:AU-ORCH.execution.inject-signal-board-observations
 
 This module implements Hierarchical State Machine (HSM) and Behavior Tree (BT)
 patterns for the agent graph. It provides entry/exit hooks for adaptive_agent_router,

@@ -1,6 +1,6 @@
 """Tests for the generic BaseBrowserAuthManager authentication flow.
 
-CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 """
 
 import time
@@ -57,7 +57,7 @@ class TestBaseBrowserAuthManager:
             redirect_port=56122,
         )
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_initialization(self, manager):
         """Should correctly initialize configurations and redirect URIs."""
         assert manager.client_id == "test-client-id"
@@ -67,7 +67,7 @@ class TestBaseBrowserAuthManager:
         assert manager.secret_key == "test/oauth_tokens"
         assert manager.redirect_uri == "http://127.0.0.1:56122/callback"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_pkce_generation(self):
         """PKCE generation should produce valid values."""
         verifier, challenge = generate_pkce()
@@ -77,7 +77,7 @@ class TestBaseBrowserAuthManager:
         v2, c2 = generate_pkce()
         assert verifier != v2
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_token_save_and_retrieve(self, manager):
         """Tokens should be saved and loaded from secrets client successfully."""
         assert manager.get_cached_tokens() is None
@@ -94,7 +94,7 @@ class TestBaseBrowserAuthManager:
         assert loaded["access_token"] == "acc_123"
         assert loaded["refresh_token"] == "ref_123"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @patch("httpx.post")
     def test_refresh_access_token_success(self, mock_post, manager):
         """Refreshing token should query configured token endpoint and update cache."""
@@ -124,7 +124,7 @@ class TestBaseBrowserAuthManager:
         loaded = manager.get_cached_tokens()
         assert loaded["access_token"] == "new_acc"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @patch("httpx.post")
     def test_resolve_credentials(self, mock_post, manager):
         """Should return current token if valid, otherwise trigger a refresh."""
@@ -162,7 +162,7 @@ class TestBaseBrowserAuthManager:
 
         assert manager.resolve_credentials() == "refreshed_tok"
 
-    @pytest.mark.concept("CONCEPT:OS-5.1")
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_resolve_credentials_auto_login(self, manager):
         """Should trigger login() if credentials are missing and auto_login is True."""
         # 1. auto_login is False (default) -> should not trigger login and return None

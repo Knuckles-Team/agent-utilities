@@ -1,4 +1,4 @@
-"""Phase-1 ops/observability connectors: extract + write (CONCEPT:KG-2.9)."""
+"""Phase-1 ops/observability connectors: extract + write (CONCEPT:AU-KG.ingest.enterprise-source-extractor)."""
 
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def test_dns_sink_standard_live(monkeypatch):
 
 def test_kafka_high_stakes_is_queued(monkeypatch, tiny_engine):
     # tiny_engine (KG-2.238): the engine-only approval queue persists on the REAL
-    # ephemeral engine — no JSON fallback (CONCEPT:KG-2.247).
+    # ephemeral engine — no JSON fallback (CONCEPT:AU-KG.enrichment.proposals-live-as).
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
 
     class FakeKafkaW:

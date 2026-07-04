@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Browser Management Module.
 
-CONCEPT:ECO-4.0
+CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
 This module implements a singleton BrowserManager that handles the
 asynchronous lifecycle of Playwright-based browser instances, including

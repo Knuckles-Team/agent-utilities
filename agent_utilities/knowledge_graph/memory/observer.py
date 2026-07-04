@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """LLM-Powered Transcript Observer.
 
-CONCEPT:KG-2.1 -- Observational Memory Bridge
+CONCEPT:AU-KG.memory.tiered-memory-caching -- Observational Memory Bridge
 
 Compresses agent session transcripts into structured observations using LLM,
 then persists them as ObservationNode entries in the Knowledge Graph.

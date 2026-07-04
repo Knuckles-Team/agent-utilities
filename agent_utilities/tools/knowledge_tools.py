@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Knowledge Graph Tools.
 
-CONCEPT:KG-2.0
+CONCEPT:AU-KG.query.object-graph-mapper
 
 This module provides MCP-style tools for interacting with the unified
 Knowledge Graph, allowing agents to persist and retrieve memories.

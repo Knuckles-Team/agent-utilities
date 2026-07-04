@@ -1,4 +1,4 @@
-"""Unit tests for ETL data lineage (CONCEPT:KG-2.98).
+"""Unit tests for ETL data lineage (CONCEPT:AU-KG.ontology.one-source).
 
 Asserts record_etl_run creates a PROVENANCE_AGENT run node + WAS_DERIVED_FROM edges,
 and query_lineage reads them back — using a fake engine/backend.

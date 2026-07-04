@@ -1,4 +1,4 @@
-"""Harness subpackage for evaluation and backtesting. CONCEPT:AHE-3.4
+"""Harness subpackage for evaluation and backtesting. CONCEPT:AU-AHE.evaluation.backtest-harness
 
 Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and ContractValidator.
 """
@@ -71,11 +71,11 @@ from .superhuman_gate import CertificationResult, SuperhumanCertifier
 from .world_model_task import WorldModelVerifier, build_world_model_task
 
 __all__ = [
-    # Assimilation empirical-parity benchmark suite (CONCEPT:AHE-3.47)
+    # Assimilation empirical-parity benchmark suite (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation)
     "BenchmarkResult",
     "run_all",
     "to_markdown",
-    # Latent-native efficiency benchmark (CONCEPT:AHE-3.48)
+    # Latent-native efficiency benchmark (CONCEPT:AU-AHE.harness.empirical-evidence-that-latent)
     "bench_latent_rollout_memory",
     "bench_ontology_prior_retrieval",
     "run_latent_efficiency_benchmarks",
@@ -83,15 +83,15 @@ __all__ = [
     "BranchMergeStateLocker",
     "ToolContract",
     "ContractValidator",
-    # Graph-native evolving-memory store (CONCEPT:KG-2.1)
+    # Graph-native evolving-memory store (CONCEPT:AU-KG.memory.tiered-memory-caching)
     "EvolvingMemoryStore",
     "MemoryBank",
     "MemoryRecord",
-    # Decentralized per-agent memory + exploit/explore bandit (CONCEPT:KG-2.82/AHE-3.33)
+    # Decentralized per-agent memory + exploit/explore bandit (CONCEPT:AU-KG.memory.ahe-record-this-base/AHE-3.33)
     "DecentralizedMemory",
     "MemoryPool",
     "Contribution",
-    # Research-craft disciplines (CONCEPT:AHE-3.34/3.35/3.36)
+    # Research-craft disciplines (CONCEPT:AU-AHE.evaluation.predict-before-resolve-calibration/3.35/3.36)
     "Forecast",
     "ForecastBoard",
     "GateVerdict",
@@ -102,13 +102,13 @@ __all__ = [
     "FailureTriage",
     "BeliefEntry",
     "ResearchLog",
-    # Self-guided self-play (CONCEPT:AHE-3.37)
+    # Self-guided self-play (CONCEPT:AU-AHE.harness.when-task-is-scope)
     "SelfGuidedSelfPlay",
     "Guide",
     "GuideScore",
     "PlayRound",
     "PlayReport",
-    # Graph-search code evolution (CONCEPT:KG-2.92) + Fast-Slow controller (ORCH-1.56)
+    # Graph-search code evolution (CONCEPT:AU-KG.retrieval.monte-carlo-graph-search) + Fast-Slow controller (ORCH-1.56)
     "GraphSearchEvolver",
     "SearchNode",
     "GlobalCodeMemory",
@@ -118,28 +118,28 @@ __all__ = [
     "SubstrateTrainer",
     "TrainingJobSpec",
     "GrpoSample",
-    # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
+    # Provenance-completeness critic gate (CONCEPT:AU-AHE.harness.pre-emit-quality-gate)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
-    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.49)
+    # Robust multi-format edit-application engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)
     "Edit",
     "EditOutcome",
     "EditResult",
     "parse_edits",
     "apply_edits",
     "apply_with_reflection",
-    # Unified selection / aggregation operators (CONCEPT:ORCH-1.30)
+    # Unified selection / aggregation operators (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data)
     "bradley_terry_scores",
     "conservative_rating",
     "contribution_weighted_vote",
     "select_top_k",
     "rank_from_comparisons",
-    # Agentic red-team harness (CONCEPT:AHE-3.1)
+    # Agentic red-team harness (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "RedTeamRunner",
     "RedTeamReport",
     "AttackProbe",
     "ATTACK_CATALOG",
-    # Reliability / guardrail eval scorers (CONCEPT:AHE-3.1)
+    # Reliability / guardrail eval scorers (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "build_reliability_suite",
     "FaithfulnessScorer",
     "SafetyAccuracyScorer",
@@ -150,21 +150,21 @@ __all__ = [
     "BrierSkillScorer",
     "RetrievalRecallScorer",
     "TrapInjectionScorer",
-    # Adaptation-speed metric — SAI primary measure (CONCEPT:AHE-3.27)
+    # Adaptation-speed metric — SAI primary measure (CONCEPT:AU-AHE.harness.per-task-adaptation-speed)
     "AdaptationCurve",
     "CurvePoint",
     "marginal_speed_gain",
-    # Specialization task + machine-verifiable Verifier contract (CONCEPT:AHE-3.28)
+    # Specialization task + machine-verifiable Verifier contract (CONCEPT:AU-AHE.harness.sai-task)
     "SpecializationTask",
     "Verifier",
     "VerifierResult",
-    # World-model SAI specialization track (CONCEPT:KG-2.73)
+    # World-model SAI specialization track (CONCEPT:AU-KG.compute.kg-3)
     "WorldModelVerifier",
     "build_world_model_task",
-    # Superhuman-certification gate (CONCEPT:SAFE-1.6)
+    # Superhuman-certification gate (CONCEPT:AU-OS.safety.superhuman-gate)
     "SuperhumanCertifier",
     "CertificationResult",
-    # Reproducible adaptation-speed benchmark (CONCEPT:SAFE-1.7)
+    # Reproducible adaptation-speed benchmark (CONCEPT:AU-OS.scaling.safe-2)
     "AdaptationBenchmark",
     "BenchmarkEntry",
 ]

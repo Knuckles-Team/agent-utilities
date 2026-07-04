@@ -1,4 +1,4 @@
-"""LGTM (Grafana/Loki/Tempo/Mimir) source extractor (CONCEPT:KG-2.9).
+"""LGTM (Grafana/Loki/Tempo/Mimir) source extractor (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Dashboards → :Dashboard, alerts → :Alert, datasources → :DataSource. Stamped
 externalToolId + domain="lgtm". Client injected; tolerant. Replaces the stub

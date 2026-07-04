@@ -1,4 +1,4 @@
-"""Unit tests for the unified web-fetch resolver (CONCEPT:KG-2.7)."""
+"""Unit tests for the unified web-fetch resolver (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
 
 from __future__ import annotations
 

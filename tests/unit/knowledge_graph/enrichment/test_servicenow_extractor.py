@@ -1,4 +1,4 @@
-"""ServiceNow ITSM source extractor tests (CONCEPT:KG-2.9).
+"""ServiceNow ITSM source extractor tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Uses an injected fake client (no network / no daemon) plus the FakeBackend +
 write_batch contract to assert node/edge mapping and persistence.

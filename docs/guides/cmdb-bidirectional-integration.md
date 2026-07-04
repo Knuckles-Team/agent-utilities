@@ -1,4 +1,4 @@
-# CMDB / ERP Bidirectional Integration — ServiceNow & ERPNext (CONCEPT:KG-2.9)
+# CMDB / ERP Bidirectional Integration — ServiceNow & ERPNext (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
 Mirror ServiceNow and ERPNext into the agent-utilities OWL/RDF knowledge graph —
 including the **Technology Reference Model + technology risk** — and backfeed the KG

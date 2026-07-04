@@ -1,6 +1,6 @@
-"""Tests for GuardrailEngine — Input/Output Interception (CONCEPT:OS-5.1).
+"""Tests for GuardrailEngine — Input/Output Interception (CONCEPT:AU-OS.config.secrets-authentication).
 
-@pytest.mark.concept("OS-5.7")
+@pytest.mark.concept("AU-OS.deployment.platform-journey")
 """
 
 import pytest

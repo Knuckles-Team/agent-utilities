@@ -1,4 +1,4 @@
-"""Unit tests for explicit Stardog push/pull (CONCEPT:KG-2.7).
+"""Unit tests for explicit Stardog push/pull (CONCEPT:AU-KG.query.vendor-agnostic-traversal).
 
 Uses a fake source graph + fake backend so the per-source partitioning and the
 push/pull orchestration are asserted without pystardog or a live server.

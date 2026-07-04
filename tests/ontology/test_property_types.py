@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unit tests for the ontology PropertyType registry (CONCEPT:KG-2.47).
+"""Unit tests for the ontology PropertyType registry (CONCEPT:AU-KG.ontology.ontology-property-types).
 
 Exercises coercion + validation for every base scalar type and the complex
 types (array, struct, vector, marking, geo, timeseries, attachment,

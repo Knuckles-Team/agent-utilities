@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""CONCEPT:KG-2.9 — vendor-neutral ArchiMate crosswalk.
+"""CONCEPT:AU-KG.ingest.enterprise-source-extractor — vendor-neutral ArchiMate crosswalk.
 
 Keystone test for the cross-vendor ontology crosswalk: ServiceNow ``:Incident``
 and ERPNext ``:ErpNextIssue`` must both resolve to the canonical

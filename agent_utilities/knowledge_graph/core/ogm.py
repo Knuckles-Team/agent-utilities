@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.0 — Knowledge Graph Object-Graph Mapper (OGM).
+"""CONCEPT:AU-KG.query.object-graph-mapper — Knowledge Graph Object-Graph Mapper (OGM).
 
 Provides declarative, bidirectional mapping between Pydantic
 ``RegistryNode`` subclasses and Knowledge Graph nodes/edges.
@@ -19,7 +19,7 @@ Usage::
     node = mapper.load("id", NodeCls)   # KG → Pydantic
     mapper.delete("id")                 # Remove from both layers
 
-See docs/pillars/architecture_c4.md §CONCEPT:KG-2.0
+See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.query.object-graph-mapper
 """
 
 
@@ -111,7 +111,7 @@ def kg_label(label: str) -> Callable[[type[T]], type[T]]:
 class KGMapper:
     """Declarative Pydantic ↔ KG mapper.
 
-    CONCEPT:KG-2.0 — KG Object-Graph Mapper
+    CONCEPT:AU-KG.query.object-graph-mapper — KG Object-Graph Mapper
 
     Provides a thin, type-safe layer for persisting Pydantic models to the
     Knowledge Graph and hydrating them back. Replaces manual Cypher upsert

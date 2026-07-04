@@ -174,9 +174,9 @@ The Company Brain is not a standalone product — it is the **substrate** that t
 
 | Pillar | How It Integrates with Company Brain |
 |:-------|:-------------------------------------|
-| **ORCH-1.x** (Orchestration) | Routes work to agents based on Company Brain state; uses tenant-scoped routing |
+| **AU-ORCH.planning.orchestration-overview** (Orchestration) | Routes work to agents based on Company Brain state; uses tenant-scoped routing |
 | **KG-2.x** (Knowledge Graph) | **IS** the Company Brain substrate; all 6 primitives extend KG-2.0 |
-| **AHE-3.x** (Harness Engineering) | Self-improvement feeds back into the brain; reward signals update provenance |
+| **AU-AHE.optimization.telemetry-optimization** (Harness Engineering) | Self-improvement feeds back into the brain; reward signals update provenance |
 | **ECO-4.x** (Ecosystem) | 40-repo ecosystem provides peripheral sensors; event streaming ingests ecosystem state |
 | **OS-5.x** (Agent OS) | Permissions, security, observability wrap the brain in governance |
 
@@ -234,6 +234,6 @@ The Company Brain does **not** replace existing infrastructure. It **extends** i
 | `PermissionsKernel` (OS-5.1) | + Data-level ACLs, classification labels |
 | `AuditLogger` (OS-5.6) | + Read audit trails, provenance chains |
 | `SynthesisEngine` (KG-2.0) | + Conflict-aware synthesis |
-| `AsyncioConcurrencyManager` (OS-5.3) | + Graph-level locking (not just session-level) |
+| `AsyncioConcurrencyManager` (AU-OS.governance.reactive-multi-axis-budget) | + Graph-level locking (not just session-level) |
 | `OWLBridge` (KG-2.0) | + Continuous reasoning triggers |
 | `ingest_external_batch` | + Real-time event streaming |

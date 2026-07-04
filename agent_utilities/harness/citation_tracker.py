@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.1 — Citation Quality Tracking.
+"""CONCEPT:AU-AHE.harness.citation-quality-tracking — Citation Quality Tracking.
 
 Measures citation quality in agent responses by extracting and validating
 references to KG nodes and external URLs. Inspired by BrowseComp-Plus
@@ -47,7 +47,7 @@ class Citation(BaseModel):
 class CitationReport(BaseModel):
     """Quality metrics for citations in an agent response.
 
-    CONCEPT:AHE-3.1 — Citation Quality Tracking (BrowseComp-Plus)
+    CONCEPT:AU-AHE.harness.citation-quality-tracking — Citation Quality Tracking (BrowseComp-Plus)
     """
 
     total_citations: int = Field(default=0)
@@ -86,7 +86,7 @@ class CitationReport(BaseModel):
 class CitationTracker:
     """Extracts and evaluates citations in agent responses.
 
-    CONCEPT:AHE-3.1 — Citation Quality Tracking
+    CONCEPT:AU-AHE.harness.citation-quality-tracking — Citation Quality Tracking
 
     Supports both KG-sourced references (``[KG:node-id]``, ``CONCEPT:X``)
     and external URLs (``https://...``, ``file:///...``, arXiv IDs).
@@ -108,7 +108,7 @@ class CitationTracker:
 
         Identifies:
         - KG node references: ``[KG:node-id]``, ``[source:node-id]``
-        - Concept references: ``CONCEPT:KG-2.3``
+        - Concept references: ``CONCEPT:AU-KG.memory.auto-similarity-memory-graph``
         - External URLs: ``https://...``
         - File references: ``file:///...``
         - arXiv IDs: ``arXiv:2508.06600`` or ``2508.06600``

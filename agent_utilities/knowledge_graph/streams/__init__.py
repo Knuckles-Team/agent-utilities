@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Concrete event-stream adapters for the Company Brain (CONCEPT:KG-2.6).
+"""Concrete event-stream adapters for the Company Brain (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Real Kafka/NATS implementations of ``BaseStreamAdapter`` (the in-module adapter
 in ``core/company_brain.py`` is a no-dep simulation). Both are import-guarded so

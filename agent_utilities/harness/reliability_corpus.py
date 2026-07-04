@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Seed regression corpus for the reliability evaluation suite.
 
-CONCEPT:AHE-3.1
+CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort
 
 A small, deterministic, network-free set of canonical cases that exercises the
 :mod:`reliability_scorers` suite end-to-end through the real :class:`EvalCorpus`

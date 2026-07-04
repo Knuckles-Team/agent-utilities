@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SHACL Validation Engine.
 
-CONCEPT:KG-2.6 — SHACL Governance Validation
+CONCEPT:AU-KG.ontology.enterprise-governance-validation — SHACL Governance Validation
 
 Validates the materialized RDF graph against SHACL shapes for enterprise
 governance compliance. Supports layered shapes (global + domain overrides)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class SHACLValidator:
     """Validates RDF graphs against SHACL shape constraints.
 
-    CONCEPT:KG-2.6 — Enterprise Governance Validation
+    CONCEPT:AU-KG.ontology.enterprise-governance-validation — Enterprise Governance Validation
 
     Supports:
     - Single or multiple shapes files (layered validation)
@@ -94,7 +94,7 @@ class SHACLValidator:
                 mapped_graph.bind("kg", rdflib.Namespace("http://knuckles.team/kg#"))
 
                 casing_map = {
-                    # CONCEPT:KG-2.25 — Ontology Action System
+                    # CONCEPT:AU-KG.ontology.ontology-action-system — Ontology Action System
                     "Ontologyaction": "OntologyAction",
                     "Actioninvocation": "ActionInvocation",
                     "Architecturedecisionrecord": "ArchitectureDecisionRecord",
@@ -214,7 +214,7 @@ class SHACLValidator:
                 "results_text": "No governance shapes found.",
             }
 
-        # CONCEPT:KG-2.39 — enforce the ontology value-type SHACL shapes
+        # CONCEPT:AU-KG.ontology.value-type-shacl-load — enforce the ontology value-type SHACL shapes
         # (EmailAddress sh:pattern, Percentage sh:min/maxInclusive, …) alongside
         # the hand-authored governance shapes. The shapes are rendered from the
         # in-memory VALUE_TYPES registry and validated as an rdflib.Graph — no

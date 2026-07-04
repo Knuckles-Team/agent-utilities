@@ -1,4 +1,4 @@
-# Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+# Swarm Preset Template Engine (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
 
 ## Overview
 YAML-driven declarative multi-agent workflow engine with DAG topological sort, cycle detection, parallel dispatch identification, and variable substitution.
@@ -9,7 +9,7 @@ YAML-driven declarative multi-agent workflow engine with DAG topological sort, c
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Multi-Level Abstraction Layering (CONCEPT:ORCH-1.3)
+# Multi-Level Abstraction Layering (CONCEPT:AU-ORCH.execution.execution-budget-caps)
 
 ## Overview
 Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
@@ -20,7 +20,7 @@ Planners emit coarse-grained abstraction steps and delegate fine-grained executi
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Learned Agent Routing (CONCEPT:ORCH-1.4)
+# Learned Agent Routing (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
 
 ## Overview
 Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy (keyword pattern matching), TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra (arXiv:2605.05007v1).
@@ -31,7 +31,7 @@ Jointly optimizes decomposition depth, worker choice, and inference budget from 
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Ontological Fallback Chains](pillars/1_graph_orchestration/ORCH-1.14-Ontological_Fallback_Chains.md) (CONCEPT:ORCH-1.2)
+# [Ontological Fallback Chains](pillars/1_graph_orchestration/ORCH-1.14-Ontological_Fallback_Chains.md) (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
 ## Overview
 Uses the KG to find fallback models dynamically rather than relying on static lists during rate limits.
@@ -42,7 +42,7 @@ Uses the KG to find fallback models dynamically rather than relying on static li
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Subagent Lifecycle Patterns (CONCEPT:ORCH-1.3)
+# Subagent Lifecycle Patterns (CONCEPT:AU-ORCH.execution.execution-budget-caps)
 
 ## Overview
 Formalizes 4-tier subagent interaction taxonomy (inline_tool, fan_out, agent_pool, teams) with complexity-based pattern routing, KG-persisted decisions, and outcome-based learning. Based on Schmid (2026).
@@ -102,7 +102,7 @@ graph TD
         B -->|Implements| D(ORCH-1.4: AbstractCapability)
 
         C -->|Event Stream| E(ORCH-1.4: CapabilityOrchestrator)
-        D -->|Pydantic Hooks| F(ORCH-1.20: Agent Factory)
+        D -->|Pydantic Hooks| F(AU-ORCH.execution.service-registry-initialization: Agent Factory)
 
         E -->|Injects| G[ORCH-1.0: IntelligenceGraphEngine]
         F -->|Injects| G

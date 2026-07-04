@@ -15,7 +15,7 @@ header/``unknown`` value, which a ``default_effect: deny`` policy rejects.
 
 Evaluation runs **embedded** (in-process PDP over a local policy file) so the auth
 hot path has no dependency on a remote Eunomia server being reachable — an outage
-can never lock the gateway out (plan Phase 3 robustness). CONCEPT:ECO-4.36.
+can never lock the gateway out (plan Phase 3 robustness). CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # list) — sends every component in one request, so a server exposing >100 tools
 # (e.g. the plane-mcp ingestion surface fronted by the multiplexer) gets a 400 and
 # the whole ``tools/list`` fails. Chunk under the cap and merge results.
-# CONCEPT:ECO-4.88.
+# CONCEPT:AU-ECO.bus.agent-bus-awareness.
 EUNOMIA_BULK_CHECK_MAX = 100
 
 

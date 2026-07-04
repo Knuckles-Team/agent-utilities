@@ -47,7 +47,7 @@ COMPONENTS = ("agent-terminal-ui", "agent-webui", "geniusbot")
 
 def _os_family() -> str:
     """Coarse OS family for per-OS remediation hints: ``windows`` / ``macos`` /
-    ``linux`` / ``other`` (CONCEPT:OS-5.64)."""
+    ``linux`` / ``other`` (CONCEPT:AU-OS.deployment.cross-platform-locks-plus)."""
     if sys.platform.startswith("win"):
         return "windows"
     if sys.platform == "darwin":
@@ -122,7 +122,7 @@ def _engine_binary_path() -> str | None:
 
 
 def _engine_binary_tier(server_path: str) -> str:
-    """Probe the engine binary's tier/capabilities (CONCEPT:OS-5.63).
+    """Probe the engine binary's tier/capabilities (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
 
     A too-lean wheel may lack the supervised idle-shutdown contract the resolver
     relies on. Introspect ``--help`` once and report whether
@@ -156,7 +156,7 @@ def _check_engine() -> dict[str, Any]:
                 "warn",
                 f"epistemic-graph-server present ({found}) but does NOT advertise "
                 "`--idle-shutdown-secs` — reference-counted idle shutdown "
-                "(CONCEPT:OS-5.63) is unavailable; an autostarted engine will run "
+                "(CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) is unavailable; an autostarted engine will run "
                 "persistently. Upgrade the wheel for supervised idle shutdown.",
                 remediation="upgrade: `pip install -U agent-utilities` (lean/older engine binary)",
             )

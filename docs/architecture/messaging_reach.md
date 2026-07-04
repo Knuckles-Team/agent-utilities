@@ -1,9 +1,9 @@
-# Messaging reach — Claude & agents message the user (ECO-4.48–4.54)
+# Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)
 
 The **reach** capability lets Claude (over MCP) and the pydantic-ai graph agents
 proactively message the operator on whatever channel they last used — Telegram, Slack,
 Discord, and 14 other backends — and route the user's replies back into the graph. It
-finishes the wiring of the pre-existing `CONCEPT:ECO-4.0` messaging framework
+finishes the wiring of the pre-existing `CONCEPT:AU-ECO.messaging.native-backend-abstraction` messaging framework
 (`agent_utilities/messaging/`), which shipped 17 backends, a registry, an inbound router,
 and KG auto-ingest but had **no live caller**.
 
@@ -11,13 +11,13 @@ and KG auto-ingest but had **no live caller**.
 
 | Concept | What | Where |
 |---|---|---|
-| ECO-4.48 | `MessagingService` — one core: connected backends, governed sends, routing | `messaging/service.py` |
-| ECO-4.49 | Last-active channel state (durable `UserChannelPreference` node) | `messaging/service.py`, `messaging/router.py` |
-| ECO-4.50 | `graph_reach` MCP tool + `/graph/reach` REST twin | `mcp/tools/reach_tools.py` |
-| ECO-4.51 | Inbound router in the host daemon + real graph-agent reply (replaced the stub) | `gateway/daemon.py`, `messaging/router.py` |
+| AU-ECO.messaging.messaging-reach-service-governed | `MessagingService` — one core: connected backends, governed sends, routing | `messaging/service.py` |
+| AU-ECO.messaging.last-active-channel-routing | Last-active channel state (durable `UserChannelPreference` node) | `messaging/service.py`, `messaging/router.py` |
+| AU-ECO.mcp.graph-reach-mcp-tool | `graph_reach` MCP tool + `/graph/reach` REST twin | `mcp/tools/reach_tools.py` |
+| AU-ECO.messaging.sending-reply-failed | Inbound router in the host daemon + real graph-agent reply (replaced the stub) | `gateway/daemon.py`, `messaging/router.py` |
 | ECO-4.52 | Elicitation bridge — a blocked loop/agent question reaches the user and resumes on reply | `observability/approval_manager.py`, `messaging/service.py` |
-| ECO-4.53 | Universal `reach_user` agent tool | `tools/agent_tools.py`, `tools/tool_registry.py` |
-| ECO-4.54 | `MessagingChannel` ontology interface (owl:Class) | `knowledge_graph/ontology/interfaces.py` |
+| AU-ECO.messaging.universal-agent-reach-user | Universal `reach_user` agent tool | `tools/agent_tools.py`, `tools/tool_registry.py` |
+| AU-ECO.messaging.messaging-ontology-shape-so | `MessagingChannel` ontology interface (owl:Class) | `knowledge_graph/ontology/interfaces.py` |
 
 ## How routing works (OpenClaw-style)
 
@@ -78,13 +78,13 @@ everything the router used to hand-roll:
 The universal run is wrapped in a hard `MESSAGING_REPLY_TIMEOUT` (default 45s): a slow or
 hung graph run must still answer, so on timeout/error the reply degrades to a **plain-chat
 completion** (`_plain_chat_reply`). That fallback keeps the **local-default / `/claude`**
-responder selection (ECO-4.55) — every fallback reply is tagged with who answered
+responder selection (AU-ECO.messaging.model-routed-inbound-responder) — every fallback reply is tagged with who answered
 (`[local]` / `[claude]`) — and carries image attachments to the vision model (ECO-4.67).
 `MESSAGING_AGENT` names which agent the universal path routes a chat turn to (default the
 `messaging-assistant` identity); an unresolved name still flows through the full
 orchestration graph, which is exactly the dynamic-delegation behaviour we want.
 
-## Instinctive reactions (ECO-4.60 → core ECO-4.79/4.81)
+## Instinctive reactions (AU-ECO.messaging.messaging-renderer-core-reaction → core ECO-4.79/4.81)
 
 The agent reacts to your messages with an emoji where the platform supports it — 👍 to
 acknowledge a request, ❤️ for praise/thanks, etc. **As of ECO-4.79/4.81 the reaction logic is
@@ -132,7 +132,7 @@ reply path to stall the answer. The turn is also auto-ingested as **episodic** m
 (`kg_ingest`), which the agent's KG tools can pull **on demand** when a question needs deeper
 recall.
 
-## Universal commands (ECO-4.57)
+## Universal commands (AU-ECO.messaging.single-inbound-command-dispatcher)
 
 Commands are defined once in `agent_utilities/messaging/commands.py` (`COMMANDS`) — the
 single source of truth shared by every platform and importable by agent-terminal-ui
@@ -167,7 +167,7 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_REPLY_TIMEOUT` | Seconds to wait for the universal graph run before degrading to the plain-chat fallback (default `45`) |
 | `ANTHROPIC_API_KEY` | Required for the Claude route |
 | `MATTERMOST_URL` / `MATTERMOST_TOKEN` / `MATTERMOST_BOT_USER` | Mattermost (ECO-4.90): server base URL, a Bot Account token, and the bot's username/id (optional — auto-resolved from the token). Inbound runs over the bot WebSocket (`posted` events); outbound posts via the bot REST API |
-| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so spawned agents authenticate to the jwt-protected fleet. **Source from OpenBao**, never a plaintext file (ECO-4.75) |
+| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so spawned agents authenticate to the jwt-protected fleet. **Source from OpenBao**, never a plaintext file (AU-ECO.messaging.make-fleet-credentials-present) |
 
 ### Mattermost as a first-class platform (ECO-4.90)
 

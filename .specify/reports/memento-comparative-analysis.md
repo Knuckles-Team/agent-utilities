@@ -54,7 +54,7 @@ KV cache. That cleanly partitions Memento:
 
 ## 3. Extend-Before-Invent — agent-utilities already half-built Memento (then left it dead)
 
-This is the dominant finding. **The compression primitives already exist** under `CONCEPT:KG-2.1`
+This is the dominant finding. **The compression primitives already exist** under `CONCEPT:AU-KG.memory.tiered-memory-caching`
 (Tiered Memory & Context), and one of them is a *near-verbatim Memento*:
 
 - `knowledge_graph/memory/agent_context.py`

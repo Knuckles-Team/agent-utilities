@@ -26,23 +26,23 @@ produce a traceable, self-evolving data product — only one with an epistemic g
 
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
-| KG-2.19 | Self-Curating Wiki | 0.63 | KG-2 |
-| KG-2.11 | Bi-Temporal Memory Layers | 0.58 | KG-2 |
-| KG-2.18 | Evidence-Weighted Memory | 0.52 | KG-2 |
-| OS-5.9 | Gateway Service Dashboard | 0.45 | OS-5 |
-| KG-2.1 | Tiered Memory & Context | 0.39 | KG-2 |
+| KG-2.19 | Self-Curating Wiki | 0.63 | EG-KG.compute.backend |
+| KG-2.11 | Bi-Temporal Memory Layers | 0.58 | EG-KG.compute.backend |
+| KG-2.18 | Evidence-Weighted Memory | 0.52 | EG-KG.compute.backend |
+| AU-OS.config.gateway-service-dashboard | Gateway Service Dashboard | 0.45 | OS-5 |
+| KG-2.1 | Tiered Memory & Context | 0.39 | EG-KG.compute.backend |
 
 > Highest 0.63 < 0.70 → **new concept justified**. KG-2.19 auto-curates *graph content*; KG-2.24 produces
 > a *rendered, refreshable artifact* (template+data+provenance) over that content with a public refresh API.
 
 ### Extension Analysis
-- **Primary Extension Point**: `KG-2.11` (bi-temporal), `KG-2.18` (evidence), `KG-2.19` (self-curation); `OS-5.9` (gateway) for the refresh surface.
+- **Primary Extension Point**: `KG-2.11` (bi-temporal), `KG-2.18` (evidence), `KG-2.19` (self-curation); `AU-OS.config.gateway-service-dashboard` (gateway) for the refresh surface.
 - **Extension Strategy**: `compose` — a Live Artifact node type + refresh service over existing KG facets.
 - **New Concept Required?**: Yes (the artifact triad + refresh contract).
 
 ### New Concept Proposal
-- **Proposed ID**: `CONCEPT:KG-2.24`
-- **Augments Pillar**: KG (with OS-5.9 gateway surface, OS-5.3 SSRF-safe contract)
+- **Proposed ID**: `CONCEPT:AU-KG.memory.live-refreshable-artifact-models`
+- **Augments Pillar**: KG (with AU-OS.config.gateway-service-dashboard gateway surface, AU-OS.governance.reactive-multi-axis-budget SSRF-safe contract)
 - **15-Phase Pipeline Integration**: Phase 5 (Synthesize/emit) + a refresh path off the gateway.
 - **Justification**: A refreshable, render-bound, provenance-tracked artifact over KG source nodes has no existing concept.
 
@@ -57,7 +57,7 @@ C4Context
         System(bitemp, "KG-2.11 Bi-Temporal", "preserve prior on failure")
         System(ev, "KG-2.18 Evidence", "provenance support")
         System(write, "graph_write (MCP)", "persist artifact")
-        System(gw, "OS-5.9 gateway", "/api/artifacts/{id}/refresh")
+        System(gw, "AU-OS.config.gateway-service-dashboard gateway", "/api/artifacts/{id}/refresh")
     }
     Rel(write, art, "create")
     Rel(gw, refresh, "refresh")
@@ -70,7 +70,7 @@ C4Context
 2. **KG**: `graph_write` persists the artifact node + `source_nodes` edges; refresh re-runs the bound query; bi-temporal valid-time keeps the prior datum if the new derivation fails validation.
 3. **AHE**: refresh success/staleness metrics feed eval; stale artifacts can trigger a re-derive job.
 4. **ECO**: write via `graph_write` MCP tool; refresh via new `/api/artifacts/{id}/refresh` gateway route; SSRF-safe contract emitted for any frontend.
-5. **OS**: bounded JSON limits enforced (8 levels/100 keys/500 items/16KiB/256KiB); injection-safe interpolation only (no raw HTML/expressions); OS-5.3 contract.
+5. **OS**: bounded JSON limits enforced (8 levels/100 keys/500 items/16KiB/256KiB); injection-safe interpolation only (no raw HTML/expressions); AU-OS.governance.reactive-multi-axis-budget contract.
 
 ## Risk Assessment
 - **Blast Radius**: new `knowledge_graph/live_artifacts/` package, `mcp/kg_server.py` (artifact write helper), `gateway/api.py` (refresh route), `server/routers/agent_ui.py` (progress SSE). Additive.

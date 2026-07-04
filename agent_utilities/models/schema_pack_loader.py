@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Schema-Pack active-profile resolution & lifecycle.
 
-CONCEPT:KG-2.35 — Schema-Pack Lifecycle and Audit
+CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit — Schema-Pack Lifecycle and Audit
 
 Resolves the *active* :class:`~agent_utilities.models.schema_pack.SchemaPack` for a
 deployment and threads pack-change notifications to live consumers (the engine's

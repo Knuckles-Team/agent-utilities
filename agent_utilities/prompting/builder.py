@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Prompt Builder Module.
 
-CONCEPT:KG-2.1 — Project-Aware Context
+CONCEPT:AU-KG.memory.layered-project-context — Project-Aware Context
 
 This module provides utilities for constructing and resolving agent system
 prompts. It handles loading structured JSON prompt blueprints (with a
@@ -40,7 +40,7 @@ def _extract_prompt_content(raw: str) -> str:
     """Return the body of a JSON prompt blueprint.
 
     Delegates body extraction to the single canonical resolver
-    (:func:`agent_utilities.prompting.structured.resolve_body`, CONCEPT:ORCH-1.80)
+    (:func:`agent_utilities.prompting.structured.resolve_body`, CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)
     so the canonical ``instructions.core_directive`` location is honoured — not
     just the legacy flat ``content``/``input`` keys this used to read.
 
@@ -145,7 +145,7 @@ def get_system_prompt_from_reference(agent_name: str) -> str | None:
 def _resolve_base_body(extends: str) -> str:
     """Resolve an ``extends`` reference to its rendered base-prompt body.
 
-    CONCEPT:ORCH-1.80. Supports the canonical base namespace
+    CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. Supports the canonical base namespace
     (``agent-utilities:base`` → the packaged ``base_agent.json``) and workspace
     file references (``@file.json`` or a bare ``file.json``).
     """
@@ -202,7 +202,7 @@ def _load_main_agent_content() -> str:
     Checks the workspace first, then the packaged default. Honours the canonical
     body location (``instructions.core_directive``) via the shared resolver, and
     composes onto a base prompt when the blueprint declares ``extends``
-    (CONCEPT:ORCH-1.80). Returns an empty string when neither source yields a
+    (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical). Returns an empty string when neither source yields a
     usable blueprint; malformed JSON is logged as a warning rather than raised so
     agent startup is resilient.
     """
@@ -384,13 +384,13 @@ def extract_agent_metadata(content: str) -> dict[str, Any]:
         data["description"] = data.pop("role")
     meta.update(data)
 
-    # CONCEPT:ORCH-1.80 — resolve the body via the single canonical resolver so
+    # CONCEPT:AU-ORCH.routing.resolve-body-single-canonical — resolve the body via the single canonical resolver so
     # decomposed ``instructions.core_directive`` prompts are not read as empty.
     from agent_utilities.prompting.structured import resolve_body
 
     body = resolve_body(data)
 
-    # Prepend few-shot examples if present (CONCEPT:AHE-3.1)
+    # Prepend few-shot examples if present (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     if "few_shot_examples" in data and isinstance(data["few_shot_examples"], list):
         few_shots = "\n\n".join(
             f"Example Task:\n{ex.get('task', '')}\nExample Response:\n{ex.get('response', '')}"

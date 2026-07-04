@@ -1,4 +1,4 @@
-"""Identity write-back sinks — Okta & Keycloak (CONCEPT:KG-2.9).
+"""Identity write-back sinks — Okta & Keycloak (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Backfeeds access-governance decisions: provision users, assign apps (inferred
 access), and deprovision (retire) — fail-closed (``OKTA_ENABLE_WRITE`` /

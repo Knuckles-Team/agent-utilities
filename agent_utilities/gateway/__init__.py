@@ -1,6 +1,6 @@
 """Gateway — Unified service dashboard and aggregation for Agent-OS.
 
-CONCEPT:OS-5.9 — Gateway Service Dashboard
+CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
 Provides the widget registry, data aggregation, and API layer that all
 three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render

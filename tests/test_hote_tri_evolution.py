@@ -1,4 +1,4 @@
-"""HOTE tri-evolution tests — CONCEPT:AHE-3.50 (arXiv:2606.13710).
+"""HOTE tri-evolution tests — CONCEPT:AU-AHE.harness.co-evolve-research (arXiv:2606.13710).
 
 Verifies the joint co-evolution loop and the paper's central, falsifiable claim:
 co-evolving proposer+solver+judge together is *indispensable* — freezing any one

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Stardog OWL Backend.
 
-CONCEPT:KG-2.2
+CONCEPT:AU-KG.ingest.engineering-rules
 
 Full implementation using pystardog for remote Stardog server reasoning.
 Stardog provides built-in OWL reasoning — queries with ``reasoning=True``

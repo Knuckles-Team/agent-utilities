@@ -5,7 +5,7 @@ from __future__ import annotations
 Handles CLI argument parsing for MCP servers, automated server initialization
 with middleware stacks, and the ``create_mcp_server`` convenience constructor.
 
-CONCEPT:ECO-4.0 — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
 
@@ -477,7 +477,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
     secret_or_key = args.token_secret or args.token_public_key
     public_key_pem = None
 
-    # CONCEPT:OS-5.46 — IdP-agnostic: with no explicit JWKS URI (and not a static key),
+    # CONCEPT:AU-OS.identity.resolve-token-endpoint-from — IdP-agnostic: with no explicit JWKS URI (and not a static key),
     # resolve it from each issuer's OIDC discovery document, so config carries only the
     # issuer (Keycloak, Okta, Auth0, Entra, …) — never a vendor-specific path.
     if not jwks_uri and not secret_or_key and issuer:
@@ -528,7 +528,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             s.strip() for s in args.required_scopes.split(",") if s.strip()
         ]
 
-    # CONCEPT:OS-5.45 — native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
+    # CONCEPT:AU-OS.identity.native-multi-realm-jwt — native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
     # _JWKS_URI may each be a comma-separated, aligned-by-index list (one Keycloak realm per
     # entry). FastMCP's JWTVerifier accepts an issuer list but only a SINGLE jwks_uri (one
     # realm's signing keys), so during a realm migration the fleet must trust two realms'
@@ -553,7 +553,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
         from fastmcp.server.auth import TokenVerifier
 
         class _MultiIssuerVerifier(TokenVerifier):
-            """Accept a JWT validated by ANY wrapped per-realm JWTVerifier (CONCEPT:OS-5.45)."""
+            """Accept a JWT validated by ANY wrapped per-realm JWTVerifier (CONCEPT:AU-OS.identity.native-multi-realm-jwt)."""
 
             def __init__(self, verifiers: list, *, required_scopes: Any = None) -> None:
                 super().__init__(required_scopes=required_scopes)
@@ -630,7 +630,7 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
     ]
 
     # Per-tool Prometheus metrics (count/latency/error) for this server, scraped
-    # from its own /metrics route (CONCEPT:OS-5.23). No-op without the metrics extra.
+    # from its own /metrics route (CONCEPT:AU-OS.observability.no-op-without-metrics). No-op without the metrics extra.
     if ToolMetricsMiddleware is not None:
         middlewares.append(ToolMetricsMiddleware())
 
@@ -681,7 +681,7 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
             # The remote Eunomia server caps ``/check/bulk`` at 100 items; a server
             # exposing >100 tools would 400 on ``tools/list`` without chunking. The
             # JWT path already chunks inside create_jwt_eunomia_middleware; cover the
-            # remote + non-JWT embedded paths here. CONCEPT:ECO-4.88.
+            # remote + non-JWT embedded paths here. CONCEPT:AU-ECO.bus.agent-bus-awareness.
             from agent_utilities.mcp.eunomia_principal import (
                 apply_bulk_check_chunking,
             )
@@ -803,7 +803,7 @@ def create_mcp_server(
     os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
     mcp = FastMCP(name, auth=auth, instructions=instructions)
 
-    # Unauthenticated operational routes (CONCEPT:OS-5.23). custom_route is
+    # Unauthenticated operational routes (CONCEPT:AU-OS.observability.no-op-without-metrics). custom_route is
     # registered on the HTTP app OUTSIDE the MCP auth/eunomia path (same pattern
     # as graph-os /health), so Prometheus can scrape /metrics and swarm/blackbox
     # can probe /health without a token. /metrics is overlay-network-scoped (no

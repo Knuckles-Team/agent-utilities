@@ -1,6 +1,6 @@
 """MCP Discovery Mixin — Live tool discovery and freshness verification.
 
-CONCEPT:ECO-4.1 — MCP Server Live Tool Discovery
+CONCEPT:AU-ECO.mcp.live-server-metadata-cache — MCP Server Live Tool Discovery
 
 Provides the ability to connect to MCP servers at ingestion time,
 discover their tools via ``list_tools()``, and cache the metadata
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class MCPDiscoveryMixin(_Base):
     """Live MCP server tool discovery and KG cache management.
 
-    CONCEPT:ECO-4.1 — MCP Server Live Tool Discovery
+    CONCEPT:AU-ECO.mcp.live-server-metadata-cache — MCP Server Live Tool Discovery
 
     Enables the ingestion pipeline to:
     1. Parse ``mcp_config.json`` files to extract server entries.
@@ -109,7 +109,7 @@ class MCPDiscoveryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Start an MCP server from its config, call ``list_tools()``, return tool metadata.
 
-        CONCEPT:ECO-4.1 — Live MCP server connection for tool metadata caching.
+        CONCEPT:AU-ECO.mcp.live-server-metadata-cache — Live MCP server connection for tool metadata caching.
 
         This attempts to start the server as a subprocess (using the command/args
         from the config), connect via stdio, and retrieve the tool list. If the
@@ -228,9 +228,9 @@ class MCPDiscoveryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Discover tools from a remote (streamable-http / sse) MCP server.
 
-        Mirrors the multiplexer's transport handling (CONCEPT:ECO-4.34): pick sse
+        Mirrors the multiplexer's transport handling (CONCEPT:AU-ECO.mcp.profile-differences-from-client): pick sse
         vs streamable-http, attach the optional service-account bearer
-        (CONCEPT:OS-5.32) so jwt-protected children are reachable, then
+        (CONCEPT:AU-OS.identity.so-jwt-protected-children) so jwt-protected children are reachable, then
         ``list_tools()``. A connection/auth failure returns an empty list (logged),
         so an unreachable or 401 server degrades to a tool-less Server node rather
         than aborting the whole toolkit ingest.

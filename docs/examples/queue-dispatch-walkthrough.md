@@ -1,6 +1,6 @@
 # Worked Example: Queue-Driven Agent Dispatch (enqueue → worker → writeback)
 
-**What this demonstrates.** CONCEPT:ORCH-1.45 — dispatching an orchestrator job
+**What this demonstrates.** CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — dispatching an orchestrator job
 onto the durable, session-keyed `agent_turns` queue instead of executing it
 in-process: the caller gets a job handle, any host running an
 `agent-dispatch-worker` claims and executes the turn through the existing
@@ -12,7 +12,7 @@ dive: [Agent dispatch architecture](../architecture/agent_dispatch.md).
 [Deployment configurations](../guides/deployment-configurations.md) with zero
 extra infrastructure (per-host SQLite queue). The multi-host story shown in the
 `.env` below additionally needs the shared-state rung (`STATE_DB_URI` Postgres,
-CONCEPT:OS-5.16) or Kafka (`TASK_QUEUE_BACKEND=kafka`).
+CONCEPT:AU-OS.state.unified-durable-state-externalization) or Kafka (`TASK_QUEUE_BACKEND=kafka`).
 
 ---
 
@@ -39,7 +39,7 @@ KAFKA_BOOTSTRAP_SERVERS=kafka.arpa:9092
 # can execute concurrently across the whole worker fleet.
 AGENT_TURNS_PARTITIONS=6
 
-# OS-5.16 shared state store: goals/sessions + the dispatch_workers fleet
+# AU-OS.state.unified-durable-state-externalization shared state store: goals/sessions + the dispatch_workers fleet
 # registry. With Postgres here, every gateway sees every host's workers and
 # the per-session advisory lock is fleet-wide.
 STATE_DB_URI=postgresql://agent:agent@pg.arpa:5432/agent_state

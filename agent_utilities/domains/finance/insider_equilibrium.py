@@ -1,4 +1,4 @@
-"""Insider / stealth-trading equilibrium under dynamic legal risk — CONCEPT:KG-2.6.
+"""Insider / stealth-trading equilibrium under dynamic legal risk — CONCEPT:AU-KG.research.research-pipeline-runner.
 
 Closed-form analytic layer that *deepens* the snapshot Kyle surveillance gate
 (``surveillance_risk`` engine kernel, emerald-exchange concepts EE-042/EE-043) into

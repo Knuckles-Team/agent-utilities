@@ -212,7 +212,7 @@ class RegistryMixin(_Base):
     def get_agent_identity(self) -> dict[str, Any]:
         """Load the agent identity from the KG SystemPrompt node.
 
-        CONCEPT:KG-2.0 — Identity Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Identity Management
 
         Returns a dict with at minimum: name, description, emoji, content.
         """
@@ -247,7 +247,7 @@ class RegistryMixin(_Base):
     def add_agent_identity(self, identity: dict[str, Any]) -> dict[str, Any]:
         """Create a new agent identity node in the KG.
 
-        CONCEPT:KG-2.0 — Identity Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Identity Management
 
         Args:
             identity: Dict with name, description, content, and optional tags/source.
@@ -279,7 +279,7 @@ class RegistryMixin(_Base):
     def update_agent_identity(self, identity: dict[str, Any]) -> None:
         """Update the existing agent identity node in the KG.
 
-        CONCEPT:KG-2.0 — Identity Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Identity Management
         """
         current = self.get_agent_identity()
         node_id = current.get("id")
@@ -309,7 +309,7 @@ class RegistryMixin(_Base):
     def get_all_prompts(self) -> list[dict[str, Any]]:
         """Return all Prompt nodes from the KG with metadata.
 
-        CONCEPT:KG-2.0 — Prompt Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
         """
         results: list[dict[str, Any]] = []
         if self.backend:
@@ -343,7 +343,7 @@ class RegistryMixin(_Base):
     def get_prompt(self, prompt_id: str) -> dict[str, Any] | None:
         """Return a single prompt with its full content.
 
-        CONCEPT:KG-2.0 — Prompt Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
         """
         if self.backend:
             rows = self.backend.execute(
@@ -371,7 +371,7 @@ class RegistryMixin(_Base):
     ) -> dict[str, Any]:
         """Create a new prompt node in the KG.
 
-        CONCEPT:KG-2.0 — Prompt Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
 
         Returns the created prompt dict with generated id.
         """
@@ -407,7 +407,7 @@ class RegistryMixin(_Base):
     ) -> dict[str, Any]:
         """Create a new version of a prompt via SUPERSEDES relationship.
 
-        CONCEPT:KG-2.0 — Prompt Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
 
         The old version is preserved; a new node is created and linked
         to the previous one via SUPERSEDES (forward-only, never destructive).
@@ -461,7 +461,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Walk the SUPERSEDES chain to return version history for a prompt.
 
-        CONCEPT:KG-2.0 — Prompt Management
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management
 
         Returns versions ordered newest-first.
         """
@@ -520,7 +520,7 @@ class RegistryMixin(_Base):
     def rollback_prompt(self, prompt_id: str, target_version_id: str) -> dict[str, Any]:
         """Rollback a prompt to a previous version.
 
-        CONCEPT:KG-2.0 — Prompt Management (AHE Rollback)
+        CONCEPT:AU-KG.query.object-graph-mapper — Prompt Management (AHE Rollback)
 
         This follows the agentic harness principle: always forward, never
         destructive. A new version is created that copies the target's content,
@@ -540,7 +540,7 @@ class RegistryMixin(_Base):
     def get_skills(self) -> list[dict[str, Any]]:
         """Return pre-baked skills (Skill nodes and agent skills).
 
-        CONCEPT:KG-2.0 — Granular Resource Queries
+        CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
         """
         results: list[dict[str, Any]] = []
         if self.backend:
@@ -585,7 +585,7 @@ class RegistryMixin(_Base):
     def get_tools(self) -> list[dict[str, Any]]:
         """Return MCP tools from the KG.
 
-        CONCEPT:KG-2.0 — Granular Resource Queries
+        CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
         """
         results: list[dict[str, Any]] = []
         if self.backend:
@@ -635,7 +635,7 @@ class RegistryMixin(_Base):
     def toggle_resource(self, resource_id: str) -> dict[str, Any]:
         """Toggle the enabled/disabled flag on any Skill, Tool, or Prompt node.
 
-        CONCEPT:KG-2.0 — Granular Resource Queries
+        CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
 
         Uses a KG flag approach — does not disconnect MCP servers.
         """
@@ -683,7 +683,7 @@ class RegistryMixin(_Base):
     def reload_from_workspace(self) -> dict[str, Any]:
         """Re-read workspace files and update KG nodes.
 
-        CONCEPT:KG-2.0 — Workspace Reload
+        CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 
         Returns a change summary dict.
         """
@@ -782,7 +782,7 @@ class RegistryMixin(_Base):
         return builder.render()
 
     # ─────────────────────────────────────────────────────────────────────
-    #  TeamConfig: Proven Team Reuse (CONCEPT:AHE-3.3)
+    #  TeamConfig: Proven Team Reuse (CONCEPT:AU-AHE.harness.proven-team-reuse)
     # ─────────────────────────────────────────────────────────────────────
 
     def find_matching_team_config(
@@ -792,7 +792,7 @@ class RegistryMixin(_Base):
     ) -> list:
         """Find TeamConfig nodes whose task_pattern semantically matches the query.
 
-        CONCEPT:AHE-3.3 — Proven Team Reuse
+        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
 
         Uses hybrid search on TeamConfig nodes to find previously
         successful team compositions for similar tasks.
@@ -848,7 +848,7 @@ class RegistryMixin(_Base):
     ) -> dict[str, Any]:
         """Promote a successful SwarmCoalition into a reusable TeamConfig.
 
-        CONCEPT:AHE-3.3 — Proven Team Reuse
+        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
 
         Creates a ``TeamConfigNode`` from a successful coalition's metadata,
         linking it via ``REUSED_TEAM`` to the original coalition.  Also
@@ -915,7 +915,7 @@ class RegistryMixin(_Base):
                 {"tc_id": tc_id, "sc_id": coalition_id},
             )
 
-        # CONCEPT:ORCH-1.2 — Invalidate cache after TeamConfig promotion
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate cache after TeamConfig promotion
         from ...core.config import invalidate_registry_cache
 
         invalidate_registry_cache()
@@ -935,7 +935,7 @@ class RegistryMixin(_Base):
     ) -> None:
         """Update a TeamConfig's success_rate after a reuse outcome.
 
-        CONCEPT:AHE-3.3 — Proven Team Reuse
+        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
 
         Uses an exponential moving average (alpha=0.3) to update the
         rolling success rate.  Also increments the usage counter.
@@ -981,7 +981,7 @@ class RegistryMixin(_Base):
     ) -> None:
         """Create a USES_PROMPT edge from an agent to a prompt node.
 
-        CONCEPT:AHE-3.3 — Proven Team Reuse
+        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
 
         Args:
             agent_id: The agent node ID.
@@ -1002,7 +1002,7 @@ class RegistryMixin(_Base):
         logger.info("Linked agent %s → prompt %s (USES_PROMPT)", agent_id, prompt_id)
 
     # ─────────────────────────────────────────────────────────────────────
-    #  Self-Describing Function Registry (CONCEPT:ECO-4.0)
+    #  Self-Describing Function Registry (CONCEPT:AU-ECO.toolkit.self-describing-registry)
     # ─────────────────────────────────────────────────────────────────────
 
     def register_function(
@@ -1019,7 +1019,7 @@ class RegistryMixin(_Base):
     ) -> dict[str, Any]:
         """Register a self-describing function in the KG at runtime.
 
-        CONCEPT:ECO-4.0 — Self-Describing Function Registry
+        CONCEPT:AU-ECO.toolkit.self-describing-registry — Self-Describing Function Registry
 
         Creates a ``CallableResourceNode`` with input/output schemas and
         optional trigger bindings. Enables AgentOS-style category collapse
@@ -1065,7 +1065,7 @@ class RegistryMixin(_Base):
             self.backend.execute(query, params)
 
         logger.info(
-            "[CONCEPT:ECO-4.0] Registered function '%s' (type=%s, triggers=%d)",
+            "[CONCEPT:AU-ECO.toolkit.self-describing-registry] Registered function '%s' (type=%s, triggers=%d)",
             name,
             resource_type,
             len(trigger_bindings or []),
@@ -1075,7 +1075,7 @@ class RegistryMixin(_Base):
     def deregister_function(self, function_id: str) -> bool:
         """Remove a function registration from the KG.
 
-        CONCEPT:ECO-4.0 — Self-Describing Function Registry
+        CONCEPT:AU-ECO.toolkit.self-describing-registry — Self-Describing Function Registry
 
         Args:
             function_id: The function ID to remove.
@@ -1090,7 +1090,7 @@ class RegistryMixin(_Base):
                     "MATCH (n:CallableResource {id: $id}) SET n.status = 'ARCHIVED'",
                     {"id": function_id},
                 )
-            logger.info("[CONCEPT:ECO-4.0] Deregistered function '%s'", function_id)
+            logger.info("[CONCEPT:AU-ECO.toolkit.self-describing-registry] Deregistered function '%s'", function_id)
             return True
         return False
 
@@ -1101,7 +1101,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Discover self-describing functions with optional filtering.
 
-        CONCEPT:ECO-4.0 — Self-Describing Function Registry
+        CONCEPT:AU-ECO.toolkit.self-describing-registry — Self-Describing Function Registry
 
         Returns function metadata including input/output schemas and
         trigger bindings, enabling the caller to understand how to
@@ -1141,12 +1141,12 @@ class RegistryMixin(_Base):
 
         return sorted(functions, key=lambda x: x.get("name", "").lower())
 
-    # --- Shareable Team Compositions (CONCEPT:ORCH-1.1) ---
+    # --- Shareable Team Compositions (CONCEPT:AU-ORCH.adapter.shareable-team-compositions) ---
 
     def export_team_config(self, team_id: str) -> dict[str, Any] | None:
         """Export a TeamConfigNode as a shareable JSON/YAML bundle.
 
-        CONCEPT:ORCH-1.1 — Shareable Team Compositions
+        CONCEPT:AU-ORCH.adapter.shareable-team-compositions — Shareable Team Compositions
 
         Serializes a TeamConfigNode and its associated topology metadata
         into a portable bundle that can be shared across deployments.
@@ -1195,7 +1195,7 @@ class RegistryMixin(_Base):
     def import_team_config(self, bundle: dict[str, Any]) -> str:
         """Import a team composition from a shared bundle.
 
-        CONCEPT:ORCH-1.1 — Shareable Team Compositions
+        CONCEPT:AU-ORCH.adapter.shareable-team-compositions — Shareable Team Compositions
 
         Ingests a bundle exported by ``export_team_config()`` or authored
         as YAML config.  Assigns a new ID to avoid collisions.
@@ -1223,7 +1223,7 @@ class RegistryMixin(_Base):
                     self.graph.add_node(new_id, config)
                     self._upsert_node("TeamConfig", new_id, config)
                     logger.info(
-                        "[CONCEPT:ORCH-1.1] Imported team config '%s' from bundle",
+                        "[CONCEPT:AU-ORCH.adapter.shareable-team-compositions] Imported team config '%s' from bundle",
                         new_id,
                     )
                     return new_id
@@ -1233,7 +1233,7 @@ class RegistryMixin(_Base):
         # Fallback: store in NX
         self.graph.add_node(new_id, config)
         logger.info(
-            "[CONCEPT:ORCH-1.1] Imported team config '%s' to NX graph",
+            "[CONCEPT:AU-ORCH.adapter.shareable-team-compositions] Imported team config '%s' to NX graph",
             new_id,
         )
         return new_id
@@ -1300,7 +1300,7 @@ class RegistryMixin(_Base):
         return configs
 
     # ------------------------------------------------------------------
-    # AgentTemplate CRUD (CONCEPT:ORCH-1.4)
+    # AgentTemplate CRUD (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
     # ------------------------------------------------------------------
 
     def get_agent_templates(
@@ -1310,7 +1310,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Search for AgentTemplate nodes matching a task query.
 
-        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+        CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
 
         Uses hybrid search when a query is provided, otherwise returns
         all templates ordered by step_order.
@@ -1395,7 +1395,7 @@ class RegistryMixin(_Base):
     ) -> str:
         """Create or update an AgentTemplate node with edges.
 
-        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+        CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
 
         Upserts the template node and creates USES_PROMPT,
         REQUIRES_TOOLSET, and COMPATIBLE_WITH_MODEL edges.
@@ -1462,7 +1462,7 @@ class RegistryMixin(_Base):
             )
 
         logger.info(
-            "[CONCEPT:ORCH-1.4] Created AgentTemplate '%s' (role=%s)",
+            "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Created AgentTemplate '%s' (role=%s)",
             node_id,
             template.get("role", ""),
         )
@@ -1475,7 +1475,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Return the DEPENDS_ON edge DAG between AgentTemplate nodes.
 
-        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
+        CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
 
         Args:
             template_ids: List of AgentTemplate node IDs.

@@ -1,6 +1,6 @@
 # Global Workspace Attention (GWT)
 
-> **CONCEPT:ORCH-1.2** — Global Workspace Attention · **CONCEPT:KG-2.1** — Unified Memory
+> **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation** — Global Workspace Attention · **CONCEPT:AU-KG.memory.tiered-memory-caching** — Unified Memory
 > **Module:** `agent_utilities/graph/workspace_attention.py` · **Driver:** `agent_utilities/graph/parallel_engine.py`
 
 ## Overview
@@ -33,7 +33,7 @@ flowchart LR
   `{agent_id: output}`, calls `WorkspaceAttention.select_and_broadcast`
   (collect → score → top‑K → broadcast), and routes the winners into the
   `EvolvingMemoryStore` INSIGHT bank (deduped per specialist so repeat wins
-  reinforce — CONCEPT:KG-2.1).
+  reinforce — CONCEPT:AU-KG.memory.tiered-memory-caching).
 * **Read side** — `WorkspaceAttention.get_attention_score(specialist_id)` scans the
   broadcast `ProposalNode`s and returns the most-recent *selected* proposal's
   composite score (∈ [0,1]). The executor consults it for runtime confidence
@@ -51,7 +51,7 @@ composite = 0.5·relevance + 0.3·track_record + 0.2·confidence
 ```
 
 `consensus_score(proposals, operator)` aggregates winners through the shared
-coordination aggregation registry (CONCEPT:ORCH-1.3) so winner consensus,
+coordination aggregation registry (CONCEPT:AU-ORCH.execution.execution-budget-caps) so winner consensus,
 coordination aggregation, and selection share one taxonomy.
 
 ## Telemetry & the engine-mismatch guard
