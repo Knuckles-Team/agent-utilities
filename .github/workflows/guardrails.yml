@@ -57,6 +57,12 @@ jobs:
       - name: Concept-freshness gate
         run: python3 scripts/check_concepts.py
 
+      - name: OKF-CIS no-legacy-markers gate (zero CONCEPT:<PREFIX>-<digit>)
+        run: python3 scripts/check_no_legacy_markers.py agent_utilities scripts
+
+      - name: OKF-CIS domain-vocab gate (closed vocab + registered slugs)
+        run: python3 scripts/check_domain_vocab.py agent_utilities
+
       - name: Prompt-schema gate (canonical StructuredPrompt + fresh prompt.schema.json)
         run: python3 scripts/check_prompt_schema.py --strict
 
