@@ -72,6 +72,9 @@ jobs:
       - name: Ontology library gate (valid + connected, no unlinked/broken)
         run: python3 scripts/check_ontology.py
 
+      - name: Skill-name collision gate (fleet-wide install-all uniqueness)
+        run: python3 scripts/check_skill_name_collision.py
+
       - name: Retrieval-quality gate
         run: python3 scripts/check_retrieval_quality.py
 
