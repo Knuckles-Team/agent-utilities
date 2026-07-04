@@ -1,11 +1,13 @@
 ---
-name: concept-node-extractor
+name: kg-extract-concepts
 description: >
   Knowledge Graph concept extraction atomic skill. Parses text and structures
   definitions and relations for Graph-OS.
 domain: research
 license: MIT
 tags: [graph-os, semantic, parsing, concept, research]
+tier: core
+wraps: [concept_registry]
 metadata:
   author: Genius
   version: '0.1.0'

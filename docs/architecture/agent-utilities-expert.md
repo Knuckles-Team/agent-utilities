@@ -166,7 +166,7 @@ docs, the `agent-utilities` skill-graph) first.
 - **Model:** prefers the local fleet model `qwen/qwen3.6-27b`; the adaptive
   model-router (ORCH-1.79) has the final say.
 - **Skills it leans on** (declared in the prompt): `agent-utilities` (the platform's own
-  skill-graph), `knowledge-graph-ingest`, `kg-delegation-router`,
+  skill-graph), `kg-ingest`, `kg-delegation-router`,
   `agent-utilities-evolution`, `agent-package-builder`, `agent-os-genesis`.
 
 ## Operating notes — when to use it vs a specific skill/workflow
@@ -178,7 +178,7 @@ docs, the `agent-utilities` skill-graph) first.
   skill, or `engine_<domain>` tool.
 - **Use a specific ingested skill or workflow** (`graph_orchestrate
   action=execute_agent agent=<skill>` / `action=execute_workflow name=<wf>`) when the
-  task maps cleanly onto **one known capability** — e.g. `knowledge-graph-ingest`,
+  task maps cleanly onto **one known capability** — e.g. `kg-ingest`,
   `agent-package-builder`, a named deployment workflow. It is the more direct, cheaper
   path when you already know which capability you want.
 - **Either way, you stay the orchestrator + exception-resolver.** Read the run's

@@ -1,11 +1,13 @@
 ---
-name: kg-report-persister
+name: kg-persist-report
 description: >
   Universal Knowledge Graph persistence atomic skill. Parses workflow summaries,
   extracts performance logs, and creates ExecutionSummary/PerformanceAnomaly nodes.
 domain: core
 license: MIT
 tags: [graph-os, persistence, cypher, logging, monitoring]
+tier: core
+wraps: [research_artifact]
 metadata:
   author: Genius
   version: '0.1.0'

@@ -1,4 +1,4 @@
-# Declarative full-ingest manifest for the knowledge-graph-ingest skill.
+# Declarative full-ingest manifest for the kg-ingest skill.
 #
 # CONCEPT:KG-2.151 — one "full ingest" trigger fans across every ingestion path at
 # once. A driver (the skill, or any orchestrator) consumes this manifest to know

@@ -4,7 +4,7 @@ from __future__ import annotations
 """PerformanceAnomaly consumer (CONCEPT:AHE-3.19 — Performance Anomaly Consumer).
 
 ``PerformanceAnomaly`` nodes are written from several paths — the
-kg-report-persister skill, ``ExecutionSummary`` flows, the failure analyzer —
+kg-persist-report skill, ``ExecutionSummary`` flows, the failure analyzer —
 but until now they had no consumer beyond ad-hoc maintainer queries: observed
 degradation accumulated in the graph and nothing ever acted on it.
 
