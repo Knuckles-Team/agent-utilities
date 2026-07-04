@@ -73,39 +73,24 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 |------|-----|------|
 | `ontology_a2a.ttl` | `…/kg/a2a` | Agent-to-Agent (A2A) protocol entities. |
 | `ontology_action.ttl` | `…/kg/action` | Ontology action types (KG-2.42). |
-| `ontology_archimate.ttl` | `…/kg/archimate` | ArchiMate enterprise-architecture vocabulary. |
-| `ontology_banking.ttl` | `…/kg/banking` | Banking domain extension. |
 | `ontology_calendar.ttl` | `…/kg/calendar` | Calendar / scheduling / OWL-Time bindings. |
 | `ontology_capability.ttl` | `…/kg/capability` | Agent/system capabilities. |
 | `ontology_company.ttl` | `…/kg/company` | Company / organization entities. |
 | `ontology_company_infra.ttl` | `…/kg/company_infra` | Company-internal infrastructure mapping. |
-| `ontology_database.ttl` | `…/kg/database` | Database/schema domain. |
-| `ontology_egeria.ttl` | `…/kg/egeria` | Egeria open-metadata integration. |
 | `ontology_energy_geopolitics.ttl` | `…/kg/energy_geopolitics` | Energy & geopolitics domain. |
 | `ontology_enterprise.ttl` | `…/kg/enterprise` | Enterprise EA governance, ADR decision traces. |
-| `ontology_erpnext.ttl` | `…/kg/erpnext` | ERPNext integration. |
-| `ontology_feed.ttl` | `…/kg/feed` | Unified RSS/Atom feed sources + items (`:FeedSource`/`:RssFeed`/`:FeedItem`). |
 | `ontology_government.ttl` | `…/kg/government` | Government domain extension. |
-| `ontology_grafana.ttl` | `…/kg/grafana` | Grafana dashboards / observability assets. |
 | `ontology_harness.ttl` | `…/kg/harness` | Agentic harness engineering (AHE). |
 | `ontology_hr.ttl` | `…/kg/hr` | Human-resources domain. |
 | `ontology_identity.ttl` | `…/kg/identity` | Identity / IdP / access entities. |
 | `ontology_infrastructure.ttl` | `https://agent-utilities.dev/ontology/infrastructure` | Runtime-agnostic infra topology (OS-5.3). **Note:** legacy `agent-utilities.dev` IRI namespace (not `knuckles.team/kg`) — kept as-is to avoid a cross-graph rename ripple; still imported by the canonical ontology. |
-| `ontology_leanix.ttl` | `…/kg/leanix` | LeanIX EAM integration. |
-| `ontology_legal.ttl` | `…/kg/legal` | Legal domain extension. |
-| `ontology_media.ttl` | `…/kg/media` | Media domain. |
 | `ontology_medical.ttl` | `…/kg/medical` | Medical domain extension. |
-| `ontology_observability.ttl` | `…/kg/observability` | Observability (metrics/logs/traces) entities. |
 | `ontology_orchestration.ttl` | `…/kg/orchestration` | Orchestration: skill proposals, workflow/process distillation. |
 | `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
-| `ontology_quant.ttl` | `…/kg/quant` | Quantitative finance domain. |
 | `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |
-| `ontology_social.ttl` | `…/kg/social` | Social / community domain. |
 | `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
 | `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
-| `ontology_trading.ttl` | `…/kg/trading` | Trading: microstructure signals, market-knowledge provenance. |
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
-| `ontology_wellness.ttl` | `…/kg/wellness` | Wellness domain. |
 
 ### Federated (package-contributed) ontologies — CONCEPT:KG-2.320
 
@@ -123,6 +108,21 @@ the import is a tolerated superset no-op (registered in
 | File (in provider wheel) | IRI | Provider package | Role |
 |------|-----|------------------|------|
 | `servicenow.ttl` (`servicenow_api/ontology/`) | `…/kg/servicenow` | `servicenow-api` | ServiceNow ITSM integration (incidents, changes, CMDB). |
+| `leanix.ttl` (`leanix_agent/ontology/`) | `…/kg/leanix` | `leanix-agent` | LeanIX EAM integration. |
+| `erpnext.ttl` (`erpnext_agent/ontology/`) | `…/kg/erpnext` | `erpnext-agent` | ERPNext integration. |
+| `archimate.ttl` (`archimate_mcp/ontology/`) | `…/kg/archimate` | `archimate-mcp` | ArchiMate enterprise-architecture vocabulary. |
+| `egeria.ttl` (`egeria_mcp/ontology/`) | `…/kg/egeria` | `egeria-mcp` | Egeria open-metadata integration (imports `…/kg/enterprise`). |
+| `quant.ttl` (`emerald_exchange/ontology/`) | `…/kg/quant` | `emerald-exchange` | Quantitative finance domain. |
+| `trading.ttl` (`emerald_exchange/ontology/`) | `…/kg/trading` | `emerald-exchange` | Trading: microstructure signals, market-knowledge provenance. |
+| `banking.ttl` (`emerald_exchange/ontology/`) | `…/kg/banking` | `emerald-exchange` | Banking domain extension (imported by core `ontology_company.ttl`). |
+| `legal.ttl` (`legal_peripherals_mcp/ontology/`) | `…/kg/legal` | `legal-peripherals-mcp` | Legal domain extension (imported by core `ontology_company.ttl`). |
+| `media.ttl` (`jellyfin_mcp/ontology/`) | `…/kg/media` | `jellyfin-mcp` | Media domain. |
+| `grafana.ttl` (`lgtm_mcp/ontology/`) | `…/kg/grafana` | `lgtm-mcp` | Grafana dashboards / observability assets. |
+| `observability.ttl` (`lgtm_mcp/ontology/`) | `…/kg/observability` | `lgtm-mcp` | Observability (metrics/logs/traces) entities. |
+| `social.ttl` (`postiz_agent/ontology/`) | `…/kg/social` | `postiz-agent` | Social / community domain. |
+| `feed.ttl` (`freshrss_agent/ontology/`) | `…/kg/feed` | `freshrss-agent` | Unified RSS/Atom feed sources + items (`:FeedSource`/`:RssFeed`/`:FeedItem`). |
+| `wellness.ttl` (`wger_agent/ontology/`) | `…/kg/wellness` | `wger-agent` | Wellness domain. |
+| `database.ttl` (`sql_mcp/ontology/`) | `…/kg/database` | `sql-mcp` | Database/schema domain (imports `…/kg/enterprise`). |
 
 ### SHACL shapes
 
