@@ -132,17 +132,24 @@ def register_write_ingest_tools(mcp):
             if not engine:
                 return "Error: IntelligenceGraphEngine not active."
             try:
-                props = json.loads(properties) if properties else {}
+                # ``properties`` carries a JSON dict for node/edge writes, but a
+                # RAW content string for the memory/chat/sdd actions
+                # (store_memory, recall_memory, log_chat, submit_sdd) which read it
+                # directly. Parse it ONLY where it is consumed as a dict — parsing
+                # eagerly for every action raised "Expecting value: line 1 column 1"
+                # on plain content text and broke graph_memory store/recall.
+                def _props() -> dict:
+                    return json.loads(properties) if properties else {}
 
                 if action == "add_node":
                     if not node_id or not node_type:
                         return "Error: node_id and node_type required"
-                    engine.add_node(node_id, node_type, props)
+                    engine.add_node(node_id, node_type, _props())
                     return f"Node {node_id} added."
                 elif action == "add_edge":
                     if not source_id or not target_id or not rel_type:
                         return "Error: source_id, target_id, and rel_type required"
-                    engine.link_nodes(source_id, target_id, rel_type, props)
+                    engine.link_nodes(source_id, target_id, rel_type, _props())
                     return f"Edge {source_id} -> {target_id} added."
                 elif action == "delete_node":
                     engine.delete_node(node_id)
@@ -204,25 +211,24 @@ def register_write_ingest_tools(mcp):
                         }
                     )
                 elif action in ("store_memory", "recall_memory"):
-                    try:
-                        from agent_utilities.memory.manager import MemoryManager
-
-                        mm = MemoryManager(engine)
-                        if action == "store_memory":
-                            mm.store(
-                                agent_id=agent_id,
-                                content=properties,
-                                memory_type=node_type,
-                                tags=json.loads(nodes) if nodes else [],
-                            )
-                            return "Memory stored."
-                        else:
-                            res = mm.recall(
-                                query=properties, memory_type=node_type, top_k=5
-                            )
-                            return "\n".join([str(r) for r in res])
-                    except ImportError:
-                        return "Error: memory module not available"
+                    # The canonical memory store is the engine facade's MemoryMixin
+                    # (engine.store_memory / engine.recall_memory) — the same path
+                    # messaging/kg_ingest and the kg-memory task worker use. The old
+                    # ``agent_utilities.memory.manager.MemoryManager`` indirection
+                    # never existed as a module, so this branch always fell into
+                    # "memory module not available"; wire it to the real method.
+                    if action == "store_memory":
+                        engine.store_memory(
+                            content=properties,
+                            memory_type=node_type or "episodic",
+                            tags=json.loads(nodes) if nodes else [],
+                            agent_id=agent_id,
+                        )
+                        return "Memory stored."
+                    res = engine.recall_memory(
+                        query=properties, memory_type=node_type, top_k=5
+                    )
+                    return "\n".join(str(r) for r in res)
                 elif action == "recall_media":
                     # CONCEPT:AU-KG.ingest.list-durable-media — list durable :MediaAsset records (the
                     # content-addressed media we persisted from chat). Returns
@@ -298,9 +304,9 @@ def register_write_ingest_tools(mcp):
             if registry.is_writable(name):
                 writable.append((name, eng))
             else:
-                errors[name] = (
-                    f"connection '{name}' is read-only (role={registry.role(name)})"
-                )
+                errors[
+                    name
+                ] = f"connection '{name}' is read-only (role={registry.role(name)})"
 
         if not fanout:
             if not writable:

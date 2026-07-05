@@ -30,6 +30,7 @@ import multiprocessing
 import os
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from ..telemetry import SandboxFatalError
@@ -168,9 +169,20 @@ class ForkServerSandbox(ForkableSandbox):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# The stdlib ``forkserver`` control channel is a process-wide singleton and is NOT
+# thread-safe. Warm-fork fan-out starts N children concurrently from executor
+# threads (``run_in_executor``), and racing ``Process.start()`` calls corrupt the
+# fork-request / child-pid handshake — surfacing intermittently as
+# ``'NoneType' object cannot be interpreted as an integer`` on one branch of a
+# fan-out. Serialize ONLY the ``start()`` request; the ``join`` (where the snippet
+# actually runs) stays concurrent, so fan-out parallelism is preserved.
+_FORK_START_LOCK = threading.Lock()
+
+
 def _start_join(proc: multiprocessing.process.BaseProcess, timeout: float) -> bool:
     """Start ``proc`` and join with a timeout; terminate on overrun. Returns True if killed."""
-    proc.start()
+    with _FORK_START_LOCK:
+        proc.start()
     proc.join(timeout)
     if proc.is_alive():
         proc.terminate()

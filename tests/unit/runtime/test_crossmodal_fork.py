@@ -71,6 +71,51 @@ def _fused_candidates() -> list[dict]:
     ]
 
 
+# ── default retriever binds the full engine facade (regression) ───────────────
+def test_default_retriever_binds_facade_engine_not_bare_graph_compute(monkeypatch):
+    """Regression: with no injected engine, the default cross-modal retriever must
+    bind ``HybridRetriever`` to the live ``IntelligenceGraphEngine`` facade (which
+    owns ``.backend`` / ``._search_keyword`` / ``.embed_model``) — NOT a bare
+    ``GraphComputeEngine`` (the ``.graph`` compute layer), which lacked ``.backend``
+    and raised "'GraphComputeEngine' object has no attribute 'backend'" on the served
+    ``graph_fork`` cross-modal fan-out. CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout
+    """
+    import agent_utilities.runtime.crossmodal_fork as mod
+    from agent_utilities.knowledge_graph.core import engine as engine_mod
+
+    class _FacadeEngine:
+        backend = object()  # the attribute the bare compute engine did not expose
+
+    active = _FacadeEngine()
+    monkeypatch.setattr(
+        engine_mod.IntelligenceGraphEngine,
+        "get_active",
+        classmethod(lambda cls: active),
+    )
+
+    seen: dict = {}
+
+    class _RecordingRetriever:
+        def __init__(self, eng):
+            seen["engine"] = eng
+
+        def retrieve_hybrid(self, query, *, context_window, multi_hop_depth):
+            seen["query"] = query
+            return [{"id": "n1"}]
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.HybridRetriever",
+        _RecordingRetriever,
+    )
+
+    out = mod.engine_cross_modal_candidates("hybrid query")
+
+    assert out == [{"id": "n1"}]
+    assert seen["engine"] is active  # the live facade, not a fresh GraphComputeEngine
+    assert hasattr(seen["engine"], "backend")
+    assert seen["query"] == "hybrid query"
+
+
 # ── the recompute guard (unit) ────────────────────────────────────────────────
 def test_recompute_guard_allows_one_then_raises():
     retr = _CountingRetriever(_fused_candidates())
