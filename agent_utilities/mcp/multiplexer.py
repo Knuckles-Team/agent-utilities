@@ -1293,6 +1293,11 @@ class SessionVisibilityMiddleware(Middleware):
     def _visible(self, name: str) -> bool:
         if name in self.mux._global_visible:
             return True
+        # The host server's OWN native tools (and the meta-tools) are NOT fleet
+        # forwarders — they live outside ``_exposed`` and are always visible. Only
+        # actual fleet forwarders are gated to the sessions that load_tools-ed them.
+        if name not in self.mux._exposed:
+            return True
         return name in self.mux._session_loaded.get(_session_key(), set())
 
     async def on_list_tools(self, context, call_next):
