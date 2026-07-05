@@ -9,27 +9,8 @@
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "both"
-      }
-    },
-    "mcp-multiplexer": {
-      "command": "uv",
-      "args": [
-        "run",
-        "mcp-multiplexer"
-      ],
-      "env": {
-        "AGENT_ID": "local-developer",
-        "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_MULTIPLEXER_MODE": "dynamic",
+        "MCP_TOOL_MODE": "both",
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
-      }
-    },
-    "egeria-mcp": {
-      "transport": "streamable-http",
-      "url": "http://egeria-mcp.arpa/mcp",
-      "headers": {
-        "Authorization": "Bearer ${EGERIA_MCP_TOKEN}"
       }
     }
   }

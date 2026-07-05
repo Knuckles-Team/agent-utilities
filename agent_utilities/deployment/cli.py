@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
 
     m = sub.add_parser(
         "mcp",
-        help="Print the minimal mcp_config.json (graph-os + mcp-multiplexer) to register.",
+        help="Print the minimal mcp_config.json (a single graph-os entry) to register.",
     )
     m.add_argument("--profile", choices=list(PROFILES), default="tiny")
     m.add_argument(
@@ -58,13 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         dest="fleet",
         action="store_true",
         default=True,
-        help="Include mcp-multiplexer (the whole fleet). Default.",
+        help="Give graph-os the MCP_CONFIG fleet pointer so it can load other MCP servers on demand. Default.",
     )
     m.add_argument(
         "--no-fleet",
         dest="fleet",
         action="store_false",
-        help="Emit only graph-os (a single KG, no multiplexer).",
+        help="Emit graph-os with no fleet pointer (a single, self-contained KG).",
     )
 
     hf = sub.add_parser(

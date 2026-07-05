@@ -376,7 +376,6 @@ graph-os = "agent_utilities.mcp.kg_server:mcp_server"
 graph-os-daemon = "agent_utilities.gateway.daemon:main"
 agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
-mcp-multiplexer = "agent_utilities.mcp.multiplexer:mcp_server"
 agent-utilities = "agent_utilities.cli:main"
 # Provision the database environment (Stardog + pg-age) from credentials; also
 # `python -m agent_utilities.knowledge_graph.setup.cli`.
