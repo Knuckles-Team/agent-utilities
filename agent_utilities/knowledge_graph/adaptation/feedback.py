@@ -390,6 +390,39 @@ class FeedbackService:
                 record_trust(self.backend, actor, kind, success=s)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("trust outcome update failed: %s", exc)
+        # CONCEPT:AU-AHE.org.role-experience — a "role_experience:<role_id>" outcome
+        # accrues into the owning :Employee's experience profile (successes/
+        # partials/failures + score + seniority), so the org recruiter reuses
+        # proven staff on the next synthesis (the Self-Grown loop). The optional
+        # corrected_value carries {employee_id, domains}.
+        elif action_id.startswith("role_experience:"):
+            try:
+                from agent_utilities.orchestration.org_runtime import (
+                    record_role_experience,
+                )
+
+                role_id = action_id.split(":", 1)[1]
+                emp_id = ""
+                domains: list[str] = []
+                payload = corrected_value
+                if isinstance(payload, str):
+                    try:
+                        import json as _json
+
+                        payload = _json.loads(payload)
+                    except Exception:
+                        payload = {}
+                if isinstance(payload, dict):
+                    emp_id = str(payload.get("employee_id", "") or "")
+                    doms = payload.get("domains") or []
+                    if isinstance(doms, list):
+                        domains = [str(d) for d in doms]
+                record_role_experience(
+                    self.backend, role_id, employee_id=emp_id,
+                    success=s, reward=r, domains=domains,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("role experience outcome update failed: %s", exc)
         if (
             q
             and exp
