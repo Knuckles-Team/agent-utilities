@@ -57,6 +57,7 @@ Reuses the existing fabric — nothing reinvented:
 import concurrent.futures
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -83,6 +84,15 @@ DOCUMENT_NODE_TYPE = "Document"
 CHUNK_NODE_TYPE = "Chunk"
 HAS_CHUNK_EDGE = "HAS_CHUNK"
 CHUNK_OF_EDGE = "CHUNK_OF"
+
+# Section-tree object/link type names (CONCEPT:AU-KG.retrieval.section-tree). The
+# per-document reasoning tree materializes one ``Section`` node per heading/TOC
+# entry, linked to the parent Document (HAS_SECTION / SECTION_OF) and to nested
+# child sections (HAS_SUBSECTION) so the tree can be reconstructed from the graph.
+SECTION_NODE_TYPE = "Section"
+HAS_SECTION_EDGE = "HAS_SECTION"
+SECTION_OF_EDGE = "SECTION_OF"
+HAS_SUBSECTION_EDGE = "HAS_SUBSECTION"
 
 # Separator priority for recursive chunking — highest-semantic boundary first,
 # matching the Foundry/LangChain "recursive character" splitter ordering.
@@ -304,14 +314,26 @@ class ProcessedDocument(BaseModel):
     document_id: str = ""
     chunk_count: int = 0
     persisted: bool = False
+    # Section-tree slice (CONCEPT:AU-KG.retrieval.section-tree) — populated only
+    # when ``process(section_tree=True)``; empty otherwise so the existing
+    # chunk-only pipeline stays byte-identical. ``section_roots`` is the nested
+    # in-memory tree; ``section_nodes``/``section_edges`` are the flat payloads
+    # written through the same live write path as the chunks.
+    section_roots: list[SectionNode] = Field(default_factory=list)
+    section_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    section_edges: list[dict[str, Any]] = Field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the ``{document_node, chunk_nodes, edges}`` mapping."""
-        return {
+        out: dict[str, Any] = {
             "document_node": self.document_node,
             "chunk_nodes": self.chunk_nodes,
             "edges": self.edges,
         }
+        if self.section_nodes:
+            out["section_nodes"] = self.section_nodes
+            out["section_edges"] = self.section_edges
+        return out
 
 
 class DocumentExtractionError(RuntimeError):
@@ -382,6 +404,7 @@ class DocumentProcessor:
         source: str = "",
         metadata: dict[str, Any] | None = None,
         persist: bool = True,
+        section_tree: bool | SectionTreeConfig = False,
     ) -> ProcessedDocument:
         """Run the full pipeline and materialize Document + Chunk objects.
 
@@ -484,8 +507,35 @@ class DocumentProcessor:
             chunk_count=len(chunks),
         )
 
+        # CONCEPT:AU-KG.retrieval.section-tree — optionally build the per-document
+        # reasoning tree beside the flat chunks. Off by default so the chunk-only
+        # pipeline is unchanged; the ingestion path / MCP tool turn it on.
+        if section_tree:
+            cfg = (
+                section_tree
+                if isinstance(section_tree, SectionTreeConfig)
+                else SectionTreeConfig()
+            )
+            roots = build_section_tree(raw_text, config=cfg)
+            # CONCEPT:AU-KG.ingest.structure-verify — confirm titles are inside
+            # their claimed ranges (and repair drift) before we materialize.
+            report = verify_section_tree(raw_text, roots, fix=True)
+            if report["mismatched"]:
+                logger.warning(
+                    "[section-tree] %d section title(s) not found in range for %s",
+                    report["mismatched"],
+                    doc_id,
+                )
+            sec_nodes, sec_edges = section_nodes_and_edges(doc_id, roots)
+            result.section_roots = roots
+            result.section_nodes = sec_nodes
+            result.section_edges = sec_edges
+
         if persist:
             result.persisted = self._persist(document_node, chunk_nodes, edges)
+            if result.section_nodes:
+                # Best-effort: section slice failures never abort the chunk slice.
+                self._persist_sections(result.section_nodes, result.section_edges)
         return result
 
     # ── text extraction ──────────────────────────────────────────────────
@@ -865,6 +915,39 @@ class DocumentProcessor:
                 )
         return ok
 
+    def _persist_sections(
+        self,
+        section_nodes: list[dict[str, Any]],
+        section_edges: list[dict[str, Any]],
+    ) -> bool:
+        """Write the section-tree slice through the live backend (best-effort).
+
+        CONCEPT:AU-KG.retrieval.section-tree. Reuses the same per-item write path
+        as the chunk slice; nodes are flushed before their HAS_SUBSECTION edges so
+        endpoints exist. Returns True if the write path was exercised.
+        """
+        writer = self._resolve_writer()
+        if writer is None:
+            return False
+        ok = False
+        for sn in section_nodes:
+            ok |= self._write_node(writer, sn)
+        for e in section_edges:
+            try:
+                props = {
+                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                }
+                writer.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
+                ok = True
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "[section-tree] add_edge failed %s->%s: %s",
+                    e["source"],
+                    e["target"],
+                    exc,
+                )
+        return ok
+
     @staticmethod
     def _write_node(writer: Any, node: dict[str, Any]) -> bool:
         try:
@@ -893,6 +976,683 @@ class DocumentProcessor:
         """Stable, idempotent Document id from source + content hash."""
         digest = hashlib.sha256(f"{source}\x1f{content_hash}".encode()).hexdigest()[:16]
         return f"doc:{digest}"
+
+
+# ── Section-tree — PageIndex-style per-document reasoning tree ────────────────
+#
+# CONCEPT:AU-KG.retrieval.section-tree — a first-class per-document section tree
+# built *beside* the flat Chunk objects. Where the Chunk pipeline is similarity
+# -first (overlap chunks → embed → ANN/BM25 + rerank), the section tree is a
+# navigable table-of-contents: one node per heading (markdown) or TOC entry
+# (PDF), each carrying its title, a pre-order-DFS ``node_id``, the source
+# ``char_start``/``char_end`` (and optional ``page_start``/``page_end``) range,
+# an optional summary, and nested children. A retriever can *walk* this tree by
+# node relevance and return cited ranges — no recall ceiling from an embedder,
+# superior for long single documents. Ported from PageIndex
+# (``pageindex/page_index_md.py``: ``extract_nodes_from_markdown`` +
+# ``build_tree_from_nodes`` level-stack + ``tree_thinning_for_index``
+# token-budget prune) — the deterministic markdown path is LLM-free; the PDF
+# path (``build_section_tree_from_pages``) is LLM-assisted (CONCEPT:AU-KG.ingest.toc-detection).
+
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_CODE_FENCE_RE = re.compile(r"^```")
+
+# Default token budget below which a section is collapsed into its parent during
+# thinning — mirrors PageIndex ``min_node_token`` (keeps the tree navigable
+# instead of one node per trivial sub-heading).
+DEFAULT_MIN_NODE_TOKENS = 200
+DEFAULT_SUMMARY_TOKEN_THRESHOLD = 200
+
+
+class SectionTreeConfig(BaseModel):
+    """Configuration for :func:`build_section_tree` (CONCEPT:AU-KG.retrieval.section-tree).
+
+    Attributes:
+        thin: Collapse sub-``min_node_tokens`` sections into their parent so the
+            tree stays a navigable map rather than one node per trivial heading
+            (PageIndex ``tree_thinning_for_index``).
+        min_node_tokens: Token budget below which a section is merged upward.
+        summarize: Compute a short per-node summary so the *structure* view is
+            text-free (the map the tree-navigation retriever reasons over).
+        summary_token_threshold: Sections shorter than this keep their own text
+            as the summary; longer ones get an LLM/heuristic summary.
+        max_pages_for_toc: PDF path — how many leading pages to scan for a TOC.
+    """
+
+    thin: bool = True
+    min_node_tokens: int = DEFAULT_MIN_NODE_TOKENS
+    summarize: bool = False
+    summary_token_threshold: int = DEFAULT_SUMMARY_TOKEN_THRESHOLD
+    max_pages_for_toc: int = 20
+
+
+class SectionNode(BaseModel):
+    """A node in a document's section tree (CONCEPT:AU-KG.retrieval.section-tree).
+
+    ``node_id`` is a stable pre-order-DFS index (zero-padded, e.g. ``"0004"``);
+    ``char_start``/``char_end`` cite the node's own span in the source text
+    (heading → next heading, matching PageIndex per-node text); ``page_start``/
+    ``page_end`` are set on the PDF path. ``summary`` gives the text-free map;
+    ``children`` are the nested sub-sections.
+    """
+
+    node_id: str
+    title: str
+    level: int
+    char_start: int
+    char_end: int
+    line_start: int = 0
+    page_start: int | None = None
+    page_end: int | None = None
+    summary: str = ""
+    text: str = ""
+    children: list[SectionNode] = Field(default_factory=list)
+
+
+SectionNode.model_rebuild()
+# ProcessedDocument's ``section_roots`` field forward-references SectionNode
+# (defined here, after that class) — resolve it now that SectionNode exists.
+ProcessedDocument.model_rebuild()
+
+# A summarizer maps ``(title, text) -> summary`` (LLM or heuristic).
+SectionSummarizer = Callable[[str, str], str]
+
+
+def iter_sections(roots: Sequence[SectionNode]) -> list[SectionNode]:
+    """Return every node in ``roots`` in pre-order DFS (parents before children)."""
+    out: list[SectionNode] = []
+
+    def _walk(nodes: Sequence[SectionNode]) -> None:
+        for n in nodes:
+            out.append(n)
+            _walk(n.children)
+
+    _walk(roots)
+    return out
+
+
+def _line_offsets(lines: list[str]) -> list[int]:
+    """Char offset (into the original text) of each line's start."""
+    offsets: list[int] = []
+    pos = 0
+    for ln in lines:
+        offsets.append(pos)
+        pos += len(ln) + 1  # +1 for the stripped '\n'
+    return offsets
+
+
+def _extract_heading_lines(text: str) -> list[dict[str, Any]]:
+    """Markdown headings outside code fences, with char offsets.
+
+    Port of PageIndex ``extract_nodes_from_markdown`` extended to carry each
+    heading's ``char_start`` (offset of its line) so the tree can cite character
+    ranges, not just line numbers.
+    """
+    lines = text.split("\n")
+    offsets = _line_offsets(lines)
+    headings: list[dict[str, Any]] = []
+    in_code = False
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if _CODE_FENCE_RE.match(stripped):
+            in_code = not in_code
+            continue
+        if in_code or not stripped:
+            continue
+        m = _MD_HEADING_RE.match(stripped)
+        if m:
+            headings.append(
+                {
+                    "title": m.group(2).strip(),
+                    "level": len(m.group(1)),
+                    "line_num": i + 1,
+                    "char_start": offsets[i],
+                }
+            )
+    return headings
+
+
+def _sections_with_spans(
+    headings: list[dict[str, Any]], text: str
+) -> list[dict[str, Any]]:
+    """Attach each heading's own text span (heading → next heading, any level)."""
+    flat: list[dict[str, Any]] = []
+    n = len(headings)
+    for i, h in enumerate(headings):
+        start = int(h["char_start"])
+        end = int(headings[i + 1]["char_start"]) if i + 1 < n else len(text)
+        flat.append(
+            {
+                "title": h["title"],
+                "level": h["level"],
+                "line_num": h["line_num"],
+                "char_start": start,
+                "char_end": end,
+                "text": text[start:end].strip(),
+            }
+        )
+    return flat
+
+
+def _descendant_slice(flat: list[dict[str, Any]], i: int) -> int:
+    """Index one-past the contiguous descendants of ``flat[i]`` (deeper level)."""
+    lvl = int(flat[i]["level"])
+    j = i + 1
+    while j < len(flat) and int(flat[j]["level"]) > lvl:
+        j += 1
+    return j
+
+
+def _annotate_token_counts(flat: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Set ``token_count`` = tokens of a node's text + all its descendants' text.
+
+    Port of PageIndex ``update_node_list_with_text_token_count`` using the shared
+    :func:`estimate_tokens` heuristic (no tokenizer dependency).
+    """
+    from ..memory.agent_context import estimate_tokens
+
+    for i in range(len(flat)):
+        end = _descendant_slice(flat, i)
+        joined = "\n".join(
+            str(flat[k].get("text", "")) for k in range(i, end) if flat[k].get("text")
+        )
+        flat[i]["token_count"] = estimate_tokens(joined)
+    return flat
+
+
+def _thin_sections(flat: list[dict[str, Any]], min_tokens: int) -> list[dict[str, Any]]:
+    """Collapse sub-``min_tokens`` sections into their parent (PageIndex thinning).
+
+    A small node absorbs the text of its whole descendant subtree and those
+    descendants are dropped; the node's ``char_end`` is extended to cover the
+    merged range so the cited span stays accurate.
+    """
+    from ..memory.agent_context import estimate_tokens
+
+    remove: set[int] = set()
+    for i in range(len(flat) - 1, -1, -1):
+        if i in remove:
+            continue
+        if int(flat[i].get("token_count", 0)) >= min_tokens:
+            continue
+        end = _descendant_slice(flat, i)
+        child_texts: list[str] = []
+        max_end = int(flat[i]["char_end"])
+        for k in range(i + 1, end):
+            if k in remove:
+                continue
+            child = flat[k]
+            if str(child.get("text", "")).strip():
+                child_texts.append(str(child["text"]))
+            max_end = max(max_end, int(child["char_end"]))
+            remove.add(k)
+        if child_texts:
+            merged = str(flat[i].get("text", ""))
+            for ct in child_texts:
+                if merged and not merged.endswith("\n"):
+                    merged += "\n\n"
+                merged += ct
+            flat[i]["text"] = merged
+            flat[i]["char_end"] = max_end
+            flat[i]["token_count"] = estimate_tokens(merged)
+    return [f for k, f in enumerate(flat) if k not in remove]
+
+
+def _assign_node_ids(roots: Sequence[SectionNode]) -> None:
+    """Assign zero-padded pre-order-DFS ids in place (PageIndex ``node_id``)."""
+    counter = [0]
+
+    def _walk(nodes: Sequence[SectionNode]) -> None:
+        for n in nodes:
+            counter[0] += 1
+            n.node_id = str(counter[0]).zfill(4)
+            _walk(n.children)
+
+    _walk(roots)
+
+
+def _build_tree_from_flat(
+    flat: list[dict[str, Any]], *, summarizer: SectionSummarizer | None
+) -> list[SectionNode]:
+    """Level-stack tree build (PageIndex ``build_tree_from_nodes``) → SectionNodes."""
+    roots: list[SectionNode] = []
+    stack: list[tuple[SectionNode, int]] = []
+    for f in flat:
+        node = SectionNode(
+            node_id="",
+            title=str(f["title"]),
+            level=int(f["level"]),
+            char_start=int(f["char_start"]),
+            char_end=int(f["char_end"]),
+            line_start=int(f.get("line_num", 0)),
+            page_start=f.get("page_start"),
+            page_end=f.get("page_end"),
+            text=str(f.get("text", "")),
+        )
+        while stack and stack[-1][1] >= node.level:
+            stack.pop()
+        if not stack:
+            roots.append(node)
+        else:
+            stack[-1][0].children.append(node)
+        stack.append((node, node.level))
+    _assign_node_ids(roots)
+    if summarizer is not None:
+        for s in iter_sections(roots):
+            try:
+                s.summary = summarizer(s.title, s.text)
+            except Exception as exc:  # noqa: BLE001 — summary must never break build
+                logger.debug(
+                    "[section-tree] summarizer failed for %r: %s", s.title, exc
+                )
+    return roots
+
+
+def _default_section_summarizer(
+    threshold: int = DEFAULT_SUMMARY_TOKEN_THRESHOLD,
+) -> SectionSummarizer:
+    """Build the default per-node summarizer (CONCEPT:AU-KG.retrieval.section-tree).
+
+    Reuses the contextual enricher's :meth:`ContextualEnricher.summarize_section`
+    (LLM when configured, deterministic heuristic otherwise). Short sections keep
+    their own text as the summary (PageIndex ``summary_token_threshold``).
+    """
+    from ..memory.agent_context import estimate_tokens
+    from .contextual_enrichment import ContextualEnricher
+
+    enricher = ContextualEnricher(DocumentProcessor._contextual_llm_fn())
+
+    def _summarize(title: str, text: str) -> str:
+        if estimate_tokens(text) < threshold:
+            return text.strip()
+        return enricher.summarize_section(title, text)
+
+    return _summarize
+
+
+def build_section_tree(
+    text: str,
+    *,
+    config: SectionTreeConfig | None = None,
+    summarizer: SectionSummarizer | None = None,
+) -> list[SectionNode]:
+    """Build a document's section tree from markdown headings (LLM-free).
+
+    CONCEPT:AU-KG.retrieval.section-tree. Deterministic port of PageIndex's
+    markdown path: extract headings (skipping code fences) → attach per-node text
+    spans → optionally token-budget-thin → level-stack into a tree with pre-order
+    ids. When the document has no headings a single root spanning the whole text
+    is returned so callers always get a usable tree.
+
+    Args:
+        text: The document text (markdown or plain).
+        config: :class:`SectionTreeConfig`; sensible defaults when omitted.
+        summarizer: Optional ``(title, text) -> summary``. When omitted and
+            ``config.summarize`` is set, the default enricher-backed summarizer is
+            used; otherwise summaries are left empty.
+    """
+    cfg = config or SectionTreeConfig()
+    eff_summarizer = summarizer
+    if eff_summarizer is None and cfg.summarize:
+        eff_summarizer = _default_section_summarizer(cfg.summary_token_threshold)
+
+    headings = _extract_heading_lines(text)
+    if not headings:
+        title = DocumentProcessor._first_line(text, "Document")
+        root = SectionNode(
+            node_id="0001",
+            title=title,
+            level=1,
+            char_start=0,
+            char_end=len(text),
+            text=text.strip(),
+        )
+        if eff_summarizer is not None:
+            try:
+                root.summary = eff_summarizer(root.title, root.text)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[section-tree] root summary failed: %s", exc)
+        return [root]
+
+    flat = _sections_with_spans(headings, text)
+    if cfg.thin:
+        flat = _annotate_token_counts(flat)
+        flat = _thin_sections(flat, cfg.min_node_tokens)
+    return _build_tree_from_flat(flat, summarizer=eff_summarizer)
+
+
+def build_section_tree_from_pages(
+    pages: Sequence[str],
+    *,
+    llm_fn: Any = None,
+    config: SectionTreeConfig | None = None,
+    summarizer: SectionSummarizer | None = None,
+) -> list[SectionNode]:
+    """Build a section tree for a paginated (PDF) document.
+
+    CONCEPT:AU-KG.ingest.toc-detection — LLM-assisted table-of-contents detection
+    (PageIndex ``check_toc``/``toc_transformer``). The leading ``max_pages_for_toc``
+    pages are scanned with ``llm_fn`` (the same remote vLLM lite-LLM the contextual
+    enricher uses — no new dependency) for a table of contents; a detected TOC is
+    transformed into ``{title, level, page}`` entries, and each entry's char span
+    is resolved against the concatenated page text with ``page_start``/``page_end``
+    populated. When no ``llm_fn`` is available, or no TOC is found, this degrades
+    deterministically: markdown headings across the concatenated text if present,
+    else one section per page — so the PDF path always yields a usable tree.
+
+    Args:
+        pages: Per-page extracted text, in physical page order (1-indexed).
+        llm_fn: Optional ``(prompt) -> completion``. When omitted the enricher's
+            lite-LLM is used if configured; absent that, the deterministic path.
+        config: :class:`SectionTreeConfig`.
+        summarizer: Optional per-node summarizer (see :func:`build_section_tree`).
+    """
+    cfg = config or SectionTreeConfig()
+    page_list = [p or "" for p in pages]
+    full_text, page_bounds = _concat_pages(page_list)
+
+    eff_summarizer = summarizer
+    if eff_summarizer is None and cfg.summarize:
+        eff_summarizer = _default_section_summarizer(cfg.summary_token_threshold)
+
+    fn = llm_fn if llm_fn is not None else DocumentProcessor._contextual_llm_fn()
+    toc: list[dict[str, Any]] = []
+    if fn is not None:
+        toc = _detect_toc(page_list[: cfg.max_pages_for_toc], fn)
+
+    if toc:
+        flat = _flat_from_toc(toc, full_text, page_bounds)
+        if flat:
+            return _build_tree_from_flat(flat, summarizer=eff_summarizer)
+
+    # Deterministic fallbacks: markdown headings, else one node per page.
+    if _extract_heading_lines(full_text):
+        return build_section_tree(full_text, config=cfg, summarizer=eff_summarizer)
+    flat = [
+        {
+            "title": f"Page {idx + 1}",
+            "level": 1,
+            "line_num": 0,
+            "char_start": start,
+            "char_end": end,
+            "text": page_list[idx].strip(),
+            "page_start": idx + 1,
+            "page_end": idx + 1,
+        }
+        for idx, (start, end) in enumerate(page_bounds)
+    ]
+    return _build_tree_from_flat(flat, summarizer=eff_summarizer)
+
+
+def _concat_pages(pages: list[str]) -> tuple[str, list[tuple[int, int]]]:
+    """Concatenate pages with ``\\f`` separators; return text + per-page char bounds."""
+    parts: list[str] = []
+    bounds: list[tuple[int, int]] = []
+    pos = 0
+    for i, p in enumerate(pages):
+        start = pos
+        parts.append(p)
+        pos += len(p)
+        bounds.append((start, pos))
+        if i < len(pages) - 1:
+            parts.append("\f")
+            pos += 1
+    return "".join(parts), bounds
+
+
+_TOC_PROMPT = (
+    "You are given the opening pages of a document. If they contain a table of "
+    "contents, return it as a JSON list of objects with keys 'title' (string), "
+    "'level' (1-based heading depth as an integer) and 'page' (the 1-based page "
+    "number the section starts on, an integer). Return ONLY the JSON list, or the "
+    "empty list [] if there is no table of contents.\n\n<pages>\n{pages}\n</pages>"
+)
+
+
+def _detect_toc(pages: list[str], llm_fn: Any) -> list[dict[str, Any]]:
+    """Ask ``llm_fn`` for a normalized ``[{title, level, page}]`` TOC (or [])."""
+    import json as _json
+
+    joined = "\n\n".join(
+        f"[page {i + 1}]\n{p[:4000]}" for i, p in enumerate(pages) if p
+    )
+    if not joined.strip():
+        return []
+    try:
+        out = llm_fn(_TOC_PROMPT.format(pages=joined[:_MAX_TOC_CHARS]))
+    except Exception as exc:  # noqa: BLE001 — no TOC on LLM failure
+        logger.debug("[KG toc-detection] llm_fn failed: %s", exc)
+        return []
+    if not out:
+        return []
+    raw = out[out.find("[") : out.rfind("]") + 1] if "[" in out else ""
+    try:
+        data = _json.loads(raw) if raw else []
+    except Exception:  # noqa: BLE001 — malformed → treat as no TOC
+        return []
+    entries: list[dict[str, Any]] = []
+    for row in data if isinstance(data, list) else []:
+        if not isinstance(row, dict) or not row.get("title"):
+            continue
+        try:
+            entries.append(
+                {
+                    "title": str(row["title"]).strip(),
+                    "level": max(1, int(row.get("level", 1))),
+                    "page": max(1, int(row.get("page", 1))),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    return entries
+
+
+_MAX_TOC_CHARS = 16_000
+
+
+def _flat_from_toc(
+    toc: list[dict[str, Any]],
+    full_text: str,
+    page_bounds: list[tuple[int, int]],
+) -> list[dict[str, Any]]:
+    """Turn a ``[{title, level, page}]`` TOC into flat span dicts.
+
+    Each entry's char span runs from its page start to the next entry's page
+    start (PageIndex per-node text); ``page_start``/``page_end`` are recorded.
+    """
+    n_pages = len(page_bounds)
+    flat: list[dict[str, Any]] = []
+    for i, entry in enumerate(toc):
+        page = min(max(1, int(entry["page"])), n_pages)
+        start = page_bounds[page - 1][0]
+        if i + 1 < len(toc):
+            next_page = min(max(1, int(toc[i + 1]["page"])), n_pages)
+            end = page_bounds[next_page - 1][0]
+            end_page = max(page, next_page - 1)
+        else:
+            end = len(full_text)
+            end_page = n_pages
+        if end < start:
+            end = page_bounds[page - 1][1]
+            end_page = page
+        flat.append(
+            {
+                "title": entry["title"],
+                "level": int(entry["level"]),
+                "line_num": 0,
+                "char_start": start,
+                "char_end": end,
+                "text": full_text[start:end].strip(),
+                "page_start": page,
+                "page_end": end_page,
+            }
+        )
+    return flat
+
+
+# ── Section-tree self-verification ────────────────────────────────────────────
+
+
+def _normalize_title(s: str) -> str:
+    """Lowercase + collapse whitespace/markdown markers for title matching."""
+    return " ".join(re.sub(r"[#*_`>]", " ", s or "").lower().split())
+
+
+def verify_section_tree(
+    full_text: str, roots: Sequence[SectionNode], *, fix: bool = True
+) -> dict[str, Any]:
+    """Confirm each section's title appears within its claimed char range.
+
+    CONCEPT:AU-KG.ingest.structure-verify — port of PageIndex ``verify_toc`` /
+    ``fix_incorrect_toc``. A tree built from markdown headings is self-consistent
+    by construction, but the LLM-assisted TOC path (and aggressive thinning) can
+    produce a node whose title is *not* inside its ``[char_start, char_end)`` span.
+    This pass checks every node; when ``fix`` is set and the title is found
+    elsewhere in the document, the node's ``char_start`` is re-anchored to the
+    title's true position (its ``char_end`` extended if needed) so the cited range
+    is trustworthy before the tree is committed.
+
+    Returns ``{"checked", "verified", "mismatched", "repaired", "mismatches":[…]}``.
+    """
+    haystack = full_text.lower()
+    checked = verified = repaired = 0
+    mismatches: list[dict[str, Any]] = []
+    for node in iter_sections(roots):
+        checked += 1
+        title_norm = _normalize_title(node.title)
+        span_norm = _normalize_title(full_text[node.char_start : node.char_end])
+        if not title_norm or title_norm in span_norm:
+            verified += 1
+            continue
+        # Title not in its claimed span — try to locate it in the whole document.
+        found = haystack.find(node.title.lower())
+        entry: dict[str, Any] = {"node_id": node.node_id, "title": node.title}
+        if fix and found >= 0:
+            node.char_start = found
+            if node.char_end <= found:
+                node.char_end = min(len(full_text), found + max(1, len(node.title)))
+            repaired += 1
+            entry["repaired_to"] = found
+        else:
+            mismatches.append(entry)
+    return {
+        "checked": checked,
+        "verified": verified,
+        "mismatched": len(mismatches),
+        "repaired": repaired,
+        "mismatches": mismatches,
+    }
+
+
+# ── Section-tree materialization (nodes/edges + reconstruction) ───────────────
+
+
+def section_nodes_and_edges(
+    document_id: str, roots: Sequence[SectionNode]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build ``Section`` node payloads + HAS_SECTION/SECTION_OF/HAS_SUBSECTION edges.
+
+    CONCEPT:AU-KG.retrieval.section-tree. Each node stores its ``parent_id`` so the
+    tree can be reconstructed from the graph by :func:`rebuild_section_tree`.
+    """
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    def _emit(section: SectionNode, parent_full_id: str | None) -> None:
+        full_id = f"{document_id}::section::{section.node_id}"
+        node: dict[str, Any] = {
+            "id": full_id,
+            "type": SECTION_NODE_TYPE,
+            "name": section.title,
+            "document_id": document_id,
+            # ``tree_node_id`` (not ``node_id``) so the property never collides
+            # with the keyword-writer's ``node_id`` positional parameter.
+            "tree_node_id": section.node_id,
+            "parent_id": parent_full_id or "",
+            "title": section.title,
+            "level": section.level,
+            "char_start": section.char_start,
+            "char_end": section.char_end,
+            "line_start": section.line_start,
+            "summary": section.summary,
+            # The node's own text is kept for range-fetch (get_page_content) and
+            # stripped only in the structure view (get_document_structure), exactly
+            # as PageIndex does — the *map* is text-free, the store is not.
+            "content": section.text,
+        }
+        if section.page_start is not None:
+            node["page_start"] = section.page_start
+        if section.page_end is not None:
+            node["page_end"] = section.page_end
+        nodes.append(node)
+        edges.append(
+            {
+                "source": document_id,
+                "target": full_id,
+                "type": HAS_SECTION_EDGE,
+                "tree_node_id": section.node_id,
+            }
+        )
+        edges.append(
+            {"source": full_id, "target": document_id, "type": SECTION_OF_EDGE}
+        )
+        if parent_full_id:
+            edges.append(
+                {
+                    "source": parent_full_id,
+                    "target": full_id,
+                    "type": HAS_SUBSECTION_EDGE,
+                }
+            )
+        for child in section.children:
+            _emit(child, full_id)
+
+    for root in roots:
+        _emit(root, None)
+    return nodes, edges
+
+
+def rebuild_section_tree(section_nodes: Sequence[dict[str, Any]]) -> list[SectionNode]:
+    """Reconstruct the nested tree from flat stored ``Section`` node dicts.
+
+    CONCEPT:AU-KG.retrieval.section-tree — the inverse of
+    :func:`section_nodes_and_edges`, used by the hierarchical retriever after it
+    loads a document's Section nodes from the graph. Ordering is by ``node_id``
+    (the pre-order index) so children attach under their recorded ``parent_id``.
+    """
+
+    def _tid(raw: dict[str, Any]) -> str:
+        return str(raw.get("tree_node_id") or raw.get("node_id") or "")
+
+    by_id: dict[str, SectionNode] = {}
+    parent_of: dict[str, str] = {}
+    order = sorted(section_nodes, key=_tid)
+    for raw in order:
+        full_id = str(raw.get("id") or _tid(raw))
+        node = SectionNode(
+            node_id=_tid(raw),
+            title=str(raw.get("title") or raw.get("name") or ""),
+            level=int(raw.get("level", 1) or 1),
+            char_start=int(raw.get("char_start", 0) or 0),
+            char_end=int(raw.get("char_end", 0) or 0),
+            line_start=int(raw.get("line_start", 0) or 0),
+            page_start=raw.get("page_start"),
+            page_end=raw.get("page_end"),
+            summary=str(raw.get("summary", "") or ""),
+            text=str(raw.get("content", "") or raw.get("text", "") or ""),
+        )
+        by_id[full_id] = node
+        parent_of[full_id] = str(raw.get("parent_id", "") or "")
+
+    roots: list[SectionNode] = []
+    for full_id, node in by_id.items():
+        parent_id = parent_of.get(full_id, "")
+        parent = by_id.get(parent_id) if parent_id else None
+        if parent is not None:
+            parent.children.append(node)
+        else:
+            roots.append(node)
+    return roots
 
 
 def process_document(
@@ -928,4 +1688,18 @@ __all__ = [
     "CHUNK_NODE_TYPE",
     "HAS_CHUNK_EDGE",
     "CHUNK_OF_EDGE",
+    # Section-tree (CONCEPT:AU-KG.retrieval.section-tree)
+    "SectionNode",
+    "SectionTreeConfig",
+    "SectionSummarizer",
+    "build_section_tree",
+    "build_section_tree_from_pages",
+    "iter_sections",
+    "section_nodes_and_edges",
+    "rebuild_section_tree",
+    "verify_section_tree",
+    "SECTION_NODE_TYPE",
+    "HAS_SECTION_EDGE",
+    "SECTION_OF_EDGE",
+    "HAS_SUBSECTION_EDGE",
 ]
