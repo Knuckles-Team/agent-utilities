@@ -1247,14 +1247,6 @@ def _register_status_tool(mcp, mux: MCPMultiplexer) -> None:
     )
 
 
-def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
-    """Register a forwarding tool for every aggregated child tool plus the
-    status meta-tool. This is the EAGER path (all tools exposed up front)."""
-    for tool in mux.aggregated_tools:
-        _register_forwarder(mcp, mux, tool)
-    _register_status_tool(mcp, mux)
-
-
 async def _notify_tools_changed(mcp) -> None:
     """Emit ``notifications/tools/list_changed`` so the client re-fetches the
     tool list after a dynamic mount/unmount. Best-effort: a missing request
