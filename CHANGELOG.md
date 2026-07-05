@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-05
+
+### Added — Claude Code file-based memory → KG ingestion (CONCEPT:AU-KG.ingest.claude-memory-connector)
+The Claude Code harness keeps its cross-session memory as flat markdown (`MEMORY.md` + per-topic
+`*.md` files) *outside* the graph. This dogfoods our own memory substrate: a new
+`claude_memory` delta source (`source_sync source=claude_memory`) ingests each topic file as a
+typed, semantically-searchable `:AgentMemory` node (name/type/description/body embedded, findable
+via `graph_search`) and turns its `[[other-slug]]` wiki-links into `RELATED_TO` edges — so the
+session knowledge is connected to the rest of the ecosystem graph instead of stranded on disk.
+Zero-infra + offline (reads local markdown, no network); memory dir is `CLAUDE_MEMORY_DIR` when set,
+else every `~/.claude/projects/*/memory` is swept; delta is the content-hash write-delta (unchanged
+topic files are skipped even on a full sweep); the `MEMORY.md`/`MEMORY-ARCHIVE.md` indexes are skipped.
+Verified against the live memory dir: 202 `:AgentMemory` nodes + 371 `RELATED_TO` edges.
+
 ## [1.5.0] - 2026-07-04
 
 ### Added — warm-fork cross-modal fan-out (CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout, ORCH-1.106)

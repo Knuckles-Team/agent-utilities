@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 912
+total_concepts: 913
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4833,6 +4833,18 @@ concepts:
   - AU-KG.ingest.chunk-overlap-stage
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.claude-memory-connector
+  name: AU-KG.ingest.claude-memory-connector
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: AU-KG.ingest.claude-memory-connector
+  dotted: AU-KG.ingest.claude-memory-connector
+  aliases:
+  - AU-KG.ingest.claude-memory-connector
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.content-acquisition
   name: the acquisition half of content-aware ingestion. Given
   pillar: AU-KG
@@ -5013,6 +5025,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -11060,12 +11073,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.doctor-minimal-mcp-config
-  name: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  name: doctor-driven minimal mcp_config — one graph-os entry
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/deployment/config_generator.py
-  doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  doc: doctor-driven minimal mcp_config — one graph-os entry
   dotted: AU-OS.deployment.doctor-minimal-mcp-config
   aliases:
   - AU-OS.deployment.doctor-minimal-mcp-config
