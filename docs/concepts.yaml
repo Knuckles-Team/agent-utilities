@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 911
+total_concepts: 912
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -10325,6 +10325,19 @@ concepts:
   - AU-ORCH.sandbox.cpython-wasi-sandbox
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.sandbox.crossmodal-fork-fanout
+  name: warm-fork fan-out over an engine cross-modal candidate set
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/runtime/crossmodal_fork.py
+  doc: warm-fork fan-out over an engine cross-modal candidate set
+  dotted: AU-ORCH.sandbox.crossmodal-fork-fanout
+  aliases:
+  - AU-ORCH.sandbox.crossmodal-fork-fanout
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.sandbox.default-sandbox-registry
   name: Default sandbox registry
   pillar: AU-ORCH
@@ -10418,6 +10431,7 @@ concepts:
   code_paths:
   - agent_utilities/rlm/sandboxes/_bridge.py
   - agent_utilities/rlm/sandboxes/base.py
+  - agent_utilities/runtime/crossmodal_fork.py
   doc: Shared host-helper bridge for isolated sandbox backends
   dotted: AU-ORCH.sandbox.shared-host-helper-bridge
   aliases:
