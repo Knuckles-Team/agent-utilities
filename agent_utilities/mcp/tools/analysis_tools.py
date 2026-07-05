@@ -1632,7 +1632,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, synthesize_org, run_org, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'synthesize_org' = from a goal (in 'task'), the recruiter drafts an org chart (departments → roles) and staffs each role — reusing experienced :Employee staff grown by prior runs, else hiring a fresh template (CONCEPT:AU-ORCH.org.recruiter); optional dependencies JSON {domains:[...]}. 'run_org' = synthesize (or accept) an org, derive a :WorkItem dependency DAG, and run it over the existing orchestrator — independent items parallel, dependents wait, manager review/rework, human escalation on beyond-team blockers, and per-role experience accrual (CONCEPT:AU-ORCH.org.work-item-dag). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -2080,6 +2080,34 @@ def register_analysis_tools(mcp):
                     )
                 except Exception as exc:
                     return f"Error executing workflow: {exc}"
+            elif action == "synthesize_org":
+                # CONCEPT:AU-ORCH.org.recruiter — from a goal, the recruiter drafts
+                # an org chart (departments → roles) and staffs each role, reusing
+                # experienced :Employee staff (grown by prior runs) or hiring fresh.
+                from agent_utilities.orchestration.org_runtime import Recruiter
+
+                goal = task.strip()
+                if not goal:
+                    return "Error: action=synthesize_org requires a goal in 'task'."
+                opts = json.loads(dependencies) if dependencies and dependencies != "[]" else {}
+                domains = opts.get("domains") if isinstance(opts, dict) else None
+                chart = Recruiter(engine).synthesize_org(goal, domains=domains)
+                return json.dumps(chart.to_dict(), default=str)
+            elif action == "run_org":
+                # CONCEPT:AU-ORCH.org.work-item-dag — synthesize (or accept) an org,
+                # derive a work-item DAG, and run it over the existing orchestrator:
+                # independent items parallel, dependents wait, manager review +
+                # human escalation, and per-role experience accrual (Self-Grown).
+                from agent_utilities.orchestration.org_runtime import OrgRuntime
+
+                goal = task.strip()
+                if not goal:
+                    return "Error: action=run_org requires a goal in 'task'."
+                opts = json.loads(dependencies) if dependencies and dependencies != "[]" else {}
+                domains = opts.get("domains") if isinstance(opts, dict) else None
+                runtime = OrgRuntime(engine, max_steps=max_steps)
+                result = await runtime.run(goal, domains=domains)
+                return json.dumps(result, default=str)
             elif action == "consensus":
                 return f"Consensus reached for {task}."
             elif action == "start_debate":

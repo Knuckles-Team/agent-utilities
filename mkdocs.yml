@@ -125,6 +125,7 @@ nav:
       - Ontology Federation & Package Migration (domain ttls in owning repos): architecture/ontology-federation.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Orchestration Execution Seam (ingested capability → executed): architecture/orchestration-execution-seam.md
+      - Runtime Org Dynamics (recruiter, work-item DAG, self-grown staff): architecture/org-runtime.md
       - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md
       - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md
       - Reactions / Emotes (system-wide, renderer contract): architecture/reactions.md

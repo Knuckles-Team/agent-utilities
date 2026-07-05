@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 912
+total_concepts: 915
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -1337,6 +1337,19 @@ concepts:
   dotted: AU-AHE.optimization.workflow-distillation
   aliases:
   - AU-AHE.optimization.workflow-distillation
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.org.role-experience
+  name: Each item
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: Each item
+  dotted: AU-AHE.org.role-experience
+  aliases:
+  - AU-AHE.org.role-experience
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.reward.cache-rollout-signals
@@ -5013,6 +5026,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -9737,6 +9751,34 @@ concepts:
   - AU-ORCH.optimization.workflow-distillation
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.org.recruiter
+  name: REST twin of graph_orchestrate synthesize_org
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: REST twin of graph_orchestrate synthesize_org
+  dotted: AU-ORCH.org.recruiter
+  aliases:
+  - AU-ORCH.org.recruiter
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.org.work-item-dag
+  name: REST twin of graph_orchestrate run_org
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: REST twin of graph_orchestrate run_org
+  dotted: AU-ORCH.org.work-item-dag
+  aliases:
+  - AU-ORCH.org.work-item-dag
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.planning.business-process-to-executable
   name: descriptive BusinessProcess → executable
   pillar: AU-ORCH
@@ -11060,12 +11102,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.doctor-minimal-mcp-config
-  name: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  name: doctor-driven minimal mcp_config — one graph-os entry
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/deployment/config_generator.py
-  doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  doc: doctor-driven minimal mcp_config — one graph-os entry
   dotted: AU-OS.deployment.doctor-minimal-mcp-config
   aliases:
   - AU-OS.deployment.doctor-minimal-mcp-config
