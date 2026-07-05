@@ -531,6 +531,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_search": "/graph/search",
     "graph_search_synthesis": "/graph/search-synthesis",
     "graph_code_nav": "/graph/code-nav",
+    "graph_document_tree": "/graph/document-tree",
     "graph_write": "/graph/write",
     "graph_ingest": "/graph/ingest",
     "graph_analyze": "/graph/analyze",

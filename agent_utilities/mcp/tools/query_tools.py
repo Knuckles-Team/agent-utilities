@@ -34,6 +34,60 @@ _AGG_FUNCS = (
 _AGG_CALL_RE = _re.compile(r"\b(?:" + "|".join(_AGG_FUNCS) + r")\s*\(", _re.IGNORECASE)
 
 
+def _parse_ranges(spec: str) -> list[tuple[int, int]]:
+    """Parse a char-range spec like '96..208,300..420' into (lo, hi) pairs.
+
+    CONCEPT:AU-KG.retrieval.tree-navigation — the fetch half of map-then-fetch.
+    """
+    out: list[tuple[int, int]] = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ".." not in part:
+            raise ValueError(f"invalid range {part!r}: use 'start..end'")
+        lo_s, hi_s = part.split("..", 1)
+        try:
+            lo, hi = int(lo_s), int(hi_s)
+        except ValueError as e:
+            raise ValueError(f"invalid range {part!r}: {e}") from e
+        if hi < lo:
+            raise ValueError(f"invalid range {part!r}: end < start")
+        out.append((lo, hi))
+    if not out:
+        raise ValueError("no ranges given (use 'start..end,start..end')")
+    return out
+
+
+def _persist_sections(
+    engine: Any,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> bool:
+    """Write section-tree nodes/edges through the engine's own API (CONCEPT:AU-KG.retrieval.section-tree).
+
+    Uses ``engine.add_node(id, type, props)`` / ``engine.add_edge(src, tgt, rel)``
+    — the same convenience write path ``write_ingest_tools`` uses — so the tree
+    persists regardless of the backend's keyword-writer support. Best-effort.
+    """
+    ok = False
+    for n in nodes:
+        props = {k: v for k, v in n.items() if k not in ("id", "type")}
+        try:
+            engine.add_node(n["id"], n["type"], props)
+            ok = True
+        except Exception:  # noqa: BLE001 — best-effort per node
+            pass
+    for e in edges:
+        props = {k: v for k, v in e.items() if k not in ("source", "target", "type")}
+        try:
+            engine.add_edge(e["source"], e["target"], e["type"], **props)
+            ok = True
+        except Exception:  # noqa: BLE001 — best-effort per edge
+            pass
+    return ok
+
+
 def is_aggregation_cypher(cypher: str) -> bool:
     """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
 
@@ -1263,3 +1317,180 @@ def register_query_tools(mcp):
             return json.dumps({"error": str(e)})
 
     kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_document_tree — CONCEPT:AU-KG.retrieval.section-tree +
+    # CONCEPT:AU-KG.retrieval.tree-navigation. PageIndex-style map-then-fetch over
+    # a document's section tree: build the tree, view the text-free structure,
+    # fetch cited char/page ranges, or navigate the tree by relevance. Complements
+    # (does not replace) graph_search's vector/community retrieval — route long
+    # single-document queries here where "similar != relevant".
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_document_tree",
+        description=(
+            "Reasoning-tree (vectorless) document retrieval over a per-document "
+            "section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; "
+            "distills PageIndex). action: 'build' (build + optionally persist the "
+            "section tree from text or a stored document), 'structure' (return the "
+            "text-free table-of-contents map = get_document_structure), 'content' "
+            "(fetch section bodies for cited char ranges like '96..208,300..420' = "
+            "get_page_content), 'retrieve' (walk the tree by relevance and return "
+            "sections with cited start..end ranges). Complements graph_search for "
+            "long single documents where similar != relevant."
+        ),
+        tags=["graph-os", "retrieval", "document", "tree"],
+    )
+    def graph_document_tree(
+        action: str = Field(
+            description="build | structure | content | retrieve",
+        ),
+        document_id: str = Field(
+            default="",
+            description="Target Document id (structure/content, and build/retrieve when loading from the graph).",
+        ),
+        text: str = Field(
+            default="",
+            description="action=build/retrieve — inline document text (markdown) to build the tree from, instead of loading a stored document.",
+        ),
+        query: str = Field(
+            default="",
+            description="action=retrieve — the natural-language query to navigate the tree with.",
+        ),
+        ranges: str = Field(
+            default="",
+            description="action=content — char ranges to fetch, e.g. '96..208,300..420'.",
+        ),
+        top_k: int = Field(
+            default=5, description="action=retrieve — max sections to return."
+        ),
+        persist: bool = Field(
+            default=True,
+            description="action=build — write the Section nodes/edges to the graph (requires document_id).",
+        ),
+        thin: bool = Field(
+            default=True,
+            description="action=build — collapse tiny sections into their parent (token-budget thinning).",
+        ),
+        summarize: bool = Field(
+            default=True,
+            description="action=build — compute per-node summaries for a text-free structure map.",
+        ),
+        use_llm: bool = Field(
+            default=False,
+            description="action=retrieve — try LLM tree navigation before the lexical walk.",
+        ),
+    ) -> str:
+        """Map-then-fetch + tree-navigation retrieval over a document section tree."""
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            SectionTreeConfig,
+            build_section_tree,
+            section_nodes_and_edges,
+        )
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+            content_for_ranges,
+            structure_view,
+        )
+
+        engine = kg_server._get_engine()
+
+        if action == "build":
+            if not text and not document_id:
+                return json.dumps({"error": "build requires 'text' or 'document_id'"})
+            cfg = SectionTreeConfig(thin=thin, summarize=summarize)
+            roots = build_section_tree(text, config=cfg)
+            nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
+            persisted = False
+            if persist and document_id and engine is not None:
+                persisted = _persist_sections(engine, nodes, edges)
+            return json.dumps(
+                {
+                    "action": "build",
+                    "document_id": document_id,
+                    "section_count": len(nodes),
+                    "persisted": persisted,
+                    "structure": structure_view(roots),
+                },
+                default=str,
+            )
+
+        if action == "structure":
+            if not document_id:
+                return json.dumps({"error": "structure requires 'document_id'"})
+            if engine is None:
+                return json.dumps({"error": "IntelligenceGraphEngine not active"})
+            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+            if not roots:
+                return json.dumps(
+                    {"error": f"no section tree for document {document_id!r}"}
+                )
+            return json.dumps(
+                {
+                    "action": "structure",
+                    "document_id": document_id,
+                    "structure": structure_view(roots),
+                },
+                default=str,
+            )
+
+        if action == "content":
+            if not document_id:
+                return json.dumps({"error": "content requires 'document_id'"})
+            if engine is None:
+                return json.dumps({"error": "IntelligenceGraphEngine not active"})
+            try:
+                parsed = _parse_ranges(ranges)
+            except ValueError as e:
+                return json.dumps({"error": str(e)})
+            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+            if not roots:
+                return json.dumps(
+                    {"error": f"no section tree for document {document_id!r}"}
+                )
+            return json.dumps(
+                {
+                    "action": "content",
+                    "document_id": document_id,
+                    "sections": content_for_ranges(roots, parsed),
+                },
+                default=str,
+            )
+
+        if action == "retrieve":
+            if not query:
+                return json.dumps({"error": "retrieve requires 'query'"})
+            retriever = HierarchicalDocumentRetriever(engine)
+            tree = None
+            if text:
+                tree = build_section_tree(
+                    text, config=SectionTreeConfig(thin=True, summarize=True)
+                )
+            elif not document_id:
+                return json.dumps(
+                    {"error": "retrieve requires 'text' or 'document_id'"}
+                )
+            matches = retriever.retrieve(
+                query,
+                document_id=document_id,
+                tree=tree,
+                top_k=top_k,
+                use_llm=use_llm,
+            )
+            return json.dumps(
+                {
+                    "action": "retrieve",
+                    "query": query,
+                    "results": [m.as_dict() for m in matches],
+                },
+                default=str,
+            )
+
+        return json.dumps(
+            {
+                "error": f"unknown action '{action}' "
+                "(expected build|structure|content|retrieve)"
+            }
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_document_tree"] = graph_document_tree
