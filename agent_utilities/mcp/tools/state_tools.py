@@ -487,6 +487,92 @@ def register_state_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_sandbox"] = graph_sandbox
 
     @mcp.tool(
+        name="graph_runvcs",
+        description=(
+            "Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, "
+            "revert and review a LIVE agent run as content-addressed commits that bind its "
+            "conversation + filesystem + process/event frontier into ONE exact world. action "
+            "in 'list' (live run sessions), 'status' (a run's event/commit/message counts + "
+            "log digest), 'commit' (snapshot messages+fs+events into one RunCommit — pass "
+            "label), 'revert' (restore a run's files+process+messages to a commit — pass "
+            "commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent "
+            "untouched — pass commit_id), 'discard' (drop the uncommitted event delta), "
+            "'replay' (deterministically replay the run's event log — a recorded exchange "
+            "stands in for the model — and verify reproduction). Retained-output accept/discard "
+            "of a finished run is governed by the run.select action-policy gate."
+        ),
+        tags=["graph-os", "runvcs", "fork", "revert"],
+    )
+    async def graph_runvcs(
+        action: str = Field(
+            default="list",
+            description="list|status|commit|revert|fork|discard|replay",
+        ),
+        run_id: str = Field(default="", description="Target run session id."),
+        commit_id: str = Field(
+            default="", description="Target commit id (revert|fork)."
+        ),
+        label: str = Field(default="", description="Commit label (commit)."),
+    ) -> str:
+        """List / inspect / commit / revert / fork / discard / replay a live run (run-VCS)."""
+        import json as _json
+
+        from agent_utilities.runtime.run_vcs.replay import replay_run
+        from agent_utilities.runtime.run_vcs.run_session import RunSessionRegistry
+
+        registry = RunSessionRegistry.get()
+        try:
+            if action == "list":
+                return _json.dumps({"action": "list", "runs": registry.list_ids()})
+
+            session = registry.acquire(run_id) if run_id else None
+            if action != "list" and session is None:
+                return _json.dumps(
+                    {"error": f"no live run session {run_id!r}", "runs": registry.list_ids()}
+                )
+            assert session is not None  # for type-narrowing (guarded above)
+
+            if action == "status":
+                return _json.dumps({"action": "status", **session.status()}, default=str)
+            if action == "commit":
+                commit = await session.commit(label)
+                return _json.dumps(
+                    {"action": "commit", "commit_id": commit.commit_id, "label": label}
+                )
+            if action == "revert":
+                res = await session.revert(commit_id)
+                return _json.dumps({"action": "revert", **res}, default=str)
+            if action == "fork":
+                child = await session.fork(commit_id)
+                registry.register(child)
+                return _json.dumps(
+                    {
+                        "action": "fork",
+                        "parent_run": session.run_id,
+                        "child_run": child.run_id,
+                        "from_commit": commit_id,
+                    }
+                )
+            if action == "discard":
+                return _json.dumps({"action": "discard", **session.discard()}, default=str)
+            if action == "replay":
+                result = replay_run(session.log)
+                return _json.dumps(
+                    {
+                        "action": "replay",
+                        "run_id": result.run_id,
+                        "steps": result.steps,
+                        "model_calls": result.model_calls,
+                        "deterministic": result.deterministic,
+                    }
+                )
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return _json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_runvcs"] = graph_runvcs
+
+    @mcp.tool(
         name="graph_feeds",
         description=(
             "Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122). "

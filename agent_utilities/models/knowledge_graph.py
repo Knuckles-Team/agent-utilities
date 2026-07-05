@@ -45,6 +45,12 @@ class RegistryNodeType(StrEnum):
     # Enhanced Memory & Reasoning
     REASONING_TRACE = "reasoning_trace"
     TOOL_CALL = "tool_call"
+    # Agent-native run-VCS (CONCEPT:AU-ORCH.runvcs.event-kernel) — content-addressed,
+    # typed, forkable/revertable run history over :RunTrace.
+    RUN_EVENT = "run_event"
+    RUN_COMMIT = "run_commit"
+    FS_SNAPSHOT = "fs_snapshot"
+    RETAINED_RUN_PROPOSAL = "retained_run_proposal"
     # KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough) — every LLM/agent call persists as a
     # span subgraph so traces are graph-queryable (the moat over opaque ClickHouse).
     TRACE = "trace"
@@ -1348,6 +1354,64 @@ class ToolCallNode(RegistryNode):
     tool_name: str
     args: dict[str, Any] = Field(default_factory=dict)
     result: str | None = None
+
+
+class RunEventNode(RegistryNode):
+    """One typed, content-addressed run event (CONCEPT:AU-ORCH.runvcs.event-kernel).
+
+    ``record_id`` (the content digest) IS the event's identity; ``mode`` splits a
+    *declaration* (intent) from a *capture* (observed outcome) so a recorded exchange can
+    stand in for the model on deterministic replay. ``ordinal`` is the append position.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RUN_EVENT
+    run_id: str = ""
+    schema_ref: str = ""
+    mode: str = "capture"
+    ordinal: int = 0
+    record_id: str = ""
+    payload_json: str = ""
+
+
+class RunCommitNode(RegistryNode):
+    """One content-addressed run commit (CONCEPT:AU-ORCH.runvcs.run-commit).
+
+    Binds a message checkpoint + an ``FsSnapshot`` + a ``RunCut`` (process/event frontier)
+    so a run's conversation, files, and effects revert together as one exact world.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RUN_COMMIT
+    run_id: str = ""
+    commit_id: str = ""
+    checkpoint_id: str = ""
+    snapshot_id: str = ""
+    cut_ordinal: int = 0
+    parent_commit_id: str | None = None
+    label: str = ""
+
+
+class FsSnapshotNode(RegistryNode):
+    """A content-addressed CoW filesystem snapshot (CONCEPT:AU-ORCH.runvcs.run-commit)."""
+
+    type: RegistryNodeType = RegistryNodeType.FS_SNAPSHOT
+    snapshot_id: str = ""
+    file_count: int = 0
+    strategy: str = "blobstore"
+
+
+class RetainedRunProposalNode(RegistryNode):
+    """A run's world delta held for review (CONCEPT:AU-ORCH.runvcs.retained-output-gate).
+
+    Materialized into the real world only when the ``run.select`` action-policy gate accepts;
+    a discard leaves the world untouched and compensates any recorded KG edits.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RETAINED_RUN_PROPOSAL
+    run_id: str = ""
+    commit_id: str = ""
+    edit_ids: list[str] = Field(default_factory=list)
+    materialized: bool = False
+    discarded: bool = False
 
 
 class TraceNode(RegistryNode):

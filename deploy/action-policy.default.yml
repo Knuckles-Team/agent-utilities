@@ -73,3 +73,9 @@ rules:
   # (secret.get / secret.list) are not gated, mirroring the read posture.
   - {kind: secret.set, target: "*", tier: approval_required}
   - {kind: secret.delete, target: "*", tier: approval_required}
+  # Retained run-output review gate (CONCEPT:AU-ORCH.runvcs.retained-output-gate): a
+  # completed run's world delta is HELD as a proposal, materialized only on accept.
+  # run.select (materialize the held fs/KG delta into the real world) IS the review —
+  # approval_required. run.discard (drop the proposal, world untouched) is always safe.
+  - {kind: run.select, target: "*", tier: approval_required}
+  - {kind: run.discard, target: "*", tier: auto}

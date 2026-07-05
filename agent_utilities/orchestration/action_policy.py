@@ -138,6 +138,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         # (Reads — secret.get / secret.list — are not gated, mirroring read posture.)
         {"kind": "secret.set", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "secret.delete", "target": "*", "tier": TIER_APPROVAL},
+        # Retained run-output review gate (CONCEPT:AU-ORCH.runvcs.retained-output-gate):
+        # a completed run's world delta is HELD as a proposal and materialized only on
+        # accept. ``run.select`` (materialize the held fs/KG delta into the real world) is
+        # the review itself — approval_required. ``run.discard`` (drop the proposal, world
+        # untouched) is always safe — auto.
+        {"kind": "run.select", "target": "*", "tier": TIER_APPROVAL},
+        {"kind": "run.discard", "target": "*", "tier": TIER_AUTO},
     ],
 }
 
