@@ -266,8 +266,8 @@ A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (AU-OS
 remediation playbooks, health-gated deploy-watch + rollback, reactive autoscaler),
 **[server-minted identity & fail-closed permissioning](docs/architecture/gateway_scaling.md)**
 (OS-5.14, JWT `ActorContext`, HMAC engine auth), enterprise mutation governance, and a
-**[hardened MCP multiplexer](docs/pillars/4_ecosystem_peripherals.md)** (AU-ECO.mcp.profile-differences-from-client:
-per-child limits, circuit breakers, restart-on-crash).
+**[hardened MCP fleet gateway built into graph-os](docs/pillars/4_ecosystem_peripherals.md)** (AU-ECO.mcp.profile-differences-from-client:
+on-demand fleet loading with per-child limits, circuit breakers, restart-on-crash).
 
 Shipped but lightly documented (real code, importable today):
 
@@ -334,10 +334,13 @@ The detailed architectural diagrams and deep-dive documentation for `agent-utili
 ## External Agent Discovery (mcp_config.json)
 
 Register the platform in your IDE's `mcp_config.json` using the standard CLI pattern.
-**Generate it with `setup-config mcp` (doctor-driven) — don't hand-write it.** Pick
-which server to keep: **`graph-os`** exposes *just the Knowledge Graph* (the `go__*`
-tools of one KG backend), while **`mcp-multiplexer`** fronts *the whole fleet* — it
-runs in dynamic mode and loads graph-os plus every `*-mcp` server on demand.
+**Generate it with `setup-config mcp` (doctor-driven) — don't hand-write it.** You only
+need **one** server: **`graph-os`**. It serves its own Knowledge-Graph/engine tools
+(always on) **and** is the MCP fleet gateway — it loads any other MCP server declared in
+its `MCP_CONFIG` fleet file **on demand** via the built-in `find_tools` / `list_catalog` /
+`load_tools` / `unload_tools` / `multiplexer_status` tools, so hundreds of fleet tools stay
+out of context until you ask for them. (The standalone `mcp-multiplexer` has been folded
+into `graph-os` — there is no separate multiplexer server anymore.)
 
 ```json
 {
@@ -347,22 +350,19 @@ runs in dynamic mode and loads graph-os plus every `*-mcp` server on demand.
       "args": ["run", "graph-os"],
       "env": {
         "AGENT_ID": "local-developer",
-        "WORKSPACE_PATH": "${workspaceFolder}"
-      }
-    },
-    "mcp-multiplexer": {
-      "command": "uv",
-      "args": ["run", "mcp-multiplexer"],
-      "env": {
-        "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_MULTIPLEXER_MODE": "dynamic",
+        "MCP_TOOL_MODE": "both",
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
       }
     }
   }
 }
 ```
+
+`MCP_CONFIG` points at your **fleet** file (the `mcpServers` map of every `*-mcp` server
+graph-os may mount on demand); `WORKSPACE_PATH`/`AGENT_ID` are the only per-workspace bits.
+Ask `find_tools("<what you need>")` and `load_tools(servers=[...])` to pull fleet tools in
+live.
 
 > **Note:** Model selection, routing logic, and system configurations are centralized in your XDG `~/.config/agent-utilities/config.json`. Only local workspace paths, local agent IDs, or environment overrides remain in the environment.
 
@@ -435,8 +435,8 @@ export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://age
 
 ## Deployment
 
-Full deployment instructions — running `graph-os` and `mcp-multiplexer` as
-standard **stdio** or **streamable-http** servers, the centralized REST API
+Full deployment instructions — running `graph-os` (the KG server + built-in MCP fleet
+gateway) as a standard **stdio** or **streamable-http** server, the centralized REST API
 gateway, Docker composes, and production hardening — are in the
 **[Deployment Guide](docs/guides/deployment.md)**. The flagship
 **[Deployment Configurations](docs/guides/deployment-configurations.md)** guide
@@ -488,7 +488,7 @@ For detailed tutorials, installation options, and configuration guides, refer to
 * **[Installation Guide](docs/guides/installation.md)**
   * *Bare-metal, pip packages, Docker*
 * **[Deployment Guide](docs/guides/deployment.md)**
-  * *Zero-infra default, graph-os & multiplexer (stdio/streamable-http), API gateway, production hardening*
+  * *Zero-infra default, graph-os (KG + built-in fleet gateway, stdio/streamable-http), API gateway, production hardening*
 * **[Configuration & Environment Variables](docs/guides/configuration.md)**
   * *Multi-tiered LLM setup, Models Config; the per-flag audit lives in [docs/architecture/configuration.md](docs/architecture/configuration.md)*
 * **[Local Secret Storage (Vault & SQLite)](docs/guides/secrets-auth.md)**

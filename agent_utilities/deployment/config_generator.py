@@ -211,47 +211,37 @@ def _default_config_path() -> Path:
 def generate_mcp_config(profile: str = "tiny", *, fleet: bool = True) -> dict[str, Any]:
     """Return the minimal ``{"mcpServers": {...}}`` an IDE registers.
 
-    CONCEPT:AU-OS.deployment.doctor-minimal-mcp-config doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+    CONCEPT:AU-OS.deployment.doctor-minimal-mcp-config doctor-driven minimal mcp_config — one graph-os entry
 
-    Two console scripts front the platform, and which one you register decides what
-    the agent sees:
+    You register a SINGLE server, ``graph-os`` (``uv run graph-os``). It serves its own
+    Knowledge-Graph/engine tools (always on) AND is the MCP fleet gateway — the
+    standalone ``mcp-multiplexer`` was folded into it. When ``fleet`` (the default),
+    graph-os is given an ``MCP_CONFIG`` pointer to the fleet file so it can load any
+    other ``*-mcp`` server ON DEMAND via ``find_tools`` / ``load_tools`` (only its own
+    tools + the fleet meta-tools are visible until you pull more). With ``--no-fleet``
+    the pointer is omitted (a single, self-contained KG, nothing else mountable).
 
-    - **graph-os** = *just the Knowledge Graph* — the ``go__*`` tools of one KG
-      backend (``uv run graph-os``). Register this for a single, self-contained KG.
-    - **mcp-multiplexer** = *the whole fleet* — runs in dynamic mode and fronts
-      graph-os **plus every ``*-mcp`` server on demand** (``uv run mcp-multiplexer``;
-      only meta-tools + always-on servers are visible, the rest load via
-      ``find_tools`` / ``load_tools``). Register this for the fleet.
-
-    ``graph-os`` is ALWAYS included; ``mcp-multiplexer`` is included when ``fleet``
-    (the default) so the emitted config offers both — pick by deleting the one you
-    don't want. Envs stay MINIMAL: only workspace path / agent id (and the
-    multiplexer's mode + its child-fleet ``MCP_CONFIG`` pointer) live here — model
-    selection, routing, and secrets live in the XDG ``config.json``, NOT the MCP env.
+    Envs stay MINIMAL: only workspace path / agent id / tool mode (and the fleet
+    ``MCP_CONFIG`` pointer) live here — model selection, routing, and secrets live in
+    the XDG ``config.json``, NOT the MCP env.
     """
     if profile not in PROFILES:
         raise ValueError(f"Unknown profile {profile!r}; choose one of {PROFILES}.")
+    env: dict[str, Any] = {
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}",
+        "MCP_TOOL_MODE": "both",
+    }
+    if fleet:
+        # Point graph-os at the fleet file it may mount servers from on demand.
+        env["MCP_CONFIG"] = "${workspaceFolder}/mcp_config.json"
     servers: dict[str, Any] = {
         "graph-os": {
             "command": "uv",
             "args": ["run", "graph-os"],
-            "env": {
-                "AGENT_ID": "local-developer",
-                "WORKSPACE_PATH": "${workspaceFolder}",
-            },
+            "env": env,
         },
     }
-    if fleet:
-        servers["mcp-multiplexer"] = {
-            "command": "uv",
-            "args": ["run", "mcp-multiplexer"],
-            "env": {
-                "AGENT_ID": "local-developer",
-                "WORKSPACE_PATH": "${workspaceFolder}",
-                "MCP_MULTIPLEXER_MODE": "dynamic",
-                "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
-            },
-        }
     return {"mcpServers": servers}
 
 

@@ -2579,7 +2579,20 @@ def _build_server(bootstrap: bool = True):
             "the 5-pillar agent architecture (ORCH, KG, AHE, ECO, OS). "
             "Use kg_query for Cypher queries, kg_search for semantic search, "
             "kg_analyze for LLM-powered cross-reference analysis, "
-            "and kg_ingest_* for adding data."
+            "and kg_ingest_* for adding data.\n\n"
+            "graph-os is ALSO the MCP fleet gateway: its own KG/engine tools are "
+            "always on, and it can load ANY other MCP server (declared in "
+            "mcp_config.json) ON DEMAND. Hundreds more tools across dozens of "
+            "servers exist but are NOT loaded yet — so when you need a capability "
+            "you don't see, do NOT assume it's unavailable; use the fleet meta-tools:\n"
+            "  • find_tools(query) — semantic search for the right tool by intent\n"
+            "  • list_catalog() — browse every mountable server and its tools\n"
+            "  • load_tools(tools=[...] or servers=[...]) — mount them; they become "
+            "directly callable immediately (the tool list updates live)\n"
+            "  • unload_tools(...) — retract tools to reclaim context\n"
+            "  • multiplexer_status — health of mounted children\n"
+            "Always discover (find_tools/list_catalog) before concluding a tool "
+            "doesn't exist."
         ),
         command_args=None if bootstrap else [],
     )
@@ -3276,6 +3289,19 @@ def mcp_server() -> None:
     for middleware in middlewares:
         mcp.add_middleware(middleware)
 
+    # Fold in the MCP fleet-loader (retires the standalone mcp-multiplexer): graph-os's
+    # own tools stay always-on; this adds find_tools/load_tools/... so the SAME server
+    # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
+    # so per-session tool visibility runs with identity/auth already applied. Only for a
+    # directly-served process — the embedded API-gateway build owns no serving loop.
+    fleet_mux = None
+    try:
+        from agent_utilities.mcp.multiplexer import attach_fleet_loader
+
+        fleet_mux = attach_fleet_loader(mcp)
+    except Exception:
+        logger.exception("graph-os fleet loader attach failed (fleet tools disabled)")
+
     transport = getattr(args, "transport", "stdio")
     host = getattr(args, "host", "0.0.0.0")
     port = int(getattr(args, "port", 8000))
@@ -3294,16 +3320,24 @@ def mcp_server() -> None:
     # identity + tenant scoping, or fail loud (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). No-op for stdio.
     apply_served_security_profile(transport)
 
-    if transport == "stdio":
-        protect_stdio_jsonrpc()
-        mcp.run(transport="stdio")
-    elif transport == "streamable-http":
-        mcp.run(transport="streamable-http", host=host, port=port)
-    elif transport == "sse":
-        mcp.run(transport="sse", host=host, port=port)
-    else:
-        protect_stdio_jsonrpc()
-        mcp.run(transport="stdio")
+    try:
+        if transport == "stdio":
+            protect_stdio_jsonrpc()
+            mcp.run(transport="stdio")
+        elif transport == "streamable-http":
+            mcp.run(transport="streamable-http", host=host, port=port)
+        elif transport == "sse":
+            mcp.run(transport="sse", host=host, port=port)
+        else:
+            protect_stdio_jsonrpc()
+            mcp.run(transport="stdio")
+    finally:
+        # Best-effort teardown of any lazily-mounted fleet children.
+        if fleet_mux is not None:
+            try:
+                asyncio.run(fleet_mux.aclose())
+            except Exception:
+                logger.debug("fleet loader aclose failed", exc_info=True)
 
 
 # Back-compat alias — the previous console_scripts entry and some docs/tooling

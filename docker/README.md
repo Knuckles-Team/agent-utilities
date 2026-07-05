@@ -25,8 +25,7 @@ vars, `config.json`, secrets, database choice) lives in [`docs/recipes/`](../doc
 
 | File | Builds | Role |
 |---|---|---|
-| `Dockerfile` | the **agent-utilities** image (`graph-os` MCP server + KG engine) | the one image every deployment runs |
-| `Dockerfile.multiplexer` (+ `requirements-multiplexer.txt`) | the **mcp-multiplexer** | fronts the whole `*-mcp` fleet (dynamic tool loading) |
+| `Dockerfile` | the **agent-utilities** image (`graph-os` MCP server + KG engine + built-in MCP fleet gateway) | the one image every deployment runs |
 
 ## 3. The tiers (compose files)
 

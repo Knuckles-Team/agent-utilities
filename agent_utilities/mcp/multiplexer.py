@@ -18,7 +18,6 @@ CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import contextlib
 import json
@@ -492,9 +491,12 @@ class MCPMultiplexer:
                 logger.error(f"Failed to parse config as JSON: {json_err}")
                 return self._catalog
 
+        # The host server never mounts itself as a child (avoids self-recursion).
+        # Defaults to the retired standalone multiplexer name; graph-os's
+        # attach_fleet_loader widens this to include "graph-os".
+        skip = getattr(self, "_skip_servers", None) or {"mcp-multiplexer"}
         for server_name, cfg in config_data.get("mcpServers", {}).items():
-            # Skip ourselves to avoid self-infinite recursion loops
-            if server_name == "mcp-multiplexer" or cfg.get("disabled", False):
+            if server_name in skip or cfg.get("disabled", False):
                 continue
             self._catalog[server_name] = cfg
         return self._catalog
@@ -897,10 +899,22 @@ class MCPMultiplexer:
 
         # Best-effort semantic scores keyed by bare tool name (KG, if warm).
         semantic: dict[str, float] = {}
-        search = await self._kg_call(
-            "graph_search",
-            {"query": query, "mode": "hybrid", "top_k": max(top_k * 3, 20)},
-        )
+        # Prefer an injected in-process KG search (graph-os wires its own semantic
+        # search here so find_tools ranks against the live graph directly); else fall
+        # back to a mounted KG child; else token-overlap only (below).
+        search: Any = None
+        kg_fn = getattr(self, "_kg_search_fn", None)
+        if kg_fn is not None:
+            try:
+                search = await kg_fn(query, max(top_k * 3, 20))
+            except Exception:
+                logger.debug("in-process KG search failed; falling back", exc_info=True)
+                search = None
+        if search is None:
+            search = await self._kg_call(
+                "graph_search",
+                {"query": query, "mode": "hybrid", "top_k": max(top_k * 3, 20)},
+            )
         if isinstance(search, list):
             for hit in search:
                 if not isinstance(hit, dict):
@@ -1511,154 +1525,59 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     _register_status_tool(mcp, mux)
 
 
-def get_mcp_instance():
-    """Build the multiplexer's FastMCP server and the aggregation engine.
+def attach_fleet_loader(
+    mcp,
+    *,
+    config_path: str | None = None,
+    self_server: str = "graph-os",
+    kg_search_fn=None,
+) -> MCPMultiplexer:
+    """Attach on-demand MCP fleet-loading to an EXISTING FastMCP server (graph-os).
 
-    Returns ``(args, mcp, mux)``. ``args`` carries the standard
-    ``--transport/--host/--port`` options parsed by ``create_mcp_server``; the
-    multiplexer-specific ``--config`` is parsed separately so both coexist.
-    Child servers are started (and their tools registered) later, inside the
-    serving event loop, by :func:`mcp_server`.
+    graph-os serves its own KG/engine tools natively (always on). This composes the
+    fleet-aggregation engine on top so the SAME server can also reach the rest of the
+    MCP fleet (declared in ``mcp_config.json``) on demand — it registers the meta-tools
+    ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
+    ``multiplexer_status`` plus a per-session progressive-disclosure middleware. Child
+    servers are mounted LAZILY (each as an isolated subprocess/HTTP session via
+    :class:`~agent_utilities.mcp.child_resilience.ChildRuntime`, with its own breaker +
+    concurrency limit) only when a tool is actually loaded, so the base context stays
+    small. Returns the :class:`MCPMultiplexer` for lifecycle — call ``await mux.aclose()``
+    on shutdown. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
+
+    All wiring here is synchronous (config parse + tool registration + middleware); no
+    child is spawned at attach time, so it drops cleanly into graph-os's synchronous
+    ``mcp.run(...)`` startup with no event loop.
+
+    ``kg_search_fn(query, top_k) -> list[dict]`` (optional) makes ``find_tools``
+    KG-POWERED: graph-os injects its own in-process semantic search so tool suggestions
+    rank against the same knowledge graph everything else uses. When absent, discovery
+    falls back to the embedding-free token-overlap backbone (never a hard dependency).
     """
-    from agent_utilities.core.config import load_config
-    from agent_utilities.mcp.server_factory import create_mcp_server
-
-    load_config()  # resolve settings through the one shared XDG config.json
-
-    # Parse --config without disturbing the factory's own argv parsing.
-    cfg_parser = argparse.ArgumentParser(add_help=False)
-    cfg_parser.add_argument("--config", default=setting("MCP_CONFIG"))
-    cfg_args, _ = cfg_parser.parse_known_args()
-
-    config_path = _resolve_config_path(cfg_args.config)
-    logger.info("Using MCP config: %s", config_path)
-    mux = MCPMultiplexer(config_path)
-
-    args, mcp, middlewares = create_mcp_server(
-        name="mcp-multiplexer",
-        version="0.1.0",
-        instructions=(
-            "Aggregates many child MCP servers (declared in mcp_config.json) into "
-            "one server, tool names namespaced by a short per-server prefix.\n\n"
-            "IMPORTANT — in dynamic mode (MCP_MULTIPLEXER_MODE=dynamic) the tools "
-            "you see are only a small subset: a few meta-tools plus the always-on "
-            "servers. HUNDREDS more tools across dozens of servers exist but are "
-            "NOT loaded yet. So whenever you need a capability you don't see in "
-            "your current tool list, do NOT assume it's unavailable — use the "
-            "meta-tools to reach the rest of the fleet:\n"
-            "  • find_tools(query) — semantic search for the right tool by intent\n"
-            "  • list_catalog() — browse every server and its tools\n"
-            "  • load_tools(tools=[...]] or servers=[...]) — mount the ones you "
-            "need; they become directly callable immediately (the tool list "
-            "updates live)\n"
-            "  • unload_tools(...) — retract tools to reclaim context\n"
-            "  • multiplexer_status — health of mounted children\n"
-            "Always discover (find_tools/list_catalog) before concluding a tool "
-            "doesn't exist."
-        ),
+    resolved = _resolve_config_path(config_path or setting("MCP_CONFIG"))
+    logger.info("graph-os fleet loader using MCP config: %s", resolved)
+    mux = MCPMultiplexer(resolved)
+    # graph-os is the HOST server — never mount it (or the retired standalone
+    # multiplexer name) as a child of itself.
+    mux._skip_servers = {"mcp-multiplexer", self_server}
+    if kg_search_fn is not None:
+        mux._kg_search_fn = kg_search_fn
+    mux.load_catalog()  # parse the fleet config into the catalog; spawns nothing
+    _register_meta_tools(mcp, mux)
+    # The always-visible surface: the meta-tools. graph-os's own tools are registered
+    # natively by ``register_tool_surface`` and are always on; every OTHER server is
+    # mounted on demand and made visible per session by the middleware below.
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux))
+    logger.info(
+        "graph-os fleet loader ready: %d MCP server(s) mountable on demand via "
+        "find_tools/load_tools.",
+        len(mux.load_catalog()),
     )
-    for middleware in middlewares:
-        mcp.add_middleware(middleware)
-
-    return args, mcp, mux
-
-
-async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
-    """Start child servers, register forwarding tools, and serve — all in one
-    event loop so the child ``ClientSession`` objects stay bound to the loop
-    that runs the server."""
-    try:
-        from agent_utilities.core.config import config as agent_config
-
-        mode = (agent_config.mcp_multiplexer_mode or "eager").lower()
-        if mode == "dynamic":
-            # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — expose only the meta-tools plus the always-on
-            # children at boot; everything else is mounted on demand.
-            mux.load_catalog()
-            always_on = agent_config.mcp_dynamic_always_on or []
-            verbose_held = 0
-            for server_name in always_on:
-                tools = await mux.mount_child(server_name)
-                for tool in tools:
-                    # Verbose 1:1 tools stay mounted (in the catalog, loadable via
-                    # find_tools/load_tools) but are NOT auto-exposed — so a session
-                    # sees only the condensed action surface by default and pulls
-                    # granular tools on demand. (CONCEPT:AU-ECO.multiplexer.condensed-server-load)
-                    if _tool_is_verbose(tool):
-                        verbose_held += 1
-                        continue
-                    _register_forwarder(mcp, mux, tool)
-            _register_meta_tools(mcp, mux)
-            # Tools every session always sees: the meta-tools + any always-on
-            # forwarders (snapshot now, before on-demand loads register more).
-            mux._global_visible = set(mux._exposed) | {
-                "find_tools",
-                "list_catalog",
-                "load_tools",
-                "unload_tools",
-                "multiplexer_status",
-            }
-            # Per-session progressive disclosure (plan Phase 5): scope tools/list
-            # and tools/call to each session's loaded set on a shared server.
-            mcp.add_middleware(SessionVisibilityMiddleware(mux))
-            logger.info(
-                "Dynamic gateway: %d always-on tools from %d child(ren) "
-                "(%s) + meta-tools; %d verbose tools held in catalog (load on "
-                "demand); %d more servers mountable on demand. Serving over %s.",
-                len(mux._exposed),
-                len(mux.children),
-                ", ".join(always_on) or "none",
-                verbose_held,
-                max(0, len(mux.load_catalog()) - len(mux.children)),
-                getattr(args, "transport", "stdio"),
-            )
-        else:
-            await mux.start_children()
-            _register_forwarding_tools(mcp, mux)
-            logger.info(
-                "Aggregated %d tools from %d child servers. Serving over %s.",
-                len(mux.aggregated_tools),
-                len(mux.sessions),
-                getattr(args, "transport", "stdio"),
-            )
-
-        transport = getattr(args, "transport", "stdio")
-        host = getattr(args, "host", "0.0.0.0")
-        port = int(getattr(args, "port", 8000))
-
-        from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
-
-        if transport == "stdio":
-            protect_stdio_jsonrpc()
-            await mcp.run_async(transport="stdio")
-        elif transport == "streamable-http":
-            await mcp.run_async(transport="streamable-http", host=host, port=port)
-        elif transport == "sse":
-            await mcp.run_async(transport="sse", host=host, port=port)
-        else:
-            protect_stdio_jsonrpc()
-            await mcp.run_async(transport="stdio")
-    finally:
-        logger.info("Shutting down multiplexer and child servers...")
-        await mux.aclose()
-
-
-def mcp_server() -> None:
-    """mcp-multiplexer entry point (registered as console_scripts).
-
-    Standard ``mcp_server.py`` scaffolding: deployable as a ``stdio`` or
-    ``streamable-http`` server via the ``--transport`` flag.
-    """
-    args, mcp, mux = get_mcp_instance()
-    try:
-        asyncio.run(_serve(args, mcp, mux))
-    except KeyboardInterrupt:
-        logger.info("Multiplexer execution interrupted.")
-
-
-# Back-compat alias — the previous console_scripts entry referenced ``main``.
-main = mcp_server
-
-
-if __name__ == "__main__":
-    mcp_server()
+    return mux
