@@ -57,6 +57,7 @@ Reuses the existing fabric — nothing reinvented:
 import concurrent.futures
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -83,6 +84,41 @@ DOCUMENT_NODE_TYPE = "Document"
 CHUNK_NODE_TYPE = "Chunk"
 HAS_CHUNK_EDGE = "HAS_CHUNK"
 CHUNK_OF_EDGE = "CHUNK_OF"
+
+# Markdown-link → graph edge (CONCEPT:AU-KG.ingest.broken-link-tolerance). A
+# document's inline ``[label](target)`` links become ``LINKS_TO`` edges; a target
+# not otherwise present becomes a ``dangling`` placeholder node so the edge
+# survives (OKF SPEC §5: "Consumers MUST tolerate broken links … not-yet-written
+# knowledge"). Image links (``![...]``) and pure in-page anchors (``#frag``) are
+# excluded — they are not concept references.
+LINKS_TO_EDGE = "LINKS_TO"
+_MD_LINK_RE = re.compile(r"(?<!\!)\[([^\]]+)\]\(\s*<?([^)\s>]+)>?[^)]*\)")
+
+
+def extract_markdown_links(text: str) -> list[tuple[str, str]]:
+    """Return ``(label, target)`` pairs for markdown links in *text*.
+
+    CONCEPT:AU-KG.ingest.broken-link-tolerance. Skips images and bare in-page
+    anchors; deduplicates on the target while keeping first-seen order.
+    """
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for m in _MD_LINK_RE.finditer(text or ""):
+        label, target = m.group(1).strip(), m.group(2).strip()
+        if not target or target.startswith("#") or target in seen:
+            continue
+        seen.add(target)
+        out.append((label, target))
+    return out
+
+
+def _link_target_id(target: str) -> str:
+    """Stable node id for a link target (bundle path or URL, anchor stripped)."""
+    base = target.split("#", 1)[0].strip()
+    if base.lower().endswith((".md", ".markdown")):
+        base = base.rsplit(".", 1)[0]
+    return f"doc::{base}"
+
 
 # Separator priority for recursive chunking — highest-semantic boundary first,
 # matching the Foundry/LangChain "recursive character" splitter ordering.
@@ -301,6 +337,10 @@ class ProcessedDocument(BaseModel):
     document_node: dict[str, Any]
     chunk_nodes: list[dict[str, Any]] = Field(default_factory=list)
     edges: list[dict[str, Any]] = Field(default_factory=list)
+    #: Placeholder nodes for markdown-link targets not otherwise materialized
+    #: (CONCEPT:AU-KG.ingest.broken-link-tolerance) — a broken/forward link becomes
+    #: a ``dangling`` node so its ``LINKS_TO`` edge is never dropped (OKF SPEC §5).
+    link_nodes: list[dict[str, Any]] = Field(default_factory=list)
     document_id: str = ""
     chunk_count: int = 0
     persisted: bool = False
@@ -357,11 +397,16 @@ class DocumentProcessor:
         embedding_dim: int = DEFAULT_EMBEDDING_DIM,
         contextual: bool = False,
         enricher: Any = None,
+        extract_links: bool = False,
     ) -> None:
         self.graph = graph
         self.chunking = chunking or ChunkingConfig()
         self.embedding_dim = embedding_dim
         self._embed_fn = embed_fn
+        # CONCEPT:AU-KG.ingest.broken-link-tolerance — off by default so the
+        # existing KG-2.48 slice is byte-identical; the OKF/openwiki ingest path
+        # turns it on to capture markdown cross-links as LINKS_TO edges.
+        self.extract_links = bool(extract_links)
         # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Default OFF so the
         # existing KG-2.48 pipeline is byte-identical; the connector ingestion
         # path turns it on. The enricher is lazy so importing this module never
@@ -476,16 +521,24 @@ class DocumentProcessor:
         chunk_nodes = [self._build_chunk_node(c) for c in chunks]
         edges = self._build_edges(doc_id, chunks)
 
+        link_nodes: list[dict[str, Any]] = []
+        if self.extract_links:
+            link_nodes, link_edges = self._build_link_edges(doc_id, raw_text)
+            edges.extend(link_edges)
+
         result = ProcessedDocument(
             document_node=document_node,
             chunk_nodes=chunk_nodes,
             edges=edges,
+            link_nodes=link_nodes,
             document_id=doc_id,
             chunk_count=len(chunks),
         )
 
         if persist:
-            result.persisted = self._persist(document_node, chunk_nodes, edges)
+            result.persisted = self._persist(
+                document_node, chunk_nodes + link_nodes, edges
+            )
         return result
 
     # ── text extraction ──────────────────────────────────────────────────
@@ -780,6 +833,43 @@ class DocumentProcessor:
                 }
             )
         return edges
+
+    def _build_link_edges(
+        self, doc_id: str, raw_text: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Markdown cross-links → ``(dangling placeholder nodes, LINKS_TO edges)``.
+
+        CONCEPT:AU-KG.ingest.broken-link-tolerance — every ``[label](target)`` is
+        an edge; a target with no already-materialized node gets a lightweight
+        ``dangling`` placeholder so the edge is never dropped. Later id-interlinking
+        can reconcile the placeholder onto a real Document when the target lands.
+        """
+        link_nodes: list[dict[str, Any]] = []
+        link_edges: list[dict[str, Any]] = []
+        for label, target in extract_markdown_links(raw_text):
+            tid = _link_target_id(target)
+            is_external = "://" in target
+            link_nodes.append(
+                {
+                    "id": tid,
+                    "type": DOCUMENT_NODE_TYPE,
+                    "name": label or target,
+                    "dangling": True,
+                    "external": is_external,
+                    "source": target,
+                    "ingested_at": _now(),
+                }
+            )
+            link_edges.append(
+                {
+                    "source": doc_id,
+                    "target": tid,
+                    "type": LINKS_TO_EDGE,
+                    "label": label,
+                    "href": target,
+                }
+            )
+        return link_nodes, link_edges
 
     # ── live graph write path ────────────────────────────────────────────
 
