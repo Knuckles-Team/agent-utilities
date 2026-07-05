@@ -157,12 +157,23 @@ def engine_cross_modal_candidates(
     fusion arm. Constructed lazily so importing this module never requires a live engine; callers
     without an engine inject their own retriever instead (tests do exactly this).
     """
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
         HybridRetriever,
     )
 
-    eng = engine if engine is not None else GraphComputeEngine()
+    # ``HybridRetriever`` reads the full engine facade — ``.backend`` (Cypher
+    # execute), ``._search_keyword``, ``.embed_model`` — which only
+    # ``IntelligenceGraphEngine`` exposes. A bare ``GraphComputeEngine`` is the
+    # low-level ``.graph`` compute layer and lacks ``.backend``, so passing it
+    # raised "'GraphComputeEngine' object has no attribute 'backend'" and broke the
+    # served ``graph_fork`` cross-modal fan-out. Prefer the live singleton (the same
+    # engine graph-os serves), building one only when none is active.
+    eng = (
+        engine
+        if engine is not None
+        else (IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine())
+    )
     retriever = HybridRetriever(eng)
     return retriever.retrieve_hybrid(
         query, context_window=context_window, multi_hop_depth=multi_hop_depth

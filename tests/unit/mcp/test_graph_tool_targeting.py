@@ -103,6 +103,45 @@ async def test_write_does_not_fanout_on_default(monkeypatch):
     assert calls == [("default", "n1")]  # only the default engine was written
 
 
+async def test_store_memory_accepts_raw_content_string(monkeypatch):
+    """Regression: graph_write(store_memory) passes ``properties`` as the RAW memory
+    content, not a JSON dict. The dispatcher must not eagerly ``json.loads`` it — that
+    raised "Write error: Expecting value: line 1 column 1 (char 0)" on plain content
+    text and broke graph_memory store/recall via the served surface.
+    CONCEPT:AU-KG.memory.unified-memory-crud-core
+    """
+    recorded: dict = {}
+
+    class _MemoryEngine(_FakeEngine):
+        # Canonical store lives on the engine facade (MemoryMixin.store_memory).
+        def store_memory(self, *, content, memory_type, tags, agent_id):
+            recorded.update(
+                content=content, memory_type=memory_type, tags=tags, agent_id=agent_id
+            )
+
+    default_engine = _MemoryEngine("default")
+    registry = ConnectionRegistry(default_engine_provider=lambda: default_engine)
+    kg_server._CONNECTION_REGISTRY = registry
+
+    kg_server.ensure_tools_registered()
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="store_memory",
+        node_type="episodic",
+        properties="phase2 benchmark warm-read probe",  # RAW content, not JSON
+        nodes='["bench"]',
+        agent_id="bench-probe",
+    )
+
+    assert "Memory stored." in out
+    assert "Expecting value" not in out
+    assert "not available" not in out
+    assert recorded["content"] == "phase2 benchmark warm-read probe"
+    assert recorded["memory_type"] == "episodic"
+    assert recorded["tags"] == ["bench"]
+    assert recorded["agent_id"] == "bench-probe"
+
+
 class _CASBackend(_FakeBackend):
     """Records the compare_and_set call and returns a configurable result."""
 

@@ -38,6 +38,36 @@ def sandbox():
     return ForkServerSandbox(preload=())
 
 
+def test_start_join_serializes_start_under_lock():
+    """Regression: ``Process.start()`` (the non-thread-safe forkserver control-channel
+    handshake) MUST run while ``_FORK_START_LOCK`` is held, so concurrent fan-out
+    starts from executor threads can't race the singleton (which surfaced as an
+    intermittent "'NoneType' object cannot be interpreted as an integer" on one
+    branch). The lock is released once start() returns; join() stays outside it so
+    snippet execution remains concurrent. CONCEPT:AU-ORCH.sandbox.native-warm-fork-os
+    """
+    from agent_utilities.rlm.sandboxes import forkserver_backend as fb
+
+    observed = {}
+
+    class _Proc:
+        def start(self):
+            observed["locked_during_start"] = fb._FORK_START_LOCK.locked()
+
+        def join(self, timeout=None):
+            observed["locked_during_join"] = fb._FORK_START_LOCK.locked()
+
+        def is_alive(self):
+            return False
+
+    killed = fb._start_join(_Proc(), 1.0)
+
+    assert killed is False
+    assert observed["locked_during_start"] is True  # start() ran under the lock
+    assert observed["locked_during_join"] is False  # join() runs concurrently
+    assert fb._FORK_START_LOCK.locked() is False  # released afterwards
+
+
 def _env(vars_=None, helpers=None):
     return SandboxEnv(vars=vars_ or {}, helpers=helpers or {})
 
