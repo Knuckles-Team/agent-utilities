@@ -65,6 +65,7 @@ nav:
       - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
       - Recipe — Unified scheduling + RSS research feed: recipes/unified-scheduling.md
       - Recipe — Unified RSS ingestion (native + FreshRSS + ScholarX): recipes/unified-feeds.md
+      - Recipe — Enable the shared KV-cache (recommended): recipes/kv-caching.md
       - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
       - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
       - Deploying agent-utilities: guides/deployment.md
