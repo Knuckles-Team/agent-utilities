@@ -3053,9 +3053,128 @@ def _sync_ard(
     }
 
 
+def _parse_memory_file(path: Any) -> tuple[str, str, str, str, str, list[str]]:
+    """Parse a Claude Code memory markdown file into
+    ``(slug, name, description, memory_type, body, links)``.
+
+    Reads the ``name`` / ``description`` / ``metadata.type`` YAML frontmatter (dependency-
+    free — a tiny line scan, no yaml import) and the ``[[other-slug]]`` wiki-links in the
+    body. Anything missing falls back to the filename stem / sensible defaults.
+    """
+    import re
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    slug = path.stem
+    name, description, mtype, body = slug, "", "memory", text
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", text, re.DOTALL)
+    if m:
+        fm, body = m.group(1), m.group(2)
+        for line in fm.splitlines():
+            key, _, val = line.partition(":")
+            k, v = key.strip(), val.strip()
+            if k == "name" and v:
+                name = v
+            elif k == "description":
+                description = v
+            elif k == "type" and v:  # ``metadata.type`` (indented) or a top-level type
+                mtype = v
+    links = re.findall(r"\[\[([a-z0-9][a-z0-9-]*)\]\]", body)
+    return slug, name, description, mtype, body.strip(), links
+
+
+def _sync_claude_memory(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest the Claude Code file-based memory (the ``MEMORY.md`` topic files) into the KG
+    as typed ``:AgentMemory`` nodes (CONCEPT:AU-KG.ingest.claude-memory-connector).
+
+    The harness keeps its cross-session memory as flat markdown outside the graph; this
+    dogfoods our OWN memory substrate — each topic file becomes a semantically-searchable
+    ``:AgentMemory`` node (name/type/description/body embedded, findable via ``graph_search``)
+    and its ``[[other-slug]]`` wiki-links become ``RELATED_TO`` edges, so the session
+    knowledge is connected to the rest of the ecosystem graph instead of stranded on disk.
+
+    Zero-infra + offline (reads local markdown, no network). The memory dir is
+    ``CLAUDE_MEMORY_DIR`` when set, else every ``~/.claude/projects/*/memory`` is swept.
+    Delta is the content-hash write-delta in ``ingest_external_batch`` (unchanged topic
+    files are skipped even on a full sweep); ``ids`` narrows to specific slugs. The
+    ``MEMORY.md`` / ``MEMORY-ARCHIVE.md`` indexes themselves are skipped — only the
+    per-memory topic files are ingested.
+    """
+    import glob
+    import os
+    from pathlib import Path
+
+    from ...core.config import setting
+
+    explicit = (setting("CLAUDE_MEMORY_DIR", default="") or "").strip()
+    dirs = (
+        [explicit]
+        if explicit
+        else sorted(glob.glob(os.path.expanduser("~/.claude/projects/*/memory")))
+    )
+    files: list[Any] = []
+    for d in dirs:
+        p = Path(d)
+        if p.is_dir():
+            files.extend(
+                f
+                for f in sorted(p.glob("*.md"))
+                if f.name not in ("MEMORY.md", "MEMORY-ARCHIVE.md")
+            )
+    if not files:
+        return {
+            "status": "skipped",
+            "reason": "no Claude memory dir (set CLAUDE_MEMORY_DIR) or no *.md topic files",
+        }
+
+    id_filter = set(ids or [])
+    entities: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
+    for f in files:
+        slug, name, description, mtype, body, links = _parse_memory_file(f)
+        if id_filter and slug not in id_filter:
+            continue
+        eid = f"claude_memory:{slug}"
+        entities.append(
+            {
+                "id": eid,
+                "type": "AgentMemory",
+                "name": name,
+                "slug": slug,
+                "memory_type": mtype,
+                "description": description,
+                "text": (f"{description}\n\n{body}").strip(),
+                "source_uri": str(f),
+            }
+        )
+        for tgt in dict.fromkeys(links):  # de-dup, preserve order
+            if tgt != slug:
+                relationships.append(
+                    {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
+                )
+
+    result = (
+        engine.ingest_external_batch("claude_memory", entities, relationships)
+        if entities
+        else {}
+    )
+    return {
+        "status": "ok",
+        "source": "claude_memory",
+        "mode": mode,
+        "delta_capable": True,
+        "memories_seen": len(files),
+        "nodes": result.get("nodes", 0),
+        "edges": result.get("edges", 0),
+        "skipped_unchanged": result.get("skipped_unchanged", 0),
+    }
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "claude_memory": _sync_claude_memory,
     "leanix": _sync_leanix,
     "archivebox": _sync_archivebox,
     "gitlab": _sync_gitlab,
