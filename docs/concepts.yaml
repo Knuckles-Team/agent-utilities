@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 912
+total_concepts: 917
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -1835,6 +1835,32 @@ concepts:
   dotted: AU-ECO.connector.mcp-tool-connector
   aliases:
   - AU-ECO.connector.mcp-tool-connector
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.connector.okf-roundtrip-sync
+  name: the KG→OKF push arm of the
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/okf.py
+  doc: the KG→OKF push arm of the
+  dotted: AU-ECO.connector.okf-roundtrip-sync
+  aliases:
+  - AU-ECO.connector.okf-roundtrip-sync
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.connector.openwiki-preset
+  name: independent of file mtimes
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  - agent_utilities/protocols/source_connectors/connectors/filesystem.py
+  doc: independent of file mtimes
+  dotted: AU-ECO.connector.openwiki-preset
+  aliases:
+  - AU-ECO.connector.openwiki-preset
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.connector.package-manifest-catalog
@@ -4805,6 +4831,18 @@ concepts:
   - AU-KG.ingest.big-repo-structural-split
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.broken-link-tolerance
+  name: Skips images and bare in-page
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: Skips images and bare in-page
+  dotted: AU-KG.ingest.broken-link-tolerance
+  aliases:
+  - AU-KG.ingest.broken-link-tolerance
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.capability-writeback
   name: build the capability writeback callable
   pillar: AU-KG
@@ -5013,6 +5051,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -5301,6 +5340,18 @@ concepts:
   dotted: AU-KG.ingest.observability-queries-opik-cannot
   aliases:
   - AU-KG.ingest.observability-queries-opik-cannot
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.okf-type-mapping
+  name: Resolution order
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  doc: Resolution order
+  dotted: AU-KG.ingest.okf-type-mapping
+  aliases:
+  - AU-KG.ingest.okf-type-mapping
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.ontology-bootstrap-ingest
@@ -7260,6 +7311,18 @@ concepts:
   dotted: AU-KG.research.okf-bundle-conformance
   aliases:
   - AU-KG.research.okf-bundle-conformance
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.research.okf-overlay-mode
+  name: the *permissive consumer* half of the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  doc: the *permissive consumer* half of the
+  dotted: AU-KG.research.okf-overlay-mode
+  aliases:
+  - AU-KG.research.okf-overlay-mode
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.research.peer-review-self-critique
@@ -11060,12 +11123,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.doctor-minimal-mcp-config
-  name: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  name: doctor-driven minimal mcp_config — one graph-os entry
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/deployment/config_generator.py
-  doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  doc: doctor-driven minimal mcp_config — one graph-os entry
   dotted: AU-OS.deployment.doctor-minimal-mcp-config
   aliases:
   - AU-OS.deployment.doctor-minimal-mcp-config
