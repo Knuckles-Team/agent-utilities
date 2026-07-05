@@ -58,6 +58,8 @@ __all__ = [
     "route_graph",
     "routing_enabled",
     "safe_engine_for_graph",
+    "shard_bucket_for",
+    "shard_fanout_enabled",
 ]
 
 #: Destination-graph prefixes by ingestion class. A graph whose name starts with
@@ -98,6 +100,31 @@ def routing_enabled(config: Any = None) -> bool:
     return bool(getattr(_config(config), "kg_ingest_graph_routing", False))
 
 
+def shard_fanout_enabled(config: Any = None) -> bool:
+    """Whether per-shard content-keyed sub-graph fanout is active
+    (``KG_INGEST_SHARD_FANOUT``; requires routing; CONCEPT:AU-KG.ingest.batched-cross-graph-writer)."""
+    cfg = _config(config)
+    return bool(getattr(cfg, "kg_ingest_shard_fanout", False)) and routing_enabled(cfg)
+
+
+def _fnv1a(text: str) -> int:
+    """32-bit FNV-1a hash — mirrors the engine's ``FNV-1a(graph_name) % K`` shard
+    keying (EG-026) so a content key buckets deterministically and cheaply, with
+    no engine round-trip (CONCEPT:AU-KG.ingest.batched-cross-graph-writer)."""
+    h = 0x811C9DC5
+    for byte in text.encode("utf-8"):
+        h ^= byte
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return h
+
+
+def shard_bucket_for(content_key: str, k: int) -> int:
+    """The shard bucket ``[0, k)`` for ``content_key`` (deterministic; CONCEPT:AU-KG.ingest.batched-cross-graph-writer)."""
+    if k <= 1:
+        return 0
+    return _fnv1a(str(content_key)) % k
+
+
 def is_content_graph(name: str | None) -> bool:
     """True for a routed content graph (one of :data:`CONTENT_GRAPH_PREFIXES`)."""
     return bool(name) and str(name).startswith(CONTENT_GRAPH_PREFIXES)
@@ -110,6 +137,7 @@ def route_graph(
     repo: str | None = None,
     tenant: str | None = None,
     agent: str | None = None,
+    content_key: str | None = None,
     config: Any = None,
 ) -> str:
     """Map an ingestion item to its destination graph name (deterministic).
@@ -128,6 +156,17 @@ def route_graph(
 
     A slug that comes out empty falls through to the default graph rather than
     emitting a degenerate ``code:`` name.
+
+    **Per-shard content-keyed fanout** (CONCEPT:AU-KG.ingest.batched-cross-graph-writer). When
+    ``KG_INGEST_SHARD_FANOUT`` is on AND a ``content_key`` is supplied AND the
+    resolved graph is a routed *content* graph (not a tenant/default graph — a
+    tenant must stay whole), a ``#<bucket>`` suffix keyed by ``content_key`` fans a
+    single high-volume source across ``K`` distinct sub-graph names so the
+    memory-gen write stage spreads over all K redb shard writers instead of
+    pinning one. Codebase graphs are already per-repo (naturally sharded), so the
+    fanout applies to ``src:`` / ``research:`` / ``chat:`` sources. The suffix keeps
+    the source prefix, so :func:`is_content_graph` still recognises the sub-graph
+    and the unified read unions it.
     """
     cfg = _config(config)
     default = default_graph_name(cfg)
@@ -135,30 +174,41 @@ def route_graph(
     if not routing_enabled(cfg):
         return tenant_graph_name(tenant, base=default) if tenant else default
 
-    # A tenant owns its whole graph regardless of source kind.
+    # A tenant owns its whole graph regardless of source kind (never fanned out).
     if tenant:
         return tenant_graph_name(tenant, base=default)
 
+    graph = default
     if kind == "code" or repo:
         slug = _slug(repo)
         if slug:
+            # Codebase is already per-repo sharded; no content fanout.
             return f"{CODE_PREFIX}{slug}"
-
-    if kind == "chat":
+    elif kind == "chat":
         slug = _slug(agent)
         if slug:
-            return f"{CHAT_PREFIX}{slug}"
-
-    if kind == "research":
+            graph = f"{CHAT_PREFIX}{slug}"
+    elif kind == "research":
         slug = _slug(source_type or repo or "papers")
-        return f"{RESEARCH_PREFIX}{slug}"
-
-    if source_type:
+        graph = f"{RESEARCH_PREFIX}{slug}"
+    elif source_type:
         slug = _slug(source_type)
         if slug:
-            return f"{SOURCE_PREFIX}{slug}"
+            graph = f"{SOURCE_PREFIX}{slug}"
 
-    return default
+    # Fan a hot single source across K shard-keyed sub-graphs when enabled.
+    if (
+        content_key
+        and is_content_graph(graph)
+        and shard_fanout_enabled(cfg)
+    ):
+        from .worker_scheduler import durable_shard_writers
+
+        k = max(1, durable_shard_writers())
+        if k > 1:
+            return f"{graph}#{shard_bucket_for(content_key, k)}"
+
+    return graph
 
 
 # ---------------------------------------------------------------------------

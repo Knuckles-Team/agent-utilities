@@ -1606,6 +1606,85 @@ class GraphComputeEngine:
             return json.loads(result)
         return result
 
+    def multi_graph_batch_update(
+        self, batches: dict[str, list[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Batched CROSS-GRAPH write in ONE round-trip (CONCEPT:AU-KG.ingest.batched-cross-graph-writer).
+
+        ``batches`` maps ``graph_name → operations`` (each op-list has the same
+        shape as :meth:`batch_update`). When the engine supports the
+        ``MultiGraphBatchUpdate`` op (CONCEPT:EG-KG.storage.multi-graph-batch-write) the whole
+        map ships in ONE round-trip and the engine applies each graph's sub-batch
+        CONCURRENTLY across the K redb shard writers — the write stage then scales
+        with the number of DISTINCT destination graphs (the per-shard content-keyed
+        fanout, CONCEPT:AU-KG.ingest.unified-query-routing) instead of pinning one lock.
+
+        Degrades cleanly against an OLDER engine that lacks the op: each graph's
+        sub-batch is applied through its own graph-bound engine via
+        :func:`~agent_utilities.knowledge_graph.core.ingest_routing.engine_for_graph`
+        (correctness preserved; the client-side pool still overlaps submission).
+        Returns ``{"results": {graph: <batch_result>}, "errors": {graph: msg}}``.
+        """
+        if not batches:
+            return {"results": {}, "errors": {}}
+
+        lifecycle = getattr(self._client, "lifecycle", None)
+        fn = getattr(lifecycle, "multi_graph_batch_update", None)
+        if callable(fn):
+            try:
+                result = fn(batches)
+            except Exception as exc:  # noqa: BLE001 — degrade to per-graph writes
+                logger.debug(
+                    "multi_graph_batch_update RPC failed (%s); per-graph fallback",
+                    exc,
+                )
+            else:
+                if isinstance(result, str | bytes | bytearray):
+                    return json.loads(result)
+                # Register the touched content graphs so unified read unions them.
+                self._register_multi_graph_targets(batches)
+                return result
+
+        # Fallback: apply each sub-batch on its own graph-bound engine.
+        from .ingest_routing import engine_for_graph, is_content_graph
+
+        results: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+        for graph, ops in batches.items():
+            try:
+                if graph == self.graph_name:
+                    results[graph] = self.batch_update(list(ops))
+                else:
+                    eng = engine_for_graph(graph)
+                    gc = getattr(eng, "graph_compute", None) or getattr(
+                        eng, "backend", None
+                    )
+                    target: Any = getattr(gc, "graph", None) or gc
+                    if target is None:
+                        raise RuntimeError(
+                            f"no batch_update target for graph {graph!r}"
+                        )
+                    results[graph] = target.batch_update(list(ops))
+                if is_content_graph(graph):
+                    self._register_multi_graph_targets({graph: ops})
+            except Exception as exc:  # noqa: BLE001 — partial-success contract
+                errors[graph] = str(exc)
+        return {"results": results, "errors": errors}
+
+    @staticmethod
+    def _register_multi_graph_targets(
+        batches: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        """Register any routed content graphs touched by a multi-graph write so the
+        unified read path fans across them (CONCEPT:AU-KG.ingest.unified-query-routing)."""
+        try:
+            from .ingest_routing import register_content_graph
+
+            for graph in batches:
+                register_content_graph(graph)
+        except Exception:  # noqa: BLE001 — registration is best-effort
+            pass
+
     def metrics(self) -> dict[str, Any]:
         """Runtime metrics for monitoring and observability."""
         result_json = self._client.lifecycle.metrics()

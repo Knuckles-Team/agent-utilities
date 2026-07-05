@@ -43,7 +43,9 @@ from .task_lanes import (
     BEST_EFFORT_LANES,
     INTERACTIVE_LANES,
     LANE_NAMES,
+    MEMORY_GEN_POOL,
     lane_for_task_type,
+    pool_for,
 )
 
 __all__ = [
@@ -186,12 +188,22 @@ class SchedulerConfig:
     workers each lane *with pending work* is guaranteed. ``codebase_cap`` caps the
     heavy type; ``None`` means derive it as ``workers − reserved − Σ(other pending
     lane minimums)`` at decision time.
+
+    ``memory_gen_cap`` / ``acquisition_floor`` size the TWO ingestion pools
+    (CONCEPT:AU-ORCH.dispatch.two-pool). The memory-gen half back-pressures on the
+    single per-graph write lock, so it may occupy at most ``memory_gen_cap``
+    workers concurrently — the remaining ``acquisition_floor`` are held for the
+    I/O-bound acquisition half so a memory-gen burst can never starve scraping.
+    ``memory_gen_cap=None`` means derive it as ``worker_count − acquisition_floor``
+    at decision time (the two knobs are the independent-sizing lever).
     """
 
     worker_count: int = 1
     reserved: int = 1
     per_lane_min: int = 1
     codebase_cap: int | None = None
+    memory_gen_cap: int | None = None
+    acquisition_floor: int = 1
 
 
 def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
@@ -201,6 +213,12 @@ def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
     * ``KG_SCHED_PER_LANE_MIN`` (default ``1``) — per-lane minimum coverage.
     * ``KG_SCHED_CODEBASE_CAP`` (default unset → derived) — hard cap on concurrent
       ``codebase`` workers.
+    * ``KG_POOL_ACQUISITION_FLOOR`` (default ``max(1, worker_count // 4)``) —
+      workers held for the acquisition pool that memory-gen may never consume
+      (CONCEPT:AU-ORCH.dispatch.two-pool).
+    * ``KG_POOL_MEMORY_GEN_CAP`` (default unset → derived
+      ``worker_count − acquisition_floor``) — hard cap on concurrent memory-gen
+      workers, so a write-lock-bound burst can't starve acquisition.
 
     All values are clamped to ``[0, worker_count]`` (cap to ``[1, worker_count]``)
     so a misconfiguration can never wedge the pool.
@@ -228,11 +246,29 @@ def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
             codebase_cap = max(1, min(int(cap_raw), wc))
         except ValueError:
             codebase_cap = None
+
+    # Two-pool budgets (CONCEPT:AU-ORCH.dispatch.two-pool). The acquisition floor
+    # defaults to a quarter of the pool (>=1); the memory-gen cap defaults to the
+    # complement. Both clamp to [1, worker_count] so a misconfiguration can neither
+    # zero out a pool nor exceed the pool.
+    acq_floor = max(1, min(_int("KG_POOL_ACQUISITION_FLOOR", max(1, wc // 4)), wc))
+    mg_raw = setting("KG_POOL_MEMORY_GEN_CAP", None)
+    memory_gen_cap: int | None
+    if mg_raw is None or mg_raw == "":
+        memory_gen_cap = None
+    else:
+        try:
+            memory_gen_cap = max(1, min(int(mg_raw), wc))
+        except ValueError:
+            memory_gen_cap = None
+
     return SchedulerConfig(
         worker_count=wc,
         reserved=reserved,
         per_lane_min=per_lane_min,
         codebase_cap=codebase_cap,
+        memory_gen_cap=memory_gen_cap,
+        acquisition_floor=acq_floor,
     )
 
 
@@ -288,6 +324,22 @@ class WorkerRegistry:
         with self._lock:
             for _, tk in self._busy.values():
                 out[tk] = out.get(tk, 0) + 1
+        return out
+
+    def running_by_pool(self) -> dict[str, int]:
+        """How many workers are running in each two-pool (CONCEPT:AU-ORCH.dispatch.two-pool).
+
+        Resolves each busy worker's (lane, task_type) to its pool (honouring the
+        per-type override), so the admission policy can enforce the memory-gen cap
+        and acquisition floor. Un-pooled lanes (``queries`` / ``maint``) are not
+        counted.
+        """
+        out: dict[str, int] = {}
+        with self._lock:
+            for lane, tk in self._busy.values():
+                pool = pool_for(lane, tk)
+                if pool is not None:
+                    out[pool] = out.get(pool, 0) + 1
         return out
 
 
@@ -360,6 +412,22 @@ class AdmissionPolicy:
         )
         return max(1, derived, shard_floor)
 
+    # -- two-pool budget -----------------------------------------------------
+    def memory_gen_cap(self) -> int:
+        """Effective concurrent-``memory_gen`` worker cap (CONCEPT:AU-ORCH.dispatch.two-pool).
+
+        Explicit ``config.memory_gen_cap`` wins; otherwise derive
+        ``worker_count − acquisition_floor`` so the acquisition half always keeps
+        its floor of workers no matter how much write-lock-bound memory-gen work
+        is pending. Floors at 1 (memory-gen must make *some* progress) and is
+        bounded by the pool minus the acquisition floor.
+        """
+        cfg = self.config
+        floor = max(1, cfg.acquisition_floor)
+        if cfg.memory_gen_cap is not None:
+            return max(1, min(cfg.memory_gen_cap, cfg.worker_count))
+        return max(1, cfg.worker_count - floor)
+
     # -- interactive reservation --------------------------------------------
     def interactive_floor(self) -> int:
         """Workers that NON-interactive lanes may never consume (CONCEPT:AU-KG.compute.interactive-lane-floor).
@@ -416,6 +484,20 @@ class AdmissionPolicy:
             floor = max(1, cfg.per_lane_min)
             if running_by_lane.get(lane, 0) >= floor:
                 return _Decision(False, f"{lane} best-effort cap ({floor})")
+
+        # 1b2) Two-pool budget (CONCEPT:AU-ORCH.dispatch.two-pool) — the memory-gen
+        #      half (chunk→extract→embed→KG-write) BACK-PRESSURES on the single
+        #      per-graph write lock, so it may occupy at most ``memory_gen_cap``
+        #      workers concurrently. The complementary ``acquisition_floor`` workers
+        #      are thereby always available to the I/O-bound acquisition half
+        #      (connector syncs / feed sweeps / URL crawls), so a memory-gen burst
+        #      can never drive scraping to zero. Capped, never starved: the cap is
+        #      floored at 1 so memory-gen always makes progress.
+        pool = pool_for(lane, task_type)
+        if pool == MEMORY_GEN_POOL:
+            cap = self.memory_gen_cap()
+            if self.registry.running_by_pool().get(MEMORY_GEN_POOL, 0) >= cap:
+                return _Decision(False, f"memory-gen pool cap ({cap})")
 
         # 1c) Interactive reservation (CONCEPT:AU-KG.compute.interactive-lane-floor) — the HARD floor that keeps
         #     the host responsive. A NON-interactive task is refused if claiming would
