@@ -336,3 +336,116 @@
     rdfs:label "Agent" ;
     rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
 
+# ---------------------------------------------------------------------------
+# Agent-native run version-control (run-VCS) — the shepherd assimilation. Elevates
+# the observe-only :RunTrace/:ToolCall provenance into a content-addressed, typed,
+# projectable, forkable, revertable run history (CONCEPT:AU-ORCH.runvcs.event-kernel).
+# ---------------------------------------------------------------------------
+
+:RunTrace a owl:Class ;
+    rdfs:label "RunTrace" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
+    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
+    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
+    rdfs:seeAlso prov:Activity .
+
+:RunEvent a owl:Class ;
+    rdfs:label "RunEvent" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one typed, content-addressed run event
+    (shepherd Fact shape). Its :recordDigest IS its identity (record_id == digest over
+    schema_ref+mode+payload+causality), so identical events dedup and replay is reproducible.
+    :recordMode is a declaration (intent) or a capture (observed outcome).""" ;
+    rdfs:seeAlso prov:Entity .
+
+:RunCommit a owl:Class ;
+    rdfs:label "RunCommit" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.run-commit — ONE content-addressed commit binding a
+    message checkpoint + an :FsSnapshot + a :RunCut (the process/event frontier) so a run's
+    conversation, files, and effects revert together as one exact world.""" ;
+    rdfs:seeAlso prov:Entity .
+
+:RunCut a owl:Class ;
+    rdfs:label "RunCut" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — an immutable frontier over a run's
+    event log ('the run through ordinal N', shepherd Cut); the causal prefix a fork/revert
+    restores to.""" .
+
+:FsSnapshot a owl:Class ;
+    rdfs:label "FsSnapshot" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.run-commit — a content-addressed copy-on-write
+    snapshot of a run's workspace filesystem (overlayfs/fuse-overlayfs accelerated, blob-store
+    fallback); the fs half of a :RunCommit's exact-world restore.""" .
+
+:RetainedRunProposal a owl:Class ;
+    rdfs:label "Retained Run Proposal" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.retained-output-gate — a completed run's world delta
+    (its final :RunCommit + any KG edits) HELD as a proposal, materialized into the real world
+    only when the run.select action-policy gate accepts; discard leaves the world untouched.""" ;
+    rdfs:subClassOf :SkillProposal .
+
+:hasEvent a owl:ObjectProperty ;
+    rdfs:label "has event" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — RunTrace -[:HAS_EVENT]-> RunEvent (a run owns its ordered event path)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunEvent .
+
+:causedByEvent a owl:ObjectProperty ;
+    rdfs:label "caused by event" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — RunEvent -[:CAUSED_BY]-> RunEvent: the causality edge threading the content-addressed event DAG." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range :RunEvent .
+
+:hasCommit a owl:ObjectProperty ;
+    rdfs:label "has commit" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — RunTrace -[:HAS_COMMIT]-> RunCommit (a run's commit history)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunCommit .
+
+:forkedFrom a owl:ObjectProperty ;
+    rdfs:label "forked from" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.fork-revert — a child RunTrace -[:FORKED_FROM]-> the RunCommit it branched off (lineage of a live-run fork)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunCommit .
+
+:snapshots a owl:ObjectProperty ;
+    rdfs:label "snapshots" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — RunCommit -[:SNAPSHOTS]-> FsSnapshot (the filesystem captured by a commit)." ;
+    rdfs:domain :RunCommit ;
+    rdfs:range :FsSnapshot .
+
+:proposesCommit a owl:ObjectProperty ;
+    rdfs:label "proposes commit" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.retained-output-gate — RetainedRunProposal -[:PROPOSES_COMMIT]-> the RunCommit it would materialize on accept." ;
+    rdfs:domain :RetainedRunProposal ;
+    rdfs:range :RunCommit .
+
+:recordDigest a owl:DatatypeProperty ;
+    rdfs:label "record digest" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — the content hash that is a RunEvent's identity (record_id == digest)." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:string .
+
+:recordMode a owl:DatatypeProperty ;
+    rdfs:label "record mode" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.trace-replay — a RunEvent's mode: 'declaration' (intent) or 'capture' (observed outcome); the split that makes a recorded exchange stand in for the model on replay." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:string .
+
+:eventOrdinal a owl:DatatypeProperty ;
+    rdfs:label "event ordinal" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — a RunEvent's append position in its run's path (view metadata, not identity)." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:integer .
+
+:commitId a owl:DatatypeProperty ;
+    rdfs:label "commit id" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — a RunCommit's content-addressed id (digest of checkpoint+fs-snapshot+cut)." ;
+    rdfs:domain :RunCommit ;
+    rdfs:range xsd:string .
+
+:snapshotId a owl:DatatypeProperty ;
+    rdfs:label "snapshot id" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — an FsSnapshot's content-addressed id (digest of its file manifest)." ;
+    rdfs:domain :FsSnapshot ;
+    rdfs:range xsd:string .
+

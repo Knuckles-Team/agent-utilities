@@ -247,3 +247,43 @@ class ForkableSandbox(Sandbox):
             parent = await self.warm(spec)
             registry.register(spec.key, parent, close=parent.close, kind=self.name)
         return await self.run_forked(parent, code, env)
+
+
+class RunScopedFork:
+    """CONCEPT:AU-ORCH.runvcs.run-commit — elevate a snippet fork to RUN scope (additive mixin).
+
+    :class:`ForkableSandbox` forks a *snippet*: one CoW child, one namespace, one result. A
+    run-VCS :class:`~agent_utilities.runtime.run_vcs.run_session.RunSession` forks a whole *run*
+    — its process/event frontier, its filesystem, and its message history — as ONE
+    content-addressed commit that can be reverted or held for review. This mixin bridges the two
+    WITHOUT touching the snippet warm-fork contract: a backend that also mixes in
+    ``RunScopedFork`` gains run-scoped ``commit``/``fork``/``revert`` over a workspace root by
+    delegating to a :class:`RunSession`, so the same rung that amortises snippet start-up also
+    hosts a forkable, revertable *run*.
+
+    Deliberately a separate, optional mixin (not a change to :class:`ForkableSandbox`) so it
+    composes cleanly with the parallel warm-fork work on the snippet path.
+    """
+
+    name: str
+
+    def run_session(
+        self,
+        run_id: str,
+        root: str,
+        *,
+        engine: Any | None = None,
+    ) -> Any:
+        """Open a run-scoped :class:`RunSession` bound to ``root`` for this backend.
+
+        Lazily imported so the snippet sandbox layer carries no hard dependency on the run-VCS
+        package (KG-optional, import-cycle-free).
+        """
+        from agent_utilities.runtime.run_vcs.run_session import (
+            RunSession,
+            RunSessionRegistry,
+        )
+
+        session = RunSession(run_id, root, engine=engine)
+        RunSessionRegistry.get().register(session)
+        return session

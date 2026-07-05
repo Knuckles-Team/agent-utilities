@@ -49,6 +49,7 @@ pillars:
     session:       [session, goal, contract, sla, durable-session, handoff, collection, channel]
     adapter:       [adapters, cli-adapter, provider-proxy, multi-cli, normalizing]
     optimization:  [gepa, prompt-optimizer, optimization-state, reflective, recursive-mas]
+    runvcs:        [runvcs, run-vcs, run-commit, run-fork, run-revert, trace-replay, retained-output, carrier, event-kernel]
 
   # ─────────────────────────────────────────────────────────────────────────
   AHE:  # Agentic Harness Engineering — evolution, evaluation, reward, training.
