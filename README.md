@@ -352,17 +352,41 @@ into `graph-os` — there is no separate multiplexer server anymore.)
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
         "MCP_TOOL_MODE": "both",
-        "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
+        "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
+
+        "ENGINE_MODE": "remote",
+        "ENGINE_ENDPOINT": "tcp://10.0.0.10:9100",
+        "EPISTEMIC_GRAPH_AUTOSTART": "0",
+
+        "MCP_CLIENT_AUTH": "oidc-client-credentials",
+        "OIDC_ISSUER": "http://keycloak.arpa/realms/homelab",
+        "OIDC_CLIENT_ID": "mcp-multiplexer",
+        "OIDC_CLIENT_SECRET": "<from OpenBao: bao kv get apps/graph-os>",
+        "OIDC_AUDIENCE": "agent-services"
       }
     }
   }
 }
 ```
 
-`MCP_CONFIG` points at your **fleet** file (the `mcpServers` map of every `*-mcp` server
-graph-os may mount on demand); `WORKSPACE_PATH`/`AGENT_ID` are the only per-workspace bits.
-Ask `find_tools("<what you need>")` and `load_tools(servers=[...])` to pull fleet tools in
-live.
+**One server, `graph-os`** — the standalone `mcp-multiplexer` is fully folded in via the
+built-in fleet loader (`attach_fleet_loader`), so there is **no separate multiplexer entry
+anymore**. Env vars, by group:
+
+- **Core (always):** `AGENT_ID` + `WORKSPACE_PATH` (per-workspace identity), `MCP_TOOL_MODE`
+  (`condensed`|`verbose`|`both`), and `MCP_CONFIG` → your **fleet** file (the `mcpServers`
+  map of every `*-mcp` server graph-os may mount on demand). Ask
+  `find_tools("<what you need>")` then `load_tools(servers=[...])` to pull fleet tools in live.
+- **Engine connection (split-storage / remote engine):** `ENGINE_MODE=remote` +
+  `ENGINE_ENDPOINT=tcp://<engine-host>:9100` + `EPISTEMIC_GRAPH_AUTOSTART=0` point graph-os at a
+  shared `epistemic-graph` engine (e.g. the fast-NVMe node) instead of autostarting a local
+  one. **Omit all three** for the zero-infra default, where graph-os autostarts a local engine.
+- **Fleet auth (only when the `*-mcp` fleet is Keycloak-protected):** graph-os mints a
+  **Keycloak client-credentials** bearer and attaches it to every child call —
+  `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_ISSUER` (token endpoint auto-discovered),
+  `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (from **OpenBao `apps/graph-os`** — never commit it),
+  `OIDC_AUDIENCE`. Eunomia enforces per-principal authorization server-side. **Omit these** for
+  an unauthenticated local fleet.
 
 > **Note:** Model selection, routing logic, and system configurations are centralized in your XDG `~/.config/agent-utilities/config.json`. Only local workspace paths, local agent IDs, or environment overrides remain in the environment.
 
