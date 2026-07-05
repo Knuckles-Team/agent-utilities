@@ -56,6 +56,12 @@ _DOC_SUMMARY_PROMPT = (
     "purpose, for use as retrieval context. Answer with only the summary.\n\n"
     "<document>\n{doc}\n</document>"
 )
+# Section-tree node summary: a 1-2 sentence gist so the structure view is text-free.
+_SECTION_PROMPT = (
+    "Summarize this document section in 1-2 sentences capturing what it covers, so "
+    "a reader can decide whether to open it. Answer with ONLY the summary.\n\n"
+    '<section title="{title}">\n{section}\n</section>'
+)
 
 # Bound the document text fed to the LLM so a huge doc cannot blow the context.
 _MAX_DOC_CHARS = 12_000
@@ -96,6 +102,32 @@ class ContextualEnricher:
             except Exception as exc:  # noqa: BLE001 — degrade to heuristic
                 logger.debug("[KG-2.50] doc summary LLM failed: %s", exc)
         return self._heuristic_summary(doc_text, title)
+
+    def summarize_section(self, title: str, text: str) -> str:
+        """Return a short summary of a document section (CONCEPT:AU-KG.retrieval.section-tree).
+
+        Used by the section-tree builder to make the *structure* view text-free: a
+        navigable map of ``{title, summary}`` the tree-navigation retriever reasons
+        over without pulling every node's body into context. LLM when an ``llm_fn``
+        is configured (1-2 sentences), deterministic heuristic otherwise (title +
+        opening sentence), so offline builds are stable and never depend on a model.
+        """
+        body = (text or "").strip()
+        if not body:
+            return title.strip()
+        if self.llm_fn is not None:
+            try:
+                out = self.llm_fn(
+                    _SECTION_PROMPT.format(title=title, section=body[:6000])
+                )
+                if out and out.strip():
+                    return out.strip()[: self.max_context_chars]
+            except Exception as exc:  # noqa: BLE001 — degrade to heuristic
+                logger.debug("[section-tree] section summary LLM failed: %s", exc)
+        first = _SENTENCE_RE.split(body)[0].strip()
+        label = title.strip()
+        summary = f"{label}: {first}" if label and first else (label or first)
+        return summary[: self.max_context_chars]
 
     def enrich(
         self, doc_text: str, chunk_texts: list[str], *, title: str = ""

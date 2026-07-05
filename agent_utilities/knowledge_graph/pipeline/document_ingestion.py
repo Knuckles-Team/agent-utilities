@@ -52,6 +52,68 @@ class DocumentIngestionPipeline:
         self.id_registry = id_registry or OntologicalIdentifierRegistry()
         self._ingested_docs: list[str] = []  # Track for rollback
 
+    def build_section_tree_for(
+        self, document_id: str, content: str, *, persist: bool = True
+    ) -> dict[str, Any]:
+        """Build, self-verify and (optionally) persist a document's section tree.
+
+        CONCEPT:AU-KG.retrieval.section-tree + CONCEPT:AU-KG.ingest.structure-verify.
+        The PageIndex-style reasoning tree beside the flat chunks: build from the
+        markdown headings, confirm every section title is inside its claimed char
+        range (repairing drift) *before* commit, then write the ``Section`` nodes/
+        edges through the engine. Returns the verify report + section count so the
+        caller can gate on structural integrity.
+        """
+        from ..ontology.document_processing import (
+            build_section_tree,
+            section_nodes_and_edges,
+            verify_section_tree,
+        )
+
+        roots = build_section_tree(content)
+        report = verify_section_tree(content, roots, fix=True)
+        nodes, edges = section_nodes_and_edges(document_id, roots)
+        persisted = False
+        if persist and nodes:
+            persisted = self._persist_section_slice(nodes, edges)
+        if report["mismatched"]:
+            logger.warning(
+                "Section tree for %s: %d title(s) outside their range",
+                document_id,
+                report["mismatched"],
+            )
+        return {
+            "document_id": document_id,
+            "section_count": len(nodes),
+            "persisted": persisted,
+            "verify": report,
+        }
+
+    def _persist_section_slice(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> bool:
+        """Write section nodes/edges via the engine's convenience write API."""
+        ok = False
+        for n in nodes:
+            props = {k: v for k, v in n.items() if k not in ("id", "type")}
+            try:
+                self.knowledge_graph.add_node(n["id"], n["type"], props)
+                ok = True
+            except Exception as exc:  # noqa: BLE001 — best-effort per node
+                logger.debug("section node persist failed for %s: %s", n["id"], exc)
+        for e in edges:
+            props = {
+                k: v for k, v in e.items() if k not in ("source", "target", "type")
+            }
+            try:
+                self.knowledge_graph.add_edge(
+                    e["source"], e["target"], e["type"], **props
+                )
+                ok = True
+            except Exception as exc:  # noqa: BLE001 — best-effort per edge
+                logger.debug("section edge persist failed: %s", exc)
+        return ok
+
     async def ingest_document(
         self, file_path: str, content: str, metadata: dict[str, Any] | None = None
     ) -> dict[str, Any]:
