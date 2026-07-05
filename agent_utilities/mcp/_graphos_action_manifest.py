@@ -1321,6 +1321,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_context", "action": "list", "name": "graph_context_list"},
     {"tool": "graph_context", "action": "prune", "name": "graph_context_prune"},
     {"tool": "graph_context", "action": "put", "name": "graph_context_put"},
+    {
+        "tool": "graph_document_tree",
+        "action": "build",
+        "name": "graph_document_tree_build",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "content",
+        "name": "graph_document_tree_content",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "retrieve",
+        "name": "graph_document_tree_retrieve",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "structure",
+        "name": "graph_document_tree_structure",
+    },
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
     {"tool": "graph_evaluate", "action": None, "name": "graph_evaluate"},
