@@ -815,13 +815,15 @@ auto-tuned by default, every item overridable. Uses the existing config machiner
 - Requires: `graph-os`
 - Expected: `config-generated, config-validated`
 
-### Step A2: graph-os-and-multiplexer
+### Step A2: graph-os-unified-gateway
 [depends_on: Step A1] (profiles: single-node-prod, enterprise)
 Deploy the **agent-utilities `graph-os` MCP server** (`knucklessg1/agent-utilities`,
-container `command: graph-os`, streamable-http :8000) as a Portainer GitOps stack
-pinned to the **KG host node (R820)** with `KG_DAEMON_ROLE=host` — it owns the
-single consolidated KG daemon. Also start `mcp-multiplexer` federating graph-os +
-the connector fleet, and (optionally) the REST gateway `graph-os-daemon` (:8100).
+container `command: graph-os`, streamable-http :8000) with `KG_DAEMON_ROLE=host` — it
+owns the single consolidated KG daemon. **graph-os is the ONE unified MCP gateway:** the
+standalone `mcp-multiplexer` is **folded in** via the in-process fleet loader
+(`attach_fleet_loader`), so this single endpoint serves its own KG/engine tools **and**
+lazily fronts the whole authenticated `*-mcp` fleet — there is **no separate multiplexer
+service** to deploy. Optionally start the REST gateway `graph-os-daemon` (:8100).
 
 **Backend — the engine is the ONE durable multi-model store (CONCEPT:AU-KG.backend.backend-modes /
 OS-5.63).** The epistemic-graph engine is the ONE authority: it serves reads, acks
@@ -845,12 +847,16 @@ its first authoritative boot it runs a one-time `.mp`→redb migration (minutes 
 large KG; the socket is not bound until it finishes) — see the engine
 binary-promotion runbook for the deploy-time health-start-period.
 
-**Multiplexer outbound auth (CONCEPT:AU-OS.identity.so-jwt-protected-children):** set `MCP_CLIENT_AUTH=oidc-client-credentials`,
-`OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET` (OpenBao ref from Step 13),
-`OIDC_AUDIENCE=agent-services` on the multiplexer so it mints + attaches a Keycloak service
-token to every jwt child. Without this, children with `AUTH_TYPE=jwt` are unreachable (401)
-through the multiplexer. The multiplexer itself stays at its own inbound-auth posture (do
-NOT flip it to a jwt child — it is the client).
+**graph-os fleet-gateway auth (CONCEPT:AU-OS.identity.so-jwt-protected-children) — the DEFAULT, full config in
+[`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md):** set on the
+**`graph-os`** service (the multiplexer is absorbed): `MCP_CONFIG=/root/.config/agent-utilities/mcp_config.json`
+(the central fleet list — ⚠️ MUST be set explicitly, or the loader resolves a stale
+`~/.gemini/antigravity/mcp_config.json` and the fleet appears empty), plus outbound
+`MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET`
+(OpenBao `apps/graph-os`, Step 13), `OIDC_AUDIENCE=agent-services` so graph-os mints + attaches a
+Keycloak service token to every jwt child (without it, `AUTH_TYPE=jwt` children are 401), and Eunomia
+(`EUNOMIA_TYPE=embedded`, `EUNOMIA_POLICY_FILE=/eunomia_policy.json`) for per-principal authorization.
+Secrets live in OpenBao `apps/graph-os`; the non-secret config is in `services/graph-os/.env`.
 
 **Shared agent-utilities config volume (CONCEPT: OS-5.x):** seed an **external**
 named volume `agent_utilities_config` (and `agent_utilities_data`) on the KG host
@@ -864,7 +870,7 @@ is **co-located on the KG host** so the node-local named volume resolves (or bac
 it with a shared/NFS driver). Thin API-wrapper connectors (github, gitlab,
 servicenow, …) do **not** need it — they take their own creds via stack env.
 - Requires: `graph-os`, `container-manager-mcp`, `portainer-mcp`
-- Expected: `graph-os-up, multiplexer-up, config-volume-seeded, engine-tier-deployed`
+- Expected: `graph-os-up, fleet-gateway-ready (MCP_CONFIG+outbound-OIDC+eunomia), config-volume-seeded, engine-tier-deployed`
 
 ### Step A3: mcp-fleet-deploy
 [depends_on: Step A2] (profiles: single-node-prod, enterprise)
