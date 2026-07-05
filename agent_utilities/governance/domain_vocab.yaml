@@ -49,6 +49,7 @@ pillars:
     session:       [session, goal, contract, sla, durable-session, handoff, collection, channel]
     adapter:       [adapters, cli-adapter, provider-proxy, multi-cli, normalizing]
     optimization:  [gepa, prompt-optimizer, optimization-state, reflective, recursive-mas]
+    org:           [org, recruiter, talent-market, staffing, work-item, work-item-dag, org-synthesis, kanban, manager-mode]
 
   # ─────────────────────────────────────────────────────────────────────────
   AHE:  # Agentic Harness Engineering — evolution, evaluation, reward, training.
@@ -60,6 +61,7 @@ pillars:
     optimization:  [optimization, dspy, telemetry-driven, prompt-optimization, gepa]
     assimilation:  [assimilation, research-assimilation, comparative, absorb, innovation]
     sdd:           [sdd, spec-driven, dstdd, design-phase, specify]
+    org:           [org, role-experience, experience-profile, employee-evolution, playbook, seniority, self-grown]
 
   # ─────────────────────────────────────────────────────────────────────────
   ECO:  # Ecosystem & Peripherals — messaging, bus, multiplexer, connectors, UI.

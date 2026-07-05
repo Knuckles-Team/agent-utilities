@@ -1441,3 +1441,89 @@ and entity type. BFO:IndependentContinuant.""" ;
     rdfs:label "MCP Server" ;
     rdfs:subClassOf bfo:0000031 .
 
+# ─────────────────────────────────────────────────────────────────────────
+# Runtime org DYNAMICS (ported from OpenOPC layer2_organization).
+#
+# The static structure above (:Company/:Department/:AgentRole/:Employee) models
+# the org CHART. These terms model the org at RUNTIME: a :WorkItem flowing
+# through kanban phases under a role owner, a dependency DAG (independent items
+# run in parallel, dependents wait), and per-:Employee experience that the
+# recruiter reads back when it decides to reuse an experienced employee vs hire
+# a fresh template.
+#   CONCEPT:AU-ORCH.org.work-item-dag  — work-item state machine + dependency DAG.
+#   CONCEPT:AU-ORCH.org.recruiter      — goal → org-chart synthesis + staffing.
+#   CONCEPT:AU-AHE.org.role-experience — Self-Grown experience profiles.
+# ─────────────────────────────────────────────────────────────────────────
+
+:WorkItem a owl:Class ;
+    rdfs:label "Work Item" ;
+    rdfs:comment """A unit of runtime work owned by an :AgentRole, flowing through
+kanban phases (queued → ready → running → awaiting_review → approved) along a
+dependency DAG. Independent items run in parallel; dependents wait until their
+predecessors are approved. The occurrent counterpart of the static org chart.
+BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:ownedByRole a owl:ObjectProperty ;
+    rdfs:label "owned by role" ;
+    rdfs:comment "The :AgentRole responsible for executing a work item." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range :AgentRole .
+
+:reviewedByRole a owl:ObjectProperty ;
+    rdfs:label "reviewed by role" ;
+    rdfs:comment "The manager :AgentRole that reviews a work item's deliverable." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range :AgentRole .
+
+:dependsOnWorkItem a owl:ObjectProperty ;
+    rdfs:label "depends on work item" ;
+    rdfs:comment "DAG edge: this work item becomes runnable only once the target work item is approved." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range :WorkItem .
+
+:staffsRole a owl:ObjectProperty ;
+    rdfs:label "staffs role" ;
+    rdfs:comment "Links a hired :Employee to the :AgentRole seat it fills." ;
+    rdfs:domain :Employee ;
+    rdfs:range :AgentRole .
+
+:workItemPhase a owl:DatatypeProperty ;
+    rdfs:label "work item phase" ;
+    rdfs:comment "queued, ready, waiting_dependencies, running, awaiting_review, ready_for_rework, approved, escalated, failed, cancelled." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:workItemManagerMode a owl:DatatypeProperty ;
+    rdfs:label "work item manager mode" ;
+    rdfs:comment "execute, delegate, review, integrate, rework — the owning role's mode for this item." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:kanbanColumn a owl:DatatypeProperty ;
+    rdfs:label "kanban column" ;
+    rdfs:comment "Projected board column derived from the phase: todo, in_progress, in_review, done." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:experienceProfile a owl:DatatypeProperty ;
+    rdfs:label "experience profile" ;
+    rdfs:comment """JSON-encoded per-employee experience accrued from AHE reward
+write-back: successes / partials / failures, per-role and per-domain counts, and
+learned skill refs. Read by the recruiter to reuse an experienced employee rather
+than hire a fresh template.""" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:experienceScore a owl:DatatypeProperty ;
+    rdfs:label "experience score" ;
+    rdfs:comment "Scalar suitability score derived from the experience profile; higher = stronger reuse candidate." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:float .
+
+:seniority a owl:DatatypeProperty ;
+    rdfs:label "seniority" ;
+    rdfs:comment "junior, mid, senior — accrues as the employee's experience score crosses thresholds." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
