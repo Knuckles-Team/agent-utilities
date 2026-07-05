@@ -78,6 +78,40 @@ graph_kvcache action=get key=probe                       # -> {"hit": true, ...}
 graph_kvcache action=stats                                # -> unique_blocks > 0
 ```
 
+## Authentication (paired with the platform's OIDC — not a separate mechanism)
+
+The KV surface authenticates with the **same Keycloak auth as graph-os**. Two modes,
+**JWT preferred**; a static token is the documented fallback. Both sides apply the
+same precedence: **JWT if configured, else static token, else anonymous** (dev only —
+never leave a network-reachable KV surface anonymous in production).
+
+### JWT (recommended) — the platform's OIDC client-credentials
+
+The connector presents the **same Keycloak client-credentials bearer graph-os mints
+for the fleet**, and the engine validates it against the realm JWKS (RSA signature +
+issuer + audience + expiry). Token **refresh and cold restarts are handled
+automatically** by the shared `ClientCredentialsTokenProvider` (per-request token,
+refresh before expiry, one-shot re-mint + retry on 401).
+
+- **Engine** (validates) — set the issuer so the guard arms in JWT mode; it reuses the
+  platform's inbound-JWT / OIDC vars if present:
+  - `EPISTEMIC_GRAPH_KVCACHE_JWT_ISSUER` (or `FASTMCP_SERVER_AUTH_JWT_ISSUER` / `OIDC_ISSUER`)
+  - `EPISTEMIC_GRAPH_KVCACHE_JWT_AUDIENCE` (default `agent-services`)
+  - `EPISTEMIC_GRAPH_KVCACHE_JWKS_URL` (optional; else derived as
+    `<issuer>/protocol/openid-connect/certs`)
+- **Client** — nothing extra: when `MCP_CLIENT_AUTH=oidc-client-credentials` +
+  `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` are present (as they are for graph-os), the
+  connector mints/refreshes the bearer automatically. JWKS keys re-fetch on a `kid`
+  miss, so a Keycloak signing-key rotation self-heals without an engine restart.
+
+### Static token (fallback) — OpenBao-sourced shared secret
+
+When OIDC isn't configured (e.g. a standalone vLLM/LMCache worker), set a shared bearer
+on both sides, sourced from **OpenBao `apps/graph-os`** (never inline in a committed file):
+
+- **Engine**: `EPISTEMIC_GRAPH_KVCACHE_TOKEN=<secret>`
+- **Client**: `EPISTEMIC_GRAPH_KVCACHE_TOKEN=<same secret>`
+
 ## Why this is highly recommended
 
 Enabling the shared KV-cache is a **large win for near-zero cost** and should be **on by default**
