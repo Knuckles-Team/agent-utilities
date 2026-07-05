@@ -159,6 +159,60 @@ is attributable to a single hop. Surfaced through `graph_ingest action=profile`
 (`mcp/tools/write_ingest_tools.py`), whose `corpus_name` selects the grouping
 dimension.
 
+## Two independently-sized pools (CONCEPT:AU-ORCH.dispatch.two-pool)
+
+The lanes partition the *queue* by domain; two **pools** partition the *worker
+budget* into two isolated back-pressure domains (the Prefect two-pool move) so the
+write-lock-bound half can never starve the I/O-bound half:
+
+* **acquisition** — pull raw SourceDocuments in (`connectors` lane: connector
+  delta syncs, the feed sweep; plus the `content_url` crawl, budgeted here via a
+  per-type override even though it rides the ingestion lane). Network/IO-bound;
+  light on the per-graph write lock.
+* **memory_gen** — turn documents into memory: chunk → LLM-extract → normalize →
+  embed → KG-write (`ingestion` / `extraction` / `worldview` / `research` /
+  `enrichment` lanes). This is the phase that BACK-PRESSURES on the single
+  per-graph write lock.
+
+`AdmissionPolicy` caps the memory-gen pool at `memory_gen_cap` workers (default
+`worker_count − acquisition_floor`) and holds `acquisition_floor` workers for
+acquisition, so a burst of write-lock-bound memory-gen work can never drive
+scraping to zero. The two knobs — `KG_POOL_ACQUISITION_FLOOR` and
+`KG_POOL_MEMORY_GEN_CAP` — size the pools *independently* (that is the whole
+point). Un-pooled `queries` (interactive) and `maint` (best-effort) keep their
+existing floors/caps. The split is enforced purely at the in-process admission
+layer, transport-agnostically, so the executor-swap property of
+`TASK_QUEUE_BACKEND` / `AGENT_DISPATCH_BACKEND` is preserved. `lane_metrics()`
+surfaces a per-pool `{pending, live_running}` rollup + the two budgets under a
+`pools` key.
+
+## Attacking the write lock: fan a hot source across K, write it in one batch
+
+The shard-writer floor above spreads *distinct sources/repos* across the K redb
+writers, but a single high-volume source (a large FreshRSS backlog, one `src:x`)
+still pins its whole drain to ONE graph = ONE shard writer. Two additive levers
+push past that ceiling:
+
+1. **Per-shard content-keyed fanout** (CONCEPT:AU-KG.ingest.batched-cross-graph-writer,
+   `KG_INGEST_SHARD_FANOUT`, requires routing). `route_graph(..., content_key=…)`
+   appends a `#<bucket>` suffix keyed by a content hash, so one source fans across
+   `src:x#0 … #K-1` — K distinct graph names in flight, hashing across all K shard
+   writers. The sub-graphs keep the source prefix, so the unified read still unions
+   them. Codebase (already per-repo) and tenants (must stay whole) are never fanned.
+2. **Batched cross-graph writer** (engine op CONCEPT:EG-KG.storage.multi-graph-batch-write;
+   facade `GraphComputeEngine.multi_graph_batch_update`). The memory-gen write stage
+   groups its writes by routed graph and ships the whole `{graph → ops}` map in ONE
+   round-trip; the engine (`MultiGraphBatchUpdate`) applies each sub-batch through
+   the ordinary per-graph `BatchUpdate` path CONCURRENTLY (a `tokio::JoinSet`), so N
+   distinct graphs commit across N of the K shard writers in parallel instead of the
+   client serializing N lock-reacquiring round-trips. It REUSES the existing
+   `batch_update` primitive, degrades to per-graph writes against an older engine,
+   and is partial-success. Together with the fanout, the write stage scales with the
+   distinct-graph width K rather than pinning one lock. Live proof:
+   `epistemic-graph/tests/multi_graph_batch_write.rs` (K distinct-shard graphs, one
+   round-trip, no cross-graph leak); the K-shard-writer file-touch proof remains
+   `tests/integration/knowledge_graph/test_shard_write_parallelism.py`.
+
 ## Why this scales 1 → N
 
 Reviews are LLM-free (keyword scoring) and now O(1)-round-trip for dedup, so the

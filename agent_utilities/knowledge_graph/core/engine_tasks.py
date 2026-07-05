@@ -3160,6 +3160,40 @@ class TaskManagerMixin(GraphEngineProtocol):
             ),
             "running_by_type": reg.running_by_type() if reg is not None else {},
         }
+
+        # CONCEPT:AU-ORCH.dispatch.two-pool — per-pool congestion + budget, so an
+        # operator can see whether memory-gen is at its cap (back-pressured on the
+        # write lock) while acquisition still has headroom. Pending is summed over
+        # each pool's lanes (+ the content_url override); running is the live
+        # registry's per-pool view.
+        from agent_utilities.knowledge_graph.core.task_lanes import (
+            POOLS,
+            pool_for_task_type,
+        )
+
+        live_by_pool = reg.running_by_pool() if reg is not None else {}
+        pool_out: dict[str, Any] = {}
+        for pool, lanes in POOLS.items():
+            pending = sum(out.get(ln, {}).get("pending", 0) for ln in lanes)
+            # content_url rides the ingestion lane but is budgeted as acquisition;
+            # move its pending count to the acquisition rollup for an accurate view.
+            pool_out[pool] = {
+                "pending": pending,
+                "live_running": int(live_by_pool.get(pool, 0)),
+            }
+        # Reflect the per-type pool override in the pending rollup (content_url).
+        cu_pending = _count("status: 'pending', tkind: 'content_url'", {})
+        cu_pool = pool_for_task_type("content_url")
+        if cu_pool in pool_out and cu_pool != "memory_gen":
+            pool_out[cu_pool]["pending"] += cu_pending
+            if "memory_gen" in pool_out:
+                pool_out["memory_gen"]["pending"] = max(
+                    0, pool_out["memory_gen"]["pending"] - cu_pending
+                )
+        if cfg is not None:
+            pool_out["acquisition_floor"] = getattr(cfg, "acquisition_floor", None)
+            pool_out["memory_gen_cap"] = getattr(cfg, "memory_gen_cap", None)
+        out["pools"] = pool_out
         return out
 
     # -- Reserved-worker fair scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling) ------------------
@@ -3233,7 +3267,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         # reservation and no explicit cap there's nothing to enforce.
         if cfg.worker_count <= 1:
             return None
-        if cfg.reserved <= 0 and cfg.codebase_cap is None:
+        # CONCEPT:AU-ORCH.dispatch.two-pool — the memory-gen/acquisition pool budget
+        # is worth enforcing on any pool of >2 workers (it keeps memory-gen from
+        # starving acquisition even when the hot-spare and codebase caps are both
+        # disabled), so the gate stays on there regardless of ``reserved``/cap.
+        if cfg.reserved <= 0 and cfg.codebase_cap is None and cfg.worker_count <= 2:
             return None
         from .worker_scheduler import AdmissionPolicy
 

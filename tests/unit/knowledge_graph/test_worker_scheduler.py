@@ -25,12 +25,24 @@ QUERIES_LANE = lane_for_task_type("conversation")  # "queries"
 MAINT_LANE = lane_for_task_type("scheduled_job")  # "maint" (best-effort)
 
 
-def _policy(worker_count=4, reserved=1, per_lane_min=1, codebase_cap=None):
+CONNECTORS_LANE = lane_for_task_type("connector_sync")  # "connectors" (acquisition)
+
+
+def _policy(
+    worker_count=4,
+    reserved=1,
+    per_lane_min=1,
+    codebase_cap=None,
+    memory_gen_cap=None,
+    acquisition_floor=1,
+):
     cfg = SchedulerConfig(
         worker_count=worker_count,
         reserved=reserved,
         per_lane_min=per_lane_min,
         codebase_cap=codebase_cap,
+        memory_gen_cap=memory_gen_cap,
+        acquisition_floor=acquisition_floor,
     )
     reg = WorkerRegistry()
     return AdmissionPolicy(cfg, reg), reg
@@ -106,6 +118,49 @@ def test_explicit_codebase_cap_respected():
     assert policy.admit(INGEST_LANE, "codebase", {INGEST_LANE: 10}) is False
     # A non-heavy ingestion type is still admissible.
     assert policy.admit(INGEST_LANE, "document", {INGEST_LANE: 10}) is True
+
+
+# --- Two-pool budget (CONCEPT:AU-ORCH.dispatch.two-pool) --------------------
+def test_registry_running_by_pool():
+    reg = WorkerRegistry()
+    reg.start("w0", INGEST_LANE, "codebase")  # memory_gen
+    reg.start("w1", "extraction", "deep_extract")  # memory_gen
+    reg.start("w2", CONNECTORS_LANE, "connector_sync")  # acquisition
+    reg.start("w3", INGEST_LANE, "content_url")  # override → acquisition
+    reg.start("w4", QUERIES_LANE, "conversation")  # un-pooled → not counted
+    assert reg.running_by_pool() == {"memory_gen": 2, "acquisition": 2}
+
+
+def test_memory_gen_cap_backpressures_without_starving_acquisition():
+    """Memory-gen (write-lock-bound) is capped so it can't consume the whole pool;
+    the acquisition floor stays claimable even when memory-gen work is pending."""
+    # 8 workers, acquisition floor 2 → derived memory-gen cap = 6.
+    policy, reg = _policy(worker_count=8, reserved=1, acquisition_floor=2)
+    assert policy.memory_gen_cap() == 6
+    for i in range(6):
+        reg.start(f"m{i}", INGEST_LANE, "document")  # 6 memory-gen busy == cap
+    pending = {INGEST_LANE: 20, CONNECTORS_LANE: 5}
+    # Memory-gen at its cap → a 7th memory-gen claim is refused (back-pressure)…
+    assert policy.admit(INGEST_LANE, "document", pending) is False
+    # …but acquisition can still claim (its floor of 2 workers was never consumed).
+    assert policy.admit(CONNECTORS_LANE, "connector_sync", pending) is True
+
+
+def test_explicit_memory_gen_cap_respected():
+    policy, reg = _policy(worker_count=6, reserved=1, memory_gen_cap=2)
+    reg.start("m0", INGEST_LANE, "document")
+    reg.start("m1", "worldview", "feed_ingest")
+    # 2 memory-gen running == explicit cap → further memory-gen refused…
+    assert policy.admit(INGEST_LANE, "document", {INGEST_LANE: 10}) is False
+    # …while acquisition (content_url override + connectors) is unaffected.
+    assert policy.admit(INGEST_LANE, "content_url", {INGEST_LANE: 10}) is True
+    assert policy.admit(CONNECTORS_LANE, "connector_sync", {CONNECTORS_LANE: 3}) is True
+
+
+def test_memory_gen_cap_never_zero():
+    """The derived cap floors at 1 so memory-gen always makes some progress."""
+    policy, _ = _policy(worker_count=2, reserved=0, acquisition_floor=5)
+    assert policy.memory_gen_cap() == 1
 
 
 def test_derived_codebase_cap_leaves_room_for_other_lanes():

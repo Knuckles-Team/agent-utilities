@@ -1497,6 +1497,21 @@ class AgentConfig(BaseSettings):
     default graph. ON = routed writes + a unified read that fans across the active
     content-graph set so split content stays queryable as one KG. Only changes where
     NEW data lands; existing ``__commons__`` content is left in place."""
+    kg_ingest_shard_fanout: bool = Field(
+        default=False, alias="KG_INGEST_SHARD_FANOUT"
+    )
+    """Within a single routed content source, spread writes across per-shard
+    content-keyed sub-graphs (``src:freshrss#0`` … ``#K-1``) instead of one graph
+    per source (CONCEPT:AU-KG.ingest.batched-cross-graph-writer). A high-volume source
+    (e.g. a large FreshRSS backlog) otherwise pins its whole drain to ONE graph =
+    ONE of the engine's K redb shard writers, so K-1 sit idle. Bucketing by a
+    content key across ``#0..#K-1`` puts K distinct graph names in flight so the
+    memory-gen write stage fans across all K shard writers. Requires
+    ``KG_INGEST_GRAPH_ROUTING``; OFF (default) = one graph per source (unchanged).
+    The ``#n`` sub-graphs keep their source prefix so unified read still unions
+    them. Pairs with the engine's ``MultiGraphBatchUpdate`` op
+    (CONCEPT:EG-KG.storage.multi-graph-batch-write) which commits the K sub-batches in
+    one round-trip across the K writers."""
     kg_rerank_model: str | None = Field(default=None, alias="KG_RERANK_MODEL")
     """Remote reranker model served on vLLM (e.g. ``BAAI/bge-reranker-v2-m3``). When set,
     reranking scores (query, passage) on the remote ``/v1/rerank`` endpoint — no local model,
