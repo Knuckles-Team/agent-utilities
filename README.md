@@ -371,7 +371,17 @@ into `graph-os` — there is no separate multiplexer server anymore.)
 
 **One server, `graph-os`** — the standalone `mcp-multiplexer` is fully folded in via the
 built-in fleet loader (`attach_fleet_loader`), so there is **no separate multiplexer entry
-anymore**. Env vars, by group:
+anymore**.
+
+> **Shared instance vs single-user — same engine, same fleet.** Interactive clients
+> (Claude Code, opencode, agents) use the **single-user stdio** form above: each spawns its
+> *own* local `graph-os` that performs the OIDC client-credentials flow (they can't mint the
+> gateway JWT themselves). Deployed/service clients use the **shared instance** at
+> `http://graph-os.arpa/mcp`. Both are the *same* graph-os where it matters — `ENGINE_MODE=remote`
+> + `ENGINE_ENDPOINT` point every client at the one shared engine, and `MCP_CONFIG` at the one
+> canonical fleet list. See [Consumption Models](docs/guides/consumption-models.md).
+
+Env vars, by group:
 
 - **Core (always):** `AGENT_ID` + `WORKSPACE_PATH` (per-workspace identity), `MCP_TOOL_MODE`
   (`condensed`|`verbose`|`both`), and `MCP_CONFIG` → your **fleet** file (the `mcpServers`
