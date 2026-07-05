@@ -3269,6 +3269,31 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         route(_path, _make_tool_endpoint(_tool), ["POST"])
 
 
+_FLEET_EMBED_MODEL: Any = None
+
+
+def _fleet_embed_fn():
+    """Return a sync batch-embed callable ``(texts) -> list[vector]`` for find_tools'
+    semantic tool ranking, backed by graph-os's own embedding model (built lazily +
+    cached on first use). The model is remote (vLLM) and sync, so the fleet loader calls
+    this OFF-THREAD. Any construction/inference failure is swallowed by the caller, which
+    then degrades to token-overlap ranking — so this never blocks fleet loading."""
+
+    def _embed(texts):
+        global _FLEET_EMBED_MODEL
+        if _FLEET_EMBED_MODEL is None:
+            from agent_utilities.core.embedding_utilities import create_embedding_model
+
+            _FLEET_EMBED_MODEL = create_embedding_model()
+        model = _FLEET_EMBED_MODEL
+        batch = getattr(model, "get_text_embedding_batch", None)
+        if callable(batch):
+            return batch(list(texts))
+        return [model.get_text_embedding(t) for t in texts]
+
+    return _embed
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -3298,7 +3323,9 @@ def mcp_server() -> None:
     try:
         from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
-        fleet_mux = attach_fleet_loader(mcp)
+        # Inject graph-os's own embedding model so find_tools ranks fleet tools by
+        # query↔description MEANING (semantic), not just literal token overlap.
+        fleet_mux = attach_fleet_loader(mcp, embed_fn=_fleet_embed_fn())
     except Exception:
         logger.exception("graph-os fleet loader attach failed (fleet tools disabled)")
 

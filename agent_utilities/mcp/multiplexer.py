@@ -174,6 +174,21 @@ def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> s
     return candidate
 
 
+def _cosine(a: list[float], b: list[float]) -> float:
+    """Cosine similarity of two dense vectors (dependency-free; find_tools embeds only
+    a handful of short texts, so a pure-Python dot product is cheaper than pulling in a
+    numeric dep here)."""
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    dot = sum(a[i] * b[i] for i in range(n))
+    na = sum(x * x for x in a[:n]) ** 0.5
+    nb = sum(x * x for x in b[:n]) ** 0.5
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
 def _format_probe_error(exc: BaseException) -> str:
     """Render a probe failure as a concise, useful string. anyio wraps
     transport failures in an ``ExceptionGroup`` whose str() is the opaque
@@ -233,6 +248,12 @@ class MCPMultiplexer:
         # find_tools ranks real fleet-wide tools without holding connections and
         # without depending on the (separately-flaky) KG live discovery.
         self._probe_cache: dict[str, dict] = {}
+        # Optional in-process embedder for SEMANTIC find_tools ranking (injected by
+        # graph-os via attach_fleet_loader). ``_embed_fn(texts)->list[vector]`` (sync,
+        # called off-thread); per-tool embeddings are cached by ``server::tool`` so only
+        # the query is embedded per call. Absent ⇒ token-overlap ranking only.
+        self._embed_fn: Any = None
+        self._tool_embeddings: dict[str, list[float]] = {}
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — catalog-aware, collision-free prefix assignment,
         # computed deterministically over the whole server set so similarly
         # named servers (e.g. scholarx/searxng, both preferring "sx") never
@@ -709,43 +730,6 @@ class MCPMultiplexer:
         prefix = prefixed_name.split("__", 1)[0]
         return self._prefix_reverse.get(prefix)
 
-    def _kg_prefixed(self, bare_tool: str) -> str | None:
-        """Find the live prefixed name for a knowledge-graph child tool
-        (e.g. ``graph_query`` -> ``kg__graph_query``) regardless of how the
-        always-on KG server is nicknamed. Requires the KG child to be mounted."""
-        suffix = f"__{bare_tool}"
-        for prefixed, (_srv, original) in self.tool_to_server.items():
-            if original == bare_tool and prefixed.endswith(suffix):
-                return prefixed
-        return None
-
-    async def _kg_call(self, bare_tool: str, arguments: dict[str, Any]) -> Any:
-        """Best-effort call to a knowledge-graph child tool, returning parsed
-        JSON (or raw text), or ``None`` if the KG child is unavailable or the
-        call fails. Used by discovery so a cold/absent KG degrades gracefully
-        rather than raising into the meta-tool."""
-        prefixed = self._kg_prefixed(bare_tool)
-        if prefixed is None:
-            return None
-        try:
-            result = await self.call_proxied_tool(prefixed, arguments)
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning("KG call '%s' raised: %s", prefixed, e)
-            return None
-        if getattr(result, "isError", False):
-            return None
-        text = "".join(
-            getattr(block, "text", "")
-            for block in (getattr(result, "content", []) or [])
-            if getattr(block, "type", None) == "text"
-        )
-        if not text:
-            return None
-        try:
-            return json.loads(text)
-        except (ValueError, TypeError):
-            return text
-
     def _live_tools_for_server(self, server_name: str) -> list[dict]:
         """Raw ``[{name, description, inputSchema}]`` for an already-mounted
         child, reconstructed from the aggregation maps (no reconnect)."""
@@ -878,6 +862,53 @@ class MCPMultiplexer:
             )
         return out
 
+    async def _embed_semantic_scores(
+        self, query: str, probe: dict, semantic: dict[str, float]
+    ) -> None:
+        """Populate ``semantic[bare_tool] = query↔description cosine`` via the injected
+        in-process embedder (graph-os wires its own embedding model here). Per-tool
+        embeddings are cached by ``server::tool`` so only the query is embedded per call;
+        all embedding runs OFF-THREAD (the embed model is sync/remote) so the event loop
+        never blocks. Any failure degrades silently to token-overlap (``semantic`` is
+        left as-is). No-op when no embedder is injected."""
+        embed = self._embed_fn
+        if embed is None:
+            return
+        tools: list[tuple[str, str]] = []  # (bare_tool, cache_key)
+        pending_text: list[str] = []
+        pending_key: list[str] = []
+        for server, info in probe.items():
+            if info.get("error"):
+                continue
+            for entry in info.get("tools", []):
+                tool = entry["name"]
+                key = f"{server}::{tool}"
+                tools.append((tool, key))
+                if key not in self._tool_embeddings:
+                    pending_text.append(f"{tool}. {entry.get('description', '')}"[:512])
+                    pending_key.append(key)
+        try:
+            if pending_text:
+                vecs = await asyncio.to_thread(embed, pending_text)
+                for k, v in zip(pending_key, vecs, strict=False):
+                    if v:
+                        self._tool_embeddings[k] = list(v)
+            qv = (await asyncio.to_thread(embed, [query]))[0]
+        except Exception:
+            logger.debug(
+                "find_tools embedding rerank unavailable; token-overlap only",
+                exc_info=True,
+            )
+            return
+        if not qv:
+            return
+        for tool, key in tools:
+            vec = self._tool_embeddings.get(key)
+            if vec:
+                c = _cosine(qv, vec)
+                if c > 0:
+                    semantic[tool] = max(semantic.get(tool, 0.0), c)
+
     async def discover_tools(
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None
     ) -> dict:
@@ -897,35 +928,14 @@ class MCPMultiplexer:
         catalog = self.load_catalog()
         probe = await self.probe_catalog()
 
-        # Best-effort semantic scores keyed by bare tool name (KG, if warm).
+        # Semantic scores keyed by bare tool name. When graph-os injects an in-process
+        # embedder (attach_fleet_loader), rank every probed tool by query↔description
+        # cosine similarity (embeddings cached per tool). Absent ⇒ this stays empty and
+        # the token-overlap backbone below ranks alone. This is what makes find_tools
+        # understand intent ("send a message to a gitlab MR" → the gitlab tools) instead
+        # of only matching literal tokens. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
         semantic: dict[str, float] = {}
-        # Prefer an injected in-process KG search (graph-os wires its own semantic
-        # search here so find_tools ranks against the live graph directly); else fall
-        # back to a mounted KG child; else token-overlap only (below).
-        search: Any = None
-        kg_fn = getattr(self, "_kg_search_fn", None)
-        if kg_fn is not None:
-            try:
-                search = await kg_fn(query, max(top_k * 3, 20))
-            except Exception:
-                logger.debug("in-process KG search failed; falling back", exc_info=True)
-                search = None
-        if search is None:
-            search = await self._kg_call(
-                "graph_search",
-                {"query": query, "mode": "hybrid", "top_k": max(top_k * 3, 20)},
-            )
-        if isinstance(search, list):
-            for hit in search:
-                if not isinstance(hit, dict):
-                    continue
-                name = hit.get("name") or hit.get("tool") or ""
-                score = hit.get("score") or hit.get("relevance_score") or 0.0
-                if name:
-                    try:
-                        semantic[name] = max(semantic.get(name, 0.0), float(score))
-                    except (ValueError, TypeError):
-                        pass
+        await self._embed_semantic_scores(query, probe, semantic)
 
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
@@ -1527,7 +1537,7 @@ def attach_fleet_loader(
     *,
     config_path: str | None = None,
     self_server: str = "graph-os",
-    kg_search_fn=None,
+    embed_fn=None,
 ) -> MCPMultiplexer:
     """Attach on-demand MCP fleet-loading to an EXISTING FastMCP server (graph-os).
 
@@ -1546,9 +1556,10 @@ def attach_fleet_loader(
     child is spawned at attach time, so it drops cleanly into graph-os's synchronous
     ``mcp.run(...)`` startup with no event loop.
 
-    ``kg_search_fn(query, top_k) -> list[dict]`` (optional) makes ``find_tools``
-    KG-POWERED: graph-os injects its own in-process semantic search so tool suggestions
-    rank against the same knowledge graph everything else uses. When absent, discovery
+    ``embed_fn(texts: list[str]) -> list[vector]`` (optional) makes ``find_tools``
+    SEMANTIC: graph-os injects its own in-process embedding model so tool suggestions
+    rank by query↔description meaning (understands intent) instead of only literal token
+    overlap. Per-tool embeddings are cached; it runs off-thread. When absent, discovery
     falls back to the embedding-free token-overlap backbone (never a hard dependency).
     """
     resolved = _resolve_config_path(config_path or setting("MCP_CONFIG"))
@@ -1557,8 +1568,8 @@ def attach_fleet_loader(
     # graph-os is the HOST server — never mount it (or the retired standalone
     # multiplexer name) as a child of itself.
     mux._skip_servers = {"mcp-multiplexer", self_server}
-    if kg_search_fn is not None:
-        mux._kg_search_fn = kg_search_fn
+    if embed_fn is not None:
+        mux._embed_fn = embed_fn
     mux.load_catalog()  # parse the fleet config into the catalog; spawns nothing
     _register_meta_tools(mcp, mux)
     # The always-visible surface: the meta-tools. graph-os's own tools are registered
