@@ -40,6 +40,7 @@ from .sinks import leanix as _leanix  # noqa: F401
 from .sinks import legal as _legal  # noqa: F401
 from .sinks import mealie as _mealie  # noqa: F401
 from .sinks import nextcloud as _nextcloud  # noqa: F401
+from .sinks import okf as _okf  # noqa: F401
 from .sinks import ops as _ops  # noqa: F401
 from .sinks import process as _process  # noqa: F401
 from .sinks import salesforce as _salesforce  # noqa: F401
