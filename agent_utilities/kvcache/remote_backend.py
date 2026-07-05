@@ -136,8 +136,27 @@ class EpistemicGraphKVBackend:
         return cls(KvCacheConfig.from_env())
 
     def _build_client(self) -> httpx.Client:
+        # Auth precedence (paired with the platform's overall auth, not a separate
+        # mechanism): JWT FIRST — the same Keycloak client-credentials bearer graph-os
+        # mints for the fleet, via the shared self-refreshing provider
+        # (``ClientCredentialsAuth``: per-request token, auto-refresh before expiry,
+        # one-shot re-mint + retry on 401 — so token rotation and cold restarts are
+        # handled automatically). Falls back to a static ``EPISTEMIC_GRAPH_KVCACHE_TOKEN``
+        # bearer (the documented OpenBao-sourced option) when OIDC isn't configured
+        # (e.g. a standalone vLLM/LMCache worker), and to anonymous otherwise.
+        # Lazy + guarded: a standalone vLLM/LMCache worker must not need the mcp
+        # layer to import this connector — if it's unavailable, degrade to the
+        # static-token / anonymous path.
+        try:
+            from agent_utilities.mcp.client_credentials import bearer_auth
+        except Exception:  # pragma: no cover - mcp layer optional on inference hosts
+
+            def bearer_auth(_existing: dict | None) -> Any:
+                return None
+
         headers: dict[str, str] = {}
-        if self.config.token:
+        auth = bearer_auth(headers)  # ClientCredentialsAuth | None (None ⇒ OIDC off)
+        if auth is None and self.config.token:
             headers["Authorization"] = f"Bearer {self.config.token}"
         return create_http_client(
             timeout=self.config.timeout_s,
@@ -145,6 +164,7 @@ class EpistemicGraphKVBackend:
             headers=headers,
             base_url=self.config.base_url,
             limits=httpx.Limits(max_connections=self.config.max_connections),
+            auth=auth,
         )
 
     # -- key handling ---------------------------------------------------------
