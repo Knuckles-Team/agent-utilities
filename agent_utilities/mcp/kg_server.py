@@ -1923,6 +1923,43 @@ async def graph_orchestrate_execute_workflow_endpoint(request: Request) -> JSONR
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_orchestrate_synthesize_org_endpoint(request: Request) -> JSONResponse:
+    """CONCEPT:AU-ORCH.org.recruiter — REST twin of graph_orchestrate synthesize_org."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="synthesize_org",
+            task=body.get("task", "") or body.get("goal", ""),
+            dependencies=body.get("dependencies", "[]"),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def graph_orchestrate_run_org_endpoint(request: Request) -> JSONResponse:
+    """CONCEPT:AU-ORCH.org.work-item-dag — REST twin of graph_orchestrate run_org."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="run_org",
+            task=body.get("task", "") or body.get("goal", ""),
+            dependencies=body.get("dependencies", "[]"),
+            max_steps=int(body.get("max_steps", 20)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_orchestrate_dispatch_workflow_endpoint(
     request: Request,
 ) -> JSONResponse:
@@ -3213,6 +3250,16 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/orchestrate/execute-workflow",
         graph_orchestrate_execute_workflow_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/synthesize-org",
+        graph_orchestrate_synthesize_org_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/run-org",
+        graph_orchestrate_run_org_endpoint,
         ["POST"],
     )
     route(
