@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 913
+total_concepts: 933
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -1339,6 +1339,19 @@ concepts:
   - AU-AHE.optimization.workflow-distillation
   canonical_pillar: AU-AHE
   needs_curation: false
+- id: AU-AHE.org.role-experience
+  name: Each item
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: Each item
+  dotted: AU-AHE.org.role-experience
+  aliases:
+  - AU-AHE.org.role-experience
+  canonical_pillar: AU-AHE
+  needs_curation: false
 - id: AU-AHE.reward.cache-rollout-signals
   name: ──────────────────────────
   pillar: AU-AHE
@@ -1835,6 +1848,32 @@ concepts:
   dotted: AU-ECO.connector.mcp-tool-connector
   aliases:
   - AU-ECO.connector.mcp-tool-connector
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.connector.okf-roundtrip-sync
+  name: the KG→OKF push arm of the
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/okf.py
+  doc: the KG→OKF push arm of the
+  dotted: AU-ECO.connector.okf-roundtrip-sync
+  aliases:
+  - AU-ECO.connector.okf-roundtrip-sync
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.connector.openwiki-preset
+  name: independent of file mtimes
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  - agent_utilities/protocols/source_connectors/connectors/filesystem.py
+  doc: independent of file mtimes
+  dotted: AU-ECO.connector.openwiki-preset
+  aliases:
+  - AU-ECO.connector.openwiki-preset
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.connector.package-manifest-catalog
@@ -4793,6 +4832,20 @@ concepts:
   - AU-KG.ingest.batch-research-cohort
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.batched-cross-graph-writer
+  name: A high-volume source
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/ingest_routing.py
+  doc: A high-volume source
+  dotted: AU-KG.ingest.batched-cross-graph-writer
+  aliases:
+  - AU-KG.ingest.batched-cross-graph-writer
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.big-repo-structural-split
   name: Big-repo structural-ingest split
   pillar: AU-KG
@@ -4803,6 +4856,18 @@ concepts:
   dotted: AU-KG.ingest.big-repo-structural-split
   aliases:
   - AU-KG.ingest.big-repo-structural-split
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.broken-link-tolerance
+  name: Skips images and bare in-page
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: Skips images and bare in-page
+  dotted: AU-KG.ingest.broken-link-tolerance
+  aliases:
+  - AU-KG.ingest.broken-link-tolerance
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.capability-writeback
@@ -5316,6 +5381,18 @@ concepts:
   - AU-KG.ingest.observability-queries-opik-cannot
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.okf-type-mapping
+  name: Resolution order
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  doc: Resolution order
+  dotted: AU-KG.ingest.okf-type-mapping
+  aliases:
+  - AU-KG.ingest.okf-type-mapping
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.ontology-bootstrap-ingest
   name: the self-bootstrapping ontology agent applied to ingest
   pillar: AU-KG
@@ -5469,6 +5546,19 @@ concepts:
   - AU-KG.ingest.standardized-document-ingestion
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.structure-verify
+  name: confirm titles are inside
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/knowledge_graph/pipeline/document_ingestion.py
+  doc: confirm titles are inside
+  dotted: AU-KG.ingest.structure-verify
+  aliases:
+  - AU-KG.ingest.structure-verify
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.subtask-routing-key
   name: a split sub-task carries its own routing key so
   pillar: AU-KG
@@ -5494,12 +5584,25 @@ concepts:
   - AU-KG.ingest.then-by-its-node
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.toc-detection
+  name: LLM-assisted table-of-contents detection
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: LLM-assisted table-of-contents detection
+  dotted: AU-KG.ingest.toc-detection
+  aliases:
+  - AU-KG.ingest.toc-detection
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.unified-query-routing
   name: preserve unified query under ingestion graph routing. When
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
@@ -7275,6 +7378,18 @@ concepts:
   - AU-KG.research.okf-bundle-conformance
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.research.okf-overlay-mode
+  name: the *permissive consumer* half of the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/okf_bundle.py
+  doc: the *permissive consumer* half of the
+  dotted: AU-KG.research.okf-overlay-mode
+  aliases:
+  - AU-KG.research.okf-overlay-mode
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.research.peer-review-self-critique
   name: Peer-review / self-critique closing the loop
   pillar: AU-KG
@@ -7938,6 +8053,22 @@ concepts:
   - AU-KG.retrieval.route-question-its-domain
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.retrieval.section-tree
+  name: it scores nodes on their *title + summary*
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/knowledge_graph/pipeline/document_ingestion.py
+  - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: it scores nodes on their *title + summary*
+  dotted: AU-KG.retrieval.section-tree
+  aliases:
+  - AU-KG.retrieval.section-tree
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.retrieval.self-correcting-second-pass
   name: run a self-correcting second retrieval pass at the deep threshold when the quality gate fails
   pillar: AU-KG
@@ -7986,6 +8117,19 @@ concepts:
   dotted: AU-KG.retrieval.task-start-kg-priming
   aliases:
   - AU-KG.retrieval.task-start-kg-priming
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.retrieval.tree-navigation
+  name: a retriever that *walks* a document
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: a retriever that *walks* a document
+  dotted: AU-KG.retrieval.tree-navigation
+  aliases:
+  - AU-KG.retrieval.tree-navigation
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.triviality-gate
@@ -8712,6 +8856,20 @@ concepts:
   dotted: AU-ORCH.dispatch.seeded-agent-template
   aliases:
   - AU-ORCH.dispatch.seeded-agent-template
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.dispatch.two-pool
+  name: TWO independently-sized worker POOLS over the
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: TWO independently-sized worker POOLS over the
+  dotted: AU-ORCH.dispatch.two-pool
+  aliases:
+  - AU-ORCH.dispatch.two-pool
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.dispatch.warm-skills-share
@@ -9750,6 +9908,34 @@ concepts:
   - AU-ORCH.optimization.workflow-distillation
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.org.recruiter
+  name: REST twin of graph_orchestrate synthesize_org
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: REST twin of graph_orchestrate synthesize_org
+  dotted: AU-ORCH.org.recruiter
+  aliases:
+  - AU-ORCH.org.recruiter
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.org.work-item-dag
+  name: REST twin of graph_orchestrate run_org
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/org_runtime.py
+  doc: REST twin of graph_orchestrate run_org
+  dotted: AU-ORCH.org.work-item-dag
+  aliases:
+  - AU-ORCH.org.work-item-dag
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.planning.business-process-to-executable
   name: descriptive BusinessProcess → executable
   pillar: AU-ORCH
@@ -10273,6 +10459,74 @@ concepts:
   dotted: AU-ORCH.routing.virtual-agent-economy-task
   aliases:
   - AU-ORCH.routing.virtual-agent-economy-task
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.runvcs.event-kernel
+  name: content-addressed, typed, projectable run-event log
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/runtime/run_vcs/__init__.py
+  - agent_utilities/runtime/run_vcs/kernel.py
+  doc: content-addressed, typed, projectable run-event log
+  dotted: AU-ORCH.runvcs.event-kernel
+  aliases:
+  - AU-ORCH.runvcs.event-kernel
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.runvcs.fork-revert
+  name: fork/revert a *live* run from any commit
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/runtime/run_vcs/run_session.py
+  doc: fork/revert a *live* run from any commit
+  dotted: AU-ORCH.runvcs.fork-revert
+  aliases:
+  - AU-ORCH.runvcs.fork-revert
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.runvcs.retained-output-gate
+  name: hold a run
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/runtime/run_vcs/retained_output.py
+  doc: hold a run
+  dotted: AU-ORCH.runvcs.retained-output-gate
+  aliases:
+  - AU-ORCH.runvcs.retained-output-gate
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.runvcs.run-commit
+  name: carrier-style copy-on-write process+filesystem snapshot
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/rlm/sandboxes/base.py
+  - agent_utilities/runtime/run_vcs/carrier.py
+  - agent_utilities/runtime/run_vcs/run_commit.py
+  doc: carrier-style copy-on-write process+filesystem snapshot
+  dotted: AU-ORCH.runvcs.run-commit
+  aliases:
+  - AU-ORCH.runvcs.run-commit
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.runvcs.trace-replay
+  name: deterministic trace replay over the event log
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/runtime/run_vcs/replay.py
+  doc: deterministic trace replay over the event log
+  dotted: AU-ORCH.runvcs.trace-replay
+  aliases:
+  - AU-ORCH.runvcs.trace-replay
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.sandbox.adaptive-tier-selection
@@ -12697,6 +12951,19 @@ concepts:
   dotted: EG-KG.storage.blob-namespace
   aliases:
   - EG-KG.storage.blob-namespace
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.storage.multi-graph-batch-write
+  name: which commits the K sub-batches in
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: which commits the K sub-batches in
+  dotted: EG-KG.storage.multi-graph-batch-write
+  aliases:
+  - EG-KG.storage.multi-graph-batch-write
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.storage.nonblocking-checkpoint
