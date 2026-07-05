@@ -92,6 +92,92 @@ def test_route_graph_per_source_names() -> None:
     assert ingest_routing.route_graph(config=c) == "__commons__"
 
 
+def _cfg_fanout(routing: bool, fanout: bool) -> AgentConfig:
+    return AgentConfig(
+        KG_INGEST_GRAPH_ROUTING=routing, KG_INGEST_SHARD_FANOUT=fanout
+    )
+
+
+# ── Per-shard content-keyed fanout (CONCEPT:AU-KG.ingest.batched-cross-graph-writer) ──
+def test_shard_fanout_off_is_one_graph_per_source() -> None:
+    """Fanout OFF (default): a source stays on ONE graph regardless of content_key."""
+    c = _cfg_fanout(routing=True, fanout=False)
+    assert not ingest_routing.shard_fanout_enabled(c)
+    g1 = ingest_routing.route_graph(source_type="freshrss", content_key="a", config=c)
+    g2 = ingest_routing.route_graph(source_type="freshrss", content_key="b", config=c)
+    assert g1 == g2 == "src:freshrss"
+
+
+def test_shard_fanout_requires_routing() -> None:
+    # Fanout without routing is inert (routing is the prerequisite).
+    c = _cfg_fanout(routing=False, fanout=True)
+    assert not ingest_routing.shard_fanout_enabled(c)
+
+
+def test_shard_fanout_spreads_a_single_source_across_k() -> None:
+    """Fanout ON: many content keys for ONE source fan across ``#0..#K-1`` sub-graphs,
+    so a high-volume source's writes spread over the K redb shard writers instead of
+    pinning one. All sub-graphs keep the ``src:`` prefix (still content graphs)."""
+    from unittest import mock
+
+    c = _cfg_fanout(routing=True, fanout=True)
+    assert ingest_routing.shard_fanout_enabled(c)
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=4,
+    ):
+        graphs = {
+            ingest_routing.route_graph(
+                source_type="freshrss", content_key=f"item-{i}", config=c
+            )
+            for i in range(200)
+        }
+    # More than one distinct sub-graph in flight for the SAME source.
+    assert len(graphs) > 1
+    # Every sub-graph is a recognised content graph under the source prefix.
+    for g in graphs:
+        assert g.startswith("src:freshrss#")
+        assert ingest_routing.is_content_graph(g)
+
+
+def test_shard_fanout_is_deterministic_per_content_key() -> None:
+    from unittest import mock
+
+    c = _cfg_fanout(routing=True, fanout=True)
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=4,
+    ):
+        a = ingest_routing.route_graph(
+            source_type="freshrss", content_key="stable", config=c
+        )
+        b = ingest_routing.route_graph(
+            source_type="freshrss", content_key="stable", config=c
+        )
+    assert a == b
+    assert 0 <= ingest_routing.shard_bucket_for("stable", 4) < 4
+
+
+def test_shard_fanout_leaves_codebase_and_tenant_whole() -> None:
+    """Codebase is already per-repo sharded and a tenant must stay whole — neither
+    is fanned out even with a content_key."""
+    from unittest import mock
+
+    c = _cfg_fanout(routing=True, fanout=True)
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=4,
+    ):
+        assert (
+            ingest_routing.route_graph(repo="agent-utilities", content_key="x", config=c)
+            == "code:agent-utilities"
+        )
+        assert (
+            ingest_routing.route_graph(tenant="acme", content_key="x", config=c)
+            == "tenant__acme____commons__"
+        )
+
+
 def test_route_graph_deterministic() -> None:
     c = _cfg(True)
     a = ingest_routing.route_graph(kind="connector", source_type="gitlab", config=c)

@@ -26,6 +26,49 @@ def test_lane_for_task_type_maps_functional_domains():
     assert lane_model_role("enrichment") == "lite"
 
 
+def test_two_pool_partition_and_helpers():
+    """CONCEPT:AU-ORCH.dispatch.two-pool — lanes partition into two worker pools:
+    acquisition (I/O-bound source intake) and memory-gen (write-lock-bound KG
+    materialization). Un-pooled lanes (queries/maint) resolve to None."""
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        ACQUISITION_POOL,
+        MEMORY_GEN_POOL,
+        POOL_NAMES,
+        pool_for,
+        pool_for_lane,
+        pool_for_task_type,
+    )
+
+    assert set(POOL_NAMES) == {ACQUISITION_POOL, MEMORY_GEN_POOL}
+
+    # Lane → pool.
+    assert pool_for_lane("connectors") == ACQUISITION_POOL
+    assert pool_for_lane("ingestion") == MEMORY_GEN_POOL
+    assert pool_for_lane("extraction") == MEMORY_GEN_POOL
+    assert pool_for_lane("worldview") == MEMORY_GEN_POOL
+    # Interactive / best-effort lanes are un-pooled.
+    assert pool_for_lane("queries") is None
+    assert pool_for_lane("maint") is None
+
+    # Task type → pool (via its lane).
+    assert pool_for_task_type("connector_sync") == ACQUISITION_POOL
+    assert pool_for_task_type("codebase") == MEMORY_GEN_POOL
+    assert pool_for_task_type("feed_ingest") == MEMORY_GEN_POOL
+
+    # content_url rides the ingestion (memory-gen) lane but is a raw FETCH, so the
+    # per-type override budgets it as acquisition.
+    assert lane_of("content_url") == "ingestion"
+    assert pool_for_task_type("content_url") == ACQUISITION_POOL
+    assert pool_for("ingestion", "content_url") == ACQUISITION_POOL
+    assert pool_for("ingestion", "codebase") == MEMORY_GEN_POOL
+
+
+def lane_of(task_type: str) -> str:
+    from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
+
+    return lane_for_task_type(task_type)
+
+
 def test_sweep_all_sources_enqueues_laned_connector_tasks():
     """ORCH-1.77 — the fleet sweep enqueues one connector_sync task per connector (parallel,
     laned) instead of syncing them sequentially inline."""

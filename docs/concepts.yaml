@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 912
+total_concepts: 915
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4793,6 +4793,20 @@ concepts:
   - AU-KG.ingest.batch-research-cohort
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.batched-cross-graph-writer
+  name: A high-volume source
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/ingest_routing.py
+  doc: A high-volume source
+  dotted: AU-KG.ingest.batched-cross-graph-writer
+  aliases:
+  - AU-KG.ingest.batched-cross-graph-writer
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.big-repo-structural-split
   name: Big-repo structural-ingest split
   pillar: AU-KG
@@ -5013,6 +5027,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -5487,6 +5502,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
@@ -8701,6 +8717,20 @@ concepts:
   - AU-ORCH.dispatch.seeded-agent-template
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.dispatch.two-pool
+  name: TWO independently-sized worker POOLS over the
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: TWO independently-sized worker POOLS over the
+  dotted: AU-ORCH.dispatch.two-pool
+  aliases:
+  - AU-ORCH.dispatch.two-pool
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.dispatch.warm-skills-share
   name: warm-share the SkillsToolset across the fan-out cohort
   pillar: AU-ORCH
@@ -11060,12 +11090,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.doctor-minimal-mcp-config
-  name: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  name: doctor-driven minimal mcp_config — one graph-os entry
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/deployment/config_generator.py
-  doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+  doc: doctor-driven minimal mcp_config — one graph-os entry
   dotted: AU-OS.deployment.doctor-minimal-mcp-config
   aliases:
   - AU-OS.deployment.doctor-minimal-mcp-config
@@ -12684,6 +12714,19 @@ concepts:
   dotted: EG-KG.storage.blob-namespace
   aliases:
   - EG-KG.storage.blob-namespace
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.storage.multi-graph-batch-write
+  name: which commits the K sub-batches in
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: which commits the K sub-batches in
+  dotted: EG-KG.storage.multi-graph-batch-write
+  aliases:
+  - EG-KG.storage.multi-graph-batch-write
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.storage.nonblocking-checkpoint

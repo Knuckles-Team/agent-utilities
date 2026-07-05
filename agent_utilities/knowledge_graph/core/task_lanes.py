@@ -180,10 +180,82 @@ _TYPE_TO_LANE: dict[str, str] = {
     t: lane for lane, cfg in TASK_LANES.items() for t in cfg["task_types"]
 }
 
+# CONCEPT:AU-ORCH.dispatch.two-pool — TWO independently-sized worker POOLS over the
+# functional lanes (Prefect-style two-pool ingestion). The lanes partition the
+# queue by domain; the pools partition the WORKER BUDGET into two isolated
+# back-pressure domains so the write-lock-bound half can never starve the
+# I/O-bound half:
+#
+#   * ``acquisition`` — pull raw SourceDocuments in (connector delta syncs, the
+#     RSS/FreshRSS feed sweep, one-off URL crawls). Largely network/IO-bound;
+#     each unit is light on the engine's single per-graph write lock. This is the
+#     "get the corpus in" phase.
+#   * ``memory_gen`` — turn documents into memory: chunk → LLM-extract →
+#     normalize → embed → KG-write. This is the phase that BACK-PRESSURES on the
+#     per-graph write lock (``epistemic_graph_backend`` single-writer,
+#     ``ingestion/engine`` single-writer engine), so a burst of it must not
+#     consume the whole pool and leave acquisition unable to scrape.
+#
+# Lanes with no pool (``queries`` interactive, ``maint`` best-effort) keep their
+# existing interactive-floor / best-effort-cap semantics untouched — the pool
+# budget only governs the two ingestion halves.
+#
+# The split is enforced purely at the in-process admission layer
+# (:class:`~.worker_scheduler.AdmissionPolicy`), transport-agnostically, so the
+# executor-swap property of ``TASK_QUEUE_BACKEND`` / ``AGENT_DISPATCH_BACKEND``
+# is preserved: swapping the queue/dispatch backend does not change which lane
+# belongs to which pool or how the two budgets are sized.
+ACQUISITION_POOL = "acquisition"
+MEMORY_GEN_POOL = "memory_gen"
+
+POOLS: dict[str, frozenset[str]] = {
+    ACQUISITION_POOL: frozenset({"connectors"}),
+    MEMORY_GEN_POOL: frozenset(
+        {"ingestion", "extraction", "worldview", "research", "enrichment"}
+    ),
+}
+
+POOL_NAMES: tuple[str, ...] = tuple(POOLS)
+
+# Per-TASK-TYPE pool override — a type whose owning lane is in one pool but that
+# functionally belongs in the other. ``content_url`` rides the ``ingestion`` lane
+# (so it shares that lane's soft-timeout envelope) but is a raw-document FETCH, so
+# for worker-budget purposes it is acquisition, not memory-gen.
+_TYPE_POOL_OVERRIDE: dict[str, str] = {"content_url": ACQUISITION_POOL}
+
+_LANE_TO_POOL: dict[str, str] = {
+    lane: pool for pool, lanes in POOLS.items() for lane in lanes
+}
+
 
 def lane_for_task_type(task_type: str | None) -> str:
     """The functional lane that owns a task type (``DEFAULT_LANE`` for unmapped types)."""
     return _TYPE_TO_LANE.get(task_type or "", DEFAULT_LANE)
+
+
+def pool_for_lane(lane: str | None) -> str | None:
+    """The worker pool a lane belongs to, or ``None`` for an un-pooled lane
+    (``queries`` / ``maint``) — the two-pool budget does not govern those
+    (CONCEPT:AU-ORCH.dispatch.two-pool)."""
+    return _LANE_TO_POOL.get(lane or "")
+
+
+def pool_for(lane: str | None, task_type: str | None) -> str | None:
+    """The worker pool for a (lane, task_type), honouring per-type overrides.
+
+    A per-type override (``content_url`` → acquisition) wins over the lane's pool
+    so a raw-fetch type riding a memory-gen lane is still budgeted as acquisition
+    (CONCEPT:AU-ORCH.dispatch.two-pool)."""
+    ov = _TYPE_POOL_OVERRIDE.get(task_type or "")
+    if ov is not None:
+        return ov
+    return pool_for_lane(lane)
+
+
+def pool_for_task_type(task_type: str | None) -> str | None:
+    """The worker pool for a task TYPE (resolves its lane then its pool, with the
+    per-type override applied; CONCEPT:AU-ORCH.dispatch.two-pool)."""
+    return pool_for(lane_for_task_type(task_type), task_type)
 
 
 def lane_task_types(lane: str) -> list[str]:
