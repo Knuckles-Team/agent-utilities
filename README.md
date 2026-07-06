@@ -212,6 +212,13 @@ LadybugDB mirrors) with **[Schema-Pack domain profiles](docs/pillars/2_epistemic
 bitemporal `as_of` recall) over a **[high-performance Rust compute engine](docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md)**
 (MessagePack/UDS, **no PyO3**; measured ~52 kB/agent — see the
 [capacity model](docs/scaling/capacity_model.md) for the honestly-projected 100M figure).
+**Benchmarked against a conventional stitched memory stack** (separate vector DB + BM25 +
+app-level fusion, no KV cache, no warm-fork), this unified memory matches recall (**1.000**)
+while retrieving **~3.6× faster**, reuses cross-modal context across an agentic fan-out with
+**`retrieval_calls == 1`** instead of *N* (the `crossmodal_fork` warm-fork path), keeps writes
+**read-fresh in ~26 ms** (incremental, not full-rebuild), and survives a restart via a **durable
+KV cold-tier (100% survival, >300× vs recompute)** — full scorecard + reproduction in the
+[Phase-2 benchmark report](https://github.com/knuckles-team/epistemic-graph/blob/main/docs/benchmarks.md#phase-2-agent-memory--kv-cache-benchmark-measured).
 
 **🗂 Ontology system (Palantir-Foundry parity, graph-native)** — the structured layer.
 **[Objects, links, interfaces, value/property types, derived properties, functions,
