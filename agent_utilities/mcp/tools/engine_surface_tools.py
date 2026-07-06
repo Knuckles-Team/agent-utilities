@@ -969,35 +969,44 @@ def register_engine_surface_tools(mcp) -> None:
         description=(
             "CONCEPT:EG-KG.mining.frequent-itemset-mining — the unified data-mining surface "
             "over the engine, compute-near-data (mining runs where the graph lives). "
-            "Phase 1 action: 'associate' — frequent-itemset + association-rule mining "
-            "(Apriori / FP-Growth / Eclat; support, confidence, lift). Provide EITHER "
-            "explicit 'transactions' (a list of baskets, each a list of item labels) OR "
-            "a graph-derived 'source' spec — {node_label, direction(out|in|any), "
-            "item_field(label|prop:<key>), relation, limit} — that turns each "
-            "node's neighborhood into a transaction (e.g. for each :Capability the set "
-            "of concepts it touches ⇒ concept↔capability co-occurrence rules). "
-            "'algorithm' ∈ {fpgrowth(default),apriori,eclat} (all agree). "
-            "'writeback'=true materializes each rule as a typed :AssociationRule node "
-            "(antecedent/consequent/support/confidence/lift) linked to its item nodes "
-            "— the discovery flywheel OWL reasoning + the next mining pass consume. "
-            "Returns {rules:[{antecedent,consequent,support,confidence,lift}], "
-            "n_transactions, n_rules, written_back}. REST twin: POST /api/mining/associate "
-            "(same _execute_tool core). Degrades cleanly on a no-mining engine build."
+            "Actions: 'associate' (association rules), 'cluster' (clustering), "
+            "'anomaly' (outlier detection). "
+            "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
+            "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
+            "graph-derived 'source' {node_label, direction(out|in|any), "
+            "item_field(label|prop:<key>), relation, limit}. writeback ⇒ :AssociationRule nodes. "
+            "• cluster — DBSCAN(default)/hierarchical/gmm/kmedoids over 'features' (a row "
+            "matrix) OR a vector 'source' {node_label, limit} (the stored embeddings of "
+            "those nodes — cross-modal 'cluster the vectors of these nodes'). Params: "
+            "eps/min_pts (dbscan), k, linkage(single|complete|average), max_iter, seed. "
+            "writeback ⇒ :Cluster nodes linked to members. Returns "
+            "{clusters:[{cluster_id,members,centroid,score}], labels, ...} (gmm adds "
+            "responsibilities). "
+            "• anomaly — zscore(default)/isoforest/lof/ocsvm over 'features', a 1-D 'values' "
+            "series (tsdb RCA), OR a vector 'source'. Params: k(lof), n_trees/sample_size/seed "
+            "(isoforest), nu/kernel(rbf|linear)/gamma (ocsvm), threshold. writeback ⇒ "
+            ":Anomaly nodes linked to their source. Returns {rows:[{id,anomaly_score,"
+            "is_anomaly}], n_anomalies, threshold, ...}. "
+            "REST twins: POST /api/mining/{associate,cluster,anomaly} (same _execute_tool "
+            "core). Degrades cleanly on a no-mining engine build."
         ),
-        tags=["graph-os", "engine", "mining", "association-rules", "data-mining"],
+        tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
     def graph_mine(
         action: str = Field(
             default="associate",
-            description="Mining action. Phase 1: 'associate' (association-rule mining).",
+            description="Mining action: 'associate' | 'cluster' | 'anomaly'.",
         ),
         params_json: str = Field(
             default="{}",
             description="JSON object of mining kwargs, e.g. "
             '{"transactions":[["bread","milk"],["bread","butter"]],'
-            '"min_support":0.5,"min_confidence":0.6,"algorithm":"fpgrowth"} '
-            'or {"source":{"node_label":"Capability","direction":"out",'
-            '"item_field":"label"},"writeback":true}.',
+            '"min_support":0.5,"algorithm":"fpgrowth"} (associate); '
+            '{"features":[[0,0],[10,10]],"algorithm":"dbscan","eps":1.0,"min_pts":2} '
+            'or {"source":{"node_label":"Doc"},"algorithm":"kmedoids","k":3,'
+            '"writeback":true} (cluster); '
+            '{"values":[1,1,1,100],"algorithm":"zscore"} or '
+            '{"source":{"node_label":"Metric"},"algorithm":"isoforest"} (anomaly).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
