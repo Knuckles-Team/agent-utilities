@@ -62,7 +62,7 @@ from agent_utilities.core.http_client import create_http_client
 from agent_utilities.kvcache.config import KvCacheConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +267,139 @@ class EpistemicGraphKVBackend:
         except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
             logger.warning("kvcache stats() failed: %s", exc)
             return KvCacheStats()
+
+    # -- zero-copy snapshot → fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) ----------
+    # The engine's ``eg-kvcache`` crate exposes a "snapshot → branch" primitive on
+    # its content-addressed shared KV store: ``snapshot(keys)`` pins a set of
+    # already-resident pages, ``fork(snapshot)`` fans out N branches that all read
+    # those SAME physical pages by ``Arc`` (one copy regardless of N), and a
+    # ``branch_put`` is copy-on-write per branch. Surfaced over the same ``/kv``
+    # HTTP surface as ``POST /kv/snapshot`` + ``POST /kv/snapshot/<id>/fork`` +
+    # ``GET|PUT /kv/branch/<bid>/<key>`` (``GET /kv/fork/stats`` proves resident
+    # bytes stay flat vs branch count). Same graceful-degradation posture as the
+    # remote-backend contract above: every error is a safe default, never a raise.
+    #
+    # HONEST SCOPE: this drives the SHARING/plumbing of pages that ALREADY EXIST in
+    # the store. It does NOT produce KV pages — the vLLM/LMCache model-side mapping
+    # of live attention KV onto this store is external (see ``put``). Snapshotting a
+    # key the store has never seen simply pins nothing for it.
+    @staticmethod
+    def _branch_path(branch_id: int, key: str) -> str:
+        """URL path for a branch-local key (the opaque key is percent-encoded)."""
+        return f"/kv/branch/{int(branch_id)}/{quote(str(key), safe='')}"
+
+    def snapshot(self, keys: Sequence[str]) -> int | None:
+        """Pin ``keys`` into an immutable snapshot via ``POST /kv/snapshot``.
+
+        Returns the integer snapshot id on success, or ``None`` on any transport /
+        protocol error or a non-200 status — never raises (the caller falls back to
+        the per-branch copy path when snapshotting is unavailable).
+        """
+        try:
+            resp = self._client.post(
+                "/kv/snapshot", json={"keys": [str(k) for k in keys]}
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache snapshot() failed: %s", exc)
+            return None
+        if resp.status_code != 200:
+            logger.warning("kvcache snapshot() unexpected status %s", resp.status_code)
+            return None
+        try:
+            return int(resp.json()["snapshot"])
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("kvcache snapshot() malformed response: %s", exc)
+            return None
+
+    def fork(self, snapshot_id: int) -> int | None:
+        """Fork a copy-on-write branch off ``snapshot_id`` via ``POST /kv/snapshot/<id>/fork``.
+
+        All branches forked off one snapshot share its pages zero-copy (``Arc``);
+        this is the rung that makes fanning out N branches O(1) in copies. Returns
+        the integer branch id, or ``None`` on any error — never raises.
+        """
+        try:
+            resp = self._client.post(f"/kv/snapshot/{int(snapshot_id)}/fork")
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache fork(%s) failed: %s", snapshot_id, exc)
+            return None
+        if resp.status_code != 200:
+            logger.warning(
+                "kvcache fork(%s) unexpected status %s", snapshot_id, resp.status_code
+            )
+            return None
+        try:
+            return int(resp.json()["branch"])
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("kvcache fork(%s) malformed response: %s", snapshot_id, exc)
+            return None
+
+    def branch_get(self, branch_id: int, key: str) -> bytes | None:
+        """Read a branch-local page via ``GET /kv/branch/<bid>/<key>``.
+
+        Reads through to the shared snapshot page unless this branch has written its
+        own copy-on-write override. Returns the bytes on a ``200`` hit, ``None`` on a
+        ``404`` miss, and ``None`` on any error — never raises.
+        """
+        try:
+            resp = self._client.get(self._branch_path(branch_id, key))
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache branch_get(%s,%s) failed: %s", branch_id, key, exc)
+            return None
+        if resp.status_code == 200:
+            return resp.content
+        if resp.status_code != 404:
+            logger.warning(
+                "kvcache branch_get(%s,%s) unexpected status %s, treating as miss",
+                branch_id,
+                key,
+                resp.status_code,
+            )
+        return None
+
+    def branch_put(self, branch_id: int, key: str, value: bytes) -> bool:
+        """Write a copy-on-write branch-local page via ``PUT /kv/branch/<bid>/<key>``.
+
+        The write is private to this branch (siblings keep reading the shared page),
+        which is what makes ``max_concurrency>1`` fan-out safe. Returns ``True`` on a
+        ``200``/``201`` accept and ``False`` on any error — never raises.
+        """
+        try:
+            resp = self._client.put(
+                self._branch_path(branch_id, key),
+                content=value,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache branch_put(%s,%s) failed: %s", branch_id, key, exc)
+            return False
+        if resp.status_code in (200, 201):
+            return True
+        logger.warning(
+            "kvcache branch_put(%s,%s) rejected with status %s",
+            branch_id,
+            key,
+            resp.status_code,
+        )
+        return False
+
+    def fork_stats(self) -> dict[str, Any]:
+        """Fetch snapshot/branch occupancy via ``GET /kv/fork/stats``.
+
+        Returns the raw JSON dict (``branches``, ``shared_bytes``, ``shared_pages``,
+        ``overlay_bytes``, ``overlay_pages``, ``resident_fork_bytes``, ``snapshots``)
+        — ``shared_*`` staying flat as ``branches`` grows is the zero-copy proof.
+        Returns an empty ``{}`` on any error rather than raising.
+        """
+        try:
+            resp = self._client.get("/kv/fork/stats")
+            if resp.status_code != 200:
+                return {}
+            body = resp.json()
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+            logger.warning("kvcache fork_stats() failed: %s", exc)
+            return {}
+        return dict(body) if isinstance(body, dict) else {}
 
     # -- lifecycle ------------------------------------------------------------
     def close(self) -> None:
