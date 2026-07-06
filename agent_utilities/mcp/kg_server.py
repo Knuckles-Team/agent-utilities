@@ -671,34 +671,46 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
-async def mining_associate_endpoint(request: Request) -> JSONResponse:
-    """REST twin for the ``graph_mine`` MCP tool (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+#: The graph_mine actions with a natural-body REST twin (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+#: Each mounts ``POST /api/mining/<action>`` dispatching the SAME
+#: ``_execute_tool("graph_mine", action=...)`` core as the MCP verb — surface
+#: parity is a build gate, so the MCP action + its REST twin ship together.
+MINING_ACTIONS = ("associate", "cluster", "anomaly")
 
-    ``POST /api/mining/associate`` accepts a natural mining body
-    (``{transactions | source, min_support, min_confidence, algorithm, writeback,
-    graph}``) and dispatches the SAME ``_execute_tool("graph_mine", ...)`` core as
-    the MCP verb — surface parity is a build gate, so both must ship together.
+
+def _make_mining_endpoint(action: str):
+    """Build the REST twin for one ``graph_mine`` action (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+
+    ``POST /api/mining/<action>`` accepts a natural mining body (the action's
+    kwargs, e.g. ``{transactions|source,...}`` for associate, ``{features|source,
+    algorithm,...}`` for cluster, ``{features|values|source,algorithm,...}`` for
+    anomaly) plus an optional ``graph``, and dispatches the SAME
+    ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    if not isinstance(body, dict):
-        return JSONResponse(
-            {"status": "error", "message": "body must be a JSON object"},
-            status_code=400,
-        )
-    graph = body.pop("graph", "") or ""
-    try:
-        res = await _execute_tool(
-            "graph_mine",
-            action="associate",
-            params_json=json.dumps(body),
-            graph=graph,
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return JSONResponse(
+                {"status": "error", "message": "body must be a JSON object"},
+                status_code=400,
+            )
+        graph = body.pop("graph", "") or ""
+        try:
+            res = await _execute_tool(
+                "graph_mine",
+                action=action,
+                params_json=json.dumps(body),
+                graph=graph,
+            )
+            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except Exception as e:
+            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+    return _endpoint
 
 
 def _make_action_endpoint(tool_name: str):
@@ -3350,10 +3362,12 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
             continue
         route(_path, _make_tool_endpoint(_tool), ["POST"])
 
-    # Data-mining REST twin (CONCEPT:EG-KG.mining.frequent-itemset-mining) — the natural-body
-    # /api/mining/associate endpoint dispatching the SAME graph_mine _execute_tool core.
+    # Data-mining REST twins (CONCEPT:EG-KG.mining.frequent-itemset-mining) — one natural-body
+    # /api/mining/<action> endpoint per graph_mine action (associate|cluster|anomaly),
+    # each dispatching the SAME graph_mine _execute_tool core (surface parity).
     if "graph_mine" in ACTION_TOOL_ROUTES:
-        route(ACTION_TOOL_ROUTES["graph_mine"], mining_associate_endpoint, ["POST"])
+        for _mine_action in MINING_ACTIONS:
+            route(f"/mining/{_mine_action}", _make_mining_endpoint(_mine_action), ["POST"])
 
 
 _FLEET_EMBED_MODEL: Any = None
