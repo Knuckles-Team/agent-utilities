@@ -671,6 +671,36 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def mining_associate_endpoint(request: Request) -> JSONResponse:
+    """REST twin for the ``graph_mine`` MCP tool (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+
+    ``POST /api/mining/associate`` accepts a natural mining body
+    (``{transactions | source, min_support, min_confidence, algorithm, writeback,
+    graph}``) and dispatches the SAME ``_execute_tool("graph_mine", ...)`` core as
+    the MCP verb — surface parity is a build gate, so both must ship together.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"status": "error", "message": "body must be a JSON object"},
+            status_code=400,
+        )
+    graph = body.pop("graph", "") or ""
+    try:
+        res = await _execute_tool(
+            "graph_mine",
+            action="associate",
+            params_json=json.dumps(body),
+            graph=graph,
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 def _make_action_endpoint(tool_name: str):
     """Build an action-routed REST endpoint for a focused analyze-suite tool — the REST
     twin of the MCP tool, dispatching through the same ``_execute_tool`` core (KG-2.257)."""
@@ -3311,11 +3341,19 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         "graph_analyze",
         "graph_orchestrate",
         "graph_configure",
+        # graph_mine has a bespoke endpoint (natural mining body → the same
+        # _execute_tool core) mounted below (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+        "graph_mine",
     }
     for _tool, _path in ACTION_TOOL_ROUTES.items():
         if _tool in _bespoke_action_tools:
             continue
         route(_path, _make_tool_endpoint(_tool), ["POST"])
+
+    # Data-mining REST twin (CONCEPT:EG-KG.mining.frequent-itemset-mining) — the natural-body
+    # /api/mining/associate endpoint dispatching the SAME graph_mine _execute_tool core.
+    if "graph_mine" in ACTION_TOOL_ROUTES:
+        route(ACTION_TOOL_ROUTES["graph_mine"], mining_associate_endpoint, ["POST"])
 
 
 _FLEET_EMBED_MODEL: Any = None

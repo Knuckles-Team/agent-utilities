@@ -962,6 +962,73 @@ def register_engine_surface_tools(mcp) -> None:
     kg_server.ACTION_TOOL_ROUTES["graph_memory"] = "/graph/memory"
 
     # ══════════════════════════════════════════════════════════════════
+    # graph_mine — data-mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_mine",
+        description=(
+            "CONCEPT:EG-KG.mining.frequent-itemset-mining — the unified data-mining surface "
+            "over the engine, compute-near-data (mining runs where the graph lives). "
+            "Phase 1 action: 'associate' — frequent-itemset + association-rule mining "
+            "(Apriori / FP-Growth / Eclat; support, confidence, lift). Provide EITHER "
+            "explicit 'transactions' (a list of baskets, each a list of item labels) OR "
+            "a graph-derived 'source' spec — {node_label, direction(out|in|any), "
+            "item_field(label|prop:<key>), relation, limit} — that turns each "
+            "node's neighborhood into a transaction (e.g. for each :Capability the set "
+            "of concepts it touches ⇒ concept↔capability co-occurrence rules). "
+            "'algorithm' ∈ {fpgrowth(default),apriori,eclat} (all agree). "
+            "'writeback'=true materializes each rule as a typed :AssociationRule node "
+            "(antecedent/consequent/support/confidence/lift) linked to its item nodes "
+            "— the discovery flywheel OWL reasoning + the next mining pass consume. "
+            "Returns {rules:[{antecedent,consequent,support,confidence,lift}], "
+            "n_transactions, n_rules, written_back}. REST twin: POST /api/mining/associate "
+            "(same _execute_tool core). Degrades cleanly on a no-mining engine build."
+        ),
+        tags=["graph-os", "engine", "mining", "association-rules", "data-mining"],
+    )
+    def graph_mine(
+        action: str = Field(
+            default="associate",
+            description="Mining action. Phase 1: 'associate' (association-rule mining).",
+        ),
+        params_json: str = Field(
+            default="{}",
+            description="JSON object of mining kwargs, e.g. "
+            '{"transactions":[["bread","milk"],["bread","butter"]],'
+            '"min_support":0.5,"min_confidence":0.6,"algorithm":"fpgrowth"} '
+            'or {"source":{"node_label":"Capability","direction":"out",'
+            '"item_field":"label"},"writeback":true}.',
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin action-router over the engine mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)."""
+        action = (action or "").strip().replace("-", "_") or "associate"
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return json.dumps(
+                {"surface": "mining", "error": f"invalid params_json: {exc}"}
+            )
+        if not isinstance(params, dict):
+            return json.dumps(
+                {"surface": "mining", "error": "params_json must decode to an object"}
+            )
+        return _invoke(
+            surface="mining",
+            action=action,
+            graph=graph,
+            candidates=((("mining", action),)),
+            params=params,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_mine"] = graph_mine
+    # REST twin path: POST {prefix}/mining/associate (mounted bespoke in kg_server so
+    # a natural mining body works while dispatching the SAME _execute_tool core).
+    kg_server.ACTION_TOOL_ROUTES["graph_mine"] = "/mining/associate"
+
+    # ══════════════════════════════════════════════════════════════════
     # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:AU-KG.coordination.warm-fork-fanout)
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
