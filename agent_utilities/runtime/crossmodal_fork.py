@@ -31,6 +31,18 @@ KV-cache-fork rung (LMCacheMPConnector snapshot → branch, the vLLM path in the
 note) additionally shares the candidate set's KV / embedding pages as copy-on-write memory,
 making the data-sharing itself zero-copy — the same :class:`ForkableSandbox` seam, a stronger
 backend. This module is backend-agnostic: it drives whichever warm-fork rung is available.
+
+The zero-copy rung now EXISTS engine-side (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork): the
+``epistemic-graph`` ``eg-kvcache`` crate implements the "snapshot → branch" primitive on its
+content-addressed shared KV store — ``SharedKvIndex::snapshot(keys)`` pins the candidate-set
+pages, ``fork(snapshot)`` fans out N branches that all read those SAME physical pages by ``Arc``
+(one copy regardless of N), and ``branch_put`` is copy-on-write per branch — exposed over the
+KV-cache HTTP surface as ``POST /kv/snapshot`` + ``POST /kv/snapshot/<id>/fork`` +
+``GET|PUT /kv/branch/<bid>/<key>`` (``GET /kv/fork/stats`` proves resident bytes stay flat vs
+branch count). This is the rung the ``max_concurrency>1`` path can now target to make fan-out
+O(1) in copies instead of the forkserver's per-branch serialize-and-copy (18–43 ms/branch in the
+phase-2 benchmark). Still external: the vLLM/LMCache connector that maps live attention KV pages
+onto this store — the engine provides the zero-copy substrate, not the model-side page mapping.
 """
 
 from __future__ import annotations
