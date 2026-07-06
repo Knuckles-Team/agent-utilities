@@ -43,6 +43,14 @@ branch count). This is the rung the ``max_concurrency>1`` path can now target to
 O(1) in copies instead of the forkserver's per-branch serialize-and-copy (18–43 ms/branch in the
 phase-2 benchmark). Still external: the vLLM/LMCache connector that maps live attention KV pages
 onto this store — the engine provides the zero-copy substrate, not the model-side page mapping.
+
+:class:`CrossModalForkFanout` now *drives* that substrate as an OPT-IN rung: pass
+:meth:`CrossModalForkFanout.fan_out`'s ``kv_page_keys`` (the engine KV-page keys of the retrieved
+context) and it snapshots+forks them so the branches share those pages zero-copy. It is DEFAULT-OFF
+— omit ``kv_page_keys`` and the fan-out is byte-for-byte the forkserver copy path. And it wires only
+the SHARING/plumbing of pages that already live in the store; producing the pages (mapping live
+attention KV onto the store) remains the external vLLM/LMCache job, so an absent/unreachable KV
+backend degrades to the copy path rather than failing the cohort.
 """
 
 from __future__ import annotations
@@ -122,11 +130,32 @@ class CrossModalForkResult:
     branches: list[CrossModalBranchResult] = field(default_factory=list)
     degraded: bool = False
     error: str | None = None
+    # -- optional zero-copy KV-fork rung (default-off; populated only when the
+    #    caller passes ``kv_page_keys`` AND the snapshot→fork plumbing succeeds).
+    kv_snapshot_id: int | None = None
+    """Engine snapshot id the branches' KV pages were pinned into, or ``None`` (rung off/unavailable)."""
+    kv_branch_ids: list[int | None] = field(default_factory=list)
+    """Per-branch copy-on-write KV branch id (index-aligned to ``branches``); ``None`` per entry on failure."""
+    kv_fork_stats: dict[str, Any] = field(default_factory=dict)
+    """``GET /kv/fork/stats`` snapshot taken after forking — ``shared_*`` flat vs branch count is the zero-copy proof."""
 
     @property
     def reused_without_recompute(self) -> bool:
         """True iff the cross-modal candidate set was retrieved exactly once for the whole cohort."""
         return self.retrieval_calls == 1
+
+    @property
+    def kv_fork_shared(self) -> bool:
+        """True iff the KV-fork rung engaged and its branches share pages zero-copy.
+
+        Reads the ``/kv/fork/stats`` counters: at least one forked branch id and a
+        positive ``shared_bytes`` (pages read by ``Arc`` across branches, not copied).
+        """
+        return bool(
+            self.kv_snapshot_id is not None
+            and any(b is not None for b in self.kv_branch_ids)
+            and int(self.kv_fork_stats.get("shared_bytes", 0)) > 0
+        )
 
 
 def _pick_warm_fork_sandbox(preferred: str = "") -> Any | None:
@@ -199,20 +228,74 @@ class CrossModalForkFanout:
     vector+graph+text fusion); inject a callable to run without a live engine. ``sandbox`` pins a
     :class:`~agent_utilities.rlm.sandboxes.base.ForkableSandbox`; when unset the cheapest
     available warm-fork rung is auto-selected.
+
+    ``kv_backend`` is the OPTIONAL zero-copy KV-fork rung
+    (:class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`, CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
+    It is only engaged when a caller passes ``kv_page_keys`` to :meth:`fan_out`; leave it ``None``
+    and the fan-out behaves EXACTLY as before (the local forkserver copy path). Inject one to reuse
+    a pooled connector, or leave it ``None`` and one is lazily built from the KV-cache env when the
+    rung is actually requested.
     """
 
     def __init__(
         self,
         retriever: CrossModalRetriever | None = None,
         sandbox: Any | None = None,
+        kv_backend: Any | None = None,
     ) -> None:
         self._retriever = retriever
         self._sandbox = sandbox
+        self._kv_backend = kv_backend
 
     def _resolve_retriever(self) -> CrossModalRetriever:
         if self._retriever is not None:
             return self._retriever
         return engine_cross_modal_candidates
+
+    def _resolve_kv_backend(self) -> Any | None:
+        """Return the injected KV-fork backend, else lazily build one from the KV-cache env.
+
+        Lazy + guarded: importing this module must never pull ``httpx`` / the kvcache
+        stack, and a host without a reachable engine must degrade to the copy path
+        (``None``) rather than crash. Only called when the rung is actually requested.
+        """
+        if self._kv_backend is not None:
+            return self._kv_backend
+        try:
+            from agent_utilities.kvcache import EpistemicGraphKVBackend
+
+            self._kv_backend = EpistemicGraphKVBackend.from_env()
+        except Exception as exc:  # noqa: BLE001 — no engine / no deps ⇒ copy path
+            logger.debug("KV-fork rung unavailable, using copy path: %s", exc)
+            self._kv_backend = None
+        return self._kv_backend
+
+    def _snapshot_and_fork(
+        self, kv_page_keys: Sequence[str], branch_count: int
+    ) -> tuple[int | None, list[int | None], dict[str, Any]]:
+        """Pin ``kv_page_keys`` into one snapshot, then fork one CoW branch per cohort branch.
+
+        Returns ``(snapshot_id, per_branch_ids, fork_stats)``. Every failure degrades to a
+        no-op (``(None, [], {})`` or ``None`` branch entries) — the fan-out then simply falls
+        back to the local forkserver copy path, never raising.
+
+        HONEST SCOPE (read before relying on this): this shares KV pages that ALREADY EXIST
+        in the engine's content-addressed store — it is the SHARING/plumbing rung, NOT page
+        production. Mapping live vLLM/LMCache attention KV onto the store is external; if the
+        retrieved context's pages were never offloaded, the snapshot pins nothing and the
+        branches share nothing (a safe no-op, not an error).
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            return None, [], {}
+        snap_id = backend.snapshot(list(kv_page_keys))
+        if snap_id is None:
+            return None, [], {}
+        branch_ids: list[int | None] = [
+            backend.fork(snap_id) for _ in range(branch_count)
+        ]
+        stats = backend.fork_stats()
+        return snap_id, branch_ids, stats
 
     async def fan_out(
         self,
@@ -223,6 +306,7 @@ class CrossModalForkFanout:
         candidate_var: str = "candidates",
         extra_vars: dict[str, Any] | None = None,
         max_concurrency: int = 1,
+        kv_page_keys: Sequence[str] | None = None,
     ) -> CrossModalForkResult:
         """Retrieve the candidate set ONCE and fork one CoW branch per snippet over it.
 
@@ -238,6 +322,22 @@ class CrossModalForkFanout:
         amortised parent, not wall-clock parallelism). A live KV-cache-fork rung
         (LMCacheMPConnector snapshot → branch) or the container-fork rung can fan out truly in
         parallel; raise ``max_concurrency`` when driving one of those.
+
+        ``kv_page_keys`` is the OPTIONAL zero-copy KV-fork rung (default ``None`` ⇒ OFF, and the
+        fan-out behaves EXACTLY as before). When supplied — the engine KV-page keys of the
+        retrieved context — the candidate set's pages are pinned into one engine snapshot and one
+        copy-on-write branch is forked per cohort branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
+        so branches SHARE those pages by ``Arc`` (one physical copy regardless of branch count)
+        instead of the forkserver's per-branch serialize-and-copy. That shared-immutable /
+        per-branch-CoW topology is what makes ``max_concurrency>1`` safe to parallelise. Each
+        branch's KV branch id is exposed to its snippet as ``kv_branch_id``; the fork ids +
+        ``/kv/fork/stats`` land on the result (:attr:`CrossModalForkResult.kv_fork_shared`).
+
+        HONEST SCOPE: this wires the SHARING/plumbing of KV pages only — it does NOT produce them.
+        The vLLM/LMCache model-side mapping of live attention KV onto the engine store is external;
+        if the context's pages were never offloaded there, snapshot/fork is a safe no-op and the
+        fan-out transparently falls back to the copy path. A KV backend / reachable engine failure
+        likewise degrades to the copy path — it never fails the cohort.
         """
         branch_list = list(branches)
         guard = _RecomputeGuard(self._resolve_retriever())
@@ -264,6 +364,18 @@ class CrossModalForkFanout:
                 ),
             )
 
+        # Optional zero-copy KV-fork rung (default-off): pin the retrieved context's KV pages
+        # into ONE snapshot and fork one CoW branch per cohort branch so they share those pages
+        # by Arc. A no-op (None ids) when the rung is off or the engine is unreachable — the
+        # branch execution below is IDENTICAL either way; this only adds page-sharing + branch ids.
+        kv_snapshot_id: int | None = None
+        kv_branch_ids: list[int | None] = []
+        kv_fork_stats: dict[str, Any] = {}
+        if kv_page_keys:
+            kv_snapshot_id, kv_branch_ids, kv_fork_stats = self._snapshot_and_fork(
+                kv_page_keys, len(branch_list)
+            )
+
         from agent_utilities.rlm.sandboxes.base import SandboxEnv
 
         async def _run_branch(idx: int, snippet: str) -> CrossModalBranchResult:
@@ -282,6 +394,10 @@ class CrossModalForkFanout:
             if extra_vars:
                 env_vars.update(copy.deepcopy(extra_vars))
             env_vars["branch_index"] = idx
+            # Expose this branch's copy-on-write KV branch id (or None when the rung is off) so a
+            # KV-aware snippet can address its branch-local pages via the /kv/branch/<bid> surface.
+            if idx < len(kv_branch_ids):
+                env_vars["kv_branch_id"] = kv_branch_ids[idx]
             try:
                 res = await sb.execute(
                     snippet, SandboxEnv(vars=env_vars, helpers={"FINAL_VAR": FINAL_VAR})
@@ -314,4 +430,7 @@ class CrossModalForkFanout:
             retrieval_calls=guard.calls,
             sandbox=getattr(sb, "name", None),
             branches=list(results),
+            kv_snapshot_id=kv_snapshot_id,
+            kv_branch_ids=kv_branch_ids,
+            kv_fork_stats=kv_fork_stats,
         )
