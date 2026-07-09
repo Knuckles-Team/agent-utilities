@@ -685,6 +685,7 @@ MINING_ACTIONS = (
     "sequence",
     "forecast",
     "text",
+    "subgraph",
 )
 
 
@@ -698,7 +699,8 @@ def _make_mining_endpoint(action: str):
     for classify_predict, ``{x|source,algorithm,n_components,...}`` for reduce,
     ``{sequences|source,min_support,algorithm,...}`` for sequence,
     ``{values,algorithm,horizon,...}`` for forecast,
-    ``{docs|source,algorithm,k,...}`` for text) plus an
+    ``{docs|source,algorithm,k,...}`` for text,
+    ``{label,min_support,max_edges,algorithm,...}`` for subgraph) plus an
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
