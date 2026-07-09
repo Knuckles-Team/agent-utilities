@@ -125,3 +125,149 @@ def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
     assert rep["intake_papers"]["papers_discovered"] == 1
     assert seen["papers"][0]["id"] == "2606.09498"
     assert rep["errors"] == []
+
+
+# ── Discovery-flywheel mining stage (CONCEPT:AU-KG.evolution.mining-flywheel) ──────────
+
+
+def test_mine_discovery_association_rule_and_link_prediction(monkeypatch):
+    """The mining stage mirrors epistemic-graph's docs/mining.md concept↔capability
+    example: mocking the ``_invoke`` call boundary (the same one graph_mine/graph_learn
+    MCP tools use) to return a concept↔capability association rule + a predicted
+    concept↔concept edge, asserting the compact summary carries both through and
+    the cycle never raises."""
+    import json as _json
+
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+
+    def fake_invoke(*, surface, action, graph, candidates, params):
+        if surface == "mining" and action == "associate":
+            return _json.dumps(
+                {
+                    "surface": "mining",
+                    "action": "associate",
+                    "result": {
+                        "rules": [
+                            {
+                                "antecedent": ["concept:cA", "concept:cB"],
+                                "consequent": ["capability:capZ"],
+                                "confidence": 1.0,
+                                "lift": 1.67,
+                            }
+                        ],
+                        "written_back": 1,
+                    },
+                }
+            )
+        if surface == "mining" and action == "anomaly":
+            return _json.dumps(
+                {"surface": "mining", "action": "anomaly", "result": {"rows": []}}
+            )
+        if surface == "graphlearn" and action == "fit":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "fit",
+                    "result": {"model": {"basis": "chebyshev"}, "n_nodes": 3},
+                }
+            )
+        if surface == "graphlearn" and action == "predict":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "predict",
+                    "result": {
+                        "predicted": [
+                            {"src": "concept:cA", "dst": "concept:cC", "score": 0.9}
+                        ]
+                    },
+                }
+            )
+        raise AssertionError(f"unexpected invoke {surface}/{action}")
+
+    monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
+
+    eng = _StubEngine([], [])  # query_cypher falls through to [] → anomaly skipped
+    rep = LoopController(eng)._run_mine_discovery()
+
+    assert rep["association_rules"]["count"] == 1
+    rule = rep["association_rules"]["examples"][0]
+    assert rule["antecedent"] == ["concept:cA", "concept:cB"]
+    assert rule["consequent"] == ["capability:capZ"]
+    assert rule["confidence"] == 1.0
+
+    assert rep["predicted_edges"]["count"] == 1
+    assert rep["predicted_edges"]["examples"][0]["dst"] == "concept:cC"
+
+    assert rep["anomalies"] == {"count": 0, "examples": []}
+    assert rep["errors"] == []
+
+
+def test_mine_discovery_degrades_cleanly_on_mining_error(monkeypatch):
+    """When the engine build has no mining surface (or the call otherwise fails),
+    ``_invoke`` returns an error payload as data (never raises) — the mining stage
+    must surface that as a captured error and an empty summary, never blow up the
+    cycle."""
+    import json as _json
+
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+
+    def fake_invoke(*, surface, action, graph, candidates, params):
+        return _json.dumps(
+            {
+                "surface": surface,
+                "action": action,
+                "degraded": True,
+                "error": f"engine surface {surface!r} is not available in this build",
+            }
+        )
+
+    monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
+
+    eng = _StubEngine([], [])
+    rep = LoopController(eng)._run_mine_discovery()
+
+    assert rep["association_rules"] == {"count": 0, "examples": []}
+    assert rep["anomalies"] == {"count": 0, "examples": []}
+    assert rep["predicted_edges"] == {"count": 0, "examples": []}
+    assert len(rep["errors"]) == 2  # association + predicted_edges:fit both degraded
+
+
+def test_run_one_cycle_mine_discovery_defaults_true_and_can_disable(monkeypatch):
+    """``mine_discovery`` defaults to ``config.kg_loop_mine_discovery`` (True) and can
+    be explicitly disabled per-call, mirroring the other ``kg_loop_*`` gated stages."""
+    import agent_utilities.knowledge_graph.research.loop_controller as loop_controller
+
+    calls: list[bool] = []
+
+    def fake_mine_discovery(self):
+        calls.append(True)
+        return {
+            "association_rules": {"count": 0, "examples": []},
+            "anomalies": {"count": 0, "examples": []},
+            "predicted_edges": {"count": 0, "examples": []},
+            "errors": [],
+        }
+
+    monkeypatch.setattr(
+        loop_controller.LoopController, "_run_mine_discovery", fake_mine_discovery
+    )
+
+    eng = _StubEngine([], [])
+    rep_default = LoopController(eng).run_one_cycle(
+        assimilate=False, synthesize=False, distill=False, reason=False, breadth=False
+    )
+    assert len(calls) == 1
+    assert rep_default["mine_discovery"] is not None
+
+    calls.clear()
+    rep_disabled = LoopController(eng).run_one_cycle(
+        assimilate=False,
+        synthesize=False,
+        distill=False,
+        reason=False,
+        breadth=False,
+        mine_discovery=False,
+    )
+    assert len(calls) == 0
+    assert rep_disabled["mine_discovery"] is None
