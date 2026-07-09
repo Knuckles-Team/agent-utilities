@@ -40,13 +40,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_otel_trace: Any = None
+_tracer: Any = None
 try:  # OpenTelemetry is optional — degrade to logging when absent.
     from opentelemetry import trace as _otel_trace
 
     _tracer = _otel_trace.get_tracer("agent-utilities.resilience")
 except Exception:  # noqa: BLE001 - any import/runtime issue → no tracing
-    _otel_trace = None
-    _tracer = None
+    pass
 
 
 # Exceptions that are virtually always *deterministic* — retrying them just

@@ -230,7 +230,7 @@ def _parse_modules(modules: tuple[str, ...]) -> ExtractionSchema | None:
             return s.rsplit("#", 1)[1]
         return s.rsplit("/", 1)[-1]
 
-    def _label(subj: object) -> str:
+    def _label(subj: rdflib.term.Node) -> str:
         for pred in (RDFS.comment, RDFS.label, SKOS.prefLabel):
             val = g.value(subject=subj, predicate=pred)
             if val:

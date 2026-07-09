@@ -298,14 +298,14 @@ class FactDeduper:
         self.field = field
         self.threshold = threshold
         self._rows: list[list[float]] = []
+        self._np: Any = None
+        self._mat: Any = None  # lazily-stacked (n, d) matrix
         try:  # vectorize when numpy is available; degrade gracefully otherwise
             from agent_utilities.numeric import xp as np  # noqa: F401
 
             self._np = np
-            self._mat: Any = None  # lazily-stacked (n, d) matrix
         except Exception:  # pragma: no cover - numpy is a core dep but stay safe
-            self._np = None
-            self._mat = None
+            pass
 
     @property
     def embed_fn(self) -> EmbedFn:

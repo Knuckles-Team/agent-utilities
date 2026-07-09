@@ -115,7 +115,7 @@ def persist_spec_proposal(
             SPEC_LABEL,
             properties={
                 "name": title,
-                "description": payload["problem"][:500],
+                "description": str(payload["problem"])[:500],
                 # Top-level status/value_score: a real column on schemaless backends
                 # (queryable), folded into metadata on strict ones (recovered on read).
                 "status": status,
