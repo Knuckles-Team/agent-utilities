@@ -111,20 +111,31 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
     packages.append(
         _kt_package(
             "container-manager-mcp",
-            "Container Manager — Docker, Podman, Compose, and Swarm lifecycle with multi-endpoint support.",
+            "Container Manager — full Docker, Podman, Compose, Swarm AND Kubernetes lifecycle "
+            "with multi-endpoint/multi-context support and an environment doctor.",
             "container-manager-mcp",
-            ["os_subsystem", "devops", "containers"],
+            ["os_subsystem", "devops", "containers", "kubernetes"],
             env={"MEMENTO_ENABLED": "true"},
             tools=[
                 "list_containers",
                 "run_container",
-                "stop_container",
                 "compose_up",
-                "compose_down",
                 "list_images",
-                "pull_image",
                 "init_swarm",
                 "deploy_specialist_container",
+                "list_pods",
+                "describe_pod",
+                "patch_resource",
+                "list_k8s_services",
+                "list_secrets",
+                "list_roles",
+                "cordon_node",
+                "rollout_restart",
+                "top_pods",
+                "podman_pod_create",
+                "docker_stack_deploy",
+                "cm_multi_context",
+                "cm_doctor",
             ],
         )
     )
