@@ -34,6 +34,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -90,8 +91,8 @@ class MarketSpec:
     """
 
     name: str
-    returns: np.ndarray
-    signals: np.ndarray | None = None
+    returns: NDArray
+    signals: NDArray | None = None
     weight: float = 1.0
     asset_class: str = "equity"
 
@@ -146,7 +147,7 @@ class CompositeBacktestResult:
         return "\n".join(lines)
 
 
-def _shift_signals(signals: np.ndarray, n: int) -> np.ndarray:
+def _shift_signals(signals: NDArray, n: int) -> NDArray:
     """Shift a signal array forward one bar (decision at close of t-1 applies to
     bar t); bar 0 starts flat. This is the no-look-ahead guarantee."""
     shifted = np.zeros(n, dtype=float)
@@ -304,7 +305,7 @@ class CompositeBacktester:
 
     def _aggregate_metrics(
         self,
-        combined: np.ndarray,
+        combined: NDArray,
         periods_per_year: int,
         risk_free_rate: float,
     ) -> tuple[float, float, float, float | None, str]:

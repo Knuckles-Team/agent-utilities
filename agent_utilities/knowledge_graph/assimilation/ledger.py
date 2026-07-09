@@ -119,7 +119,10 @@ def close_out(
             feature_id,
             src,
             RegistryEdgeType.DERIVED_FROM_RESEARCH,
-            properties={"_rel": "DERIVED_FROM_RESEARCH", "concept": "AU-KG.query.vendor-agnostic-traversal"},
+            properties={
+                "_rel": "DERIVED_FROM_RESEARCH",
+                "concept": "AU-KG.query.vendor-agnostic-traversal",
+            },
         )
         report.derived_from += 1
         if cb:

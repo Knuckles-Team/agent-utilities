@@ -155,7 +155,9 @@ def discover_skills() -> list[SkillMeta]:
             if name in out:
                 continue
             wraps_raw = fm.get("wraps") or []
-            wraps = tuple(str(w) for w in wraps_raw) if isinstance(wraps_raw, list) else ()
+            wraps = (
+                tuple(str(w) for w in wraps_raw) if isinstance(wraps_raw, list) else ()
+            )
             out[name] = SkillMeta(
                 name=name,
                 tier=str(fm.get("tier") or ""),
@@ -197,10 +199,14 @@ def main() -> int:
     report = compute_coverage()
     if report.ok:
         n = len(report.covered)
-        print(f"kg-coverage-doctor OK — {n} graph-os verbs each wrapped by a kg-* skill.")
+        print(
+            f"kg-coverage-doctor OK — {n} graph-os verbs each wrapped by a kg-* skill."
+        )
         return 0
     if report.uncovered:
-        print("VERBS WITH NO kg-* SKILL (add a skill or add to INTENTIONALLY_UNSKILLED):")
+        print(
+            "VERBS WITH NO kg-* SKILL (add a skill or add to INTENTIONALLY_UNSKILLED):"
+        )
         for v in report.uncovered:
             print(f"  - {v}")
     if report.orphans:

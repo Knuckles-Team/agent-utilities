@@ -137,9 +137,9 @@ class MemoryEventBackend:
     """
 
     def __init__(self, max_queue_size: int = 10_000) -> None:
-        self._subscriptions: dict[str, list[tuple[str, EventHandler]]] = (
-            collections.defaultdict(list)
-        )
+        self._subscriptions: dict[
+            str, list[tuple[str, EventHandler]]
+        ] = collections.defaultdict(list)
         self._max_queue_size = max_queue_size
         self._running = False
         self._published = 0
@@ -285,9 +285,9 @@ class RedpandaEventBackend:
 
         self._producer: Any = None
         self._consumers: dict[str, Any] = {}
-        self._handlers: dict[str, list[tuple[str, EventHandler]]] = (
-            collections.defaultdict(list)
-        )
+        self._handlers: dict[
+            str, list[tuple[str, EventHandler]]
+        ] = collections.defaultdict(list)
         self._running = False
         self._consumer_task: asyncio.Task | None = None
         self._published = 0

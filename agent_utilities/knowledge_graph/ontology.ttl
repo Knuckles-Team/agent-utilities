@@ -29,7 +29,6 @@ unlinked domain ontologies. Adding a new domain ontology means adding its file A
 an import edge here; scripts/check_ontology.py enforces both. See
 docs/architecture/ontology_library.md for the full module catalog and roles.""" ;
     owl:imports <http://knuckles.team/kg/a2a>,
-        <http://knuckles.team/kg/concepts>,
         <http://knuckles.team/kg/action>,
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/banking>,
@@ -37,6 +36,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/capability>,
         <http://knuckles.team/kg/company>,
         <http://knuckles.team/kg/company_infra>,
+        <http://knuckles.team/kg/concepts>,
         <http://knuckles.team/kg/database>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/energy_geopolitics>,
@@ -161,6 +161,14 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
             owl:onProperty :influenced ],
         bfo:0000031 .
 
+:GovernedConcept a owl:Class ;
+    rdfs:label "Governed Concept" ;
+    rdfs:comment """A first-class concept-id node (e.g. KG-2.312 / EG-3.31.20)
+minted from a CONCEPT:<id> marker and tracked in the concept registry/ledger.
+Typed as a :Concept so it federates with the SKOS taxonomy; :partOf its
+:Pillar, and may :extend or :dependOn concepts in other projects.""" ;
+    rdfs:subClassOf :Concept .
+
 :GovernedEntity a owl:Class ;
     rdfs:label "Governed Entity" ;
     rdfs:comment "Any entity subject to at least one governance instrument. Membership is inferred." ;
@@ -241,6 +249,13 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
 :Perspective a owl:Class ;
     rdfs:label "Perspective" ;
     rdfs:comment "One expert lens whose questions surface a distinct source set (CONCEPT:KG-2.127)." ;
+    rdfs:subClassOf :Concept .
+
+:Pillar a owl:Class ;
+    rdfs:label "Pillar" ;
+    rdfs:comment """A coarse grouping of governed concepts within a namespace
+(e.g. KG-2, EG-3, ORCH-1). A pillar is itself a concept and is :partOf its
+namespace; concepts are :partOf their pillar.""" ;
     rdfs:subClassOf :Concept .
 
 :Playbook a owl:Class ;
@@ -370,6 +385,14 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
     rdfs:comment "A rule governing tone/phrasing/brand voice." ;
     rdfs:subClassOf :GovernanceRule .
 
+:aliasOf a owl:ObjectProperty ;
+    rdfs:label "alias of" ;
+    rdfs:comment """Links a legacy/alternate concept-id node to its canonical
+concept, so the flat id (EG-321) and the dotted id (EG-0.321) resolve to the
+same node without breakage.""" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept .
+
 :alignedWith a owl:ObjectProperty,
         owl:SymmetricProperty ;
     rdfs:label "aligned with" ;
@@ -410,6 +433,27 @@ Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :dependsOn .
+
+:dottedId a owl:DatatypeProperty ;
+    rdfs:label "dotted id" ;
+    rdfs:comment "The canonical 3-level id of a governed concept (NS-pillar.concept.segment)." ;
+    rdfs:domain :Concept ;
+    rdfs:range xsd:string .
+
+:extends a owl:ObjectProperty ;
+    rdfs:label "extends" ;
+    rdfs:comment """One concept refines/builds on another, possibly across
+projects (EG↔KG↔ECO↔OS↔AHE↔ORCH). A specialization of :dependsOn — an extension
+necessarily depends on what it extends.""" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept ;
+    rdfs:subPropertyOf :dependsOn .
+
+:flatId a owl:DatatypeProperty ;
+    rdfs:label "flat id" ;
+    rdfs:comment "The permanently-valid flat alias of a governed concept (e.g. EG-321)." ;
+    rdfs:domain :Concept ;
+    rdfs:range xsd:string .
 
 :hadDerivation a owl:ObjectProperty ;
     rdfs:label "had derivation" ;
@@ -790,13 +834,6 @@ SoftwareProject→Team, CreativeWork→Agent, etc. Aligned to prov:wasAttributed
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000004 .
 
-:dependsOn a owl:ObjectProperty ;
-    rdfs:label "depends on" ;
-    rdfs:comment """Generic dependency relationship.  Works for System→System,
-SoftwareProject→SoftwareProject, Task→Task, Skill→Skill, etc.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
 :derivedFrom a owl:ObjectProperty ;
     rdfs:label "derived from" ;
     rdfs:comment """Links an entity to a source it was derived from.
@@ -805,54 +842,12 @@ translation→original, dataset→raw_source, etc.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
-# ── Concept-hierarchy governance model (CONCEPT:OS-5.76 / B5) ──────────────
-# First-class KG nodes for the concept-id registry: every CONCEPT:<id> marker
-# is a :GovernedConcept, grouped under a :Pillar, interwoven across projects via
-# :partOf / :extends / :dependsOn. Flat ids stay valid forever as :flatId aliases
-# of their canonical dotted :dottedId. See docs/architecture/concept-hierarchy.md.
-:Pillar a owl:Class ;
-    rdfs:label "Pillar" ;
-    rdfs:comment """A coarse grouping of governed concepts within a namespace
-(e.g. KG-2, EG-3, ORCH-1). A pillar is itself a concept and is :partOf its
-namespace; concepts are :partOf their pillar.""" ;
-    rdfs:subClassOf :Concept .
-
-:GovernedConcept a owl:Class ;
-    rdfs:label "Governed Concept" ;
-    rdfs:comment """A first-class concept-id node (e.g. KG-2.312 / EG-3.31.20)
-minted from a CONCEPT:<id> marker and tracked in the concept registry/ledger.
-Typed as a :Concept so it federates with the SKOS taxonomy; :partOf its
-:Pillar, and may :extend or :dependOn concepts in other projects.""" ;
-    rdfs:subClassOf :Concept .
-
-:extends a owl:ObjectProperty ;
-    rdfs:label "extends" ;
-    rdfs:comment """One concept refines/builds on another, possibly across
-projects (EG↔KG↔ECO↔OS↔AHE↔ORCH). A specialization of :dependsOn — an extension
-necessarily depends on what it extends.""" ;
-    rdfs:domain :Concept ;
-    rdfs:range :Concept ;
-    rdfs:subPropertyOf :dependsOn .
-
-:aliasOf a owl:ObjectProperty ;
-    rdfs:label "alias of" ;
-    rdfs:comment """Links a legacy/alternate concept-id node to its canonical
-concept, so the flat id (EG-321) and the dotted id (EG-0.321) resolve to the
-same node without breakage.""" ;
-    rdfs:domain :Concept ;
-    rdfs:range :Concept .
-
-:flatId a owl:DatatypeProperty ;
-    rdfs:label "flat id" ;
-    rdfs:comment "The permanently-valid flat alias of a governed concept (e.g. EG-321)." ;
-    rdfs:domain :Concept ;
-    rdfs:range xsd:string .
-
-:dottedId a owl:DatatypeProperty ;
-    rdfs:label "dotted id" ;
-    rdfs:comment "The canonical 3-level id of a governed concept (NS-pillar.concept.segment)." ;
-    rdfs:domain :Concept ;
-    rdfs:range xsd:string .
+:dependsOn a owl:ObjectProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment """Generic dependency relationship.  Works for System→System,
+SoftwareProject→SoftwareProject, Task→Task, Skill→Skill, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
 
 :Incident a owl:Class ;
     rdfs:label "Incident" ;
@@ -875,18 +870,18 @@ bfo:0000015 a owl:Class ;
     rdfs:comment "BFO:Process — an occurrent that has temporal parts." ;
     rdfs:subClassOf bfo:0000003 .
 
-:Concept a owl:Class ;
-    rdfs:label "Concept" ;
-    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
-    rdfs:subClassOf bfo:0000031,
-        skos:Concept .
-
 :Event a owl:Class ;
     rdfs:label "Event" ;
     rdfs:comment "A temporally-bounded happening. BFO:Process, aligned to schema:Event and prov:Activity." ;
     rdfs:seeAlso prov:Activity ;
     rdfs:subClassOf bfo:0000015 ;
     owl:equivalentClass schema:Event .
+
+:Concept a owl:Class ;
+    rdfs:label "Concept" ;
+    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
+    rdfs:subClassOf bfo:0000031,
+        skos:Concept .
 
 bfo:0000031 a owl:Class ;
     rdfs:label "Generically Dependent Continuant" ;

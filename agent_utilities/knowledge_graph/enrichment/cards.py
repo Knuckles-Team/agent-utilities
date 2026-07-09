@@ -210,7 +210,9 @@ def _resolve_engine_backend() -> Any:
     """Acquire the engine-authority backend, raising a clear error if unreachable."""
     from ..backends.base import require_engine_authority_backend
 
-    return require_engine_authority_backend("symbol-card cache (CONCEPT:AU-KG.backend.cache-lives-as)")
+    return require_engine_authority_backend(
+        "symbol-card cache (CONCEPT:AU-KG.backend.cache-lives-as)"
+    )
 
 
 class CardStore:

@@ -208,9 +208,9 @@ class AgentOrchestrationEngine:
         legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert self.engine is not None, (
-            "IntelligenceGraphEngine is required for team synthesis"
-        )
+        assert (
+            self.engine is not None
+        ), "IntelligenceGraphEngine is required for team synthesis"
 
         import uuid
 
@@ -311,9 +311,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert self.engine is not None, (
-            "IntelligenceGraphEngine is required for node determination"
-        )
+        assert (
+            self.engine is not None
+        ), "IntelligenceGraphEngine is required for node determination"
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 
@@ -389,15 +389,21 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_context=config.get(
+                "invoker_context", ""
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+            invoker_cred_ref=config.get(
+                "invoker_cred_ref"
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get(
+                "message_channel_id"
+            ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         _custom_headers = config.get("custom_headers")
@@ -460,15 +466,21 @@ class AgentOrchestrationEngine:
             session_id=run_id,
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_context=config.get(
+                "invoker_context", ""
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+            invoker_cred_ref=config.get(
+                "invoker_cred_ref"
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get(
+                "message_channel_id"
+            ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         if persist:
@@ -895,15 +907,21 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_context=config.get(
+                "invoker_context", ""
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+            invoker_cred_ref=config.get(
+                "invoker_cred_ref"
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get(
+                "message_channel_id"
+            ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         if persist:
@@ -1144,15 +1162,21 @@ class AgentOrchestrationEngine:
             query_parts=query_parts or [],
             mode=mode,
             topology=topology,
-            invoker_context=config.get("invoker_context", ""),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_context=config.get(
+                "invoker_context", ""
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_budget_tokens=config.get(
                 "invoker_budget_tokens"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+            invoker_cred_ref=config.get(
+                "invoker_cred_ref"
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_channel_id=config.get(
+                "message_channel_id"
+            ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
 
         # Merge registry tags into deps (same as run_graph)

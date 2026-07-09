@@ -60,7 +60,8 @@ class OntologicalTeamExporter:
             lines.append("")
 
         logger.info(
-            "[CONCEPT:AU-KG.research.research-pipeline-runner] Exported team %s to Turtle format", composition.team_id
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Exported team %s to Turtle format",
+            composition.team_id,
         )
         return "\n".join(lines)
 
@@ -68,7 +69,9 @@ class OntologicalTeamExporter:
     def import_from_turtle(ttl_content: str) -> dict:
         """Parse Turtle back into a TeamComposition dict structure."""
         logger.debug("Importing TTL content length: %d", len(ttl_content))
-        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Importing team from Turtle format")
+        logger.info(
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Importing team from Turtle format"
+        )
 
         try:
             import rdflib

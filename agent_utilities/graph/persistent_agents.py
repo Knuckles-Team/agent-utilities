@@ -411,5 +411,8 @@ class PersistentAgentManager:
                     pass
 
         if pruned:
-            logger.info("[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Pruned %d stale persistent agents", pruned)
+            logger.info(
+                "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Pruned %d stale persistent agents",
+                pruned,
+            )
         return pruned

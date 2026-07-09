@@ -323,9 +323,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data["kg_specialist_configs"] = (
-                            kg_result.specialist_configs
-                        )
+                        ctx.state.output_data[
+                            "kg_specialist_configs"
+                        ] = kg_result.specialist_configs
 
                     emit_graph_event(
                         deps.event_queue,
@@ -376,7 +376,9 @@ async def router_step(
                 "skipping planner/verifier.",
                 _srv,
             )
-            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            _, _scoped_ts = apply_tool_scope(
+                ctx.state, [], _ts
+            )  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
             _direct_agent = Agent(
                 model=deps.agent_model,
                 system_prompt=(
@@ -390,7 +392,9 @@ async def router_step(
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
-                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
+                usage_limits=spawn_usage_limits(
+                    ctx.state
+                ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
             )
             emit_graph_event(
                 deps.event_queue,
@@ -1261,7 +1265,10 @@ async def expert_executor_step(
                     if filtered_tools:
                         domain_tools = filtered_tools
 
-                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+                (
+                    domain_tools,
+                    domain_toolsets,
+                ) = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
                     ctx.state, domain_tools, domain_toolsets
                 )
                 dynamic_agent = Agent(

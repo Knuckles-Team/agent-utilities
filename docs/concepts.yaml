@@ -246,7 +246,7 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
-  - agent_utilities/skills/agent-utilities-evolution/scripts/wiring_sweep.py
+  - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
   doc: Continuous Evaluation Engine
   dotted: AU-AHE.evaluation.continuous-evaluation
   aliases:

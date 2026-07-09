@@ -59,7 +59,9 @@ class SynologyChatBackend(MessagingBackend):
             raise ValueError("Set SYNOLOGY_CHAT_WEBHOOK_URL.")
         self._client = httpx.AsyncClient()
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Synology Chat backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Synology Chat backend connected."
+        )
 
     async def disconnect(self) -> None:
         if self._client:

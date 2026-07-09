@@ -762,7 +762,9 @@ class ResearchPipelineRunner:
             except Exception as e:
                 logger.warning(f"KB full ingestion failed for {paper_id}: {e}")
 
-        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: {title[:60]} → {article_id}")
+        logger.info(
+            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: {title[:60]} → {article_id}"
+        )
         return article_id
 
     async def ingest_paper_marginal(
@@ -838,7 +840,9 @@ class ResearchPipelineRunner:
                     self.engine._serialize_node(article_node, "Article"),
                 )
 
-        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Marginal ingested: {title[:60]} → {article_id}")
+        logger.info(
+            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Marginal ingested: {title[:60]} → {article_id}"
+        )
         return article_id
 
     async def ingest_local_file(
@@ -905,7 +909,9 @@ class ResearchPipelineRunner:
             topic=topic or f"Web article: {url[:60]}",
             force=False,
         )
-        logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] URL ingested: {url[:60]} → {result.id}")
+        logger.info(
+            f"[CONCEPT:AU-KG.research.research-pipeline-runner] URL ingested: {url[:60]} → {result.id}"
+        )
         return result.id
 
     def _run_owl_enrichment(self) -> int:
@@ -925,7 +931,9 @@ class ResearchPipelineRunner:
             )
             stats = bridge.run_cycle(lightweight=True)
             inferred = stats.get("inferred", 0)
-            logger.info(f"[CONCEPT:AU-KG.research.research-pipeline-runner] OWL enrichment: {inferred} inferences")
+            logger.info(
+                f"[CONCEPT:AU-KG.research.research-pipeline-runner] OWL enrichment: {inferred} inferences"
+            )
             return inferred
         except Exception as e:
             logger.debug(f"OWL enrichment skipped: {e}")
@@ -1034,7 +1042,9 @@ class ResearchPipelineRunner:
                     record.status = "below_threshold"
             except Exception as e:
                 record.status = f"error: {e}"
-                logger.error(f"[CONCEPT:AU-KG.research.research-pipeline-runner] Ingestion error for {paper_id}: {e}")
+                logger.error(
+                    f"[CONCEPT:AU-KG.research.research-pipeline-runner] Ingestion error for {paper_id}: {e}"
+                )
             return record
 
         records = await asyncio.gather(

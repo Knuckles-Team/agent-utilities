@@ -264,7 +264,9 @@ class PhysicalDistillationEngine:
             return False
 
     def commit_distilled_changes(
-        self, file_paths: list[str], concept_id: str = "AU-AHE.optimization.gitops-commit-automation"
+        self,
+        file_paths: list[str],
+        concept_id: str = "AU-AHE.optimization.gitops-commit-automation",
     ) -> bool:
         """CONCEPT:AU-AHE.optimization.gitops-commit-automation — GitOps Git Commit Automation.
 

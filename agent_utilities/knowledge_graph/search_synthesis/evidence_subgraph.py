@@ -38,7 +38,8 @@ EnrichFn = Callable[[list[EvidenceFact], dict[str, Any]], list[EvidenceFact]]
 class GraphReader(Protocol):
     """Minimal read surface — satisfied by ``KnowledgeGraph`` (``query``)."""
 
-    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]: ...
+    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+        ...
 
 
 _NEIGHBOR_QUERY = "MATCH (a {id: $id})-[r]-(b) RETURN a, r, b"

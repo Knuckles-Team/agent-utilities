@@ -375,5 +375,8 @@ class KGSourceResolver:
             f.unlink()
             count += 1
 
-        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Cleaned up %d materialized files", count)
+        logger.info(
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Cleaned up %d materialized files",
+            count,
+        )
         return count

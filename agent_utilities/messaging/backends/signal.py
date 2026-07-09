@@ -83,7 +83,9 @@ class SignalBackend(MessagingBackend):
 
         asyncio.create_task(self._bot.start())
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Signal backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Signal backend connected."
+        )
 
     async def send_message(
         self,

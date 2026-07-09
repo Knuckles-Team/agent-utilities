@@ -34,6 +34,7 @@ L2-normalization used by
 
 from collections.abc import Sequence
 
+from agent_utilities.numeric import NDArray, RandomGenerator
 from agent_utilities.numeric import xp as np
 
 __all__ = ["TemporalSemanticIdEncoder"]
@@ -41,7 +42,7 @@ __all__ = ["TemporalSemanticIdEncoder"]
 _SECONDS_PER_DAY = 86400.0
 
 
-def _l2_normalize(vec: np.ndarray) -> np.ndarray:
+def _l2_normalize(vec: NDArray) -> NDArray:
     """Return ``vec`` scaled to unit L2 norm, with NaN/inf scrubbed to 0.
 
     Zero (or all-non-finite) vectors are returned unchanged after scrubbing, so
@@ -96,7 +97,7 @@ class TemporalSemanticIdEncoder:
         self._time_span_days = float(time_span_days)
         self._seed = seed
         # One (k, dim) centroid matrix per residual level; empty until fit().
-        self._codebooks: list[np.ndarray] = []
+        self._codebooks: list[NDArray] = []
         self._dim: int | None = None
 
     @property
@@ -123,8 +124,8 @@ class TemporalSemanticIdEncoder:
     # Training
     # ------------------------------------------------------------------
     def _kmeans(
-        self, data: np.ndarray, rng: np.random.Generator, iters: int = 10
-    ) -> np.ndarray:
+        self, data: NDArray, rng: RandomGenerator, iters: int = 10
+    ) -> NDArray:
         """Seeded k-means returning a ``(k, dim)`` centroid matrix.
 
         ``k`` is capped at the number of samples. Centroids are initialized by

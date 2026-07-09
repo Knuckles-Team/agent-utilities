@@ -292,7 +292,10 @@ class ModelDisplayOptimizer:
                 features_hidden=features_hidden or [],
                 imodel_node_id=imodel_node_id,
                 token_count=len(display_content.split()),
-                metadata={"concept": "EG-KG.compute.compiled-semantic-reasoner", "paper": "arXiv:2605.03808"},
+                metadata={
+                    "concept": "EG-KG.compute.compiled-semantic-reasoner",
+                    "paper": "arXiv:2605.03808",
+                },
             )
             ogm.upsert(node)
             ogm.upsert_edge(

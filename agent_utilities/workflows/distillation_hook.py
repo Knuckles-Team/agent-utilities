@@ -94,9 +94,9 @@ class WorkflowDistillationHook:
         success_count = self._record_success(pattern_key)
 
         if success_count < self.promotion_threshold:
-            outcome["reason"] = (
-                f"below_threshold ({success_count}/{self.promotion_threshold})"
-            )
+            outcome[
+                "reason"
+            ] = f"below_threshold ({success_count}/{self.promotion_threshold})"
             return outcome
 
         logger.info(

@@ -45,7 +45,10 @@ async def _serve(engine: Any, platforms: list[str]) -> None:
             logger.warning("messaging: register_commands(%s) failed: %s", pid, exc)
         router.register_backend(backend)
     router.set_default_handler(await create_planner_handler(engine))
-    logger.info("[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging daemon serving backends %s", platforms)
+    logger.info(
+        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging daemon serving backends %s",
+        platforms,
+    )
     await router.start()  # blocks on the per-backend listener tasks
 
 
@@ -182,7 +185,9 @@ def main() -> None:
             pass
 
     serve_task = loop.create_task(_serve(engine, platforms))
-    logger.info("[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started.")
+    logger.info(
+        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started."
+    )
     try:
         loop.run_until_complete(stop)
     finally:

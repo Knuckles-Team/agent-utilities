@@ -324,7 +324,10 @@ class ParallelEngine:
             verification = await self._verify_and_redispatch(
                 resolved, wave_results, graph_deps
             )
-            logger.info("[CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm] Verification pass: %s", verification)
+            logger.info(
+                "[CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm] Verification pass: %s",
+                verification,
+            )
 
         # 5. Synthesize outputs (RLM-native)
         all_results = [r for w in wave_results for r in w.results]
@@ -1354,7 +1357,8 @@ class ParallelEngine:
             return result.output
         except Exception as e:
             logger.warning(
-                "[CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling] Group synthesis failed, using flat: %s", e
+                "[CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling] Group synthesis failed, using flat: %s",
+                e,
             )
             return combined
 

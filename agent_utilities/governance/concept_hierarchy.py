@@ -390,9 +390,7 @@ def parse_okf_id(cid: str) -> OkfConceptId:
         raise ValueError(f"not a valid OKF-CIS concept id: {cid!r}")
     segs = m.group("segs").lstrip(".").split(".")
     if len(segs) < 2:
-        raise ValueError(
-            f"OKF-CIS id needs >=2 segments (domain.concept): {cid!r}"
-        )
+        raise ValueError(f"OKF-CIS id needs >=2 segments (domain.concept): {cid!r}")
     domain, concept, *facets = segs
     return OkfConceptId(
         raw=cid,

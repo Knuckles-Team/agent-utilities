@@ -25,12 +25,13 @@ Source: ``.specify/specs/reasoning-rl-2026/spec-vpo-test-time-diversity.md``.
 import logging
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
 
 
-def _cos(a: np.ndarray, b: np.ndarray) -> float:
+def _cos(a: NDArray, b: NDArray) -> float:
     na = float(np.linalg.norm(a))
     nb = float(np.linalg.norm(b))
     if na == 0.0 or nb == 0.0:

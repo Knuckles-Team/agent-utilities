@@ -65,7 +65,9 @@ class GoogleMeetBackend(MessagingBackend):
         )
         self._service = build("calendar", "v3", credentials=creds)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Google Meet backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Google Meet backend connected."
+        )
 
     async def send_message(
         self, channel_id: str, text: str, **kwargs: Any

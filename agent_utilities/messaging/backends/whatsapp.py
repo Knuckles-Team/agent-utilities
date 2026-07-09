@@ -162,7 +162,10 @@ class WhatsAppBackend(MessagingBackend):
             else:
                 return await self._send_bridge(channel_id, text, reply_to_id)
         except Exception as e:
-            logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] WhatsApp send failed: %s", e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] WhatsApp send failed: %s",
+                e,
+            )
             return SendResult(success=False, platform=PlatformId.WHATSAPP, error=str(e))
 
     async def _send_business_api(

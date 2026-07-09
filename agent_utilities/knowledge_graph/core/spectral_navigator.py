@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from agent_utilities.models.knowledge_graph import (
     SpectralClusterNode,
 )
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class SpectralClusterNavigator:
         self._max_depth = max_depth
 
     @staticmethod
-    def _cosine_similarity_matrix(vectors: np.ndarray) -> np.ndarray:
+    def _cosine_similarity_matrix(vectors: NDArray) -> NDArray:
         """Build the cosine similarity affinity matrix.
 
         Normalizes each vector to unit length then computes dot products.
@@ -93,7 +94,7 @@ class SpectralClusterNavigator:
         return np.clip(similarity, 0.0, 1.0)
 
     @staticmethod
-    def _normalized_laplacian(affinity: np.ndarray) -> np.ndarray:
+    def _normalized_laplacian(affinity: NDArray) -> NDArray:
         """Compute the symmetric normalized Laplacian.
 
         L_sym = I - D^{-1/2} @ W @ D^{-1/2}
@@ -109,7 +110,7 @@ class SpectralClusterNavigator:
         return laplacian
 
     @staticmethod
-    def _eigengap_k(eigenvalues: np.ndarray, max_k: int) -> int:
+    def _eigengap_k(eigenvalues: NDArray, max_k: int) -> int:
         """Select optimal k using the eigengap heuristic.
 
         Finds the largest gap between consecutive eigenvalues in the
@@ -132,7 +133,7 @@ class SpectralClusterNavigator:
         return max(2, min(best_k, max_k))
 
     @staticmethod
-    def _cluster_coherence(vectors: np.ndarray, indices: list[int]) -> float:
+    def _cluster_coherence(vectors: NDArray, indices: list[int]) -> float:
         """Compute mean pairwise cosine similarity within a cluster."""
         if len(indices) < 2:
             return 1.0
@@ -151,7 +152,7 @@ class SpectralClusterNavigator:
 
     def cluster(
         self,
-        vectors: list[list[float]] | np.ndarray,
+        vectors: list[list[float]] | NDArray,
         max_k: int = 10,
         domain: str = "general",
     ) -> list[ClusterResult]:
@@ -233,7 +234,7 @@ class SpectralClusterNavigator:
         return results
 
     @staticmethod
-    def _kmeans(data: np.ndarray, k: int, max_iters: int = 100) -> list[int]:
+    def _kmeans(data: NDArray, k: int, max_iters: int = 100) -> list[int]:
         """Simple k-means implementation without sklearn dependency.
 
         Uses k-means++ initialization for better convergence.
@@ -318,7 +319,7 @@ class SpectralClusterNavigator:
 
     def detect_financial_regimes(
         self,
-        price_embeddings: list[list[float]] | np.ndarray,
+        price_embeddings: list[list[float]] | NDArray,
         max_regimes: int = 5,
     ) -> list[ClusterResult]:
         """Detect market regimes via spectral clustering on price embeddings.

@@ -12,6 +12,7 @@ novel edge intersections based purely on their structural positional interaction
 import logging
 import math
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class PositionalInteractionEncoder:
         self.W2 = rng.standard_normal((hidden_dim, out_dim)) * np.sqrt(2.0 / hidden_dim)
         self.b2 = np.zeros(out_dim)
 
-    def _sinusoidal_encoding(self, pos: int) -> np.ndarray:
+    def _sinusoidal_encoding(self, pos: int) -> NDArray:
         """Generates sinusoidal positional encoding for a given integer position.
 
         Similar to Transformer positional encodings, maps an integer to a dense vector.
@@ -74,7 +75,7 @@ class PositionalInteractionEncoder:
                 encoding[i + 1] = math.cos(pos / denominator)
         return encoding
 
-    def _relu(self, x: np.ndarray) -> np.ndarray:
+    def _relu(self, x: NDArray) -> NDArray:
         return np.maximum(0, x)
 
     def encode_interaction(self, pos_a: int, pos_b: int) -> list[float]:

@@ -72,7 +72,7 @@ TASK_LANES: dict[str, dict] = {
     # CONCEPT:AU-KG.ingest.worldview-stream — the WORLDVIEW stream: relevance-gated news/world-event
     # articles (feed_ingest) build the world model. Its OWN lane so it drains in
     # parallel with — and never head-of-line-blocks behind — research-paper fetch
-    # (which feeds agent-utilities-evolution) or the heavy codebase backlog. The
+    # (which feeds agent-utilities-self-evolution) or the heavy codebase backlog. The
     # world-model gate is the router that splits feed items into research vs here.
     "worldview": {
         "task_types": frozenset({"feed_ingest"}),

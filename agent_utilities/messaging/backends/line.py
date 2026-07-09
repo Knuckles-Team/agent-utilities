@@ -64,7 +64,9 @@ class LINEBackend(MessagingBackend):
         config = Configuration(access_token=token)
         self._api = MessagingApi(ApiClient(config))
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] LINE backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] LINE backend connected."
+        )
 
     async def send_message(
         self,

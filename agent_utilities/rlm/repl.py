@@ -10,7 +10,9 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
-from .prompts import build_system_prompt  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client
+from .prompts import (
+    build_system_prompt,  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client
+)
 from .sandboxes import (  # CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
     HELPER_NAMES,
     LocalSandbox,
@@ -19,7 +21,9 @@ from .sandboxes import (  # CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
 )
 from .sandboxes.registry import default_sandboxes
 from .sandboxes.router import SandboxRouter
-from .schema import SchemaContract  # CONCEPT:AU-ORCH.session.structured-subagent-contracts — structured subagent contracts
+from .schema import (
+    SchemaContract,  # CONCEPT:AU-ORCH.session.structured-subagent-contracts — structured subagent contracts
+)
 from .telemetry import (  # CONCEPT:AU-ORCH.execution.typed-failure-classification
     RunTrace,
     SandboxFatalError,

@@ -154,7 +154,9 @@ class DesiredService:
     replicas: int = 1
     version: str = ""
     profiles: list[str] = field(default_factory=list)
-    scaling: ScalingSpec | None = None  # CONCEPT:AU-OS.scaling.fleet-reconciler (None = never autoscale)
+    scaling: ScalingSpec | None = (
+        None  # CONCEPT:AU-OS.scaling.fleet-reconciler (None = never autoscale)
+    )
 
 
 def resolve_registry_path(explicit: str | None = None) -> Path | None:

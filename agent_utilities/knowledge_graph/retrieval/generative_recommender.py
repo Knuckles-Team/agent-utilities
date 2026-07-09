@@ -51,6 +51,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 if TYPE_CHECKING:
@@ -79,7 +80,7 @@ class Recommendation:
 
 def _reconstruct(
     encoder: TemporalSemanticIdEncoder, codes: Sequence[int]
-) -> np.ndarray:
+) -> NDArray:
     """Map a content code tuple back to its continuous residual reconstruction.
 
     The reconstruction is the sum of the chosen centroid at each residual level
@@ -161,7 +162,7 @@ class ImplicitReasoningRecommender:
         # Catalog state, populated by fit_catalog().
         self._item_ids: list[str] = []
         self._item_sids: list[tuple[int, ...]] = []  # content codes only
-        self._item_vectors: np.ndarray = np.empty((0, 0), dtype=np.float64)
+        self._item_vectors: NDArray = np.empty((0, 0), dtype=np.float64)
 
     @property
     def pause_steps(self) -> int:
@@ -231,8 +232,8 @@ class ImplicitReasoningRecommender:
     # Recommendation
     # ------------------------------------------------------------------
     def _latent_refine(
-        self, target: np.ndarray, history_vectors: np.ndarray
-    ) -> np.ndarray:
+        self, target: NDArray, history_vectors: NDArray
+    ) -> NDArray:
         """Run ``pause_steps`` deterministic latent refinement steps.
 
         Each step is the inference analogue of one PauseRec ``<pause>`` token: it
@@ -321,7 +322,7 @@ class ImplicitReasoningRecommender:
 
     def _history_vectors(
         self, history_sids: Sequence[tuple[int, ...]] | None
-    ) -> np.ndarray:
+    ) -> NDArray:
         """Reconstruct continuous vectors for the user's history SIDs."""
         if not history_sids:
             return np.empty((0, self._item_vectors.shape[1]), dtype=np.float64)
@@ -329,7 +330,7 @@ class ImplicitReasoningRecommender:
             [_l2(_reconstruct(self._encoder, sid)) for sid in history_sids]
         )
 
-    def _rank(self, refined: np.ndarray, refined_sid: tuple[int, ...]) -> np.ndarray:
+    def _rank(self, refined: NDArray, refined_sid: tuple[int, ...]) -> NDArray:
         """Score every catalog item against the refined latent target.
 
         The score fuses two signals over the shared SID space: per-level
@@ -370,7 +371,7 @@ class ImplicitReasoningRecommender:
         }
 
 
-def _l2(vec: np.ndarray) -> np.ndarray:
+def _l2(vec: NDArray) -> NDArray:
     """Return ``vec`` at unit L2 norm (zero vectors pass through unchanged)."""
     norm = float(np.linalg.norm(vec))
     if norm == 0.0:
@@ -378,7 +379,7 @@ def _l2(vec: np.ndarray) -> np.ndarray:
     return vec / norm
 
 
-def _reconstruct_back(refined: np.ndarray) -> np.ndarray:
+def _reconstruct_back(refined: NDArray) -> NDArray:
     """Identity passthrough naming the refined continuous target for re-encoding.
 
     The refined target already lives in the encoder's continuous space, so it can

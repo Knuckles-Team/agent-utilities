@@ -69,7 +69,9 @@ class GoogleChatBackend(MessagingBackend):
         )
         self._service = build("chat", "v1", credentials=creds)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Google Chat backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Google Chat backend connected."
+        )
 
     async def send_message(
         self,
