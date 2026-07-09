@@ -23,23 +23,20 @@ So ``run_etl(source="servicenow", sink="leanix")`` is ServiceNow → (ontologica
 normalization in the KG) → LeanIX; ``source="leanix", sink="stardog"`` mirrors LeanIX
 into Stardog; either side may be omitted for a one-directional run. ``run_etl`` stays
 pure (no MCP/registry import) — the caller resolves ``sink_backend``.
+
+The returned manifest is built from :class:`.result.EtlResult` (CONCEPT:AU-KG.etl.result-contract)
+— a validated pydantic contract (``status``/``counts``/``watermark``/``lineage``/…)
+instead of a hand-assembled dict — then serialized back to a plain ``dict`` via
+``.model_dump()`` so every existing consumer (REST/MCP surfaces, tests) keeps
+indexing it exactly as before.
 """
 
 import logging
 from typing import Any
 
+from .result import EtlResult
+
 logger = logging.getLogger(__name__)
-
-
-def _count(result: dict[str, Any] | None) -> int:
-    """Best-effort node/record count across the heterogeneous sub-result shapes."""
-    if not isinstance(result, dict):
-        return 0
-    for key in ("nodes", "nodes_hydrated", "created"):
-        val = result.get(key)
-        if isinstance(val, int):
-            return val
-    return 0
 
 
 def run_etl(
@@ -130,16 +127,20 @@ def run_etl(
             out["status"] = "partial"
 
     # ── lineage ──
+    # Computed unconditionally (not just when lineage recording is on) so the
+    # returned ``EtlResult.counts`` is always populated from the one place, even
+    # when ``record_lineage=False``.
+    counts = {
+        "nodes": EtlResult.count_of(out["inbound"]) or EtlResult.count_of(out["outbound"]),
+        "edges": (out.get("outbound") or {}).get("edges", 0)
+        if isinstance(out.get("outbound"), dict)
+        else 0,
+    }
+
     if record_lineage and (source or sink):
         direction = (
             "through" if (source and sink) else ("inbound" if source else "outbound")
         )
-        counts = {
-            "nodes": _count(out["inbound"]) or _count(out["outbound"]),
-            "edges": (out.get("outbound") or {}).get("edges", 0)
-            if isinstance(out.get("outbound"), dict)
-            else 0,
-        }
         run_id = record_etl_run(
             engine,
             source=source,
@@ -150,7 +151,9 @@ def run_etl(
         )
         out["lineage"] = {"run_id": run_id, "direction": direction}
 
-    return out
+    return EtlResult.coerce(
+        out, source=source, sink=sink, mode=mode, counts=counts
+    ).model_dump()
 
 
 def _run_outbound(
