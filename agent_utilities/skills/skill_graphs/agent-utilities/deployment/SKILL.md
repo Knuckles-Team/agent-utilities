@@ -1,6 +1,6 @@
 ---
 name: agent-utilities-deployment
-skill_type: skill
+skill_type: graph
 description: >-
   Interactive, use-case-driven deployment of agent-utilities. Interviews the
   operator (just testing, dev, small production, or production at scale), then

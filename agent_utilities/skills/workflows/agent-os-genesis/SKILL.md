@@ -5,22 +5,8 @@ aliases:
   - day0
   - day0_bootstrap_orchestrator
   - agent-utilities-genesis
-description: >
-  Day 0 genesis of the entire Agent OS — agent-first, idempotent, and ADAPTIVE: fits
-  any environment from a laptop to an enterprise already running its own
-  Postgres/Vault/ingress/IdP. (Formerly day0_bootstrap_orchestrator; invoke as "day0"
-  or "agent-os-genesis".) Step 0 resolves a granular run plan — per platform-dep and
-  connector: deploy-container / deploy-baremetal (pypi/uvx) / use-existing / skip —
-  plus orchestrator (docker-compose, docker-swarm, podman rootful/rootless,
-  podman-compose, kubernetes), the engine shape + tier (autostart pi-max binary /
-  node-or-full container / cluster remote — the ONE epistemic-graph store, OS-5.63),
-  IdP (deploy Keycloak OR wire existing Okta/OIDC), secrets store (OpenBao/Vault OR
-  the engine's encrypted __secrets__ store, vault-first read+seed), optional enterprise
-  root-CA baking, and ontology host (Stardog/Jena/local + upload). Then SSH mesh, cert
-  trust, hardware placement, the chosen orchestrator + ingress, GitOps, tiered deploy,
-  config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the
-  homelab", "stand up the Agent OS", "genesis", "deploy into enterprise", "connect to
-  existing services".
+description: >-
+  Day 0 genesis of the entire Agent OS — agent-first, idempotent, and ADAPTIVE: fits any environment from a laptop to an enterprise already running its own Postgres/Vault/ingress/IdP. (Formerly day0_bootstrap_orchestrator; invoke as "day0".) Step 0 resolves a granular run plan per platform-dep and connector (deploy-container / deploy-baremetal / use-existing / skip), plus orchestrator (docker-compose/swarm, podman, kubernetes), engine shape + tier (the ONE epistemic-graph store), IdP (deploy Keycloak or wire existing Okta/OIDC), secrets store (OpenBao/Vault or the engine's encrypted store), optional enterprise root-CA baking, and ontology host. Then SSH mesh, cert trust, hardware placement, ingress, GitOps, tiered deploy, config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the homelab", "stand up the Agent OS", "genesis", "deploy into enterprise", "connect to existing services".
 domain: infrastructure
 tags:
   - day0
