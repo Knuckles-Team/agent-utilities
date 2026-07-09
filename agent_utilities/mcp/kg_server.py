@@ -685,6 +685,47 @@ MINING_ACTIONS = (
 )
 
 
+#: The graph_learn actions with a natural-body REST twin (CONCEPT:EG-KG.graphlearn.link-predictor).
+#: Each mounts ``POST /api/graphlearn/<action>`` dispatching the SAME
+#: ``_execute_tool("graph_learn", action=...)`` core as the MCP verb — surface parity.
+GRAPHLEARN_ACTIONS = ("fit", "predict")
+
+
+def _make_graphlearn_endpoint(action: str):
+    """Build the REST twin for one ``graph_learn`` action (CONCEPT:EG-KG.graphlearn.link-predictor).
+
+    ``POST /api/graphlearn/<action>`` accepts a natural body (the action's kwargs,
+    e.g. ``{node_label, direction, degree, epochs, writeback, ...}`` for fit,
+    ``{model, node_label, top_k|candidate_pairs, writeback, ...}`` for predict) plus an
+    optional ``graph``, and dispatches the SAME
+    ``_execute_tool("graph_learn", action=<action>, ...)`` core as the MCP verb.
+    """
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return JSONResponse(
+                {"status": "error", "message": "body must be a JSON object"},
+                status_code=400,
+            )
+        graph = body.pop("graph", "") or ""
+        try:
+            res = await _execute_tool(
+                "graph_learn",
+                action=action,
+                params_json=json.dumps(body),
+                graph=graph,
+            )
+            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except Exception as exc:  # noqa: BLE001 — surface engine/core errors as data
+            return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+
+    return _endpoint
+
+
 def _make_mining_endpoint(action: str):
     """Build the REST twin for one ``graph_mine`` action (CONCEPT:EG-KG.mining.frequent-itemset-mining).
 
@@ -3365,6 +3406,8 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         # graph_mine has a bespoke endpoint (natural mining body → the same
         # _execute_tool core) mounted below (CONCEPT:EG-KG.mining.frequent-itemset-mining).
         "graph_mine",
+        # graph_learn likewise has bespoke natural-body twins (CONCEPT:EG-KG.graphlearn.link-predictor).
+        "graph_learn",
     }
     for _tool, _path in ACTION_TOOL_ROUTES.items():
         if _tool in _bespoke_action_tools:
@@ -3379,6 +3422,17 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         for _mine_action in MINING_ACTIONS:
             route(
                 f"/mining/{_mine_action}", _make_mining_endpoint(_mine_action), ["POST"]
+            )
+
+    # Graph-learning REST twins (CONCEPT:EG-KG.graphlearn.link-predictor) — one
+    # natural-body /api/graphlearn/<action> endpoint per graph_learn action (fit|predict),
+    # each dispatching the SAME graph_learn _execute_tool core (surface parity).
+    if "graph_learn" in ACTION_TOOL_ROUTES:
+        for _gl_action in GRAPHLEARN_ACTIONS:
+            route(
+                f"/graphlearn/{_gl_action}",
+                _make_graphlearn_endpoint(_gl_action),
+                ["POST"],
             )
 
 
