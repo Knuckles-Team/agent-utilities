@@ -1091,6 +1091,14 @@ class AgentConfig(BaseSettings):
     # KG_LOOP_BREADTH=0 to opt out. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     kg_loop_breadth: bool = Field(default=True, alias="KG_LOOP_BREADTH")
     kg_loop_standardize: bool = Field(default=False, alias="KG_LOOP_STANDARDIZE")
+    # Discovery-flywheel mining pass (CONCEPT:AU-KG.evolution.mining-flywheel) — runs the
+    # engine's graph_mine (associate/anomaly) + graph_learn (fit/predict) surfaces over
+    # the KG's concept/capability/article nodes each cycle, writing back typed
+    # :AssociationRule/:Anomaly/:PredictedEdge nodes for the evolution flywheel to
+    # consume (propose-only — never auto-merges). Default ON: each sub-step is
+    # independently best-effort and degrades to an empty/no-op result on a
+    # no-mining engine build, so it's safe to leave on everywhere.
+    kg_loop_mine_discovery: bool = Field(default=True, alias="KG_LOOP_MINE_DISCOVERY")
     # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop

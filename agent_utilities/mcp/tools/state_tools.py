@@ -160,7 +160,11 @@ def register_state_tools(mcp):
             "OS-5.73): 'state' (LIVE EvolutionState — current stage + why, saturation "
             "gauge, open_gaps trend, velocity, spec backlog), 'specs' (distilled "
             "SpecProposal backlog; filter by status), 'review' (approve|edit|reject a "
-            "distilled spec BEFORE it develops — spec_id + decision)."
+            "distilled spec BEFORE it develops — spec_id + decision). 'run' also takes "
+            "``mine_discovery`` (CONCEPT:AU-KG.evolution.mining-flywheel, default ON via "
+            "KG_LOOP_MINE_DISCOVERY): the discovery-flywheel mining pass — association-"
+            "rule + anomaly + graph_learn link-prediction over the KG's Capability/"
+            "Concept nodes, write-back only (propose-only, never auto-merges)."
         ),
         tags=["graph-os", "loops"],
     )
@@ -200,6 +204,12 @@ def register_state_tools(mcp):
             default="",
             description="Filter SpecProposals by status (specs action): "
             "pending_review|approved|developing|published|reverted|rejected.",
+        ),
+        mine_discovery: bool | None = Field(
+            default=None,
+            description="'run' only: gate the discovery-flywheel mining stage "
+            "(CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to "
+            "config.kg_loop_mine_discovery (default True); explicit true/false overrides.",
         ),
     ) -> str:
         """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
@@ -241,7 +251,9 @@ def register_state_tools(mcp):
                     default=str,
                 )
             if action == "run":
-                rep = LoopController(engine).run_one_cycle(max_topics=max_topics)
+                rep = LoopController(engine).run_one_cycle(
+                    max_topics=max_topics, mine_discovery=mine_discovery
+                )
                 return _json.dumps(rep, indent=2, default=str)
             if action == "drive":
                 # Drive ONE Loop to completion durably (resume/checkpoint/corrigible,

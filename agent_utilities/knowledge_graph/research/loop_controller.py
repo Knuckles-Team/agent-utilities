@@ -153,13 +153,16 @@ class LoopController:
         reason: bool = True,
         tri_evolution: bool = False,
         focus_query: str = "",
+        mine_discovery: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
         Stages (each best-effort + timed; one failing stage never aborts the cycle):
         ``breadth`` (env ``KG_LOOP_BREADTH`` — ingest the OSS/repos/docs corpus,
         idempotent/content-addressed) → ``assimilate`` (dedup→gap→synergy→rank,
-        idempotent via the state watermark) → intake/acquire/resolve →
+        idempotent via the state watermark) → ``reason`` → ``mine_discovery`` (env
+        ``KG_LOOP_MINE_DISCOVERY``, default ON — the discovery-flywheel mining pass,
+        CONCEPT:AU-KG.evolution.mining-flywheel) → intake/acquire/resolve →
         ``distill`` (env ``KG_LOOP_DISTILL``) → ``synthesize``. The report carries
         a ``metrics`` block (per-stage timings + error count) and is persisted as an
         ``EvolutionCycle`` node for monitoring.
@@ -176,6 +179,8 @@ class LoopController:
             standardize = config.kg_loop_standardize
         if discover is None:
             discover = config.kg_loop_discover
+        if mine_discovery is None:
+            mine_discovery = config.kg_loop_mine_discovery
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -187,6 +192,7 @@ class LoopController:
             "archivebox": None,
             "assimilate": None,
             "reason": None,
+            "mine_discovery": None,
             "standardize": None,
             "skill_proposals": None,
             "executed": None,
@@ -269,6 +275,21 @@ class LoopController:
         # research Loops (CONCEPT:AU-KG.research.best-effort-lightweight-never). Best-effort + lightweight; never blocks.
         if reason:
             report["reason"] = _stage("reason", self._run_reason)
+
+        # 0a1. MINE DISCOVERY — the discovery-flywheel mining pass (CONCEPT:AU-KG.evolution.mining-flywheel):
+        # association-rule mining over Capability/Concept co-occurrence, an anomaly
+        # pass over capability-coverage divergence, and graph_learn link-prediction
+        # over Concept relations — each writes back typed KG nodes (:AssociationRule/
+        # :Anomaly/:PredictedEdge) for a human/agent to review (propose-only; never
+        # auto-merges). Placed after ``reason`` so mining sees OWL-inferred edges
+        # already materialized, and before ``synthesize`` so the team/spec synthesis
+        # stage can eventually read the freshly-mined nodes. Best-effort + gated
+        # (KG_LOOP_MINE_DISCOVERY, default ON — sub-steps degrade to empty/no-op on a
+        # no-mining engine build, so it's safe to leave on everywhere).
+        if mine_discovery:
+            report["mine_discovery"] = _stage(
+                "mine_discovery", self._run_mine_discovery
+            )
 
         # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
         # (egeria/leanix/aris/camunda) into propose-only atomic-skill and
@@ -629,6 +650,238 @@ class LoopController:
             "stats": harvest.stats,
             "error": harvest.error,
         }
+
+    # -- discovery-flywheel mining (CONCEPT:AU-KG.evolution.mining-flywheel) ---------------- #
+    def _run_mine_discovery(self) -> dict[str, Any]:
+        """Discovery-flywheel mining pass over the KG (CONCEPT:AU-KG.evolution.mining-flywheel).
+
+        The agent-utilities-evolution flywheel's data-mining stage (see
+        ``plans/data-mining-capabilities-plan.md`` §5): three independent,
+        best-effort passes over the engine's ``graph_mine``/``graph_learn``
+        surfaces, called through the SAME ``_invoke`` helper the ``graph_mine``/
+        ``graph_learn`` MCP tools use (:func:`agent_utilities.mcp.tools.
+        engine_surface_tools._invoke`) — so this degrades exactly like those
+        tools on a no-mining engine build (empty/no-op, never raises):
+
+        1. **association** — mines each ``Capability`` node's full outbound
+           neighborhood (``SATISFIED_BY``/``RELATES_TO`` concept edges,
+           ``DERIVED_FROM_RESEARCH`` article edges, ``HAS_SYNERGY_WITH`` sibling-
+           capability edges — whatever it points to) as one "transaction",
+           discovering concept(+article+capability) co-occurrence rules that
+           auto-suggest implementations (plan §5: "papers citing X + concept Y
+           ⇒ capability Z is usually implemented"). ``writeback=True`` ⇒
+           ``:AssociationRule`` nodes, feeding evolution-skill step 5 (SDD Plan
+           Generation).
+           SIMPLIFICATION vs. the ``docs/mining.md`` toy example: this
+           production schema links features→concepts via ``SATISFIED_BY``/
+           ``RELATES_TO`` (see ``assimilation/gap_analysis.py``/``concept_matcher.py``)
+           rather than the doc's direct ``Paper --TOUCHES--> Concept`` /
+           ``Paper --IMPLEMENTS--> Capability`` edges — there is no direct
+           paper→capability edge in this schema — so we mine a ``Capability``
+           node's outbound superset rather than a literal ``Paper`` neighborhood.
+        2. **anomaly** — a simplified coverage-divergence proxy: for each
+           ``Capability`` node, feature = count of outbound ``SATISFIED_BY``
+           edges (how many concepts it actually satisfies). Capabilities whose
+           covered-concept count is a statistical outlier (usually near-zero)
+           are flagged as divergent/under-implemented. This is a defensible
+           simplification of "concepts/tests touching each capability" (no
+           test-coverage edge exists in this schema yet) rather than a literal
+           test-touch count. ``writeback=True`` ⇒ ``:Anomaly`` nodes.
+        3. **predicted_edges** — ``graph_learn`` fit→predict over
+           ``Concept``-labeled nodes (concept↔concept link prediction).
+           SCOPE CUT: ``graph_learn.fit`` builds one homogeneous ``node_label``
+           vertex set, so a true cross-type concept↔capability predictor isn't
+           expressible in this call shape yet; we predict missing concept↔
+           concept relations instead, which still serves plan §5's "suggests
+           missing concept relations." ``writeback=True`` ⇒ ``:PredictedEdge``
+           nodes.
+
+        Each sub-step is wrapped in its own try/except (mirroring the ``_stage``
+        best-effort philosophy at the sub-step level, since ``_stage`` only wraps
+        the whole method) so one failing pass never blocks the others. Returns a
+        compact, JSON-able summary (counts + a handful of examples) — never the
+        raw mining payloads. Propose-only: write-back only materializes
+        descriptive KG facts for later review (``graph_query`` / a future review
+        stage); it never triggers SDD plan creation, code edits, or a merge.
+        """
+        errors: list[str] = []
+        association = self._mine_association_rules(errors)
+        anomalies = self._mine_capability_anomalies(errors)
+        predicted = self._mine_predicted_edges(errors)
+        return {
+            "association_rules": association,
+            "anomalies": anomalies,
+            "predicted_edges": predicted,
+            "errors": errors,
+        }
+
+    @staticmethod
+    def _mining_ok(payload: Any) -> bool:
+        """``True`` when an ``_invoke`` JSON payload is a live (non-degraded) result."""
+        return isinstance(payload, dict) and "error" not in payload
+
+    def _mine_association_rules(self, errors: list[str]) -> dict[str, Any]:
+        """Association-rule mining over ``Capability`` neighborhoods (see class docstring)."""
+        import json as _json
+
+        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+
+        try:
+            raw = _invoke(
+                surface="mining",
+                action="associate",
+                graph="",
+                candidates=(("mining", "associate"),),
+                params={
+                    "source": {"node_label": "Capability", "direction": "out"},
+                    "min_support": 0.1,
+                    "min_confidence": 0.6,
+                    "algorithm": "fpgrowth",
+                    "writeback": True,
+                },
+            )
+            payload = _json.loads(raw)
+        except Exception as e:  # noqa: BLE001 — never let mining break the cycle
+            errors.append(f"mine_association: {e}")
+            return {"count": 0, "examples": []}
+        if not self._mining_ok(payload):
+            errors.append(f"mine_association: {payload.get('error') or payload}")
+            return {"count": 0, "examples": []}
+        result = payload.get("result") or {}
+        rules = result.get("rules") or []
+        examples = [
+            {
+                "antecedent": r.get("antecedent"),
+                "consequent": r.get("consequent"),
+                "confidence": r.get("confidence"),
+                "lift": r.get("lift"),
+            }
+            for r in rules[:5]
+        ]
+        return {
+            "count": len(rules),
+            "examples": examples,
+            "written_back": result.get("written_back"),
+        }
+
+    def _mine_capability_anomalies(self, errors: list[str]) -> dict[str, Any]:
+        """Coverage-divergence anomaly pass over ``Capability`` nodes (see class docstring)."""
+        import json as _json
+
+        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+
+        try:
+            rows = (
+                self.engine.query_cypher(
+                    "MATCH (cap:Capability) "
+                    "OPTIONAL MATCH (cap)-[:SATISFIED_BY]->(c:Concept) "
+                    "RETURN cap.id AS id, count(c) AS covered LIMIT $limit",
+                    {"limit": 200},
+                )
+                or []
+            )
+        except Exception as e:  # noqa: BLE001 — a query failure degrades, never raises
+            errors.append(f"mine_anomaly:query: {e}")
+            return {"count": 0, "examples": []}
+        ids = [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
+        values = [
+            float(r.get("covered") or 0)
+            for r in rows
+            if isinstance(r, dict) and r.get("id")
+        ]
+        if len(values) < 3:
+            # Not enough population for a meaningful outlier pass — empty, not an error.
+            return {"count": 0, "examples": []}
+        try:
+            raw = _invoke(
+                surface="mining",
+                action="anomaly",
+                graph="",
+                candidates=(("mining", "anomaly"),),
+                params={"values": values, "algorithm": "zscore", "writeback": True},
+            )
+            payload = _json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"mine_anomaly:invoke: {e}")
+            return {"count": 0, "examples": []}
+        if not self._mining_ok(payload):
+            errors.append(f"mine_anomaly: {payload.get('error') or payload}")
+            return {"count": 0, "examples": []}
+        result = payload.get("result") or {}
+        rows_out = result.get("rows") or []
+        examples: list[dict[str, Any]] = []
+        for idx, row in enumerate(rows_out):
+            if not (isinstance(row, dict) and row.get("is_anomaly")):
+                continue
+            examples.append(
+                {
+                    "capability": ids[idx] if idx < len(ids) else row.get("id"),
+                    "covered_concepts": values[idx] if idx < len(values) else None,
+                    "anomaly_score": row.get("anomaly_score"),
+                }
+            )
+            if len(examples) >= 5:
+                break
+        return {
+            "count": int(result.get("n_anomalies") or len(examples)),
+            "examples": examples,
+        }
+
+    def _mine_predicted_edges(self, errors: list[str]) -> dict[str, Any]:
+        """``graph_learn`` fit→predict link prediction over ``Concept`` nodes (see class docstring)."""
+        import json as _json
+
+        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+
+        try:
+            raw = _invoke(
+                surface="graphlearn",
+                action="fit",
+                graph="",
+                candidates=(("graphlearn", "fit"),),
+                params={
+                    "node_label": "Concept",
+                    "direction": "any",
+                    "epochs": 50,
+                    "writeback": False,
+                },
+            )
+            fit_payload = _json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"mine_predict:fit: {e}")
+            return {"count": 0, "examples": []}
+        if not self._mining_ok(fit_payload):
+            errors.append(f"mine_predict:fit: {fit_payload.get('error') or fit_payload}")
+            return {"count": 0, "examples": []}
+        model = (fit_payload.get("result") or {}).get("model")
+        if not model:
+            errors.append("mine_predict:fit: no model returned")
+            return {"count": 0, "examples": []}
+        try:
+            raw = _invoke(
+                surface="graphlearn",
+                action="predict",
+                graph="",
+                candidates=(("graphlearn", "predict"),),
+                params={
+                    "model": model,
+                    "node_label": "Concept",
+                    "top_k": 10,
+                    "writeback": True,
+                },
+            )
+            predict_payload = _json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"mine_predict:predict: {e}")
+            return {"count": 0, "examples": []}
+        if not self._mining_ok(predict_payload):
+            errors.append(
+                f"mine_predict:predict: {predict_payload.get('error') or predict_payload}"
+            )
+            return {"count": 0, "examples": []}
+        result = predict_payload.get("result") or {}
+        predicted = result.get("predicted") or []
+        return {"count": len(predicted), "examples": predicted[:5]}
 
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
