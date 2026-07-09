@@ -28,6 +28,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
+from typing import Any
 
 import platformdirs
 
@@ -127,8 +128,12 @@ class WasmSandbox(Sandbox):
         self.memory_bytes = memory_bytes
         self.timeout_secs = timeout_secs
         self._available: bool | None = None
-        self._engine = None
-        self._module = None
+        # `wasmtime` is an optional, lazily-imported dependency (never imported at
+        # module level), so its real `Engine`/`Module` types aren't statically known
+        # here — `Any` is the honest annotation rather than the `None`-only type
+        # mypy would otherwise infer from this initializer.
+        self._engine: Any = None
+        self._module: Any = None
 
     def is_available(self) -> bool:
         if self._available is None:
@@ -222,6 +227,9 @@ class WasmSandbox(Sandbox):
                 instance.define_wasi()
                 inst = instance.instantiate(store, module)
                 start = inst.exports(store)["_start"]
+                assert isinstance(start, wasmtime.Func), (
+                    f"expected the '_start' export to be a Func, got {type(start)!r}"
+                )
                 try:
                     start(store)
                 except wasmtime.ExitTrap as e:

@@ -56,7 +56,7 @@ class ReplayModel:
             if decl is None or decl.mode != "declaration":
                 continue
             key = _request_key(decl.payload.get("request"))
-            exchanges[key] = ev.payload.get("response")
+            exchanges[key] = ev.payload.get("response") or {}
         return cls(exchanges)
 
     def respond(self, request: Any) -> Any:

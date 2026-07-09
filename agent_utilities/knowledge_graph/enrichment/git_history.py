@@ -441,21 +441,21 @@ def query_evolution(
     """
     mode = (mode or "file").strip().lower()
     if mode == "hotspots":
-        rows = []
+        node_rows: list[tuple[Any, dict[str, Any] | None]] = []
         scan = getattr(backend, "nodes_by_label", None)
         if callable(scan):
             try:
-                rows = scan("File") or []
+                node_rows = scan("File") or []
             except Exception:  # noqa: BLE001
-                rows = []
-        files = [
+                node_rows = []
+        files: list[dict[str, Any]] = [
             {
                 "file": (p or {}).get("path") or nid,
                 "churn": _as_int((p or {}).get("churn")),
                 "commits": _as_int((p or {}).get("commit_count")),
                 "authors": _as_int((p or {}).get("author_count")),
             }
-            for nid, p in rows
+            for nid, p in node_rows
         ]
         files.sort(key=lambda d: d["churn"], reverse=True)
         return {"mode": mode, "hotspots": files[:limit]}
@@ -504,7 +504,7 @@ def query_evolution(
             {"file": r.get("path") or r.get("id"), "support": _as_int(r.get("support"))}
             for r in rows
         ]
-        coupled.sort(key=lambda d: d["support"], reverse=True)
+        coupled.sort(key=lambda d: int(d["support"]), reverse=True)
         return {"mode": mode, "file": target, "coupled": coupled[:limit]}
 
     # default: file timeline
@@ -531,5 +531,5 @@ def query_evolution(
         }
         for r in rows
     ]
-    timeline.sort(key=lambda d: d["ts"], reverse=True)
+    timeline.sort(key=lambda d: int(d["ts"]), reverse=True)
     return {"mode": "file", "file": target, "timeline": timeline[:limit]}

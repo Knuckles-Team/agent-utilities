@@ -521,7 +521,8 @@ def _tool_action_names(tool: Any, providers: dict[str, Any]) -> list[str]:
     enum = _action_enum(tool)
     if enum:
         return enum
-    provider = providers.get(getattr(tool, "name", None))
+    tool_name = getattr(tool, "name", None)
+    provider = providers.get(tool_name) if isinstance(tool_name, str) else None
     if provider is not None:
         return _resolve_action_provider(provider)
     return []

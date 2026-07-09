@@ -42,14 +42,16 @@ from agent_utilities.mcp.child_resilience import (
     MCPChildError,
 )
 
+streamablehttp_client: Any = None
 try:  # remote transports — present on modern mcp SDKs
     from mcp.client.streamable_http import streamablehttp_client
 except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
-    streamablehttp_client = None
+    pass
+sse_client: Any = None
 try:
     from mcp.client.sse import sse_client
 except ImportError:  # pragma: no cover - older mcp SDK without sse
-    sse_client = None
+    pass
 
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
@@ -254,6 +256,11 @@ class MCPMultiplexer:
         # the query is embedded per call. Absent ⇒ token-overlap ranking only.
         self._embed_fn: Any = None
         self._tool_embeddings: dict[str, list[float]] = {}
+        # Server names never mountable as a child of this multiplexer (self +
+        # retired aliases) — set post-construction by the graph-os fleet loader
+        # (:func:`attach_fleet_loader`); defaults to just "mcp-multiplexer" via
+        # the ``getattr(..., None) or {...}`` fallback in ``load_catalog``.
+        self._skip_servers: set[str] | None = None
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — catalog-aware, collision-free prefix assignment,
         # computed deterministically over the whole server set so similarly
         # named servers (e.g. scholarx/searxng, both preferring "sx") never
@@ -365,13 +372,17 @@ class MCPMultiplexer:
             streams = await stack.enter_async_context(transport)
             read_stream, write_stream = streams[0], streams[1]
         else:
+            # `command` is guaranteed set here: the earlier guard raises unless
+            # `command` or `is_remote` is truthy, and this is the `not is_remote`
+            # branch.
+            assert command, "unreachable: non-remote server must have a 'command'"
             merged_env = os.environ.copy()
             for k, v in (cfg.get("env") or {}).items():
                 merged_env[k] = os.path.expandvars(str(v))
             if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
                 merged_env["PYTHONPATH"] = setting("PYTHONPATH")
             server_params = StdioServerParameters(
-                command=command, args=cfg.get("args", []), env=merged_env
+                command=str(command), args=cfg.get("args", []), env=merged_env
             )
             read_stream, write_stream = await stack.enter_async_context(
                 stdio_client(server_params)
@@ -385,8 +396,8 @@ class MCPMultiplexer:
 
     async def _start_child(
         self, server_name: str, cfg: dict
-    ) -> tuple[str, ClientSession, list[mcp.types.Tool], dict] | None:
-        """Starts a single child server, registers its exit stack on success, and returns its tools and session."""
+    ) -> tuple[str, ChildRuntime, list[mcp.types.Tool], dict] | None:
+        """Starts a single child server, registers its exit stack on success, and returns its tools and runtime."""
         command = cfg.get("command")
         url = os.path.expandvars(str(cfg.get("url", "")))
         explicit_transport = str(cfg.get("transport", "")).lower()
@@ -614,7 +625,13 @@ class MCPMultiplexer:
             runtime = ChildRuntime(server_name, cfg)
             runtime.adopt_sessions(sessions)
         self.children[server_name] = runtime
-        self.sessions[server_name] = runtime.primary_session
+        # `primary_session` is `None` only for a runtime with no adopted sessions
+        # yet, which shouldn't happen this far into registration (both branches
+        # above guarantee at least one) — but don't put a `None` where a real
+        # `ClientSession` is expected if that invariant is ever violated.
+        primary = runtime.primary_session
+        if primary is not None:
+            self.sessions[server_name] = primary
 
         disabled_tools = cfg.get("disabledTools", [])
         enabled_tools = cfg.get("enabledTools", None)
