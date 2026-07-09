@@ -45,11 +45,25 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+# CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
+# a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
+# governed ``fleet.write_record`` ontology Action uses
+# (``agent_utilities/knowledge_graph/actions/fleet_writeback.py``) — reused here,
+# not reinvented, so ``graph_mine_deep`` reaches data-science-mcp exactly like every
+# other fleet-delegation call site. Neither module imports torch/transformers.
+from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+    _run_async,
+)
+from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+    call_tool_once,
+)
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
 # engine build / client may expose the surface under any of several plausible
@@ -457,6 +471,164 @@ def _crossmodal_fork_fanout(
         },
         default=_json_default,
     )
+
+
+# ══════════════════════════════════════════════════════════════════
+# graph_mine_deep — Phase-6 heavy-dep delegation to data-science-mcp
+# ══════════════════════════════════════════════════════════════════
+# CONCEPT:AU-KG.mining.dsm-forecast-delegation — the data-mining plan's Phase 6: the engine
+# core stays pure-Rust (never torch/GPU); the deep-learning / heavy-Python family
+# (LSTM/RNN sequence forecasting, MLP/deep classifiers, autoencoders, an XGBoost-
+# family boosting classifier) is ORCHESTRATED over MCP to ``agents/data-science-mcp``
+# — this module ships features out, that service trains/infers, and the result
+# folds back into the KG as typed nodes (CONCEPT:AU-KG.mining.foldback-typed-nodes). Word/text
+# embeddings are deliberately NOT re-homed here — they already live on the remote
+# vLLM embedder (``core/embedding_utilities``); the 'embed' action below embeds
+# arbitrary NUMERIC feature rows via a small neural autoencoder, a distinct
+# capability from text embedding.
+_DSM_SERVER_NAME = "data-science-mcp"
+_DSM_TOOL_NAME = "deep_train_predict"
+
+#: One delegated ``graph_mine_deep`` action → the data-science-mcp
+#: ``deep_train_predict`` algo it maps to.
+_DEEP_ALGO_BY_ACTION: dict[str, str] = {
+    "deep_forecast": "lstm_forecast",
+    "deep_classify": "mlp_classify",
+    "autoencoder_anomaly": "autoencoder_anomaly",
+    "xgboost": "histgbm_classify",
+    "embed": "autoencoder_embed",
+}
+
+#: KG node type a delegated action's result materializes as when writeback=true.
+_DEEP_NODE_TYPE: dict[str, str] = {
+    "deep_forecast": "Forecast",
+    "deep_classify": "Classification",
+    "autoencoder_anomaly": "Anomaly",
+    "xgboost": "Classification",
+    "embed": "Embedding",
+}
+
+
+def _gather_kg_feature_rows(
+    source: dict[str, Any], graph: str
+) -> tuple[list[str], list[list[float]]]:
+    """Gather a feature-row RowSet from the KG for a ``{node_label, fields, limit}`` source spec.
+
+    Runs one read-only Cypher projection through the existing ``graph_query`` tool
+    (compute-near-data — no bespoke second engine client) and returns
+    ``(node_ids, rows)`` so a caller can ship ``rows`` to data-science-mcp and fold
+    the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
+    """
+    node_label = source.get("node_label")
+    if not node_label:
+        raise ValueError("source.node_label is required")
+    fields = source.get("fields") or []
+    if not fields:
+        raise ValueError("source.fields (a list of property names) is required")
+    limit = int(source.get("limit", 200))
+    projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
+    cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
+    raw = _run_coro(
+        kg_server._execute_tool(
+            "graph_query", cypher=cypher, params="{}", scope="local", target=graph or ""
+        )
+    )
+    payload = json.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(payload, dict) and "error" in payload:
+        raise RuntimeError(payload["error"])
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            f"unexpected graph_query result shape: {type(payload).__name__}"
+        )
+    node_ids = [str(row.get("id")) for row in payload]
+    rows = [
+        [float(row.get(f"f{i}") or 0.0) for i in range(len(fields))] for row in payload
+    ]
+    return node_ids, rows
+
+
+def _deep_write_node(node_type: str, properties: dict[str, Any], graph: str) -> str:
+    """Materialize one delegated-deep-mining result row as a typed KG node
+    (CONCEPT:AU-KG.mining.foldback-typed-nodes). Best-effort — never raises, since a foldback
+    failure must not fail the already-completed delegated call. Returns the new node id."""
+    node_id = f"{node_type.lower()}_dsm_{uuid.uuid4().hex[:12]}"
+    try:
+        _run_coro(
+            kg_server._execute_tool(
+                "graph_write",
+                action="add_node",
+                node_id=node_id,
+                node_type=node_type,
+                properties=json.dumps(properties, default=_json_default),
+                target=graph or "",
+            )
+        )
+    except Exception:  # noqa: BLE001 — writeback is best-effort
+        pass
+    return node_id
+
+
+def _deep_write_edge(source_id: str, target_id: str, rel_type: str, graph: str) -> None:
+    """Link a delegated-deep-mining node back to the KG node it was derived from
+    (best-effort — see :func:`_deep_write_node`)."""
+    try:
+        _run_coro(
+            kg_server._execute_tool(
+                "graph_write",
+                action="add_edge",
+                source_id=source_id,
+                target_id=target_id,
+                rel_type=rel_type,
+                target=graph or "",
+            )
+        )
+    except Exception:  # noqa: BLE001 — writeback is best-effort
+        pass
+
+
+def _prepare_deep_delegation(
+    action: str, params: dict[str, Any], graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """Marshal ``params`` into the ``deep_train_predict`` kwargs for ``action``.
+
+    Gathers a KG RowSet via ``source`` when raw ``x``/``values`` are not given
+    directly. Returns ``(tool_params, node_ids)`` — ``node_ids`` is only populated
+    when a ``source`` was used (so the caller can fold results back onto them).
+    """
+    tool_params: dict[str, Any] = {"algo": _DEEP_ALGO_BY_ACTION[action]}
+    node_ids: list[str] = []
+    source = params.pop("source", None)
+
+    if action == "deep_forecast":
+        values = params.pop("values", None)
+        if values is None and source:
+            node_ids, rows = _gather_kg_feature_rows(source, graph)
+            values = [row[0] for row in rows]
+        if not values:
+            raise ValueError("provide 'values' (a 1-D series) or a 'source'")
+        tool_params["values_json"] = json.dumps(values)
+    elif action in ("deep_classify", "xgboost"):
+        x = params.pop("x", None)
+        y = params.pop("y", None)
+        if x is None and source:
+            node_ids, x = _gather_kg_feature_rows(source, graph)
+        if x is None or y is None:
+            raise ValueError("provide 'x' + 'y', or a 'source' + 'y'")
+        tool_params["x_json"] = json.dumps(x)
+        tool_params["y_json"] = json.dumps(y)
+        x_predict = params.pop("x_predict", None)
+        if x_predict is not None:
+            tool_params["x_predict_json"] = json.dumps(x_predict)
+    else:  # autoencoder_anomaly, embed
+        x = params.pop("x", None)
+        if x is None and source:
+            node_ids, x = _gather_kg_feature_rows(source, graph)
+        if x is None:
+            raise ValueError("provide 'x' or a 'source'")
+        tool_params["x_json"] = json.dumps(x)
+
+    tool_params["params_json"] = json.dumps(params)
+    return tool_params, node_ids
 
 
 def register_engine_surface_tools(mcp) -> None:
@@ -1101,6 +1273,203 @@ def register_engine_surface_tools(mcp) -> None:
     kg_server.ACTION_TOOL_ROUTES["graph_mine"] = "/mining/associate"
 
     # ══════════════════════════════════════════════════════════════════
+    # graph_mine_deep — Phase-6 heavy-dep delegation to data-science-mcp
+    # (CONCEPT:AU-KG.mining.dsm-forecast-delegation)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_mine_deep",
+        description=(
+            "CONCEPT:AU-KG.mining.dsm-forecast-delegation — the deep-learning / heavy-Python family the "
+            "engine core deliberately does NOT implement (no torch/GPU in the "
+            "pure-Rust engine): this tool DISPATCHES to agents/data-science-mcp over "
+            "MCP (the fleet call_tool_once connector, same one 'fleet.write_record' "
+            "uses) and folds the result back into the KG as typed nodes "
+            "(CONCEPT:AU-KG.mining.foldback-typed-nodes). Actions: 'deep_forecast' (LSTM sequence "
+            "forecaster — the delegated Prophet/LSTM family; Prophet itself needs an "
+            "unvendored Stan toolchain, ARIMA/Holt-Winters/STL in graph_mine remain "
+            "the native classical default), 'deep_classify' (MLP deep classifier), "
+            "'autoencoder_anomaly' (reconstruction-error outlier detection), "
+            "'xgboost' (histogram gradient-boosting classifier — the documented "
+            "xgboost substitute; no separate xgboost package is vendored), 'embed' "
+            "(neural embedding of arbitrary NUMERIC feature rows via an autoencoder "
+            "bottleneck — NOT text/word embeddings, those stay on the remote vLLM "
+            "embedder). Every action accepts either raw rows ('x'/'values') OR a "
+            "graph-derived 'source' {node_label, fields(list of properties), limit} "
+            "gathered from the KG as a RowSet via one read-only Cypher projection "
+            "(compute-near-data — the row-gathering read and the delegated call are "
+            "the only two round trips). writeback=true materializes the result as "
+            "typed nodes tagged provider='data-science-mcp': ':Forecast' (deep_forecast, "
+            "linked FORECAST_OF a 'series_id' node when given), ':Classification' "
+            "(deep_classify/xgboost), ':Anomaly' (autoencoder_anomaly), ':Embedding' "
+            "(embed) — each row-level node linked DEEP_RESULT_OF its source node when "
+            "a 'source' was used. Degrades cleanly (never crashes) when "
+            "data-science-mcp is unreachable or its [training] extra (torch) is not "
+            "installed: returns {available:false, error:...}. "
+            "REST twins: POST /api/mining/deep/{deep_forecast,deep_classify,"
+            "autoencoder_anomaly,xgboost,embed} (same _execute_tool core)."
+        ),
+        tags=[
+            "graph-os",
+            "engine",
+            "mining",
+            "deep-learning",
+            "data-science-mcp",
+            "delegation",
+        ],
+    )
+    def graph_mine_deep(
+        action: str = Field(
+            default="deep_forecast",
+            description="Delegated mining action: 'deep_forecast' | 'deep_classify' "
+            "| 'autoencoder_anomaly' | 'xgboost' | 'embed'.",
+        ),
+        params_json: str = Field(
+            default="{}",
+            description="JSON object of kwargs, e.g. "
+            '{"values":[5,8,11,14,18],"horizon":5,"lookback":3,"series_id":"metric:cpu",'
+            '"writeback":true} (deep_forecast); '
+            '{"x":[[0,0],[10,10]],"y":[0,1],"epochs":100,"writeback":true} or '
+            '{"source":{"node_label":"Doc","fields":["f1","f2"],"limit":200},"y":[0,1,...]} '
+            "(deep_classify/xgboost); "
+            '{"x":[[0,0],[0,1],[50,50]],"bottleneck":2,"writeback":true} or '
+            '{"source":{"node_label":"Metric","fields":["v"],"limit":500}} '
+            "(autoencoder_anomaly/embed).",
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin delegation adapter: ship features to data-science-mcp, fold predictions back (CONCEPT:AU-KG.mining.dsm-forecast-delegation)."""
+        action = (action or "").strip().replace("-", "_") or "deep_forecast"
+        if action not in _DEEP_ALGO_BY_ACTION:
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "error": f"unknown action {action!r}; choose one of "
+                    f"{sorted(_DEEP_ALGO_BY_ACTION)}",
+                }
+            )
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "error": f"invalid params_json: {exc}",
+                }
+            )
+        if not isinstance(params, dict):
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "error": "params_json must decode to an object",
+                }
+            )
+
+        writeback = bool(params.pop("writeback", False))
+        series_id = str(params.pop("series_id", "") or "")
+
+        try:
+            tool_params, node_ids = _prepare_deep_delegation(action, params, graph)
+        except Exception as exc:  # noqa: BLE001 — bad input / feature-gathering failure is data
+            return json.dumps(
+                {"surface": "mining_deep", "action": action, "error": str(exc)}
+            )
+
+        try:
+            raw = _run_async(
+                call_tool_once(
+                    server=_DSM_SERVER_NAME,
+                    tool=_DSM_TOOL_NAME,
+                    params=tool_params,
+                    params_style="args",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "provider": _DSM_SERVER_NAME,
+                    "delegated": True,
+                    "available": False,
+                    "error": f"delegated-unavailable: {exc}",
+                }
+            )
+
+        if not isinstance(raw, dict):
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "provider": _DSM_SERVER_NAME,
+                    "delegated": True,
+                    "available": False,
+                    "error": f"unexpected data-science-mcp response shape: {type(raw).__name__}",
+                }
+            )
+        if not raw.get("available", True):
+            return json.dumps(
+                {
+                    "surface": "mining_deep",
+                    "action": action,
+                    "provider": _DSM_SERVER_NAME,
+                    "delegated": True,
+                    "available": False,
+                    "error": raw.get(
+                        "error", "data-science-mcp reported the algo unavailable"
+                    ),
+                }
+            )
+
+        result = raw.get("result") or {}
+        node_type = _DEEP_NODE_TYPE[action]
+        written: list[str] = []
+        if writeback:
+            if action == "deep_forecast":
+                props = {
+                    "provider": _DSM_SERVER_NAME,
+                    "algo": _DEEP_ALGO_BY_ACTION[action],
+                    **result,
+                }
+                node_id = _deep_write_node(node_type, props, graph)
+                if series_id:
+                    _deep_write_edge(node_id, series_id, "FORECAST_OF", graph)
+                written = [node_id]
+            else:
+                for i, row in enumerate(result.get("rows") or []):
+                    props = {
+                        "provider": _DSM_SERVER_NAME,
+                        "algo": _DEEP_ALGO_BY_ACTION[action],
+                        **row,
+                    }
+                    node_id = _deep_write_node(node_type, props, graph)
+                    if i < len(node_ids):
+                        _deep_write_edge(node_id, node_ids[i], "DEEP_RESULT_OF", graph)
+                    written.append(node_id)
+
+        return json.dumps(
+            {
+                "surface": "mining_deep",
+                "action": action,
+                "provider": _DSM_SERVER_NAME,
+                "delegated": True,
+                "available": True,
+                "result": result,
+                "written_node_ids": written,
+            },
+            default=_json_default,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_mine_deep"] = graph_mine_deep
+    # REST twin path: POST {prefix}/mining/deep/deep_forecast (mounted bespoke in
+    # kg_server so a natural body works while dispatching the SAME _execute_tool core).
+    kg_server.ACTION_TOOL_ROUTES["graph_mine_deep"] = "/mining/deep/deep_forecast"
+
+    # ══════════════════════════════════════════════════════════════════
     # graph_learn — graph-learning / neuro-symbolic surface (CONCEPT:EG-KG.graphlearn.link-predictor)
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
@@ -1129,7 +1498,14 @@ def register_engine_surface_tools(mcp) -> None:
             "REST twins: POST /api/graphlearn/{fit,predict} (same _execute_tool core). "
             "Degrades cleanly on a no-graphlearn engine build."
         ),
-        tags=["graph-os", "engine", "graphlearn", "link-prediction", "kan", "neuro-symbolic"],
+        tags=[
+            "graph-os",
+            "engine",
+            "graphlearn",
+            "link-prediction",
+            "kan",
+            "neuro-symbolic",
+        ],
     )
     def graph_learn(
         action: str = Field(
@@ -1159,7 +1535,10 @@ def register_engine_surface_tools(mcp) -> None:
             )
         if not isinstance(params, dict):
             return json.dumps(
-                {"surface": "graphlearn", "error": "params_json must decode to an object"}
+                {
+                    "surface": "graphlearn",
+                    "error": "params_json must decode to an object",
+                }
             )
         return _invoke(
             surface="graphlearn",
