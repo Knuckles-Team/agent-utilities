@@ -349,6 +349,59 @@ its `MCP_CONFIG` fleet file **on demand** via the built-in `find_tools` / `list_
 out of context until you ask for them. (The standalone `mcp-multiplexer` has been folded
 into `graph-os` — there is no separate multiplexer server anymore.)
 
+### Self-contained (zero-infra) — the engine ships in the same install
+
+This is the default and the simplest: **one `uvx --from agent-utilities graph-os` is a
+complete, fully-capable Knowledge Graph MCP server with no external services.** The
+`epistemic-graph` engine is a **base dependency**, and the published wheel is already the
+**full CPU build** (`MATURIN_FEATURES=full` — compute/finance/datascience/mining/graphlearn/
+reasoning, SQL/Cypher, redb-authoritative durability, security, and every wire protocol) with
+the `epistemic-graph-server` binary bundled. (The GPU/ROS2 `full-extras` layer is
+deliberately excluded — it needs an external CUDA/robotics toolchain, which would defeat
+"self-contained.") On
+first call graph-os **autostarts and supervises a local engine over a private Unix-domain
+socket** (`EngineResolver`, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision), durable
+by default (redb persists to the XDG data dir, so an acked write survives a restart), and
+**reference-counted idle-shutdown** so it self-stops when the last client disconnects. No
+database, no daemon, no Docker — just the one stdio process:
+
+```json
+{
+  "mcpServers": {
+    "graph-os": {
+      "command": "uvx",
+      "args": ["--from", "agent-utilities", "graph-os"],
+      "env": {
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}",
+        "MCP_TOOL_MODE": "both"
+      }
+    }
+  }
+}
+```
+
+That is the whole thing — omitting `ENGINE_MODE`/`ENGINE_ENDPOINT`/`EPISTEMIC_GRAPH_AUTOSTART`
+selects the zero-infra path where graph-os provisions the engine itself. (Optional:
+`GRAPH_SERVICE_PERSIST_DIR=/path` to pin the durable store somewhere specific, or
+`MCP_CONFIG` to point at a fleet file so `find_tools`/`load_tools` can mount other `*-mcp`
+servers on demand.)
+
+> **"Same process"?** The engine runs **out-of-process** — an auto-spawned child over a
+> private MessagePack/UDS socket, **not** an in-process PyO3 extension (that coupling was
+> removed on purpose to stay GIL-free and horizontally scalable). It is nonetheless
+> **self-contained**: one install brings the wheel + the `epistemic-graph-server` binary,
+> graph-os owns its whole lifecycle (autostart → supervise → idle-stop), and it needs no
+> external service. Each `uvx … graph-os` you launch is its own isolated, fully-capable
+> instance with its own small durable engine. (`[full-extras]` — the engine's GPU/ROS2 layer
+> — is deliberately **not** pulled: it needs an external CUDA/robotics toolchain to run,
+> which would defeat "self-contained," and it is a wheel build variant, not a pip extra.)
+
+### Shared engine (split-storage / Keycloak-protected fleet)
+
+To instead point many clients at **one shared** `epistemic-graph` node (e.g. a fast-NVMe host)
+and a Keycloak-protected `*-mcp` fleet, set the engine-connection + fleet-auth groups:
+
 ```json
 {
   "mcpServers": {
