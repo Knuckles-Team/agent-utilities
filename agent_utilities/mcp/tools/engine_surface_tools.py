@@ -972,7 +972,8 @@ def register_engine_surface_tools(mcp) -> None:
             "Actions: 'associate' (association rules), 'cluster' (clustering), "
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
             "(classification), 'reduce' (dimensionality reduction), 'sequence' "
-            "(sequential-pattern mining), 'forecast' (classical time-series forecasting). "
+            "(sequential-pattern mining), 'forecast' (classical time-series forecasting), "
+            "'text' (TF-IDF / topic modeling). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1015,9 +1016,16 @@ def register_engine_surface_tools(mcp) -> None:
             "seasonal/residual). Params: horizon, confidence (band level). writeback ⇒ "
             ":Forecast node linked FORECAST_OF a resident node named 'series_id'. Returns "
             "{forecast, lower, upper, horizon, ...}. "
+            "• text — TF-IDF(default, descriptive, read-only)/lda(collapsed Gibbs sampling — "
+            "alpha/beta priors, iterations)/nmf(multiplicative updates on the TF-IDF matrix) "
+            "over 'docs' (pre-tokenized word lists) OR a graph-derived 'source' {node_label, "
+            "field, limit} (tokenizes a text property per node — no Tantivy dependency). "
+            "Params: k (topic count for lda/nmf), top_n (terms kept per row). writeback ⇒ "
+            "(lda/nmf only) :Topic nodes linked HAS_TOPIC from each doc's dominant topic. "
+            "Returns {doc_terms:[...]} (tfidf) or {topics:[...], doc_topics:[...]} (lda/nmf). "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce,sequence,forecast} (same _execute_tool core). Degrades "
-            "cleanly on a no-mining engine build."
+            "classify_predict,reduce,sequence,forecast,text} (same _execute_tool core). "
+            "Degrades cleanly on a no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
@@ -1025,7 +1033,7 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="associate",
             description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
-            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast'.",
+            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast' | 'text'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1044,7 +1052,10 @@ def register_engine_surface_tools(mcp) -> None:
             '{"sequences":[["login","browse","purchase"]],"min_support":0.5} or '
             '{"source":{"node_label":"Session"},"algorithm":"gsp","writeback":true} (sequence); '
             '{"values":[5,8,11,14],"algorithm":"arima","p":1,"d":1,"horizon":5} or '
-            '{"values":[...],"algorithm":"holtwinters","period":12,"horizon":12} (forecast).',
+            '{"values":[...],"algorithm":"holtwinters","period":12,"horizon":12} (forecast); '
+            '{"docs":[["the","cat","sat"]],"algorithm":"tfidf"} or '
+            '{"source":{"node_label":"Doc","field":"body"},"algorithm":"lda","k":5,'
+            '"writeback":true} (text).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."

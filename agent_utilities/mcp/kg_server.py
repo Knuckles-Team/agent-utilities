@@ -684,6 +684,7 @@ MINING_ACTIONS = (
     "reduce",
     "sequence",
     "forecast",
+    "text",
 )
 
 
@@ -696,7 +697,8 @@ def _make_mining_endpoint(action: str):
     anomaly, ``{x|source,y,algorithm,...}`` for classify_fit, ``{model,x|source,...}``
     for classify_predict, ``{x|source,algorithm,n_components,...}`` for reduce,
     ``{sequences|source,min_support,algorithm,...}`` for sequence,
-    ``{values,algorithm,horizon,...}`` for forecast) plus an
+    ``{values,algorithm,horizon,...}`` for forecast,
+    ``{docs|source,algorithm,k,...}`` for text) plus an
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
