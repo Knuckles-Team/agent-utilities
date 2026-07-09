@@ -1,6 +1,6 @@
 ---
 name: agent-utilities-ontology
-skill_type: skill
+skill_type: graph
 description: >-
   OWL ontology reference for agent-utilities. Covers the core ontology,
   16 domain ontologies, BFO alignment, and SPARQL query patterns.
