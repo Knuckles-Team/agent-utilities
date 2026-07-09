@@ -973,7 +973,8 @@ def register_engine_surface_tools(mcp) -> None:
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
             "(classification), 'reduce' (dimensionality reduction), 'sequence' "
             "(sequential-pattern mining), 'forecast' (classical time-series forecasting), "
-            "'text' (TF-IDF / topic modeling). "
+            "'text' (TF-IDF / topic modeling), 'subgraph' (frequent-subgraph mining / "
+            "motif counting — mines the RESIDENT GRAPH's own topology, no input rows). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1023,9 +1024,19 @@ def register_engine_surface_tools(mcp) -> None:
             "Params: k (topic count for lda/nmf), top_n (terms kept per row). writeback ⇒ "
             "(lda/nmf only) :Topic nodes linked HAS_TOPIC from each doc's dominant topic. "
             "Returns {doc_terms:[...]} (tfidf) or {topics:[...], doc_topics:[...]} (lda/nmf). "
+            "• subgraph — GRAPH-NATIVE (no input rows — mines the graph itself): "
+            "gspan(default — level-wise frequent connected-subgraph pattern growth up to "
+            "'max_edges', canonicalized + exactly re-counted; 'min_support' is a fraction of "
+            "total host edges; support = raw embedding count, not min-node-image support)/"
+            "motif(label-agnostic topological census: wedges/triangles/directed-3-cycles; "
+            "min_support/max_edges ignored). Optional 'label' restricts the scanned host "
+            "graph to one node type (None = whole resident graph). writeback ⇒ (gspan only) "
+            ":FrequentSubgraph nodes linked SUBGRAPH_MEMBER to every node in any embedding. "
+            "Returns {patterns:[{nodes,edges,support,count}],...} (gspan) or "
+            "{motifs:{wedge,triangle,directed_cycle3},...} (motif). "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce,sequence,forecast,text} (same _execute_tool core). "
-            "Degrades cleanly on a no-mining engine build."
+            "classify_predict,reduce,sequence,forecast,text,subgraph} (same _execute_tool "
+            "core). Degrades cleanly on a no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
@@ -1033,7 +1044,8 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="associate",
             description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
-            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast' | 'text'.",
+            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast' | "
+            "'text' | 'subgraph'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1055,7 +1067,9 @@ def register_engine_surface_tools(mcp) -> None:
             '{"values":[...],"algorithm":"holtwinters","period":12,"horizon":12} (forecast); '
             '{"docs":[["the","cat","sat"]],"algorithm":"tfidf"} or '
             '{"source":{"node_label":"Doc","field":"body"},"algorithm":"lda","k":5,'
-            '"writeback":true} (text).',
+            '"writeback":true} (text); '
+            '{"min_support":0.1,"max_edges":2,"writeback":true} or '
+            '{"label":"Concept","algorithm":"motif"} (subgraph).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
