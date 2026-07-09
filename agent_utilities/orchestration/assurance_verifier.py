@@ -101,7 +101,9 @@ ROLE_ALLOWED_KINDS: dict[str, frozenset[str]] = {
 def _role_allows(role: str, kind: str) -> bool:
     allowed = ROLE_ALLOWED_KINDS.get(role)
     if allowed is None:
-        return True  # unrecognized role — not restricted by RBAC, tier gate still applies
+        return (
+            True  # unrecognized role — not restricted by RBAC, tier gate still applies
+        )
     if "*" in allowed:
         return True
     import fnmatch
@@ -180,7 +182,9 @@ def verify_action(
         )
 
     # (b) argument shape/types.
-    params = request.params if isinstance(getattr(request, "params", None), dict) else {}
+    params = (
+        request.params if isinstance(getattr(request, "params", None), dict) else {}
+    )
     for name, typ in invariant.required_params.items():
         if name not in params:
             return VerifyResult(
