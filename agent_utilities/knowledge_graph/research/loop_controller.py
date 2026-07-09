@@ -154,6 +154,7 @@ class LoopController:
         tri_evolution: bool = False,
         focus_query: str = "",
         mine_discovery: bool | None = None,
+        belief_revision: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -162,8 +163,11 @@ class LoopController:
         idempotent/content-addressed) → ``assimilate`` (dedup→gap→synergy→rank,
         idempotent via the state watermark) → ``reason`` → ``mine_discovery`` (env
         ``KG_LOOP_MINE_DISCOVERY``, default ON — the discovery-flywheel mining pass,
-        CONCEPT:AU-KG.evolution.mining-flywheel) → intake/acquire/resolve →
-        ``distill`` (env ``KG_LOOP_DISTILL``) → ``synthesize``. The report carries
+        CONCEPT:AU-KG.evolution.mining-flywheel) → ``belief_revision`` (env
+        ``KG_LOOP_BELIEF_REVISION``, default ON — confidence propagation + light
+        TMS over ``Belief`` nodes (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision))
+        → intake/acquire/resolve → ``distill`` (env ``KG_LOOP_DISTILL``) →
+        ``synthesize``. The report carries
         a ``metrics`` block (per-stage timings + error count) and is persisted as an
         ``EvolutionCycle`` node for monitoring.
         """
@@ -181,6 +185,8 @@ class LoopController:
             discover = config.kg_loop_discover
         if mine_discovery is None:
             mine_discovery = config.kg_loop_mine_discovery
+        if belief_revision is None:
+            belief_revision = config.kg_loop_belief_revision
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -193,6 +199,7 @@ class LoopController:
             "assimilate": None,
             "reason": None,
             "mine_discovery": None,
+            "belief_revision": None,
             "standardize": None,
             "skill_proposals": None,
             "executed": None,
@@ -289,6 +296,21 @@ class LoopController:
         if mine_discovery:
             report["mine_discovery"] = _stage(
                 "mine_discovery", self._run_mine_discovery
+            )
+
+        # 0a1.5 BELIEF REVISION — confidence propagation + light TMS (CONCEPT:AU-KG.
+        # adaptation.confidence-propagation-belief-revision, workstream C2): recomputes
+        # every ``Belief`` node's confidence from its support/contradiction
+        # neighborhood (fresh ``ContradictionDetector`` friction + already-recorded
+        # edges), persisting each outcome as a ``:BeliefRevisionProposal`` — never a
+        # mutation of the live belief (propose-only; the Critic flags, it does not
+        # arbitrate). Placed right after ``mine_discovery`` so revision sees any
+        # newly-mined/reasoned structure first. Best-effort + gated
+        # (KG_LOOP_BELIEF_REVISION, default ON — degrades to a no-op ``skipped``
+        # result with fewer than 2 Belief nodes, so it's safe to leave on everywhere).
+        if belief_revision:
+            report["belief_revision"] = _stage(
+                "belief_revision", self._run_belief_revision
             )
 
         # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
@@ -851,7 +873,9 @@ class LoopController:
             errors.append(f"mine_predict:fit: {e}")
             return {"count": 0, "examples": []}
         if not self._mining_ok(fit_payload):
-            errors.append(f"mine_predict:fit: {fit_payload.get('error') or fit_payload}")
+            errors.append(
+                f"mine_predict:fit: {fit_payload.get('error') or fit_payload}"
+            )
             return {"count": 0, "examples": []}
         model = (fit_payload.get("result") or {}).get("model")
         if not model:
@@ -882,6 +906,152 @@ class LoopController:
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
         return {"count": len(predicted), "examples": predicted[:5]}
+
+    # -- belief revision / confidence propagation (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) -- #
+    def _run_belief_revision(self) -> dict[str, Any]:
+        """Confidence-propagation + light-TMS pass over the KG's ``Belief`` nodes.
+
+        Workstream C2: loads every ``:Belief`` node, runs
+        :class:`~..adaptation.belief_revision.BeliefRevisionPass` (which
+        internally re-runs :class:`~..adaptation.contradiction_detector.
+        ContradictionDetector` over the belief statements to discover fresh
+        friction, unions it with each belief's already-recorded
+        ``contradicted_by_node_ids``/``supported_by_node_ids``, and recomputes
+        an explainable confidence for every belief), then persists each
+        recomputed outcome as a ``:BeliefRevisionProposal`` node — a NEW
+        advisory node, never a mutation of the live ``Belief`` node's
+        ``confidence``/``contradicted_by_node_ids`` fields. This mirrors the
+        SAME propose-only doctrine the ``TeamSpec``/``SearchTask`` stages
+        already use in this controller (persist a ``status: "proposal"``
+        node; never touch the canonical record) — the Critic flags, it does
+        not arbitrate. A human/agent reviewer (or a future promotion path)
+        decides whether/how to fold a proposal back into the live belief.
+
+        Each of the three sub-steps below (query, recompute, persist) is
+        independently best-effort — mirroring the ``_mine_*`` sub-step
+        tolerance pattern — so a failure in one never blocks the others or
+        raises out of the stage (the outer ``_stage`` wrapper in
+        ``run_one_cycle`` would catch it regardless, but the finer-grained
+        tolerance here keeps partial results instead of an all-or-nothing
+        failure). Best-effort + gated (``KG_LOOP_BELIEF_REVISION``, default
+        ON — degrades to a ``skipped`` result with no beliefs to revise, so
+        it's safe to leave on everywhere).
+        """
+        from ..adaptation.belief_revision import BeliefRevisionPass
+        from ..adaptation.contradiction_detector import ContradictionDetector
+
+        errors: list[str] = []
+
+        try:
+            rows = (
+                self.engine.query_cypher(
+                    "MATCH (b:Belief) RETURN b.id AS id, b.statement AS statement, "
+                    "b.confidence AS confidence, "
+                    "b.evidence_node_ids AS evidence_node_ids, "
+                    "b.supported_by_node_ids AS supported_by_node_ids, "
+                    "b.contradicted_by_node_ids AS contradicted_by_node_ids, "
+                    "b.last_reviewed AS last_reviewed LIMIT $limit",
+                    {"limit": 200},
+                )
+                or []
+            )
+        except Exception as e:  # noqa: BLE001 — a query failure degrades, never raises
+            errors.append(f"belief_revision:query: {e}")
+            return {"skipped": True, "reason": "query failed", "errors": errors}
+
+        beliefs = self._parse_belief_rows(rows, errors)
+        if len(beliefs) < 2:
+            # Nothing to compare against — not an error, just nothing to do yet.
+            return {
+                "skipped": True,
+                "reason": "fewer than 2 Belief nodes",
+                "beliefs_scanned": len(beliefs),
+                "errors": errors,
+            }
+
+        try:
+            revisions = BeliefRevisionPass(
+                contradiction_detector=ContradictionDetector(), use_engine=True
+            ).scan(beliefs)
+        except Exception as e:  # noqa: BLE001 — recompute failure degrades, never raises
+            errors.append(f"belief_revision:scan: {e}")
+            return {
+                "skipped": True,
+                "reason": "revision scan failed",
+                "beliefs_scanned": len(beliefs),
+                "errors": errors,
+            }
+
+        persisted = 0
+        examples: list[dict[str, Any]] = []
+        for revision in revisions:
+            payload = revision.to_dict()
+            if len(examples) < 5:
+                examples.append(payload)
+            if not self.propose_only:
+                continue
+            try:
+                self.engine.add_node(
+                    f"BeliefRevisionProposal:{revision.belief_id}:{revision.last_reviewed}",
+                    {
+                        "type": "BeliefRevisionProposal",
+                        "status": "proposal",
+                        **payload,
+                    },
+                )
+                persisted += 1
+            except Exception as e:  # noqa: BLE001 — persistence is best-effort
+                errors.append(f"belief_revision:persist {revision.belief_id}: {e}")
+
+        return {
+            "skipped": False,
+            "beliefs_scanned": len(beliefs),
+            "revisions": len(revisions),
+            "persisted_nodes": persisted,
+            "examples": examples,
+            "errors": errors,
+        }
+
+    @staticmethod
+    def _parse_belief_rows(rows: list[Any], errors: list[str]) -> list[Any]:
+        """Best-effort ``Belief`` row → ``BeliefNode`` parsing, one row at a time.
+
+        A single malformed row (bad confidence, missing id) is recorded and
+        skipped rather than aborting the whole pass.
+        """
+        from agent_utilities.models.knowledge_graph import (
+            BeliefNode,
+            RegistryNodeType,
+        )
+
+        beliefs = []
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("id"):
+                continue
+            try:
+                raw_confidence = row.get("confidence")
+                confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+                confidence = max(0.0, min(1.0, confidence))
+                beliefs.append(
+                    BeliefNode(
+                        id=row["id"],
+                        type=RegistryNodeType.BELIEF,
+                        name=str(row["id"]),
+                        statement=row.get("statement") or "",
+                        confidence=confidence,
+                        evidence_node_ids=list(row.get("evidence_node_ids") or []),
+                        supported_by_node_ids=list(
+                            row.get("supported_by_node_ids") or []
+                        ),
+                        contradicted_by_node_ids=list(
+                            row.get("contradicted_by_node_ids") or []
+                        ),
+                        last_reviewed=row.get("last_reviewed") or "",
+                    )
+                )
+            except Exception as e:  # noqa: BLE001 — one bad row never blocks the rest
+                errors.append(f"belief_revision:parse {row.get('id')}: {e}")
+        return beliefs
 
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
