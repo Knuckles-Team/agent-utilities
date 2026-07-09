@@ -682,6 +682,7 @@ MINING_ACTIONS = (
     "classify_fit",
     "classify_predict",
     "reduce",
+    "sequence",
 )
 
 
@@ -692,7 +693,8 @@ def _make_mining_endpoint(action: str):
     kwargs, e.g. ``{transactions|source,...}`` for associate, ``{features|source,
     algorithm,...}`` for cluster, ``{features|values|source,algorithm,...}`` for
     anomaly, ``{x|source,y,algorithm,...}`` for classify_fit, ``{model,x|source,...}``
-    for classify_predict, ``{x|source,algorithm,n_components,...}`` for reduce) plus an
+    for classify_predict, ``{x|source,algorithm,n_components,...}`` for reduce,
+    ``{sequences|source,min_support,algorithm,...}`` for sequence) plus an
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
