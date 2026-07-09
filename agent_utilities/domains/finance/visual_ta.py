@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ class SupportResistanceDetector:
         self.tolerance = tolerance
 
     def detect(
-        self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray
+        self, highs: NDArray, lows: NDArray, closes: NDArray
     ) -> tuple[list[SupportResistanceLevel], list[SupportResistanceLevel]]:
         """Detect support and resistance levels."""
         supports = []
@@ -175,7 +176,7 @@ class PatternDetector:
     """
 
     def detect_double_top(
-        self, highs: np.ndarray, closes: np.ndarray, tolerance: float = 0.02
+        self, highs: NDArray, closes: NDArray, tolerance: float = 0.02
     ) -> list[DetectedPattern]:
         """Detect double top formations."""
         patterns: list[DetectedPattern] = []
@@ -210,7 +211,7 @@ class PatternDetector:
         return patterns
 
     def detect_double_bottom(
-        self, lows: np.ndarray, closes: np.ndarray, tolerance: float = 0.02
+        self, lows: NDArray, closes: NDArray, tolerance: float = 0.02
     ) -> list[DetectedPattern]:
         """Detect double bottom formations."""
         patterns: list[DetectedPattern] = []
@@ -243,7 +244,7 @@ class PatternDetector:
         return patterns
 
     def detect_breakout(
-        self, closes: np.ndarray, highs: np.ndarray, lookback: int = 20
+        self, closes: NDArray, highs: NDArray, lookback: int = 20
     ) -> list[DetectedPattern]:
         """Detect breakout above recent highs."""
         patterns: list[DetectedPattern] = []
@@ -267,7 +268,7 @@ class PatternDetector:
         return patterns
 
     def detect_all(
-        self, opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray
+        self, opens: NDArray, highs: NDArray, lows: NDArray, closes: NDArray
     ) -> list[DetectedPattern]:
         """Run all pattern detectors."""
         patterns = []
@@ -294,7 +295,7 @@ class VisualTAEngine:
         self.pattern_detector = PatternDetector()
 
     def compute_trend(
-        self, closes: np.ndarray
+        self, closes: NDArray
     ) -> tuple[TrendDirection, float, float, float]:
         """Compute trend direction and strength using linear regression."""
         n = len(closes)
@@ -328,11 +329,11 @@ class VisualTAEngine:
 
     def analyze(
         self,
-        opens: np.ndarray,
-        highs: np.ndarray,
-        lows: np.ndarray,
-        closes: np.ndarray,
-        volumes: np.ndarray | None = None,
+        opens: NDArray,
+        highs: NDArray,
+        lows: NDArray,
+        closes: NDArray,
+        volumes: NDArray | None = None,
     ) -> TrendAnalysis:
         """Run full visual technical analysis."""
         direction, strength, slope, r_sq = self.compute_trend(closes)

@@ -855,7 +855,9 @@ async def parallel_trajectory_distiller(
     """
     if not deps.knowledge_engine:
         return
-    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AU-AHE.evaluation.backtest-harness)...")
+    logger.info(
+        "Distilling Memory from Parallel Trajectories (CONCEPT:AU-AHE.evaluation.backtest-harness)..."
+    )
 
     try:
         from pydantic import BaseModel, Field

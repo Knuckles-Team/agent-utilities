@@ -179,13 +179,18 @@ class SynergyEngine:
         "AU-OS.governance.wasm-micro-agent-sandbox": ["EG-KG.compute.backend"],
         # Context Compaction bridges KG → OS (token management)
         # Research Pipeline bridges KG → ECO (ScholarX integration)
-        "AU-KG.query.vendor-agnostic-traversal": ["OS-5", "AU-ECO.connector.plane-provisioning-auth"],
+        "AU-KG.query.vendor-agnostic-traversal": [
+            "OS-5",
+            "AU-ECO.connector.plane-provisioning-auth",
+        ],
         # Ecosystem Topology bridges ECO → KG
         "AU-OS.deployment.infra-orchestration": ["EG-KG.compute.backend"],
         # Confidence Router bridges ORCH → KG (SelfModel signals)
         "AU-ORCH.adapter.hot-cache-invalidation": ["EG-KG.compute.backend"],
         # Swarm Presets bridge ORCH → ECO (multi-agent workflows)
-        "AU-ORCH.adapter.kg-graph-materialization": ["AU-ECO.connector.plane-provisioning-auth"],
+        "AU-ORCH.adapter.kg-graph-materialization": [
+            "AU-ECO.connector.plane-provisioning-auth"
+        ],
         # Guardrail Engine bridges OS → AHE (policy enforcement feedback)
         "AU-OS.deployment.platform-journey": ["AHE-3"],
     }
@@ -301,11 +306,25 @@ class SynergyEngine:
 
         # Known shared edge types between pillars
         _SHARED_EDGES: dict[tuple[str, str], list[str]] = {
-            ("AHE-3", "EG-KG.compute.backend"): ["experienced_during", "was_derived_from", "part_of"],
-            ("ORCH-1", "EG-KG.compute.backend"): ["routed_by", "reused_team", "broader"],
-            ("OS-5", "EG-KG.compute.backend"): ["propagates_risk_to", "detected_threat"],
+            ("AHE-3", "EG-KG.compute.backend"): [
+                "experienced_during",
+                "was_derived_from",
+                "part_of",
+            ],
+            ("ORCH-1", "EG-KG.compute.backend"): [
+                "routed_by",
+                "reused_team",
+                "broader",
+            ],
+            ("OS-5", "EG-KG.compute.backend"): [
+                "propagates_risk_to",
+                "detected_threat",
+            ],
             ("ORCH-1", "AHE-3"): ["produced_outcome", "evaluated_with"],
-            ("AU-ECO.connector.plane-provisioning-auth", "EG-KG.compute.backend"): ["fetched_from", "falls_back_to"],
+            ("AU-ECO.connector.plane-provisioning-auth", "EG-KG.compute.backend"): [
+                "fetched_from",
+                "falls_back_to",
+            ],
             ("OS-5", "AHE-3"): ["triggered_guardrail", "audited_by"],
         }
 
@@ -388,7 +407,8 @@ class SynergyEngine:
                         suggested_relationship="reward_signal_from",
                         confidence=0.75,
                         rationale="Routing decisions should feed into TeamConfig reward tracking",
-                        is_existing=concept_id == "AU-ORCH.adapter.hot-cache-invalidation",
+                        is_existing=concept_id
+                        == "AU-ORCH.adapter.hot-cache-invalidation",
                     )
                 )
 

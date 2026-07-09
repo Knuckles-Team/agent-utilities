@@ -3151,7 +3151,11 @@ def _sync_claude_memory(
         for tgt in dict.fromkeys(links):  # de-dup, preserve order
             if tgt != slug:
                 relationships.append(
-                    {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
+                    {
+                        "source": eid,
+                        "target": f"claude_memory:{tgt}",
+                        "type": "RELATED_TO",
+                    }
                 )
 
     result = (

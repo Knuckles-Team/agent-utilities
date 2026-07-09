@@ -640,7 +640,10 @@ class ServiceRegistry:
                     plugin_desc.capability,
                 )
         except Exception as e:
-            logger.warning("[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Failed to load external plugins: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Failed to load external plugins: %s",
+                e,
+            )
 
         self._initialized = True
         logger.info(
@@ -744,5 +747,8 @@ class ServiceRegistry:
             except Exception as e:
                 logger.debug("Failed to register service '%s': %s", cap, e)
 
-        logger.info("[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Registered %d services with KG", count)
+        logger.info(
+            "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Registered %d services with KG",
+            count,
+        )
         return count

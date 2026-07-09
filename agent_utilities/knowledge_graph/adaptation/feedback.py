@@ -418,8 +418,12 @@ class FeedbackService:
                     if isinstance(doms, list):
                         domains = [str(d) for d in doms]
                 record_role_experience(
-                    self.backend, role_id, employee_id=emp_id,
-                    success=s, reward=r, domains=domains,
+                    self.backend,
+                    role_id,
+                    employee_id=emp_id,
+                    success=s,
+                    reward=r,
+                    domains=domains,
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("role experience outcome update failed: %s", exc)

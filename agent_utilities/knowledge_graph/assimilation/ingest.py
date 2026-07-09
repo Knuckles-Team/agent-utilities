@@ -32,7 +32,9 @@ _REQUIREMENT = RegistryNodeType.REQUIREMENT.value
 _DECISION = RegistryNodeType.DECISION.value
 _CONCEPT = RegistryNodeType.CONCEPT.value
 # Gate matching gap_analysis._concept_key — a real concept id is letters-then-digit.
-_CONCEPT_ID_GATE = re.compile(r"^[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\.")  # OKF-CIS (OS-5.77)
+_CONCEPT_ID_GATE = re.compile(
+    r"^[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
+)  # OKF-CIS (OS-5.77)
 
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d+\.\d+)(?:v\d+)?", re.IGNORECASE)
 _DOI = re.compile(r"(?:doi\.org/|doi:)\s*(10\.\S+)", re.IGNORECASE)

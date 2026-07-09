@@ -19,6 +19,7 @@ from agent_utilities.models.knowledge_graph import (
     SimilarityEdgeNode,
     SpectralClusterNode,
 )
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 """Hybrid Search Scorer.
@@ -265,7 +266,7 @@ class KGNativeRetrievalRetriever:
 
         # Cached cluster index (built lazily)
         self._cluster_index: list[SpectralClusterNode] = []
-        self._cluster_centroids: np.ndarray | None = None
+        self._cluster_centroids: NDArray | None = None
         self._cluster_members: dict[str, list[str]] = {}
 
         # Similarity edge index (built lazily)

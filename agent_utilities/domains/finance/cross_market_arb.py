@@ -7,6 +7,7 @@ and optimal execution threshold derivation for predicting cross-platform spreads
 
 import logging
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 try:
@@ -24,8 +25,8 @@ class CointegrationAnalyzer:
 
     @staticmethod
     def is_cointegrated(
-        platform_a_prices: np.ndarray,
-        platform_b_prices: np.ndarray,
+        platform_a_prices: NDArray,
+        platform_b_prices: NDArray,
         beta: float = 1.0,
         p_value_threshold: float = 0.05,
     ) -> bool:
@@ -68,7 +69,7 @@ class OrnsteinUhlenbeckModel:
     """
 
     @staticmethod
-    def calibrate(spread: np.ndarray, dt: float) -> dict[str, float]:
+    def calibrate(spread: NDArray, dt: float) -> dict[str, float]:
         """
         Calibrate OU parameters (theta, mu, sigma) using linear regression (MLE).
 

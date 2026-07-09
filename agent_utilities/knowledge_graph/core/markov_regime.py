@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 from .formal_reasoning_core import MarkovTransitionModel
@@ -138,7 +139,7 @@ class MarketRegimeDetector:
         self.window = window or defaults.window
         self.method = method
 
-    def detect(self, returns: np.ndarray) -> np.ndarray:
+    def detect(self, returns: NDArray) -> NDArray:
         """Label each period with a regime state.
 
         Args:
@@ -170,7 +171,7 @@ class MarketRegimeDetector:
 
         return states
 
-    def _rolling_sum(self, returns: np.ndarray) -> np.ndarray:
+    def _rolling_sum(self, returns: NDArray) -> NDArray:
         """Simple rolling sum of returns (article's default)."""
         cum = np.cumsum(returns)
         rolling = np.zeros(len(returns))
@@ -179,7 +180,7 @@ class MarketRegimeDetector:
         )
         return rolling
 
-    def _compounding_return(self, returns: np.ndarray) -> np.ndarray:
+    def _compounding_return(self, returns: NDArray) -> NDArray:
         """Proper compounding rolling return: ∏(1+r_i) - 1."""
         n = len(returns)
         rolling = np.zeros(n)
@@ -205,8 +206,8 @@ class BacktestResult:
         n_regime_changes: Number of regime transitions detected.
     """
 
-    signals: np.ndarray
-    returns: np.ndarray
+    signals: NDArray
+    returns: NDArray
     cumulative_return: float
     n_regime_changes: int
 
@@ -244,7 +245,7 @@ class MarkovRegimeModel:
             method=method,
         )
         self.markov = MarkovTransitionModel()
-        self._states: np.ndarray | None = None
+        self._states: NDArray | None = None
         self._fitted = False
 
     @property
@@ -252,11 +253,11 @@ class MarkovRegimeModel:
         return self._fitted
 
     @property
-    def regime_states(self) -> np.ndarray | None:
+    def regime_states(self) -> NDArray | None:
         """The detected regime labels from the last fit."""
         return self._states
 
-    def fit(self, returns: np.ndarray) -> MarkovRegimeModel:
+    def fit(self, returns: NDArray) -> MarkovRegimeModel:
         """Detect regimes and build the Markov transition matrix.
 
         Args:
@@ -326,7 +327,7 @@ class MarkovRegimeModel:
 
     def walk_forward_backtest(
         self,
-        returns: np.ndarray,
+        returns: NDArray,
         lookback: int = 252,
         *,
         signal_shift: int = 1,
@@ -500,7 +501,7 @@ class HiddenMarkovRegimeModel:
                 "Install with: pip install agent-utilities[finance]"
             ) from e
 
-    def fit(self, returns: np.ndarray) -> HiddenMarkovRegimeModel:
+    def fit(self, returns: NDArray) -> HiddenMarkovRegimeModel:
         """Fit a Gaussian HMM with multiple random restarts.
 
         The best model (highest log-likelihood) across restarts is kept.
@@ -550,7 +551,7 @@ class HiddenMarkovRegimeModel:
         self._fitted = True
         return self
 
-    def decode(self, returns: np.ndarray) -> np.ndarray:
+    def decode(self, returns: NDArray) -> NDArray:
         """Decode the most likely regime sequence using Viterbi.
 
         Args:
@@ -567,7 +568,7 @@ class HiddenMarkovRegimeModel:
         regime_map = self._build_regime_map()
         return np.array([regime_map[s] for s in raw_states], dtype=object)
 
-    def predict_proba(self, returns: np.ndarray) -> np.ndarray:
+    def predict_proba(self, returns: NDArray) -> NDArray:
         """Compute posterior regime probabilities for each time step.
 
         Args:
@@ -583,7 +584,7 @@ class HiddenMarkovRegimeModel:
         # Reorder columns by mean-return ordering
         return raw_proba[:, self._state_ordering]
 
-    def forecast_signal(self, returns: np.ndarray, lookback: int = 252) -> np.ndarray:
+    def forecast_signal(self, returns: NDArray, lookback: int = 252) -> NDArray:
         """Walk-forward HMM signal generation.
 
         At each step, re-fits the HMM on the lookback window and generates

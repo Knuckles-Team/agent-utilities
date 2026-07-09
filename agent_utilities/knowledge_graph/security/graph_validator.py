@@ -277,7 +277,8 @@ class GraphValidator:
             )
         if report.tier3_warnings:
             logger.info(
-                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] Found %d quality warnings", len(report.tier3_warnings)
+                "[CONCEPT:AU-KG.ontology.graph-integrity-validator] Found %d quality warnings",
+                len(report.tier3_warnings),
             )
         if report.tier4_fatal:
             logger.error(

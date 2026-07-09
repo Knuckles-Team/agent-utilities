@@ -9,9 +9,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 WASMTIME_AVAILABLE = False
-wasmtime = None
+wasmtime: Any = None
 try:
-    import wasmtime  # type: ignore[no-redef]
+    import wasmtime
 
     WASMTIME_AVAILABLE = True
 except ImportError:

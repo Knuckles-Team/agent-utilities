@@ -24,17 +24,19 @@ class _EngineProtocol(Protocol):
     graph: GraphComputeEngine
     backend: GraphBackend | None
 
-    def _serialize_node(
-        self, node: Any, label: str | None = None
-    ) -> dict[str, Any]: ...
+    def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
+        ...
 
-    def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]) -> None: ...
+    def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]) -> None:
+        ...
 
     def _get_set_clause(
         self, data: dict[str, Any], alias: str = "n", label: str | None = None
-    ) -> str: ...
+    ) -> str:
+        ...
 
-    def _get_allowed_columns(self, label: str) -> list[str]: ...
+    def _get_allowed_columns(self, label: str) -> list[str]:
+        ...
 
     def link_nodes(
         self,
@@ -42,7 +44,8 @@ class _EngineProtocol(Protocol):
         target_id: str,
         rel_type: str,
         properties: dict[str, Any] | None = None,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     def add_node(
         self,
@@ -50,14 +53,17 @@ class _EngineProtocol(Protocol):
         node_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
-    ) -> Any: ...
+    ) -> Any:
+        ...
 
     # Query mixin methods (used by AHE and Registry)
     def query_cypher(
         self, query: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        ...
 
-    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]: ...
+    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+        ...
 
     # Hybrid retriever (set in __init__)
     hybrid_retriever: Any

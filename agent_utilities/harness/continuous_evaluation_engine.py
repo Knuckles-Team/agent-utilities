@@ -2220,7 +2220,10 @@ class InterpretabilityTestSuite:
                     tolerance=r.get("tolerance", 0.05),
                     evaluator_model=self._grader.evaluator_model,
                     imodel_node_id=imodel_node_id,
-                    metadata={"concept": "AU-AHE.harness.width-diverse-best-k", "paper": "arXiv:2605.03808"},
+                    metadata={
+                        "concept": "AU-AHE.harness.width-diverse-best-k",
+                        "paper": "arXiv:2605.03808",
+                    },
                 )
                 ogm.upsert(node)
                 ogm.upsert_edge(

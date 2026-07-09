@@ -47,11 +47,19 @@ import json
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+
 # Reuse the import-graph machinery from the Wire-First tool (same directory).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Ensure the repo root itself resolves FIRST so `agent_utilities` imports below
+# (kg_server, gateway routers) always bind to THIS checkout's source, never to a
+# stale/partial `agent_utilities` that happens to be on the ambient interpreter's
+# site-packages (e.g. an old editable install) — see check_concepts.py, which
+# already does this. Without it, a shared/dev box can resolve a partial merged
+# namespace package and fail with a spurious "cannot import name ... (unknown
+# location)" ImportError that has nothing to do with a real surface-parity drift.
+sys.path.insert(0, str(ROOT))
 from check_wiring import bfs_hops, build_graph  # noqa: E402
-
-ROOT = Path(__file__).resolve().parent.parent
 BASELINE = Path(__file__).resolve().parent / "surface_parity_baseline.txt"
 
 # Modules that constitute the operator surface. Reachability is measured FROM

@@ -401,7 +401,9 @@ class HorizonCurriculum:
         self._current_stage_idx = 0
         self._episode_results = [[] for _ in self.stages]
         self._ema_success = [0.0 for _ in self.stages]
-        logger.info("[CONCEPT:AU-AHE.evaluation.backtest-harness] Curriculum reset to stage MACRO")
+        logger.info(
+            "[CONCEPT:AU-AHE.evaluation.backtest-harness] Curriculum reset to stage MACRO"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize curriculum state for persistence or logging.

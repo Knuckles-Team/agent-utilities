@@ -54,6 +54,7 @@ from agent_utilities.knowledge_graph.retrieval.score_gate import score_gate
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
+from agent_utilities.numeric import NDArray, RandomGenerator
 from agent_utilities.numeric import xp as np
 
 __all__ = [
@@ -135,8 +136,8 @@ def _make_result(
 # Synthetic-data helpers (seeded, numpy-only)
 # ----------------------------------------------------------------------------
 def _clustered_embeddings(
-    rng: np.random.Generator, *, n_clusters: int, per_cluster: int, dim: int
-) -> tuple[np.ndarray, list[int]]:
+    rng: RandomGenerator, *, n_clusters: int, per_cluster: int, dim: int
+) -> tuple[NDArray, list[int]]:
     """Generate tight clusters of embeddings; return vectors + per-row cluster id.
 
     Each cluster has a well-separated random centroid (orthogonal-ish on the
@@ -145,7 +146,7 @@ def _clustered_embeddings(
     """
     centroids = rng.normal(size=(n_clusters, dim))
     centroids /= np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-12
-    rows: list[np.ndarray] = []
+    rows: list[NDArray] = []
     labels: list[int] = []
     for c in range(n_clusters):
         for _ in range(per_cluster):

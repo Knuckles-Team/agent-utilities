@@ -296,7 +296,10 @@ def manifest_from_department(
                     )
                 )
         except Exception as e:
-            logger.warning("[CONCEPT:AU-ORCH.execution.autonomous-department-orchestration] Department KG query failed: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-ORCH.execution.autonomous-department-orchestration] Department KG query failed: %s",
+                e,
+            )
 
     if not agents:
         # Fallback: single executor agent
@@ -356,7 +359,8 @@ def manifest_for_enterprise(
             ]
         except Exception as e:
             logger.warning(
-                "[CONCEPT:AU-ORCH.execution.autonomous-department-orchestration] Enterprise department query failed: %s", e
+                "[CONCEPT:AU-ORCH.execution.autonomous-department-orchestration] Enterprise department query failed: %s",
+                e,
             )
 
     if not departments:

@@ -74,7 +74,9 @@ class TeamsBackend(MessagingBackend):
         )
         self._adapter = BotFrameworkAdapter(settings)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Teams backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Teams backend connected."
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from Teams. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
@@ -112,7 +114,10 @@ class TeamsBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Teams send failed: %s", e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Teams send failed: %s",
+                e,
+            )
             return SendResult(success=False, platform=PlatformId.TEAMS, error=str(e))
 
     async def send_typing(self, channel_id: str) -> None:
@@ -154,7 +159,9 @@ class TeamsBackend(MessagingBackend):
             auth_header: The Authorization header for verification.
         """
         if auth_header:
-            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Webhook received with auth header present.")
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Webhook received with auth header present."
+            )
         activity_type = body.get("type", "")
         if activity_type == "message":
             event = InboundEvent(

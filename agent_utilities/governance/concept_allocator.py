@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any
 
 # CONCEPT:AU-OS.governance.concept-id-allocation — Multi-session concept-ID allocation & coordination protocol.
-
 # ---------------------------------------------------------------------------
 # Canonical marker grammar — the ONE definition. ``scripts/build_concepts_yaml.py``
 # and ``scripts/check_concepts.py`` import this so the three scanners can never
@@ -51,7 +50,9 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): the ONE canonical marker regex now lives in
 # concept_hierarchy; import it so scanners can never drift from the grammar.
-from agent_utilities.governance.concept_hierarchy import OKF_MARKER_RE as MARKER_RE  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import (
+    OKF_MARKER_RE as MARKER_RE,  # noqa: E402
+)
 
 # A pillar namespace carries the major number (``KG-2``, ``OS-5``) and mints
 # dotted sub-indices. A package namespace is letters only (``KEY``, ``GL``) and

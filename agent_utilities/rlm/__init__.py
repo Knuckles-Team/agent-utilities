@@ -3,7 +3,10 @@
 CONCEPT:AU-ORCH.execution.rlm-execution — RLM Execution
 """
 
-from .client import RLM, RLMResponse  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — drop-in completion surface
+from .client import (  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — drop-in completion surface
+    RLM,
+    RLMResponse,
+)
 from .config import RLMConfig
 
 __all__ = ["RLMConfig", "RLM", "RLMResponse"]

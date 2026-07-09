@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AST-based Wiring Sweep for agent-utilities.
 
-Part of the agent-utilities-evolution skill. Provides a comprehensive
+Part of the agent-utilities-self-evolution skill. Provides a comprehensive
 codebase analysis for concept traceability, dead code detection,
 import graph analysis, and wiring gap identification.
 

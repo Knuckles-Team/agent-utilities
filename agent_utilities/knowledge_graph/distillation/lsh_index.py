@@ -24,6 +24,7 @@ Example::
 import logging
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class LSHIndex:
         rng = np.random.RandomState(seed)
 
         # Generate random hyperplanes for each table
-        self._hyperplanes: list[np.ndarray] = [
+        self._hyperplanes: list[NDArray] = [
             rng.randn(hash_size, input_dim).astype(np.float32)
             for _ in range(num_tables)
         ]
@@ -65,9 +66,9 @@ class LSHIndex:
         self._tables: list[dict[str, set[str]]] = [{} for _ in range(num_tables)]
 
         # Store embeddings for cosine re-ranking
-        self._embeddings: dict[str, np.ndarray] = {}
+        self._embeddings: dict[str, NDArray] = {}
 
-    def _hash_vector(self, vector: np.ndarray, table_idx: int) -> str:
+    def _hash_vector(self, vector: NDArray, table_idx: int) -> str:
         """Compute the hash key for a vector in a specific table."""
         projections = self._hyperplanes[table_idx] @ vector
         bits = (projections > 0).astype(int)

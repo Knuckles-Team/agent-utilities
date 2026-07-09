@@ -38,6 +38,7 @@ import logging
 from dataclasses import dataclass, field
 
 from agent_utilities.core.config import setting
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -307,7 +308,7 @@ class MemoryOptimizationEngine:
 
     def detect_collapse(
         self,
-        embeddings: np.ndarray | list[list[float]],
+        embeddings: NDArray | list[list[float]],
     ) -> CollapseReport:
         """Full collapse detection combining SVD and SIGReg normality."""
         arr = np.array(embeddings, dtype=np.float64)
@@ -350,7 +351,7 @@ class MemoryOptimizationEngine:
             recommendation=rec,
         )
 
-    def _sigreg_normality_test(self, centered: np.ndarray) -> float:
+    def _sigreg_normality_test(self, centered: NDArray) -> float:
         """SIGReg normality test via random projections."""
         n, d = centered.shape
         rng = np.random.default_rng(42)
@@ -367,7 +368,7 @@ class MemoryOptimizationEngine:
         return min_p
 
     @staticmethod
-    def _simplified_normality_p(data: np.ndarray) -> float:
+    def _simplified_normality_p(data: NDArray) -> float:
         """Simplified normality test using kurtosis-based heuristic."""
         n = len(data)
         if n < 3:
@@ -390,7 +391,7 @@ class MemoryOptimizationEngine:
 
     def compute_diversity(
         self,
-        embeddings: np.ndarray | list[list[float]],
+        embeddings: NDArray | list[list[float]],
     ) -> DiversityMetrics:
         """Compute diversity metrics for an embedding space."""
         arr = np.array(embeddings, dtype=np.float64)
@@ -443,7 +444,7 @@ class MemoryOptimizationEngine:
         old_embedding: list[float],
         new_embedding: list[float],
         fisher_diag: list[float],
-        all_embeddings: np.ndarray | list[list[float]] | None = None,
+        all_embeddings: NDArray | list[list[float]] | None = None,
         lambda_param: float = 0.5,
         diversity_weight: float = 0.3,
     ) -> list[float]:
@@ -503,8 +504,8 @@ class MemoryOptimizationEngine:
 
     @staticmethod
     def compute_cka(
-        X: np.ndarray | list[list[float]],
-        Y: np.ndarray | list[list[float]],
+        X: NDArray | list[list[float]],
+        Y: NDArray | list[list[float]],
     ) -> CKAResult:
         """Compute linear Centered Kernel Alignment between two embedding spaces."""
         X_arr = np.array(X, dtype=np.float64)
@@ -539,7 +540,7 @@ class MemoryOptimizationEngine:
         )
 
     @staticmethod
-    def _mean_pairwise_cosine(X: np.ndarray, Y: np.ndarray) -> float:
+    def _mean_pairwise_cosine(X: NDArray, Y: NDArray) -> float:
         """Mean per-sample cosine similarity between paired rows."""
         min_d = min(X.shape[1], Y.shape[1])
         X_t = X[:, :min_d]
@@ -555,7 +556,7 @@ class MemoryOptimizationEngine:
 
     @staticmethod
     def adaptive_sparse_fusion(
-        embedding_layers: list[np.ndarray | list[list[float]]],
+        embedding_layers: list[NDArray | list[list[float]]],
         performance_scores: list[float] | None = None,
         sparsity_target: float = 0.3,
     ) -> FusionResult:
@@ -576,7 +577,7 @@ class MemoryOptimizationEngine:
             weights = [1.0 / n_layers] * n_layers
 
         active_dims: list[int] = []
-        masked_arrays: list[np.ndarray] = []
+        masked_arrays: list[NDArray] = []
         for arr in arrays:
             variances = np.var(arr, axis=0)
             threshold_idx = max(1, int(min_dim * (1 - sparsity_target)))
@@ -610,8 +611,8 @@ class MemoryOptimizationEngine:
 
     def health_check(
         self,
-        current_embeddings: np.ndarray | list[list[float]],
-        baseline_embeddings: np.ndarray | list[list[float]] | None = None,
+        current_embeddings: NDArray | list[list[float]],
+        baseline_embeddings: NDArray | list[list[float]] | None = None,
         drift_threshold: float = 0.7,
     ) -> EmbeddingHealthReport:
         """Continuous embedding health monitoring."""
@@ -662,8 +663,8 @@ class MemoryOptimizationEngine:
     # Backward-compatible static method for EmbeddingDiagnostics API
     @staticmethod
     def embedding_health_check(
-        current_embeddings: np.ndarray | list[list[float]],
-        baseline_embeddings: np.ndarray | list[list[float]] | None = None,
+        current_embeddings: NDArray | list[list[float]],
+        baseline_embeddings: NDArray | list[list[float]] | None = None,
         collapse_threshold: float = 0.1,
         drift_threshold: float = 0.7,
     ) -> EmbeddingHealthReport:
@@ -700,8 +701,8 @@ class MemoryOptimizationEngine:
         node_id: str,
         current_embedding: list[float],
         historical_embeddings: list[list[float]],
-        all_embeddings: np.ndarray | list[list[float]] | None = None,
-        baseline_embeddings: np.ndarray | list[list[float]] | None = None,
+        all_embeddings: NDArray | list[list[float]] | None = None,
+        baseline_embeddings: NDArray | list[list[float]] | None = None,
     ) -> StabilityReport:
         """Run the full stability assessment pipeline.
 

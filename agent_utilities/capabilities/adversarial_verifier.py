@@ -174,5 +174,7 @@ async def run_adversarial_pass(
         return None
 
     except Exception as e:
-        logger.warning(f"[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial pass failed (non-fatal): {e}")
+        logger.warning(
+            f"[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial pass failed (non-fatal): {e}"
+        )
         return None

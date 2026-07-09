@@ -10,7 +10,7 @@
 
 ## Overview
 
-The Knowledge Assimilation Engine extends the existing `agent-utilities-evolution`
+The Knowledge Assimilation Engine extends the existing `agent-utilities-self-evolution`
 skill (which is **pull-based** — scans ScholarX for papers) with a **push-based**
 pathway where any high-signal content from ANY source automatically triggers the
 evolution loop.
@@ -56,7 +56,7 @@ graph TD
 
 ## Push vs Pull Evolution
 
-| Dimension | Pull (agent-utilities-evolution) | Push (knowledge-assimilation) |
+| Dimension | Pull (agent-utilities-self-evolution) | Push (knowledge-assimilation) |
 |-----------|----------------------------------|-------------------------------|
 | **Trigger** | Cron (every 60 min) or manual | Incoming content with high evolution potential |
 | **Sources** | ScholarX papers only | X, ScholarX, GitHub, documents, memories |
@@ -129,7 +129,7 @@ All configuration is managed via XDG-compliant paths:
 
 > Note: `EVOLUTION_AUTO_EXECUTE` and `EVOLUTION_MIN_POTENTIAL` are not currently
 > read by the engine; auto-execute and minimum-potential gating are decided by
-> the `agent-utilities-evolution` skill rather than environment variables.
+> the `agent-utilities-self-evolution` skill rather than environment variables.
 
 ---
 
@@ -137,6 +137,6 @@ All configuration is managed via XDG-compliant paths:
 
 - [x-assistant.md](./x-assistant.md) — X search/browse tools and social ingestion
 - [knowledge-graph.md](./knowledge-graph.md) — Ingestion engine, distillation
-- [agent-utilities-evolution SKILL](../../../../skills/universal-skills/universal_skills/research/agent-utilities-evolution/SKILL.md) — Pull-based research scanner
+- [agent-utilities-self-evolution SKILL](../../../../skills/universal-skills/universal_skills/research/agent-utilities-self-evolution/SKILL.md) — Pull-based research scanner
 - [comparative-analysis SKILL](../../../../skills/universal-skills/universal_skills/analysis/comparative-analysis/SKILL.md) — Feature extraction
 - [ontology_social.ttl](../../../agent_utilities/knowledge_graph/ontology_social.ttl) — OWL schema for social content

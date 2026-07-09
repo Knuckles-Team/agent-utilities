@@ -325,7 +325,10 @@ def dedup_features(
                             canonical,
                             m,
                             RegistryEdgeType.VARIANT_OF,
-                            properties={"_rel": "VARIANT_OF", "concept": "AU-KG.compute.when-exposes-native"},
+                            properties={
+                                "_rel": "VARIANT_OF",
+                                "concept": "AU-KG.compute.when-exposes-native",
+                            },
                         )
             else:  # same_as → feed the duplicate clustering below
                 score = float(prop.get("score", dup_threshold))

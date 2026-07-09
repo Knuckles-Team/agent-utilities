@@ -43,7 +43,10 @@ def _client():
 
         return SyncEpistemicGraphClient.connect(**client_connect_kwargs())
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] engine unavailable for series op: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] engine unavailable for series op: %s",
+            e,
+        )
         return None
 
 
@@ -82,7 +85,10 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
         vals = [v for _t, v, _f in rows]
         return pd.Series(vals, index=idx, name=series.name)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] gap_fill_series engine path failed: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] gap_fill_series engine path failed: %s",
+            e,
+        )
         grid = pd.date_range(
             series.index.min(), series.index.max(), freq=step, tz="UTC"
         )
@@ -119,7 +125,10 @@ def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
         vals = client.timeseries.asof_join(sid, at_ns)
         return pd.Series(vals, index=at, name=series.name)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-KG.domains.ohlcv-gap-fill] asof_align engine path failed: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] asof_align engine path failed: %s",
+            e,
+        )
         return series.reindex(series.index.union(at)).ffill().reindex(at)
     finally:
         if own_client:

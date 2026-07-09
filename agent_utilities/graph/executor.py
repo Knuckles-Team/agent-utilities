@@ -272,7 +272,9 @@ def pick_specialist_model(
                     )
                     tier = effective_tier
         except Exception as e:
-            logger.debug(f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}")
+            logger.debug(
+                f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}"
+            )
 
     # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Confidence-Gated Model Router
     # Compute a confidence signal from upstream scoring to adaptively
@@ -824,7 +826,9 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         f"IMPORTANT: You are currently asked to: {agent_info.description}\n"
         f"Query: {ctx.state.query}"
     )
-    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+    agent_sys_prompt += invoker_context_section(
+        ctx.state
+    )  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
 
     # Include validation feedback if this is a re-dispatch
     if ctx.state.validation_feedback:
@@ -1722,7 +1726,9 @@ async def _execute_specialized_step(
             run_input,
             message_history=prev_messages,
             deps=_agent_deps,
-            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
+            usage_limits=spawn_usage_limits(
+                ctx.state
+            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(

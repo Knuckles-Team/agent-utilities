@@ -241,7 +241,10 @@ class ResearchArtifactGenerator:
         filepath = output_dir / filename
         filepath.write_text(digest.markdown, encoding="utf-8")
 
-        logger.info("[CONCEPT:AU-KG.research.research-pipeline-runner] Digest saved: %s", filepath)
+        logger.info(
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Digest saved: %s",
+            filepath,
+        )
         return str(filepath)
 
     def _extract_contributions(self, content: str) -> list[str]:

@@ -108,7 +108,9 @@ async def usage_guard_step(
     ):
         logger.info(
             "UsageGuard: bypassing policy LLM round (%s).",
-            "tool guard off" if _guard_off else "lean shape — CONCEPT:AU-ORCH.execution.direct-completion-shape",
+            "tool guard off"
+            if _guard_off
+            else "lean shape — CONCEPT:AU-ORCH.execution.direct-completion-shape",
         )
         _emit_node_lifecycle(
             cast(GraphDeps, ctx.deps).event_queue,

@@ -205,7 +205,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    TICK["daemon evolution tick / agent-utilities-evolution skill"] --> LC["LoopController.run_one_cycle"]
+    TICK["daemon evolution tick / agent-utilities-self-evolution skill"] --> LC["LoopController.run_one_cycle"]
     LC --> AEE["AgenticEvolutionEngine"]
     AEE --> EVA["EvolveAgent.evolve"]
     EVA -->|"per failure cluster, by component_attribution"| BR{"attribution?"}
@@ -217,7 +217,7 @@ flowchart TD
 ```
 
 The cycle is driven by the consolidated KG daemon tick and the
-`agent-utilities-evolution` skill, both routing through `LoopController.run_one_cycle`
+`agent-utilities-self-evolution` skill, both routing through `LoopController.run_one_cycle`
 and the `AgenticEvolutionEngine`/`EvolveAgent`. New optimization targets are added as
 new `component_attribution` branches in `EvolveAgent` — each reusing the same
 distiller → optimizer → variant-pool → KG-bridge spine.
