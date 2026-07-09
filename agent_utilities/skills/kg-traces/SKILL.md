@@ -4,7 +4,7 @@ skill_type: skill
 description: >-
   Thin verb over the engine's distributed-trace surface — search traces by
   service/operation/free-form filter, or fetch one by trace id. Use for trace lookups —
-  "find traces for this service", "get trace <id>", "slow spans".
+  "find traces for this service", "get trace by id", "slow spans".
 license: MIT
 tags: [graph-os, engine, observability, traces]
 tier: core
