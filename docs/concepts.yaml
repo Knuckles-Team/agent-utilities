@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 935
+total_concepts: 937
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4764,6 +4764,20 @@ concepts:
   dotted: AU-KG.enrichment.ticket-status-comment-writeback
   aliases:
   - AU-KG.enrichment.ticket-status-comment-writeback
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.evolution.mining-flywheel
+  name: → intake/acquire/resolve →
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/tools/state_tools.py
+  doc: → intake/acquire/resolve →
+  dotted: AU-KG.evolution.mining-flywheel
+  aliases:
+  - AU-KG.evolution.mining-flywheel
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.agent-utilities-checkout
@@ -12891,6 +12905,19 @@ concepts:
   dotted: EG-KG.enrichment.content-address-separation
   aliases:
   - EG-KG.enrichment.content-address-separation
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.graphlearn.link-predictor
+  name: a pure-Rust KAN
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: a pure-Rust KAN
+  dotted: EG-KG.graphlearn.link-predictor
+  aliases:
+  - EG-KG.graphlearn.link-predictor
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.ingest.resets-socket-so-assimilation

@@ -127,6 +127,40 @@ collapses arxiv/DOI/URL/path duplicates; `content_fingerprint` per-item skip). C
 The background daemon (golden-loop tick) runs this pass each cycle automatically. See
 `.specify/specs/ecosystem-evolution/PHASE0_IMPLEMENTATION_PLAN.md`.
 
+## Mining Flywheel (CONCEPT:AU-KG.evolution.mining-flywheel)
+
+The loop engine (`LoopController.run_one_cycle`, `agent_utilities/knowledge_graph/
+research/loop_controller.py`) runs a `mine_discovery` stage after `reason` and
+before `synthesize` each cycle (gated by `config.kg_loop_mine_discovery`, default
+**ON**; override per-call via `graph_loops(action="run", mine_discovery=...)`).
+It calls the engine's `graph_mine`/`graph_learn` surfaces directly (through the
+same `_invoke()` boundary those MCP tools use, so it degrades to an empty/no-op
+result on a no-mining engine build) and feeds:
+
+- **Step 5 (SDD Plan Generation) — WIRED.** Association-rule mining
+  (`graph_mine action=associate`) over each `Capability` node's outbound
+  neighborhood (`SATISFIED_BY`/`RELATES_TO` concept edges, `DERIVED_FROM_RESEARCH`
+  article edges, `HAS_SYNERGY_WITH` sibling-capability edges) discovers
+  concept-co-occurrence rules — "capabilities that share concept A + B usually
+  also relate to concept/capability Z" — and writes them back as `:AssociationRule`
+  nodes for plan generation to read as candidate implementations.
+- **Step 1 (Topic Detection) — PARTIALLY WIRED.** A coverage-anomaly pass
+  (`graph_mine action=anomaly`, z-score over each Capability's covered-concept
+  count) flags divergent/under-implemented capabilities as `:Anomaly` nodes — a
+  real, queryable topic source today. `graph_learn` fit→predict over `Concept`
+  nodes similarly writes `:PredictedEdge` nodes suggesting missing concept↔concept
+  relations. **Aspirational** (not implemented in this pass): clustering
+  papers/concepts by embedding+citation graph to *prioritize* the topic queue by
+  research theme — no code wires cluster output into topic ranking yet.
+
+All write-back is **propose-only**: it materializes typed KG facts for a human/
+agent to review via `graph_query`/`graph_loops(action="state")`; it never creates
+an SDD plan, edits code, or triggers a merge by itself (no `GovernedAutoMerger`
+wiring). See `agent_utilities/knowledge_graph/research/loop_controller.py`
+(`_run_mine_discovery` + the three `_mine_*` helpers) and
+`tests/unit/knowledge_graph/test_loop_controller.py` for the concrete call
+sequence and scope cuts (documented in the method docstring).
+
 ## Execution Steps
 
 ### Step 1: Topic Detection (KG-First)
