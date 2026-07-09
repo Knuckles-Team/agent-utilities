@@ -21,12 +21,15 @@ the same shape.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.harness.memorydata.adapter import (
     RETRIEVAL_CONFIGS,
     GraphOSMemoryMethod,
 )
+
+if TYPE_CHECKING:
+    from agent_utilities.harness.memorydata.router_method import GraphOSRouterMethod
 
 __all__ = ["BakeoffResult", "run_bakeoff", "rouge_l", "ROUTER_CONFIG"]
 
@@ -176,6 +179,12 @@ def run_bakeoff(
                         "sub_dataset": str(family_tag),
                         "dataset": "memorydata",
                     }
+                    # Explicit union annotation: inside this per-family/task `for`
+                    # loop, mypy infers `agent`'s type from whichever branch it
+                    # sees first rather than joining both branches, so a bare
+                    # `agent = ...` here would flag the second iteration's other
+                    # branch as an incompatible reassignment.
+                    agent: GraphOSRouterMethod | GraphOSMemoryMethod
                     if is_router:
                         from agent_utilities.harness.memorydata.router_method import (
                             GraphOSRouterMethod,

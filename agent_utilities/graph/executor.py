@@ -1045,7 +1045,13 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             ctx.state, [], guarded_toolsets
         )
 
-        agent = Agent(
+        # `ctx.deps.agent_model` resolves to `Any` (GraphDeps.agent_model, like the
+        # rest of this generic pydantic-graph state — see the module-level mypy
+        # override for this file), which combined with the `output_type=[...]` list
+        # form and the generic AgentDepsT/OutputDataT inference doesn't land on any
+        # single Agent() overload. Tracked with the file's other pydantic-graph
+        # generic-typing debt (mypy-remediation-plan.md Phase 2), not a runtime bug.
+        agent = Agent(  # type: ignore[call-overload]
             model=ctx.deps.agent_model,
             system_prompt=agent_sys_prompt,
             deps_type=GraphDeps,
@@ -1738,7 +1744,11 @@ async def _execute_specialized_step(
                     node=prompt_name,
                 )
             res = await stream.get_output()
-        usage = stream.usage  # v2: property (was a method in v1)
+        # v1/v2 compat shim: `.usage` is a v2 property but was a v1 method, and
+        # `_DeprecatedCallableRunUsage` supports both call shapes — the reassignments
+        # below narrow callable/coroutine down to a plain `RunUsage`, so this local is
+        # intentionally `Any` across all three forms rather than pinned to one.
+        usage: Any = stream.usage  # v2: property (was a method in v1)
         if callable(usage):
             usage = usage()
         if asyncio.iscoroutine(usage):

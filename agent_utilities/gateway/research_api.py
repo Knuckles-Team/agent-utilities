@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from starlette.routing import Route
 
 research_router = APIRouter(tags=["research"])
 
@@ -145,6 +146,8 @@ def register_research_routes(app, prefix: str = "/api") -> None:
         return _handler
 
     for route in research_router.routes:
+        if not isinstance(route, Route):
+            continue  # pragma: no cover - APIRouter only emits Route entries here
         param_names = list(getattr(route, "param_convertors", {}) or {})
         app.add_route(
             prefix + route.path,

@@ -42,7 +42,7 @@ COMPUTER_USE_SYSTEM_PROMPT = (
 
 def build_computer_use_agent(
     model: Any | None = None, *, extra_tools: list[Any] | None = None
-) -> Agent:
+) -> Agent[AgentDeps, str]:
     """Assemble the computer-use agent: the GUI tools + a desktop-operator prompt.
 
     ``model`` should be vision-capable (capture_screen returns the screenshot). Pass
@@ -67,7 +67,7 @@ async def run_computer_use_task(
     session_id: str | None = None,
     engine: Any | None = None,
     model: Any | None = None,
-    agent: Agent | None = None,
+    agent: Agent[AgentDeps, str] | None = None,
     deps: AgentDeps | None = None,
 ) -> str:
     """Run the computer-use agent on ``task`` against the ``gui-sandbox`` ``container_id``.

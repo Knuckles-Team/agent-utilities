@@ -269,7 +269,9 @@ class DistillationTargetSpec:
             adapter_alpha=int(p.get("adapter_alpha") or 32),
             adapter_dropout=float(p.get("adapter_dropout") or 0.05),
             scopes=_as_str_list(p.get("scopes")) or list(_DEFAULT_SCOPES),
-            time_window_days=int(window) if window not in (None, "") else None,
+            time_window_days=(
+                int(window) if window is not None and window != "" else None
+            ),
             target_entities=_as_str_list(p.get("target_entities")),
             min_trust=float(p.get("min_trust") or 0.0),
             max_examples=int(

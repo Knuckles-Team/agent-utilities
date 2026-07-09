@@ -74,7 +74,10 @@ def _build_dummy_request(path_params=None, json_body=None):
         async def mock_json():
             return json_body
 
-        req.json = mock_json
+        # Intentional instance-level override of Request.json for this dummy/mock
+        # request (there is no other way to fake a request body without a real ASGI
+        # receive channel) — not a real Request whose .json() must stay bound.
+        req.json = mock_json  # type: ignore[method-assign]
     return req
 
 

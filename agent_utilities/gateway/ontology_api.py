@@ -23,6 +23,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+from starlette.routing import Route
 
 ontology_router = APIRouter(tags=["ontology"])
 
@@ -232,6 +233,8 @@ def register_ontology_routes(app, prefix: str = "/api") -> None:
         return _handler
 
     for route in ontology_router.routes:
+        if not isinstance(route, Route):
+            continue  # pragma: no cover - APIRouter only emits Route entries here
         param_names = list(getattr(route, "param_convertors", {}) or {})
         app.add_route(
             prefix + route.path,

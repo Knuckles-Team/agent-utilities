@@ -1599,22 +1599,24 @@ def register_analysis_tools(mcp):
                 # `poll_job_id` to read a submitted job's live train state back —
                 # CONCEPT:AU-KG.memory.live-data-science-mcp); `target` is the base model shorthand; `top_k`
                 # overrides max_examples.
-                params: dict[str, Any] = {}
+                distill_params: dict[str, Any] = {}
                 q = (query or "").strip()
                 if q.startswith("{"):
                     try:
                         loaded = _json.loads(q)
                         if isinstance(loaded, dict):
-                            params = loaded
+                            distill_params = loaded
                     except (TypeError, ValueError):
-                        params = {}
+                        distill_params = {}
                 if isinstance(target, str) and target:
-                    params.setdefault("base_model", target)
+                    distill_params.setdefault("base_model", target)
                 if isinstance(top_k, int) and top_k and top_k != 10:
-                    params.setdefault("max_examples", top_k)
-                submit = bool(params.pop("submit", False))
+                    distill_params.setdefault("max_examples", top_k)
+                submit = bool(distill_params.pop("submit", False))
                 return _json.dumps(
-                    distill_memory_to_weights(engine, params=params, submit=submit),
+                    distill_memory_to_weights(
+                        engine, params=distill_params, submit=submit
+                    ),
                     default=str,
                 )
             else:
@@ -2531,12 +2533,11 @@ def register_analysis_tools(mcp):
                     payload = {}
                 if not isinstance(payload, dict):
                     payload = {}
+                params_val = payload.get("params")
                 verify_request = ActionRequest(
                     kind=kind,
                     target=str(payload.get("target") or "*"),
-                    params=payload.get("params")
-                    if isinstance(payload.get("params"), dict)
-                    else {},
+                    params=params_val if isinstance(params_val, dict) else {},
                     source=str(payload.get("source") or "manual"),
                     reason=str(payload.get("reason") or ""),
                     actor_id=str(payload.get("actor_id") or ""),

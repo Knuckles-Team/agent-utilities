@@ -201,7 +201,10 @@ async def ag_ui_endpoint(request: Request) -> Response:
                         )
             return
 
-        run_input = query_parts if query_parts else query
+        # The AG-UI adapter's `run_input` is dynamically shaped (the assembled
+        # multimodal parts list, or the bare query string) — annotate `Any` rather
+        # than pin it to the adapter's declared `RunAgentInput` protocol type.
+        run_input: Any = query_parts if query_parts else query
         override_ctx = (
             _agent_instance.override(model=override_model)  # type: ignore[union-attr]
             if override_model is not None

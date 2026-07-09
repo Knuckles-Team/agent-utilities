@@ -14,7 +14,7 @@ CONCEPT:AU-OS.safety.doom-loop-detection Agent Creation
 import argparse
 import logging
 import os
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 from pydantic_ai import Agent, DeferredToolRequests, ModelSettings
@@ -593,11 +593,27 @@ def create_agent(
     # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
     # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
     # (which still threads vLLM enable_thinking via extra_body) attached below.
-    _thinking_effort = thinking_effort or setting("AGENT_THINKING_EFFORT", "")
-    if _thinking_effort:
+    _ThinkingEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
+    _VALID_THINKING_EFFORTS: tuple[_ThinkingEffort, ...] = (
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    _thinking_effort = str(thinking_effort or setting("AGENT_THINKING_EFFORT", ""))
+    if _thinking_effort in _VALID_THINKING_EFFORTS:
         from pydantic_ai.capabilities import Thinking
 
-        agent_capabilities.append(Thinking(effort=_thinking_effort))
+        agent_capabilities.append(
+            Thinking(effort=cast(_ThinkingEffort, _thinking_effort))
+        )
+    elif _thinking_effort:
+        logger.warning(
+            "Ignoring invalid thinking_effort %r (must be one of %s)",
+            _thinking_effort,
+            _VALID_THINKING_EFFORTS,
+        )
 
     # Unified Hooks
     all_hooks = hooks or []

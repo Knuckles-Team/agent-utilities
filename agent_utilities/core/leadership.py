@@ -65,7 +65,12 @@ class DaemonLeadership:
     def _connect(self) -> Any:
         import psycopg
 
-        return psycopg.connect(self._resolve_dsn(), autocommit=True)
+        dsn = self._resolve_dsn()
+        if not dsn:
+            raise RuntimeError(
+                f"no state-store DSN configured for leadership role {self.role!r}"
+            )
+        return psycopg.connect(dsn, autocommit=True)
 
     def is_leader(self) -> bool:
         """True iff this process currently holds the role's leader lock.

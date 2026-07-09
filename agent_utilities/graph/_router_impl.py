@@ -698,7 +698,8 @@ async def router_step(
                 )
                 raise ValueError("LLM planning timed out") from None
 
-            usage = stream.usage  # v2: property (was a method in v1)
+            # v1/v2 compat shim: see agent_utilities/graph/executor.py's identical block.
+            usage: Any = stream.usage  # v2: property (was a method in v1)
             if callable(usage):
                 usage = usage()
             if asyncio.iscoroutine(usage):
@@ -1495,7 +1496,8 @@ async def mcp_server_step(
                         node="mcp_server_execution",
                     )
                 output = await stream.get_output()
-            usage = stream.usage  # v2: property (was a method in v1)
+            # v1/v2 compat shim: see agent_utilities/graph/executor.py's identical block.
+            usage: Any = stream.usage  # v2: property (was a method in v1)
             if callable(usage):
                 usage = usage()
             if asyncio.iscoroutine(usage):
