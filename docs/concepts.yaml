@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 942
+total_concepts: 944
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -6239,6 +6239,31 @@ concepts:
   dotted: AU-KG.memory.working-set-eviction
   aliases:
   - AU-KG.memory.working-set-eviction
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.mining.dsm-forecast-delegation
+  name: the deep-learning / heavy-Python family the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: the deep-learning / heavy-Python family the
+  dotted: AU-KG.mining.dsm-forecast-delegation
+  aliases:
+  - AU-KG.mining.dsm-forecast-delegation
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.mining.foldback-typed-nodes
+  name: Best-effort — never raises, since a foldback
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: Best-effort — never raises, since a foldback
+  dotted: AU-KG.mining.foldback-typed-nodes
+  aliases:
+  - AU-KG.mining.foldback-typed-nodes
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.authoritative-tbox

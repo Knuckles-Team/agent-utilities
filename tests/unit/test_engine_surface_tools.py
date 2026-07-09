@@ -455,3 +455,244 @@ def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
     monkeypatch.setattr(engine_surface_tools, "_client", _boom)
     out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
     assert "engine unavailable" in out["error"]
+
+
+# ── graph_mine_deep (CONCEPT:AU-KG.mining.dsm-forecast-delegation — Phase 6) ─────────────────
+# The engine core stays pure-Rust; graph_mine_deep dispatches the deep-learning /
+# heavy-Python mining family to agents/data-science-mcp over the fleet
+# call_tool_once connector and folds the decoded result back into the KG as
+# typed nodes. These tests mock BOTH call_tool_once (the delegated call) and
+# kg_server._execute_tool (the KG read/write) — no torch, no live engine, no
+# live data-science-mcp required.
+
+
+def test_kg_2_310_graph_mine_deep_registered_with_rest_twin(tools):
+    assert "graph_mine_deep" in tools
+    assert kg_server.REGISTERED_TOOLS.get("graph_mine_deep") is not None
+    assert (
+        kg_server.ACTION_TOOL_ROUTES.get("graph_mine_deep")
+        == "/mining/deep/deep_forecast"
+    )
+    assert kg_server.DEEP_MINING_ACTIONS == (
+        "deep_forecast",
+        "deep_classify",
+        "autoencoder_anomaly",
+        "xgboost",
+        "embed",
+    )
+
+
+def test_graph_mine_deep_dispatches_raw_rows_to_data_science_mcp(monkeypatch, tools):
+    """deep_classify with raw x/y ships algo=mlp_classify to data-science-mcp, args-style."""
+    captured: dict = {}
+
+    async def _fake_call_tool_once(**kwargs):
+        captured.update(kwargs)
+        return {
+            "algo": "mlp_classify",
+            "available": True,
+            "result": {
+                "rows": [{"id": 0, "label": 1, "proba": 0.9}],
+                "classes": [0, 1],
+            },
+        }
+
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_classify",
+            params_json=json.dumps({"x": [[0.0, 0.0], [1.0, 1.0]], "y": [0, 1]}),
+            graph="",
+        )
+    )
+    assert out["available"] is True
+    assert out["provider"] == "data-science-mcp"
+    assert out["result"]["classes"] == [0, 1]
+    assert captured["server"] == "data-science-mcp"
+    assert captured["tool"] == "deep_train_predict"
+    assert captured["params_style"] == "args"
+    assert captured["params"]["algo"] == "mlp_classify"
+    assert json.loads(captured["params"]["x_json"]) == [[0.0, 0.0], [1.0, 1.0]]
+    assert json.loads(captured["params"]["y_json"]) == [0, 1]
+    # no writeback requested ⇒ no KG write attempted
+    assert out["written_node_ids"] == []
+
+
+def test_graph_mine_deep_gathers_source_rows_and_writes_back(monkeypatch, tools):
+    """A 'source' spec is gathered via graph_query, and writeback=true folds one
+    :Classification node per row back, linked DEEP_RESULT_OF its source node."""
+    written_nodes: list[dict] = []
+    written_edges: list[dict] = []
+
+    async def _fake_execute_tool(tool_name, **kwargs):
+        if tool_name == "graph_query":
+            return json.dumps(
+                [
+                    {"id": "doc:1", "f0": 1.0},
+                    {"id": "doc:2", "f0": 2.0},
+                ]
+            )
+        if tool_name == "graph_write" and kwargs.get("action") == "add_node":
+            written_nodes.append(kwargs)
+            return json.dumps({"status": "ok"})
+        if tool_name == "graph_write" and kwargs.get("action") == "add_edge":
+            written_edges.append(kwargs)
+            return json.dumps({"status": "ok"})
+        raise AssertionError(f"unexpected _execute_tool call: {tool_name} {kwargs}")
+
+    async def _fake_call_tool_once(**kwargs):
+        return {
+            "algo": "histgbm_classify",
+            "available": True,
+            "result": {
+                "rows": [
+                    {"id": 0, "label": 0, "proba": 0.8},
+                    {"id": 1, "label": 1, "proba": 0.7},
+                ],
+                "classes": [0, 1],
+            },
+        }
+
+    monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="xgboost",
+            params_json=json.dumps(
+                {
+                    "source": {"node_label": "Doc", "fields": ["f0"], "limit": 200},
+                    "y": [0, 1],
+                    "writeback": True,
+                }
+            ),
+            graph="",
+        )
+    )
+    assert out["available"] is True
+    assert len(out["written_node_ids"]) == 2
+    assert len(written_nodes) == 2
+    assert all(n["node_type"] == "Classification" for n in written_nodes)
+    assert all(
+        json.loads(n["properties"])["provider"] == "data-science-mcp"
+        for n in written_nodes
+    )
+    assert len(written_edges) == 2
+    assert {e["rel_type"] for e in written_edges} == {"DEEP_RESULT_OF"}
+    assert {e["target_id"] for e in written_edges} == {"doc:1", "doc:2"}
+
+
+def test_graph_mine_deep_forecast_writeback_links_series(monkeypatch, tools):
+    """deep_forecast with series_id + writeback=true creates one :Forecast node
+    linked FORECAST_OF the named series node."""
+    written_nodes: list[dict] = []
+    written_edges: list[dict] = []
+
+    async def _fake_execute_tool(tool_name, **kwargs):
+        if tool_name == "graph_write" and kwargs.get("action") == "add_node":
+            written_nodes.append(kwargs)
+            return json.dumps({"status": "ok"})
+        if tool_name == "graph_write" and kwargs.get("action") == "add_edge":
+            written_edges.append(kwargs)
+            return json.dumps({"status": "ok"})
+        raise AssertionError(f"unexpected _execute_tool call: {tool_name} {kwargs}")
+
+    async def _fake_call_tool_once(**kwargs):
+        return {
+            "algo": "lstm_forecast",
+            "available": True,
+            "result": {
+                "forecast": [1.0, 2.0],
+                "lower": [0.5, 1.5],
+                "upper": [1.5, 2.5],
+                "horizon": 2,
+            },
+        }
+
+    monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_forecast",
+            params_json=json.dumps(
+                {
+                    "values": [1.0, 2.0, 3.0],
+                    "horizon": 2,
+                    "series_id": "metric:cpu",
+                    "writeback": True,
+                }
+            ),
+            graph="",
+        )
+    )
+    assert out["available"] is True
+    assert len(written_nodes) == 1
+    assert written_nodes[0]["node_type"] == "Forecast"
+    assert written_edges == [
+        {
+            "action": "add_edge",
+            "source_id": written_nodes[0]["node_id"],
+            "target_id": "metric:cpu",
+            "rel_type": "FORECAST_OF",
+            "target": "",
+        }
+    ]
+
+
+def test_graph_mine_deep_degrades_when_data_science_mcp_unreachable(monkeypatch, tools):
+    """The fleet server being unreachable degrades cleanly — never raises."""
+
+    async def _boom(**kwargs):
+        raise ConnectionError("no route to data-science-mcp")
+
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _boom)
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_forecast",
+            params_json=json.dumps({"values": [1.0, 2.0, 3.0]}),
+            graph="",
+        )
+    )
+    assert out["available"] is False
+    assert out["delegated"] is True
+    assert "delegated-unavailable" in out["error"]
+
+
+def test_graph_mine_deep_passes_through_torch_unavailable(monkeypatch, tools):
+    """data-science-mcp itself reporting available=false (e.g. torch missing) passes through cleanly."""
+
+    async def _fake_call_tool_once(**kwargs):
+        return {
+            "algo": "mlp_classify",
+            "available": False,
+            "error": "torch not installed",
+        }
+
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_classify",
+            params_json=json.dumps({"x": [[0.0]], "y": [0]}),
+            graph="",
+        )
+    )
+    assert out["available"] is False
+    assert out["error"] == "torch not installed"
+
+
+def test_graph_mine_deep_unknown_action_is_reported(tools):
+    out = json.loads(
+        tools["graph_mine_deep"](action="bogus", params_json="{}", graph="")
+    )
+    assert "unknown action" in out["error"]
+
+
+def test_graph_mine_deep_missing_input_is_reported(tools):
+    """No x/values/source at all ⇒ a clear error, not a crash."""
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="autoencoder_anomaly", params_json="{}", graph=""
+        )
+    )
+    assert "provide" in out["error"]
