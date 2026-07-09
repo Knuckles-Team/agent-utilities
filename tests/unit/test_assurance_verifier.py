@@ -162,9 +162,7 @@ def test_illegal_state_transition_is_denied():
 def test_no_claimed_state_at_all_is_not_a_violation():
     """Opt-in precondition: most production callers of merge_promotion predate
     this gate and never claim a state — that absence must not deny them."""
-    result = verify_action(
-        ActionRequest(kind="merge_promotion", target="proposal:1")
-    )
+    result = verify_action(ActionRequest(kind="merge_promotion", target="proposal:1"))
     assert result.ok
 
 
