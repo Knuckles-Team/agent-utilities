@@ -972,7 +972,7 @@ def register_engine_surface_tools(mcp) -> None:
             "Actions: 'associate' (association rules), 'cluster' (clustering), "
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
             "(classification), 'reduce' (dimensionality reduction), 'sequence' "
-            "(sequential-pattern mining). "
+            "(sequential-pattern mining), 'forecast' (classical time-series forecasting). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1008,9 +1008,16 @@ def register_engine_surface_tools(mcp) -> None:
             "'what reliably follows what'). Params: min_support. writeback ⇒ :SequentialPattern "
             "nodes linked to their item nodes. Returns {patterns:[{items,support,count}], "
             "n_sequences, n_patterns, ...}. "
+            "• forecast — classical forecasting over a 1-D 'values' series (a tsdb window "
+            "handed in by the caller): arima(default, p/d/q — Hannan-Rissanen AR/MA)/"
+            "holtwinters(alpha/beta/gamma, seasonal period — degrades to Holt linear-trend at "
+            "period=0)/stl(classical decomposition + extrapolation, also returns trend/"
+            "seasonal/residual). Params: horizon, confidence (band level). writeback ⇒ "
+            ":Forecast node linked FORECAST_OF a resident node named 'series_id'. Returns "
+            "{forecast, lower, upper, horizon, ...}. "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce,sequence} (same _execute_tool core). Degrades cleanly on a "
-            "no-mining engine build."
+            "classify_predict,reduce,sequence,forecast} (same _execute_tool core). Degrades "
+            "cleanly on a no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
@@ -1018,7 +1025,7 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="associate",
             description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
-            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence'.",
+            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1035,7 +1042,9 @@ def register_engine_surface_tools(mcp) -> None:
             '{"x":[[..]],"algorithm":"svd","n_components":2} or '
             '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce); '
             '{"sequences":[["login","browse","purchase"]],"min_support":0.5} or '
-            '{"source":{"node_label":"Session"},"algorithm":"gsp","writeback":true} (sequence).',
+            '{"source":{"node_label":"Session"},"algorithm":"gsp","writeback":true} (sequence); '
+            '{"values":[5,8,11,14],"algorithm":"arima","p":1,"d":1,"horizon":5} or '
+            '{"values":[...],"algorithm":"holtwinters","period":12,"horizon":12} (forecast).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
