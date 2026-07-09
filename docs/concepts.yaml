@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 939
+total_concepts: 942
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4764,6 +4764,48 @@ concepts:
   dotted: AU-KG.enrichment.ticket-status-comment-writeback
   aliases:
   - AU-KG.enrichment.ticket-status-comment-writeback
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.etl.result-contract
+  name: a validated
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/core/table_ingest.py
+  - agent_utilities/knowledge_graph/etl/pipeline.py
+  - agent_utilities/knowledge_graph/etl/result.py
+  doc: a validated
+  dotted: AU-KG.etl.result-contract
+  aliases:
+  - AU-KG.etl.result-contract
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.etl.transform-primitives
+  name: AU-KG.etl.transform-primitives
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/etl/transforms.py
+  doc: AU-KG.etl.transform-primitives
+  dotted: AU-KG.etl.transform-primitives
+  aliases:
+  - AU-KG.etl.transform-primitives
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.evolution.mining-flywheel
+  name: → intake/acquire/resolve →
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/tools/state_tools.py
+  doc: → intake/acquire/resolve →
+  dotted: AU-KG.evolution.mining-flywheel
+  aliases:
+  - AU-KG.evolution.mining-flywheel
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.agent-utilities-checkout
