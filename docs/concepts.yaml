@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 935
+total_concepts: 939
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -11587,6 +11587,21 @@ concepts:
   - AU-OS.governance.agents-md-reflector
   canonical_pillar: AU-OS
   needs_curation: false
+- id: AU-OS.governance.assurance-state-machine-verifier
+  name: of a proposed ActionPolicy routing payload — task=<action kind>, dependencies=JSON
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/assurance_verifier.py
+  doc: of a proposed ActionPolicy routing payload — task=<action kind>, dependencies=JSON
+  dotted: AU-OS.governance.assurance-state-machine-verifier
+  aliases:
+  - AU-OS.governance.assurance-state-machine-verifier
+  canonical_pillar: AU-OS
+  needs_curation: false
 - id: AU-OS.governance.atomic-concept-id-reservation
   name: atomic concept-ID reservation
   pillar: AU-OS
@@ -11651,6 +11666,19 @@ concepts:
   - AU-OS.governance.concept-id-canonicalization
   canonical_pillar: AU-OS
   needs_curation: false
+- id: AU-OS.governance.fail-closed-claim-check
+  name: AU-OS.governance.fail-closed-claim-check
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/assurance_verifier.py
+  doc: AU-OS.governance.fail-closed-claim-check
+  dotted: AU-OS.governance.fail-closed-claim-check
+  aliases:
+  - AU-OS.governance.fail-closed-claim-check
+  canonical_pillar: AU-OS
+  needs_curation: false
 - id: AU-OS.governance.governance-agent
   name: Governance Agent
   pillar: AU-OS
@@ -11709,6 +11737,18 @@ concepts:
   dotted: AU-OS.governance.policy-prompt-governance
   aliases:
   - AU-OS.governance.policy-prompt-governance
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.governance.precondition-invariants
+  name: AU-OS.governance.precondition-invariants
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/assurance_verifier.py
+  doc: AU-OS.governance.precondition-invariants
+  dotted: AU-OS.governance.precondition-invariants
+  aliases:
+  - AU-OS.governance.precondition-invariants
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.governance.reactive-multi-axis-budget
@@ -12891,6 +12931,19 @@ concepts:
   dotted: EG-KG.enrichment.content-address-separation
   aliases:
   - EG-KG.enrichment.content-address-separation
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.graphlearn.link-predictor
+  name: a pure-Rust KAN
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: a pure-Rust KAN
+  dotted: EG-KG.graphlearn.link-predictor
+  aliases:
+  - EG-KG.graphlearn.link-predictor
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.ingest.resets-socket-so-assimilation
