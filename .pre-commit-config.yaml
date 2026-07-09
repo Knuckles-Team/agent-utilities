@@ -63,9 +63,18 @@ repos:
 - repo: https://github.com/astral-sh/uv-pre-commit
   rev: 0.5.11
   hooks:
+  # --locked: fail (don't silently rewrite) if uv.lock is out of sync with
+  # pyproject.toml — keeps the committed lock authoritative and never stale.
   - id: uv-lock
+    args: ["--locked"]
 - repo: local
   hooks:
+  - id: dependency-audit
+    name: audit dependencies for known CVEs (OSV)
+    entry: python3 scripts/audit_dependencies.py uv.lock
+    language: system
+    files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt)$
+    pass_filenames: false
   - id: check-mermaid
     name: Check Mermaid syntax
     entry: python3 scripts/mermaid_linter.py

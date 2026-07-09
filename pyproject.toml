@@ -22,11 +22,13 @@ requires-python = ">=3.11,<3.15"
 # connector's `[mcp]`) stays small. See "Dependency discipline" in AGENTS.md.
 dependencies = [
     "pydantic[email]>=2.13.4",
-    "pydantic-settings>=2.14.1",
+    "pydantic-settings>=2.14.2",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "urllib3>=2.7.0",
+    # Security floor: pulled transitively by requests/httpx/anyio; CVE-2026-45409.
+    "idna>=3.15",
     "cryptography>=48.0.0,<49",
     "pathspec>=1.1.1",
     "platformdirs>=4.10.0",
@@ -79,7 +81,9 @@ sandbox = [
 # floor (`>=`), never an exact pin: published deps express minimums; dev overlays
 # live source via source-mounts + PYTHONPATH.
 engine = [
-    "epistemic-graph[numeric]>=2.7.0"
+    "epistemic-graph[numeric]>=2.7.0",
+    # Security floor: pulled transitively by epistemic-graph; CVE-2026-57585.
+    "msgpack>=1.2.1"
 ]
 # CONCEPT:KG-2.324 — the SOLE numeric backend (Analytics Program P5 final, the numpy/scipy
 # drop). The numeric kernel is already a HARD BASE dependency (see base `dependencies`
@@ -120,7 +124,11 @@ mcp = [
     "fastmcp>=3.4.2",
     "eunomia-mcp>=0.3.10",
     "fastapi>=0.137.0",
-    "httpx>=0.28.1"
+    "httpx>=0.28.1",
+    # Security floors: pulled transitively by mcp/fastmcp/fastapi.
+    "pyjwt>=2.13.0",            # CVE-2026-48522..48526 (PyJWKClient SSRF/DoS/bypass)
+    "starlette>=1.3.1",        # CVE-2026-54283 (form() limits ignored)
+    "python-multipart>=0.0.31" # CVE-2026-42561/53537-53540 (DoS / param smuggling)
 ]
 agent = [
     "agent-utilities[mcp,engine,ag-ui,terminal,sandbox]>=1.0.0",
@@ -186,7 +194,13 @@ documents = [
     # PyMuPDF (fitz): GIL-releasing C PDF parser used as the primary PDF reader
     # (PyMuPDFReader). ~0.2s vs pypdf's multi-minute stall that wedges the host
     # task queue on pathological PDFs. See engine_tasks._pdf_file_extractor.
-    "pymupdf>=1.27.2.3"
+    "pymupdf>=1.27.2.3",
+    # Security floors: transitive via llama-index-*. uv resolves one version
+    # graph-wide, so these raise the floor for the whole all-extras lock.
+    "banks>=2.4.2",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
+    "nltk>=3.10.0",     # CVE-2026-54293 — path traversal in nltk.data.load
+    "pypdf>=6.13.3",    # CVE-2026-57204 — stream-length limit bypass
+    "aiohttp>=3.14.1"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
 ]
 embeddings = [
     "llama-index-core>=0.14.22"]

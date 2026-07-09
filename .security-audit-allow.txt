@@ -1,0 +1,8 @@
+# Packages with an OSV advisory but NO released upstream fix — risk-accepted.
+# One package name per line; a comment must justify each entry. Reviewed periodically.
+# scripts/audit_dependencies.py skips these; remove an entry once a fix ships so the
+# audit re-flags it and the floor can be raised.
+
+diskcache   # CVE-2025-69872 pickle deserialization — no fix released; cache is process-local, not fed untrusted data.
+ecdsa       # CVE-2024-23342 Minerva timing (won't-fix upstream) — signing uses `cryptography`; ecdsa is verify-path transitive only.
+torch       # torch.jit.script memory-corruption — no fix; only present under ML extras, not exposed to untrusted scripts.
