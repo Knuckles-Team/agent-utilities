@@ -380,14 +380,34 @@ class RLMEnvironment:
             return result
         else:
             # Fallback to normal specialist at the recursion floor. The contract
-            # still holds — pydantic_ai enforces it via ``output_type``.
+            # still holds — pydantic_ai enforces it natively via ``output_type``
+            # when the contract is backed by a real Pydantic model; a
+            # primitive/generic (TypeAdapter) or raw JSON-Schema contract has no
+            # single Python type to hand pydantic-ai, so it's conveyed as prompt
+            # text instead (the caller still gets back whatever the model wrote —
+            # there's no post-hoc ``.validate()`` at this recursion floor).
             from pydantic_ai import Agent
 
-            agent = Agent(
-                model=self.config.sub_llm_model_small,
-                system_prompt="Answer the sub-task directly.",
-                **({"output_type": contract.json_schema} if contract else {}),
-            )
+            model_type = contract.model_type if contract else None
+            if model_type is not None:
+                agent = Agent(
+                    model=self.config.sub_llm_model_small,
+                    system_prompt="Answer the sub-task directly.",
+                    output_type=model_type,
+                )
+            elif contract is not None:
+                agent = Agent(
+                    model=self.config.sub_llm_model_small,
+                    system_prompt=(
+                        "Answer the sub-task directly. Respond with JSON matching "
+                        f"this schema:\n{contract.json_schema_str}"
+                    ),
+                )
+            else:
+                agent = Agent(
+                    model=self.config.sub_llm_model_small,
+                    system_prompt="Answer the sub-task directly.",
+                )
             res = await agent.run(
                 f"Context: {item.get('context')}\n\nPrompt: {item['prompt']}"
             )
