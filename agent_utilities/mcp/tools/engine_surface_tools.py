@@ -970,7 +970,8 @@ def register_engine_surface_tools(mcp) -> None:
             "CONCEPT:EG-KG.mining.frequent-itemset-mining — the unified data-mining surface "
             "over the engine, compute-near-data (mining runs where the graph lives). "
             "Actions: 'associate' (association rules), 'cluster' (clustering), "
-            "'anomaly' (outlier detection). "
+            "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
+            "(classification), 'reduce' (dimensionality reduction). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -987,15 +988,29 @@ def register_engine_surface_tools(mcp) -> None:
             "(isoforest), nu/kernel(rbf|linear)/gamma (ocsvm), threshold. writeback ⇒ "
             ":Anomaly nodes linked to their source. Returns {rows:[{id,anomaly_score,"
             "is_anomaly}], n_anomalies, threshold, ...}. "
-            "REST twins: POST /api/mining/{associate,cluster,anomaly} (same _execute_tool "
-            "core). Degrades cleanly on a no-mining engine build."
+            "• classify_fit — PREDICTIVE fit → model blob: gaussiannb(default)/multinomialnb/"
+            "knn/logistic/svc over 'x' (rows) OR a vector 'source', plus integer 'y' labels. "
+            "Params: k(knn), alpha(mnb), lr/epochs/l2(logistic), c(svc). Returns {model, "
+            "classes, ...} — pass 'model' to classify_predict. "
+            "• classify_predict — apply a fitted 'model' to 'x' OR a vector 'source' "
+            "(cross-modal 'classify these nodes by their embeddings'). writeback ⇒ "
+            ":Classification nodes linked to source. Returns {rows:[{id,label,proba}], classes}. "
+            "• reduce — DESCRIPTIVE row transform: svd(default)/lda(supervised — needs "
+            "'labels')/umap/tsne over 'x' OR a vector 'source' (reduce node vectors for the "
+            "graphviz). Params: n_components, n_neighbors/min_dist(umap), perplexity/lr(tsne), "
+            "epochs, seed. writeback ⇒ :Embedding2D nodes. Returns {rows:[{id,coords}], "
+            "n_components, ...} (svd adds singular_values). UMAP/t-SNE are approximate, small-N. "
+            "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
+            "classify_predict,reduce} (same _execute_tool core). Degrades cleanly on a "
+            "no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
     def graph_mine(
         action: str = Field(
             default="associate",
-            description="Mining action: 'associate' | 'cluster' | 'anomaly'.",
+            description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
+            "'classify_fit' | 'classify_predict' | 'reduce'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1006,7 +1021,11 @@ def register_engine_surface_tools(mcp) -> None:
             'or {"source":{"node_label":"Doc"},"algorithm":"kmedoids","k":3,'
             '"writeback":true} (cluster); '
             '{"values":[1,1,1,100],"algorithm":"zscore"} or '
-            '{"source":{"node_label":"Metric"},"algorithm":"isoforest"} (anomaly).',
+            '{"source":{"node_label":"Metric"},"algorithm":"isoforest"} (anomaly); '
+            '{"x":[[0,0],[10,10]],"y":[0,1],"algorithm":"logistic"} (classify_fit); '
+            '{"model":{...},"x":[[0.1,0.1]]} (classify_predict); '
+            '{"x":[[..]],"algorithm":"svd","n_components":2} or '
+            '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
