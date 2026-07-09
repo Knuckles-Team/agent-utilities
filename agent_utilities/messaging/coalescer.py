@@ -87,4 +87,8 @@ class BurstCoalescer:
         try:
             await self._on_flush(key, items)
         except Exception as e:  # noqa: BLE001 — one bad batch must not kill the loop
-            logger.error("[CONCEPT:AU-ECO.messaging.burst-mode-coalescing] burst flush failed for %s: %s", key, e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.burst-mode-coalescing] burst flush failed for %s: %s",
+                key,
+                e,
+            )

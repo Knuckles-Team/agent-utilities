@@ -173,7 +173,10 @@ def _knowledge_assimilation_plan() -> GraphPlan:
         ],
         metadata={
             "workflow_type": "knowledge_assimilation",
-            "concepts": ["CONCEPT:AU-KG.memory.universal-knowledge-assimilation", "CONCEPT:AU-ECO.connector.social-content-ingestion"],
+            "concepts": [
+                "CONCEPT:AU-KG.memory.universal-knowledge-assimilation",
+                "CONCEPT:AU-ECO.connector.social-content-ingestion",
+            ],
             "domain": "research",
         },
     )
@@ -208,7 +211,10 @@ def _self_evolution_v2_plan() -> GraphPlan:
         ],
         metadata={
             "workflow_type": "self_evolution_v2",
-            "concepts": ["CONCEPT:AU-KG.memory.universal-knowledge-assimilation", "CONCEPT:AU-AHE.harness.harness-evolution"],
+            "concepts": [
+                "CONCEPT:AU-KG.memory.universal-knowledge-assimilation",
+                "CONCEPT:AU-AHE.harness.harness-evolution",
+            ],
             "domain": "research",
             "description": (
                 "Push-based evolution triggered by incoming high-potential content"

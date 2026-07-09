@@ -40,6 +40,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -506,7 +507,7 @@ class CointegrationPairsTrader:
 
     def fit_ou_parameters(
         self,
-        spread_series: list[float] | np.ndarray,
+        spread_series: list[float] | NDArray,
         dt: float = 1.0,
     ) -> dict[str, float]:
         """Estimate Ornstein-Uhlenbeck parameters from spread data.

@@ -103,9 +103,7 @@ class CompactionStrategy(StrEnum):
     SUMMARIZE_TOOLS = "summarize_tools"
     DROP_MIDDLE = "drop_middle"
     PROGRESSIVE = "progressive"
-    MEMENTO_BLOCKS = (
-        "memento_blocks"  # CONCEPT:AU-KG.memory.mementified-context — semantic-boundary block segmentation
-    )
+    MEMENTO_BLOCKS = "memento_blocks"  # CONCEPT:AU-KG.memory.mementified-context — semantic-boundary block segmentation
 
 
 # ---------------------------------------------------------------------------

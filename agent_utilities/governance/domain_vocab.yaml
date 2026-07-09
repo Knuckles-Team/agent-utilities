@@ -36,6 +36,7 @@ pillars:
     coordination:  [coordination, centralized, election, backpressure, breaker, gateway-election]
     sharding:      [shard, sharding, resharding, topology, tenant, multi-raft, replication]
     domains:       [domain, vertical, subgraph, finance, quant, medical, legal, enterprise]
+    mining:        [mining, frequent-itemset, association-rule, cluster, anomaly, pattern-mining, graph_mine]
 
   # ─────────────────────────────────────────────────────────────────────────
   ORCH: # Graph Orchestration Engine — planning, routing, execution, the Loop.

@@ -102,7 +102,10 @@ def query_token_series(
 
         backend = get_timeseries_backend("engine")
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s",
+            e,
+        )
         return []
     client = getattr(backend, "_client", None)
     if client is None:
@@ -129,7 +132,9 @@ def query_token_series(
             (ts / 1e9, vals[field_idx]) for ts, vals in pts if field_idx < len(vals)
         ]
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] query_token_series failed: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-KG.temporal.token-event-tsdb] query_token_series failed: %s", e
+        )
         return []
 
 
@@ -288,7 +293,10 @@ class TokenUsageTracker:
 
             self._ts_backend = get_timeseries_backend("engine")
         except Exception as e:  # noqa: BLE001 — engine absent ⇒ disable, don't crash
-            logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s",
+                e,
+            )
             self._ts_disabled = True
             self._ts_backend = None
         return self._ts_backend
@@ -367,7 +375,10 @@ class TokenUsageTracker:
             )
             backend.insert([point])
         except Exception as e:  # noqa: BLE001 — telemetry write must never break a run
-            logger.debug("[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb append skipped: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb append skipped: %s",
+                e,
+            )
 
     def usage_series(
         self,

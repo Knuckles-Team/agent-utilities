@@ -127,7 +127,9 @@ class SlackBackend(MessagingBackend):
             asyncio.create_task(handler.start_async())
 
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Slack backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Slack backend connected."
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from Slack. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
@@ -158,7 +160,10 @@ class SlackBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Slack send failed: %s", e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Slack send failed: %s",
+                e,
+            )
             return SendResult(success=False, platform=PlatformId.SLACK, error=str(e))
 
     async def send_typing(self, channel_id: str) -> None:

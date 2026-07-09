@@ -1932,7 +1932,9 @@ def register_analysis_tools(mcp):
                             or None
                         ),
                         cred_ref=cred_ref or None,
-                        open_channel=bool(open_channel),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+                        open_channel=bool(
+                            open_channel
+                        ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
                     )
                     return agent_result
                 except Exception as exc:
@@ -2089,7 +2091,11 @@ def register_analysis_tools(mcp):
                 goal = task.strip()
                 if not goal:
                     return "Error: action=synthesize_org requires a goal in 'task'."
-                opts = json.loads(dependencies) if dependencies and dependencies != "[]" else {}
+                opts = (
+                    json.loads(dependencies)
+                    if dependencies and dependencies != "[]"
+                    else {}
+                )
                 domains = opts.get("domains") if isinstance(opts, dict) else None
                 chart = Recruiter(engine).synthesize_org(goal, domains=domains)
                 return json.dumps(chart.to_dict(), default=str)
@@ -2103,7 +2109,11 @@ def register_analysis_tools(mcp):
                 goal = task.strip()
                 if not goal:
                     return "Error: action=run_org requires a goal in 'task'."
-                opts = json.loads(dependencies) if dependencies and dependencies != "[]" else {}
+                opts = (
+                    json.loads(dependencies)
+                    if dependencies and dependencies != "[]"
+                    else {}
+                )
                 domains = opts.get("domains") if isinstance(opts, dict) else None
                 runtime = OrgRuntime(engine, max_steps=max_steps)
                 result = await runtime.run(goal, domains=domains)

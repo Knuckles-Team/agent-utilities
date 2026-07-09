@@ -55,7 +55,8 @@ class CodeRequirements:
 class Analyzer(Protocol):
     """Anything that can turn a snippet into :class:`CodeRequirements`."""
 
-    def analyze(self, code: str) -> CodeRequirements: ...
+    def analyze(self, code: str) -> CodeRequirements:
+        ...
 
 
 class AstAnalyzer:

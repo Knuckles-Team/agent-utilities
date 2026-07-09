@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -90,17 +91,17 @@ class KLineTokenizer:
     def __init__(self, lookback: int = 20, doji_threshold: float = 0.001):
         self.lookback = lookback
         self.doji_threshold = doji_threshold
-        self._body_percentiles: np.ndarray | None = None
-        self._wick_percentiles: np.ndarray | None = None
-        self._vol_percentiles: np.ndarray | None = None
+        self._body_percentiles: NDArray | None = None
+        self._wick_percentiles: NDArray | None = None
+        self._vol_percentiles: NDArray | None = None
 
     def fit(
         self,
-        opens: np.ndarray,
-        highs: np.ndarray,
-        lows: np.ndarray,
-        closes: np.ndarray,
-        volumes: np.ndarray,
+        opens: NDArray,
+        highs: NDArray,
+        lows: NDArray,
+        closes: NDArray,
+        volumes: NDArray,
     ) -> "KLineTokenizer":
         """
         Fit the tokenizer on historical data to learn quantization boundaries.
@@ -132,7 +133,7 @@ class KLineTokenizer:
 
         return self
 
-    def _bucketize(self, value: float, boundaries: np.ndarray) -> int:
+    def _bucketize(self, value: float, boundaries: NDArray) -> int:
         """Assign a value to a bucket based on percentile boundaries."""
         for i, b in enumerate(boundaries):
             if value <= b:
@@ -203,11 +204,11 @@ class KLineTokenizer:
 
     def tokenize_series(
         self,
-        opens: np.ndarray,
-        highs: np.ndarray,
-        lows: np.ndarray,
-        closes: np.ndarray,
-        volumes: np.ndarray,
+        opens: NDArray,
+        highs: NDArray,
+        lows: NDArray,
+        closes: NDArray,
+        volumes: NDArray,
     ) -> list[KLineToken]:
         """Tokenize a full OHLCV series into a sequence of KLineTokens."""
         n = len(opens)
@@ -328,11 +329,11 @@ class KronosForecaster:
 
     def fit(
         self,
-        opens: np.ndarray,
-        highs: np.ndarray,
-        lows: np.ndarray,
-        closes: np.ndarray,
-        volumes: np.ndarray,
+        opens: NDArray,
+        highs: NDArray,
+        lows: NDArray,
+        closes: NDArray,
+        volumes: NDArray,
     ) -> "KronosForecaster":
         """Fit tokenizer and predictor on historical OHLCV data."""
         self.tokenizer.fit(opens, highs, lows, closes, volumes)

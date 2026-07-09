@@ -2356,9 +2356,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[futures[fut]] = (
-            f"timed out after {timeout:.0f}s (target slow/unreachable)"
-        )
+        errors[
+            futures[fut]
+        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -3367,7 +3367,9 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     # each dispatching the SAME graph_mine _execute_tool core (surface parity).
     if "graph_mine" in ACTION_TOOL_ROUTES:
         for _mine_action in MINING_ACTIONS:
-            route(f"/mining/{_mine_action}", _make_mining_endpoint(_mine_action), ["POST"])
+            route(
+                f"/mining/{_mine_action}", _make_mining_endpoint(_mine_action), ["POST"]
+            )
 
 
 _FLEET_EMBED_MODEL: Any = None

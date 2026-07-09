@@ -224,7 +224,10 @@ def synergy_bundles(
                         ordered[i],
                         ordered[j],
                         RegistryEdgeType.HAS_SYNERGY_WITH,
-                        properties={"_rel": "HAS_SYNERGY_WITH", "concept": "AU-KG.query.vendor-agnostic-traversal"},
+                        properties={
+                            "_rel": "HAS_SYNERGY_WITH",
+                            "concept": "AU-KG.query.vendor-agnostic-traversal",
+                        },
                     )
                     report.edges_written += 1
     return report

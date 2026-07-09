@@ -223,7 +223,10 @@ class InboundRouter:
 
                 AgentBus.instance(engine).prune_topic_log()
             except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
-                logger.debug("[CONCEPT:AU-ECO.messaging.durable-inbound-pending] inbox reaper pass failed: %s", e)
+                logger.debug(
+                    "[CONCEPT:AU-ECO.messaging.durable-inbound-pending] inbox reaper pass failed: %s",
+                    e,
+                )
 
     async def stop(self) -> None:
         """Stop all listener tasks gracefully.
@@ -236,7 +239,9 @@ class InboundRouter:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Inbound router stopped.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Inbound router stopped."
+        )
 
     async def _listen_loop(self, backend: MessagingBackend) -> None:
         """Internal listener loop for a single backend.
@@ -249,14 +254,20 @@ class InboundRouter:
         Args:
             backend: The messaging backend to listen on.
         """
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listening for events on '%s'...", backend.id)
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listening for events on '%s'...",
+            backend.id,
+        )
         try:
             async for event in backend.listen():
                 if not self._running:
                     break
                 await self._dispatch(event, backend)
         except asyncio.CancelledError:
-            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.", backend.id)
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.",
+                backend.id,
+            )
         except NotImplementedError:
             logger.warning(
                 "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support inbound listening.",
@@ -422,7 +433,10 @@ async def create_planner_handler(
                 else:
                     await backend.send_message(event.channel_id, text)
             except Exception as e:  # noqa: BLE001
-                logger.error("[CONCEPT:AU-ECO.messaging.sending-reply-failed] Sending reply failed: %s", e)
+                logger.error(
+                    "[CONCEPT:AU-ECO.messaging.sending-reply-failed] Sending reply failed: %s",
+                    e,
+                )
 
         async def _run_and_deliver(*, deferred: bool) -> None:
             reply = await _graph_agent_reply(
@@ -514,7 +528,10 @@ async def create_planner_handler(
             try:
                 await backend.send_message(event.channel_id, cmd_reply)
             except Exception as e:  # noqa: BLE001
-                logger.error("[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] command reply send failed: %s", e)
+                logger.error(
+                    "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] command reply send failed: %s",
+                    e,
+                )
             return
 
         # 4. Coalesce normal messages into one agent turn per burst (CONCEPT:AU-ECO.messaging.burst-mode-coalescing):
@@ -569,7 +586,10 @@ async def _react_in_background(
                 reaction.emote,
             )
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-ECO.messaging.messaging-as-renderer] reaction render skipped: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.messaging-as-renderer] reaction render skipped: %s",
+            e,
+        )
 
 
 # CONCEPT:AU-ECO.messaging.fire-and-forget-tasks — fire-and-forget background tasks (strong refs so they aren't GC'd).
@@ -621,12 +641,18 @@ async def _persist_and_enrich(
     try:
         await asyncio.to_thread(svc.record_inbound, last)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-ECO.messaging.last-active-channel-routing] record_inbound failed: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.last-active-channel-routing] record_inbound failed: %s",
+            e,
+        )
     for it in items:
         try:
             memory_id = await ingest_message_to_kg(it["event"], knowledge_engine=engine)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] KG ingest failed: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] KG ingest failed: %s",
+                e,
+            )
             memory_id = None
         # CONCEPT:AU-KG.ingest.list-durable-media — also persist the message's media (image/voice/video)
         # DURABLY: store the bytes in the engine BLOB substrate + a :MediaAsset node
@@ -635,7 +661,9 @@ async def _persist_and_enrich(
         try:
             await _persist_media(engine, it["event"], message_memory_id=memory_id)
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media persist skipped: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] media persist skipped: %s", e
+            )
     # Compress this turn into a per-session memento so the next turn inherits continuity
     # through the universal path's core memory (CONCEPT:AU-ECO.messaging.universal-graph-agent).
     try:
@@ -659,7 +687,10 @@ async def _persist_and_enrich(
 
         await asyncio.to_thread(refresh_session_memento_cache, engine, session)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-ECO.messaging.universal-graph-agent] session memento skipped: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] session memento skipped: %s",
+            e,
+        )
     try:
         from agent_utilities.messaging.enrichment import enrich_conversation
 
@@ -672,7 +703,10 @@ async def _persist_and_enrich(
             channel_id=last.channel_id,
         )
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-ECO.messaging.post-conversation-enrichment] enrichment skipped: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.post-conversation-enrichment] enrichment skipped: %s",
+            e,
+        )
 
 
 def _resolve_media_store(engine: Any) -> Any:
@@ -723,7 +757,10 @@ async def _persist_media(
                 resp.raise_for_status()
                 data = resp.content
             except Exception as e:  # noqa: BLE001
-                logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s", e)
+                logger.debug(
+                    "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
+                    e,
+                )
                 continue
             await asyncio.to_thread(
                 store.store_media,
@@ -1083,5 +1120,8 @@ async def _plain_chat_reply(
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:AU-ECO.messaging.universal-graph-agent] plain-chat fallback failed: %s", e)
+        logger.error(
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] plain-chat fallback failed: %s",
+            e,
+        )
         return f"I saved your message, but couldn't draft a reply right now ({e})."

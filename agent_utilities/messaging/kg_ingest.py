@@ -65,7 +65,9 @@ async def ingest_message_to_kg(
         try:
             engine = _get_default_engine()
         except Exception:
-            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] No KG engine available, skipping ingest.")
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] No KG engine available, skipping ingest."
+            )
             return None
 
     if engine is None:
@@ -117,7 +119,10 @@ async def ingest_message_to_kg(
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest message to KG: %s", e)
+        logger.warning(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest message to KG: %s",
+            e,
+        )
         return None
 
 
@@ -186,7 +191,10 @@ async def ingest_outbound_to_kg(
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest outbound to KG: %s", e)
+        logger.warning(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Failed to ingest outbound to KG: %s",
+            e,
+        )
         return None
 
 
@@ -204,5 +212,8 @@ def _get_default_engine() -> Any | None:
 
         return IntelligenceGraphEngine.get_active()
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Default engine load failed: %s", e)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Default engine load failed: %s",
+            e,
+        )
         return None

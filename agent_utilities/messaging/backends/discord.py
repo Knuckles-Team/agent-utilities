@@ -167,14 +167,19 @@ class DiscordBackend(MessagingBackend):
 
         @self._client.event
         async def on_ready() -> None:
-            logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord connected as %s", self._client.user)
+            logger.info(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord connected as %s",
+                self._client.user,
+            )
 
         # Start the bot in a background task
         self._bot_task = asyncio.create_task(self._client.start(self.config.token))
         # Wait briefly for connection
         await asyncio.sleep(2)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord backend connected."
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from Discord Gateway.
@@ -230,7 +235,10 @@ class DiscordBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord send failed: %s", e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord send failed: %s",
+                e,
+            )
             return SendResult(
                 success=False,
                 platform=PlatformId.DISCORD,

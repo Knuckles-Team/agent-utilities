@@ -223,7 +223,9 @@ class FileWatcher:
                     f"[CONCEPT:AU-OS.host.file-watcher-trigger] Found {len(result['outdated'])} outdated packages"
                 )
         except Exception as e:
-            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip outdated check failed: {e}")
+            logger.debug(
+                f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip outdated check failed: {e}"
+            )
 
         # Check for vulnerabilities (requires pip-audit)
         try:
@@ -243,7 +245,9 @@ class FileWatcher:
                 "[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit not installed — skipping vuln scan"
             )
         except Exception as e:
-            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit check failed: {e}")
+            logger.debug(
+                f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit check failed: {e}"
+            )
 
         return result
 
@@ -264,7 +268,9 @@ class FileWatcher:
             if proc.returncode == 0 and proc.stdout.strip():
                 return json.loads(proc.stdout)
         except Exception as e:
-            logger.debug(f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip list failed: {e}")
+            logger.debug(
+                f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip list failed: {e}"
+            )
         return []
 
     # ── Polling-based watcher (fallback when watchdog is unavailable) ─

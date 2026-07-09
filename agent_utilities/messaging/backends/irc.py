@@ -97,7 +97,10 @@ class IRCBackend(MessagingBackend):
 
         asyncio.create_task(asyncio.to_thread(self._reactor.process_forever))
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] IRC backend connected to %s.", server)
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] IRC backend connected to %s.",
+            server,
+        )
 
     async def disconnect(self) -> None:
         if self._connection:

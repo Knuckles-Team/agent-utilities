@@ -14,6 +14,7 @@ from enum import StrEnum
 from typing import Any
 
 from agent_utilities.domains.finance.debate_engine import DebateContext, DebateEngine
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class SimpleBacktester:
     """
 
     def run(
-        self, entry_signals: np.ndarray, exit_signals: np.ndarray, returns: np.ndarray
+        self, entry_signals: NDArray, exit_signals: NDArray, returns: NDArray
     ) -> BacktestMetrics:
         """
         Run a backtest given entry/exit signal arrays and period returns.
@@ -212,9 +213,9 @@ class ResearchAutopilot:
     def _evaluate_hypothesis(
         self,
         hypothesis: Hypothesis,
-        entry_signals: np.ndarray,
-        exit_signals: np.ndarray,
-        returns: np.ndarray,
+        entry_signals: NDArray,
+        exit_signals: NDArray,
+        returns: NDArray,
     ) -> HypothesisResult:
         """Test a single hypothesis against data."""
         hypothesis.status = HypothesisStatus.TESTING

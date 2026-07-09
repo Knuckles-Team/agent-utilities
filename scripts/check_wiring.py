@@ -3,7 +3,7 @@
 
 Referenced by AGENTS.md ("Wire-First — reachable != invoked", step 4: "Run
 ``check_wiring.py`` (import-graph, <=3 hops)"). Adapted from the
-agent-utilities-evolution skill's ``wiring_sweep.py``, trimmed to its
+agent-utilities-self-evolution skill's ``wiring_sweep.py``, trimmed to its
 import-graph reachability core.
 
 What it does

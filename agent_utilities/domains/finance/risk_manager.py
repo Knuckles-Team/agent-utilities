@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ class VaRCalculator:
 
     def historical(
         self,
-        returns: np.ndarray,
+        returns: NDArray,
         confidence_95: float = 0.05,
         confidence_99: float = 0.01,
     ) -> VaRResult:
@@ -207,7 +208,7 @@ class VaRCalculator:
             n_observations=len(returns),
         )
 
-    def parametric(self, returns: np.ndarray) -> VaRResult:
+    def parametric(self, returns: NDArray) -> VaRResult:
         """Compute VaR using parametric (normal distribution) assumption."""
         if len(returns) < 10:
             return VaRResult(method="parametric", n_observations=len(returns))
@@ -230,7 +231,7 @@ class VaRCalculator:
         )
 
     def monte_carlo(
-        self, returns: np.ndarray, n_simulations: int = 10000, seed: int = 42
+        self, returns: NDArray, n_simulations: int = 10000, seed: int = 42
     ) -> VaRResult:
         """Compute VaR using Monte Carlo simulation."""
         if len(returns) < 10:
@@ -361,7 +362,7 @@ class RiskManager:
         """Validate a proposed order against risk limits."""
         return self.guard.validate(**kwargs)
 
-    def compute_var(self, returns: np.ndarray, method: str = "historical") -> VaRResult:
+    def compute_var(self, returns: NDArray, method: str = "historical") -> VaRResult:
         """Compute VaR using the specified method."""
         if method == "parametric":
             return self.var_calculator.parametric(returns)

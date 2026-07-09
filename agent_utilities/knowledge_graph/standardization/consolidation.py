@@ -326,7 +326,11 @@ def _persist_edges(engine: Any, rec: ConsolidationRecommendation) -> int:
                 rec.rec_id,
                 standard_node_id(rec.standard),
                 RegistryEdgeType.REFERENCES,
-                properties={"_rel": "REFERENCES", "auto": True, "concept": "AU-KG.ontology.populated-at-import-real-3"},
+                properties={
+                    "_rel": "REFERENCES",
+                    "auto": True,
+                    "concept": "AU-KG.ontology.populated-at-import-real-3",
+                },
             )
             written += 1
         except Exception:  # noqa: BLE001

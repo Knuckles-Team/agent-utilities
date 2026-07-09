@@ -1090,7 +1090,10 @@ class RegistryMixin(_Base):
                     "MATCH (n:CallableResource {id: $id}) SET n.status = 'ARCHIVED'",
                     {"id": function_id},
                 )
-            logger.info("[CONCEPT:AU-ECO.toolkit.self-describing-registry] Deregistered function '%s'", function_id)
+            logger.info(
+                "[CONCEPT:AU-ECO.toolkit.self-describing-registry] Deregistered function '%s'",
+                function_id,
+            )
             return True
         return False
 

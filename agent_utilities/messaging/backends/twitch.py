@@ -96,7 +96,9 @@ class TwitchBackend(MessagingBackend):
         asyncio.create_task(self._bot.start())
         await asyncio.sleep(2)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Twitch backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Twitch backend connected."
+        )
 
     async def send_message(
         self,

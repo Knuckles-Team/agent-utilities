@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Any
 
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 """Formal Graph Theory Primitives.
@@ -2089,7 +2090,7 @@ class MarkovTransitionModel:
         )
         self.states: list[str] = []
         self._state_to_idx: dict[str, int] = {}
-        self.transition_matrix: np.ndarray | None = None
+        self.transition_matrix: NDArray | None = None
 
     def ingest_trace(self, trace: Sequence[str]) -> None:
         """Ingest a sequential execution trace of states."""
@@ -2190,7 +2191,7 @@ class MarkovTransitionModel:
         )
         return ranked[:k]
 
-    def multi_step_transition(self, n_steps: int) -> np.ndarray | None:
+    def multi_step_transition(self, n_steps: int) -> NDArray | None:
         """Compute n-step transition probabilities via Chapman-Kolmogorov.
 
         CONCEPT:AU-KG.research.research-pipeline-runner — Chapman-Kolmogorov Equation

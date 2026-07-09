@@ -112,7 +112,7 @@ the following artifacts MUST be reviewed and updated as appropriate:
 - These rules are persisted as `Policy` nodes in the KG with `enforcement: MANDATORY`
 - SDD implementer MUST cross-check its generated plan against all MANDATORY policies
 - A plan that omits any of these 7 artifacts is INVALID and must be revised
-- The evolution pipeline (`agent-utilities-evolution` skill) auto-injects these into every SDD plan
+- The evolution pipeline (`agent-utilities-self-evolution` skill) auto-injects these into every SDD plan
 
 ## Assimilation Governance — Wire or Discard
 
@@ -137,7 +137,7 @@ into `agent-utilities`, the following rules are **MANDATORY**:
 - Conflicting rules between projects are flagged for human resolution during SDD plan review.
 
 ### Evolution Pipeline Integration
-- The `agent-utilities-evolution` skill enforces this section automatically during SDD plan generation.
+- The `agent-utilities-self-evolution` skill enforces this section automatically during SDD plan generation.
 - Every recommendation in an evolution SDD plan MUST include:
   1. Which existing hot-path module it wires into
   2. Which entry point (MCP tool, A2A skill, API route) exposes it

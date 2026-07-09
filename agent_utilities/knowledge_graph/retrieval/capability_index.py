@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class Designation:
     provenance: dict[str, Any] = field(default_factory=dict)
 
 
-def _l2_normalize(vec: np.ndarray) -> np.ndarray:
+def _l2_normalize(vec: NDArray) -> NDArray:
     """Return ``vec`` scaled to unit L2 norm (zero vectors returned as-is)."""
     norm = float(np.linalg.norm(vec))
     if norm == 0.0:
@@ -160,7 +161,7 @@ class CapabilityIndex:
         self._id_to_caps: dict[str, set[str]] = {}
         # id -> normalized embedding (always kept; the source of truth for
         # ranking and for rebuilding the HNSW index on resize/load).
-        self._id_to_vec: dict[str, np.ndarray] = {}
+        self._id_to_vec: dict[str, NDArray] = {}
         # swappableWith adjacency (symmetric)
         self._swappable: dict[str, set[str]] = {}
         # id -> reward EMA in [0, 1] (0.5 = neutral/unproven). Updated by
@@ -489,7 +490,7 @@ class CapabilityIndex:
     def _resolve_ontology_prior(
         self,
         ontology_prior: Any,
-        query: np.ndarray,
+        query: NDArray,
         candidates: set[str] | None,
         oversample: int,
     ) -> Any:
@@ -522,7 +523,7 @@ class CapabilityIndex:
         return lambda nid: 1.0 if self._id_to_type.get(nid) == modal_type else 0.5
 
     def _rank(
-        self, query: np.ndarray, candidates: set[str] | None, k: int
+        self, query: NDArray, candidates: set[str] | None, k: int
     ) -> list[tuple[str, float]]:
         """Rank ids by cosine similarity to ``query``.
 

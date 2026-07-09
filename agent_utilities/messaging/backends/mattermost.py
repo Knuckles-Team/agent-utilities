@@ -130,7 +130,10 @@ class MattermostBackend(MessagingBackend):
             me = await asyncio.to_thread(self._driver.users.get_user, "me")
             self._bot_user_id = str(me.get("id", ""))
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[CONCEPT:AU-ECO.messaging.mattermost-backend] could not resolve bot user id: %s", exc)
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.mattermost-backend] could not resolve bot user id: %s",
+                exc,
+            )
             self._bot_user_id = configured_bot
 
         self._connected = True
@@ -145,7 +148,10 @@ class MattermostBackend(MessagingBackend):
                 try:
                     self._driver.disconnect()  # closes the websocket loop
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("[CONCEPT:AU-ECO.messaging.mattermost-backend] websocket disconnect: %s", exc)
+                    logger.debug(
+                        "[CONCEPT:AU-ECO.messaging.mattermost-backend] websocket disconnect: %s",
+                        exc,
+                    )
                 self._listening = False
             await asyncio.to_thread(self._driver.logout)
         await super().disconnect()
@@ -180,7 +186,10 @@ class MattermostBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost send failed: %s", e)
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost send failed: %s",
+                e,
+            )
             return SendResult(
                 success=False, platform=PlatformId.MATTERMOST, error=str(e)
             )
@@ -310,11 +319,16 @@ class MattermostBackend(MessagingBackend):
             try:
                 self._driver.init_websocket(_on_event)
             except Exception as exc:  # noqa: BLE001 — surface, never crash the daemon
-                logger.error("[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost websocket stopped: %s", exc)
+                logger.error(
+                    "[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost websocket stopped: %s",
+                    exc,
+                )
 
         asyncio.create_task(asyncio.to_thread(_run_ws))
         self._listening = True
-        logger.info("[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost websocket inbound started.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.mattermost-backend] Mattermost websocket inbound started."
+        )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
         """Yield inbound Mattermost events from the WebSocket stream. CONCEPT:AU-ECO.messaging.native-backend-abstraction/4.90."""

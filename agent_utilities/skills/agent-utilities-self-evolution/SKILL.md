@@ -1,5 +1,5 @@
 ---
-name: agent-utilities-evolution
+name: agent-utilities-self-evolution
 skill_type: skill
 description: >-
   Evolve the agent-utilities repository by implementing the latest research concepts
@@ -296,7 +296,7 @@ python scripts/wiring_sweep.py /path/to/agent-utilities --output report.md
 
 The script path is (shipped inside this package-owned skill):
 ```
-agent_utilities/skills/agent-utilities-evolution/scripts/wiring_sweep.py
+agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
 ```
 
 ### What It Analyzes
@@ -345,7 +345,7 @@ When the user says any of:
 Execute the sweep:
 
 ```bash
-python /path/to/agent_utilities/skills/agent-utilities-evolution/scripts/wiring_sweep.py \
+python /path/to/agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py \
     /home/apps/workspace/agent-packages/agent-utilities \
     --output /tmp/wiring_sweep_report.md
 ```
