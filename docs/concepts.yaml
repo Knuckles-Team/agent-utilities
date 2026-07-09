@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 933
+total_concepts: 935
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -12915,6 +12915,32 @@ concepts:
   dotted: EG-KG.memory.byte-bounded-tiers
   aliases:
   - EG-KG.memory.byte-bounded-tiers
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.memory.zero-copy-snapshot-fork
+  name: the
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/remote_backend.py
+  - agent_utilities/runtime/crossmodal_fork.py
+  doc: the
+  dotted: EG-KG.memory.zero-copy-snapshot-fork
+  aliases:
+  - EG-KG.memory.zero-copy-snapshot-fork
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.mining.frequent-itemset-mining
+  name: the unified data-mining surface
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: the unified data-mining surface
+  dotted: EG-KG.mining.frequent-itemset-mining
+  aliases:
+  - EG-KG.mining.frequent-itemset-mining
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.query.wire-protocol
