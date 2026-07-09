@@ -695,6 +695,54 @@ MINING_ACTIONS = (
 GRAPHLEARN_ACTIONS = ("fit", "predict")
 
 
+#: The graph_mine_deep actions with a natural-body REST twin (CONCEPT:AU-KG.mining.dsm-forecast-delegation —
+#: Phase-6 heavy-dep delegation to data-science-mcp). Each mounts
+#: ``POST /api/mining/deep/<action>`` dispatching the SAME
+#: ``_execute_tool("graph_mine_deep", action=...)`` core as the MCP verb — surface parity.
+DEEP_MINING_ACTIONS = (
+    "deep_forecast",
+    "deep_classify",
+    "autoencoder_anomaly",
+    "xgboost",
+    "embed",
+)
+
+
+def _make_mining_deep_endpoint(action: str):
+    """Build the REST twin for one ``graph_mine_deep`` action (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
+
+    ``POST /api/mining/deep/<action>`` accepts a natural body (``x``/``values``/
+    ``source``, ``y``, ``writeback``, algo kwargs, ...) plus an optional ``graph``,
+    and dispatches the SAME ``_execute_tool("graph_mine_deep", action=<action>, ...)``
+    core the MCP verb uses — the delegated call to data-science-mcp and the KG
+    foldback happen once, in that one core.
+    """
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return JSONResponse(
+                {"status": "error", "message": "body must be a JSON object"},
+                status_code=400,
+            )
+        graph = body.pop("graph", "") or ""
+        try:
+            res = await _execute_tool(
+                "graph_mine_deep",
+                action=action,
+                params_json=json.dumps(body),
+                graph=graph,
+            )
+            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except Exception as e:
+            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+    return _endpoint
+
+
 def _make_graphlearn_endpoint(action: str):
     """Build the REST twin for one ``graph_learn`` action (CONCEPT:EG-KG.graphlearn.link-predictor).
 
@@ -725,7 +773,9 @@ def _make_graphlearn_endpoint(action: str):
             )
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as exc:  # noqa: BLE001 — surface engine/core errors as data
-            return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+            return JSONResponse(
+                {"status": "error", "message": str(exc)}, status_code=500
+            )
 
     return _endpoint
 
@@ -2414,9 +2464,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -3416,6 +3466,8 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         "graph_mine",
         # graph_learn likewise has bespoke natural-body twins (CONCEPT:EG-KG.graphlearn.link-predictor).
         "graph_learn",
+        # graph_mine_deep likewise has bespoke natural-body twins (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
+        "graph_mine_deep",
     }
     for _tool, _path in ACTION_TOOL_ROUTES.items():
         if _tool in _bespoke_action_tools:
@@ -3440,6 +3492,18 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
             route(
                 f"/graphlearn/{_gl_action}",
                 _make_graphlearn_endpoint(_gl_action),
+                ["POST"],
+            )
+
+    # Deep-mining delegation REST twins (CONCEPT:AU-KG.mining.dsm-forecast-delegation — Phase 6) — one
+    # natural-body /api/mining/deep/<action> endpoint per graph_mine_deep action
+    # (deep_forecast|deep_classify|autoencoder_anomaly|xgboost|embed), each
+    # dispatching the SAME graph_mine_deep _execute_tool core (surface parity).
+    if "graph_mine_deep" in ACTION_TOOL_ROUTES:
+        for _deep_action in DEEP_MINING_ACTIONS:
+            route(
+                f"/mining/deep/{_deep_action}",
+                _make_mining_deep_endpoint(_deep_action),
                 ["POST"],
             )
 
