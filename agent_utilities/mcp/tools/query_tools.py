@@ -499,6 +499,12 @@ def register_query_tools(mcp):
             description="When false, return only the generated query (preview/dry-run).",
         ),
         limit: int = Field(default=50, description="Max result rows to return."),
+        envelope: str = Field(
+            default="raw",
+            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
+            "(additionally wrap the result as an EvidenceBundle under "
+            "`evidence_bundle`). Additive/opt-in.",
+        ),
     ) -> str:
         from agent_utilities.knowledge_graph.core.nl_query import nl_to_query
 
@@ -507,16 +513,27 @@ def register_query_tools(mcp):
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": f"no active engine: {e}"})
         try:
-            return json.dumps(
-                nl_to_query(
-                    engine,
-                    str(question),
-                    dialect=str(dialect),
-                    execute=bool(execute),
-                    limit=int(limit),
-                ),
-                default=str,
+            result = nl_to_query(
+                engine,
+                str(question),
+                dialect=str(dialect),
+                execute=bool(execute),
+                limit=int(limit),
             )
+            # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
+            # that omits `envelope` binds it to the Field(...) descriptor itself, not
+            # the string default — normalize defensively so that degrades to "raw".
+            envelope_mode = envelope if isinstance(envelope, str) else "raw"
+            if envelope_mode.strip().lower() == "bundle":
+                from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+                result = {
+                    **result,
+                    "evidence_bundle": EvidenceBundle.from_nl_query(
+                        result
+                    ).model_dump(),
+                }
+            return json.dumps(result, default=str)
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
@@ -558,6 +575,12 @@ def register_query_tools(mcp):
             description="When false, return only the generated query (preview/dry-run).",
         ),
         limit: int = Field(default=50, description="Max result rows to return."),
+        envelope: str = Field(
+            default="raw",
+            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
+            "(additionally wrap the result as an EvidenceBundle under "
+            "`evidence_bundle`). Additive/opt-in.",
+        ),
     ) -> str:
         from agent_utilities.knowledge_graph.core import nl_planner
 
@@ -566,17 +589,28 @@ def register_query_tools(mcp):
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": f"no active engine: {e}"})
         try:
-            return json.dumps(
-                nl_planner.nl_query(
-                    engine,
-                    str(text),
-                    dialect=str(dialect),
-                    schema_hint=str(schema_hint),
-                    execute=bool(execute),
-                    limit=int(limit),
-                ),
-                default=str,
+            result = nl_planner.nl_query(
+                engine,
+                str(text),
+                dialect=str(dialect),
+                schema_hint=str(schema_hint),
+                execute=bool(execute),
+                limit=int(limit),
             )
+            # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
+            # that omits `envelope` binds it to the Field(...) descriptor itself, not
+            # the string default — normalize defensively so that degrades to "raw".
+            envelope_mode = envelope if isinstance(envelope, str) else "raw"
+            if envelope_mode.strip().lower() == "bundle":
+                from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+                result = {
+                    **result,
+                    "evidence_bundle": EvidenceBundle.from_nl_query(
+                        result
+                    ).model_dump(),
+                }
+            return json.dumps(result, default=str)
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
