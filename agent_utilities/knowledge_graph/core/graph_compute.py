@@ -880,6 +880,25 @@ class GraphComputeEngine:
         """
         return self._client.graph.match_ontology_terms(query) or []
 
+    def discover(
+        self,
+        keywords: list[str],
+        query_embedding: list[float] | None = None,
+        k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Engine-side hybrid keyword+semantic discovery in ONE round-trip.
+
+        Ranks nodes by lexical keyword overlap (over ``name``/``description``/``type``)
+        AND semantic similarity to ``query_embedding``, server-side, returning the
+        top-``k`` hydrated as ``[{id, name, description, type, score}, ...]``. Pass an
+        empty/omitted embedding for a keyword-only ranking (the engine degrades to a
+        bounded keyword scan). This is the engine-scalable keyword primitive — it
+        replaces the O(N) ``MATCH (n) WHERE … CONTAINS`` full-node scan that the engine
+        does not filter server-side (per the dependency edict: keyword/vector ranking
+        belongs on the engine, never an O(N) Python loop).
+        """
+        return self._client.graph.discover(keywords, query_embedding or [], k) or []
+
     def get_nodes_by_label(
         self, label: str, limit: int = 0
     ) -> list[tuple[str, dict[str, Any]]]:
