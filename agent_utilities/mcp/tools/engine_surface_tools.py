@@ -1057,6 +1057,80 @@ def register_engine_surface_tools(mcp) -> None:
     kg_server.ACTION_TOOL_ROUTES["graph_mine"] = "/mining/associate"
 
     # ══════════════════════════════════════════════════════════════════
+    # graph_learn — graph-learning / neuro-symbolic surface (CONCEPT:EG-KG.graphlearn.link-predictor)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_learn",
+        description=(
+            "CONCEPT:EG-KG.graphlearn.link-predictor — a pure-Rust KAN (Kolmogorov-"
+            "Arnold) link-predictor over the resident graph, whose learned per-feature "
+            "edge functions are THEMSELVES queryable KG nodes (interpretability, not raw "
+            "accuracy). Actions: 'fit' (learn a model) and 'predict' (score links). "
+            "• fit — learn over a graph-derived subgraph: every node with 'node_label' is "
+            "a vertex; edges among them (direction out|in|any, optional 'relation') are "
+            "positives, non-edges are sampled negatives. Params: basis(chebyshev|jacobi), "
+            "degree, hidden(0 ⇒ one interpretable edge fn per feature), epochs, lr, "
+            "neg_ratio, seed, alpha, limit, writeback. writeback ⇒ :EdgeFunction nodes "
+            "(the learned per-feature curves — Cypher-queryable). Returns {model, n_nodes, "
+            "n_edges, train_auc, edge_functions:[{feature,coefficients}], ...}. Pass the "
+            "returned 'model' to predict. "
+            "• predict — score candidate links with a fitted 'model' over the same "
+            "'node_label' subgraph: explicit 'candidate_pairs' [[src,dst],...] OR the "
+            "'top_k' highest-probability MISSING links. writeback ⇒ :PredictedEdge nodes "
+            "linked to their endpoints. Returns {predicted:[{src,dst,score}], n_predicted, "
+            "model, ...}. "
+            "Structural features: common-neighbors, Jaccard, Adamic-Adar, preferential "
+            "attachment, PageRank-product, neighbor-cosine, 1-hop-aggregated node-feature "
+            "dot. Heavy multi-layer KAN-GNN training stays a data-science-mcp/torch job. "
+            "REST twins: POST /api/graphlearn/{fit,predict} (same _execute_tool core). "
+            "Degrades cleanly on a no-graphlearn engine build."
+        ),
+        tags=["graph-os", "engine", "graphlearn", "link-prediction", "kan", "neuro-symbolic"],
+    )
+    def graph_learn(
+        action: str = Field(
+            default="fit",
+            description="Graph-learning action: 'fit' | 'predict'.",
+        ),
+        params_json: str = Field(
+            default="{}",
+            description="JSON object of graph-learning kwargs, e.g. "
+            '{"node_label":"Person","direction":"any","degree":4,"epochs":200,'
+            '"writeback":true} (fit); '
+            '{"model":{...},"node_label":"Person","top_k":20,"writeback":true} '
+            'or {"model":{...},"node_label":"Person",'
+            '"candidate_pairs":[["a","b"],["c","d"]]} (predict).',
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin action-router over the engine graph-learning surface (CONCEPT:EG-KG.graphlearn.link-predictor)."""
+        action = (action or "").strip().replace("-", "_") or "fit"
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return json.dumps(
+                {"surface": "graphlearn", "error": f"invalid params_json: {exc}"}
+            )
+        if not isinstance(params, dict):
+            return json.dumps(
+                {"surface": "graphlearn", "error": "params_json must decode to an object"}
+            )
+        return _invoke(
+            surface="graphlearn",
+            action=action,
+            graph=graph,
+            candidates=((("graphlearn", action),)),
+            params=params,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_learn"] = graph_learn
+    # REST twin path: POST {prefix}/graphlearn/fit (bespoke natural-body mount in
+    # kg_server → the SAME _execute_tool core as the MCP verb).
+    kg_server.ACTION_TOOL_ROUTES["graph_learn"] = "/graphlearn/fit"
+
+    # ══════════════════════════════════════════════════════════════════
     # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:AU-KG.coordination.warm-fork-fanout)
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
