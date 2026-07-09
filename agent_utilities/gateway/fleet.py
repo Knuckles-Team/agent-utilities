@@ -481,6 +481,49 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def fleet_verify_action(request: Request) -> JSONResponse:
+    """Pre-execution assurance check for a proposed ActionPolicy payload.
+
+    CONCEPT:AU-OS.governance.assurance-state-machine-verifier — the REST twin of the
+    ``graph_orchestrate action=verify_action`` MCP tool; both dispatch into the same
+    ``ActionPolicy.evaluate()`` core. POST body: ``{kind, target, params, source,
+    reason, actor_id}``. Read-only — runs the same deterministic role/schema/
+    precondition/reference invariants ``ActionPolicy.decide()`` enforces for real,
+    without writing an ``ActionDecision``/``ActionApproval`` node, so a caller can
+    validate a routing payload before proposing it for real execution.
+    """
+    import json
+
+    from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    kind = str(body.get("kind") or "")
+    if not kind:
+        return JSONResponse(
+            {"status": "error", "message": "kind is required"}, status_code=400
+        )
+    payload = {
+        "target": body.get("target"),
+        "params": body.get("params"),
+        "source": body.get("source"),
+        "reason": body.get("reason"),
+        "actor_id": body.get("actor_id"),
+    }
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="verify_action",
+            task=kind,
+            dependencies=json.dumps(payload, default=str),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:  # noqa: BLE001 — degrade to a structured error, never a 500 traceback leak
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def fleet_trace(request: Request) -> JSONResponse:
     """Swarm-wide cross-agent correlation query (CONCEPT:AU-OS.observability.run-wide-correlation-id).
 
@@ -575,5 +618,6 @@ def mount_fleet_routes(app, prefix: str = "") -> None:
     route("/fleet/kill", fleet_kill, ["POST"])
     route("/fleet/approvals", fleet_approvals, ["GET"])
     route("/fleet/approvals/grant", fleet_grant_approval, ["POST"])
+    route("/fleet/actions/verify", fleet_verify_action, ["POST"])
     route("/fleet/trace", fleet_trace, ["GET"])
     route("/fleet/touched", fleet_touched, ["GET"])

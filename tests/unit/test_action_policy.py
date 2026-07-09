@@ -341,3 +341,187 @@ def test_module_default_policy_is_conservative():
         in ("restart_service", "scale_service", "deploy_service", "merge_promotion")
     }
     assert set(mutating.values()) == {ap.TIER_APPROVAL}
+
+
+# ---------------------------------------------------------------------------
+# Assurance gate wiring (CONCEPT:AU-OS.governance.assurance-state-machine-verifier):
+# the deterministic verifier runs BEFORE the tier pipeline in decide()/classify(),
+# and evaluate() offers the same check with no side effects.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.concept("AU-OS.governance.assurance-state-machine-verifier")
+class TestAssuranceGateWiring:
+    def test_valid_payload_is_governed_normally(self, engine):
+        # Well-formed scale_service from the reconciler role — the verifier
+        # passes and the existing tier (approval_required by default) applies.
+        decision = ActionPolicy(engine=engine).decide(
+            ActionRequest(
+                kind="scale_service",
+                target="caddy-mcp",
+                params={"replicas": 3},
+                source="reconciler",
+            )
+        )
+        assert decision.invariant == ""
+        assert decision.decision == "queue_approval"  # default tier, unaffected
+
+    def test_out_of_role_kind_is_denied_before_tier_check(self, engine, tmp_path):
+        # Even an auto-tier rule for this kind must not save an out-of-role request —
+        # the assurance check runs BEFORE the rule/tier pipeline.
+        path = write_policy(
+            tmp_path,
+            "rules:\n  - {kind: secret.delete, target: '*', tier: auto}\n",
+        )
+        decision = ActionPolicy(engine=engine, policy_path=path).decide(
+            ActionRequest(
+                kind="secret.delete",
+                target="db-creds",
+                params={"path": "apps/db-creds"},
+                source="reconciler",
+            )
+        )
+        assert decision.decision == "deny"
+        assert not decision.allowed
+        assert decision.invariant == "role"
+        assert "reconciler" in decision.reason
+        # No approval was filed either — the assurance deny short-circuits everything.
+        assert engine.by_type("ActionApproval") == []
+
+    def test_missing_argument_is_denied_with_schema_invariant(self, engine):
+        decision = ActionPolicy(engine=engine).decide(
+            ActionRequest(kind="scale_service", target="caddy-mcp", source="reconciler")
+        )
+        assert decision.decision == "deny"
+        assert decision.invariant == "schema"
+        assert "replicas" in decision.reason
+
+    def test_illegal_state_transition_is_denied_with_precondition_invariant(
+        self, engine
+    ):
+        decision = ActionPolicy(engine=engine).decide(
+            ActionRequest(
+                kind="merge_promotion",
+                target="proposal:1",
+                params={"proposal_id": "proposal:1", "state": "active"},
+            )
+        )
+        assert decision.decision == "deny"
+        assert decision.invariant == "precondition"
+
+    def test_hallucinated_reference_is_denied_when_registry_configured(
+        self, engine, tmp_path
+    ):
+        # options.known_tools wires the reference-existence check on.
+        path = write_policy(
+            tmp_path,
+            "rules: []\noptions:\n  known_tools: [observe_screen, click]\n",
+        )
+        decision = ActionPolicy(engine=engine, policy_path=path).decide(
+            ActionRequest(
+                kind="workspace.computer_use",
+                target="sandbox-1",
+                params={"tool": "not_a_real_tool"},
+            )
+        )
+        assert decision.decision == "deny"
+        assert decision.invariant == "reference"
+        assert "not_a_real_tool" in decision.reason
+
+    def test_evaluate_is_side_effect_free(self, engine):
+        """evaluate() gives the same verdict as decide() but writes no ledger node."""
+        request = ActionRequest(
+            kind="scale_service", target="caddy-mcp", source="reconciler"
+        )
+        verdict = ActionPolicy(engine=engine).evaluate(request)
+        assert verdict.decision == "deny"
+        assert verdict.invariant == "schema"
+        assert engine.by_type("ActionDecision") == []
+        assert engine.by_type("ActionApproval") == []
+
+    def test_evaluate_allows_a_valid_payload(self, engine):
+        verdict = ActionPolicy(engine=engine).evaluate(
+            ActionRequest(kind="diagnose", target="anything")
+        )
+        assert verdict.decision == "allow"
+        assert verdict.allowed
+
+    def test_classify_forbids_an_invariant_violation(self, engine):
+        # classify() is the side-effect-free tier read the PreToolUse gate uses;
+        # the assurance check must forbid there too, before the rule tier.
+        tier = ActionPolicy(engine=engine).classify(
+            ActionRequest(
+                kind="secret.delete",
+                target="x",
+                params={"path": "apps/x"},
+                source="reconciler",
+            )
+        )
+        assert tier == ap.TIER_FORBIDDEN
+
+    def test_classify_unaffected_for_a_valid_payload(self, engine):
+        tier = ActionPolicy(engine=engine).classify(
+            ActionRequest(kind="diagnose", target="anything")
+        )
+        assert tier == ap.TIER_AUTO
+
+
+# ---------------------------------------------------------------------------
+# Live-path integration: the deny path actually blocks execution, exercised
+# through the REAL fleet_reconciler convergence step + a real actuator (not
+# just the ActionPolicy helper in isolation).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.concept("AU-OS.governance.assurance-state-machine-verifier")
+class TestAssuranceGateBlocksLiveExecution:
+    def test_valid_convergence_step_executes_via_dry_run_actuator(self, engine):
+        from agent_utilities.orchestration.fleet_actuation import DryRunActuator
+        from agent_utilities.orchestration.fleet_reconciler import FleetReconciler
+
+        actuator = DryRunActuator()
+        reconciler = FleetReconciler(engine=engine, actuator=actuator, policy=None)
+        # auto tier via file override so we isolate the assurance check.
+        reconciler.policy = ActionPolicy(engine=engine)
+        request = ActionRequest(
+            kind="scale_service",
+            target="caddy-mcp",
+            params={"replicas": 3},
+            source="reconciler",
+        )
+        entry = reconciler._converge_one(request)
+        # default tier is approval_required, so nothing executes yet — but the
+        # verifier passed (no invariant recorded on the queued decision).
+        assert entry["decision"] == "queue_approval"
+        assert "execution" not in entry
+        assert actuator.applied == []
+
+    def test_assurance_denial_blocks_actuator_even_when_the_kind_would_otherwise_run(
+        self, engine, tmp_path
+    ):
+        """A misconfigured/loosened tier rule (auto) must NOT let an out-of-role
+        or hallucinated action reach the actuator — this is the whole point of
+        running the verifier BEFORE the tier pipeline, not just before allow.
+        """
+        from agent_utilities.orchestration.fleet_actuation import DryRunActuator
+        from agent_utilities.orchestration.fleet_reconciler import FleetReconciler
+
+        path = write_policy(
+            tmp_path,
+            "rules:\n  - {kind: secret.delete, target: '*', tier: auto}\n",
+        )
+        actuator = DryRunActuator()
+        policy = ActionPolicy(engine=engine, policy_path=path)
+        reconciler = FleetReconciler(engine=engine, actuator=actuator, policy=policy)
+        request = ActionRequest(
+            kind="secret.delete",
+            target="db-creds",
+            params={"path": "apps/db-creds"},
+            source="reconciler",  # reconciler is NOT allowed secret.delete
+        )
+        entry = reconciler._converge_one(request)
+        assert entry["decision"] == "deny"
+        # The actuator's apply() was never invoked — the live path genuinely
+        # did not execute the action.
+        assert actuator.applied == []
+        assert "execution" not in entry
