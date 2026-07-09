@@ -3348,9 +3348,21 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             # Better: If we have a list, and the config had a dict, they MIGHT match by order
             # However, pydantic-ai load_mcp_servers is internal.
             # I'll just set the .id if they are list components.
+            # `AbstractToolset.id` is a read-only abstract property on most concrete
+            # pydantic-ai toolsets (no setter) — best-effort only; a toolset that
+            # rejects the assignment keeps its own id rather than failing the whole
+            # load (this used to raise AttributeError here and silently return []
+            # for every real toolset).
             for i, (name, cfg) in enumerate(mcp_servers_cfg.items()):
                 if i < len(servers):
-                    servers[i].id = name
+                    try:
+                        servers[i].id = name  # type: ignore[misc]
+                    except AttributeError:
+                        logger.debug(
+                            f"MCP Config: toolset for '{name}' has a read-only id; "
+                            "keeping its own"
+                        )
+                        continue
                     logger.debug(f"MCP Config: Loaded server '{name}'")
 
             # Add coordinated KG server back if present

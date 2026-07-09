@@ -92,6 +92,17 @@ class SchemaContract:
             _adapter=adapter,
         )
 
+    @property
+    def model_type(self) -> type[BaseModel] | None:
+        """The contract's Pydantic model class, if the spec was one.
+
+        ``None`` for a primitive/generic (``TypeAdapter``) or raw JSON-Schema spec —
+        there is no single Python type to hand a consumer (e.g. pydantic-ai's
+        ``output_type=``) in those cases; fall back to prompting ``json_schema_str``
+        and validating the result with :meth:`validate` instead.
+        """
+        return self._model
+
     def validate(self, value: Any) -> tuple[bool, Any, str | None]:
         """Validate (and coerce) ``value`` against the contract.
 
