@@ -971,7 +971,8 @@ def register_engine_surface_tools(mcp) -> None:
             "over the engine, compute-near-data (mining runs where the graph lives). "
             "Actions: 'associate' (association rules), 'cluster' (clustering), "
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
-            "(classification), 'reduce' (dimensionality reduction). "
+            "(classification), 'reduce' (dimensionality reduction), 'sequence' "
+            "(sequential-pattern mining). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1000,8 +1001,15 @@ def register_engine_surface_tools(mcp) -> None:
             "graphviz). Params: n_components, n_neighbors/min_dist(umap), perplexity/lr(tsne), "
             "epochs, seed. writeback ⇒ :Embedding2D nodes. Returns {rows:[{id,coords}], "
             "n_components, ...} (svd adds singular_values). UMAP/t-SNE are approximate, small-N. "
+            "• sequence — frequent ORDERED subsequences: prefixspan(default)/gsp (both agree) "
+            "over 'sequences' (time-ordered lists of item labels, repeats allowed) OR a "
+            "graph-derived 'source' {node_label, direction(out|in|any), item_field, relation, "
+            "limit} (each node's chronological neighbor history becomes one sequence — "
+            "'what reliably follows what'). Params: min_support. writeback ⇒ :SequentialPattern "
+            "nodes linked to their item nodes. Returns {patterns:[{items,support,count}], "
+            "n_sequences, n_patterns, ...}. "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce} (same _execute_tool core). Degrades cleanly on a "
+            "classify_predict,reduce,sequence} (same _execute_tool core). Degrades cleanly on a "
             "no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
@@ -1010,7 +1018,7 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="associate",
             description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
-            "'classify_fit' | 'classify_predict' | 'reduce'.",
+            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1025,7 +1033,9 @@ def register_engine_surface_tools(mcp) -> None:
             '{"x":[[0,0],[10,10]],"y":[0,1],"algorithm":"logistic"} (classify_fit); '
             '{"model":{...},"x":[[0.1,0.1]]} (classify_predict); '
             '{"x":[[..]],"algorithm":"svd","n_components":2} or '
-            '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce).',
+            '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce); '
+            '{"sequences":[["login","browse","purchase"]],"min_support":0.5} or '
+            '{"source":{"node_label":"Session"},"algorithm":"gsp","writeback":true} (sequence).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
