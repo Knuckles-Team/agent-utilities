@@ -1,5 +1,6 @@
 ---
 name: kg-share
+skill_type: skill
 description: >-
   Explicitly promotes a private-by-default node's visibility — share with my org, promote
   a copy into the shared commons, attach a mandatory marking, or restrict it back to

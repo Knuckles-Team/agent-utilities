@@ -1,5 +1,6 @@
 ---
 name: kg-bus
+skill_type: skill
 description: >-
   The federated agent-to-agent bus — let this session discover and message other
   Claude/LLM sessions (any provider/host) and dispatch objectives to the fleet through one

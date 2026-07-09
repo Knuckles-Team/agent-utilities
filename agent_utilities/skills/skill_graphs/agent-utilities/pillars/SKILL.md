@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-pillars
+skill_type: skill
 description: >-
   The 5-pillar architecture reference for agent-utilities.
   Each pillar has its own concept namespace and module area.

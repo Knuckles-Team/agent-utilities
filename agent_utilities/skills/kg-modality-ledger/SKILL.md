@@ -1,5 +1,6 @@
 ---
 name: kg-modality-ledger
+skill_type: skill
 description: >-
   Read and manage the epistemic-graph engine's append-only audit ledger —
   get/apply/clear ledger entries for tamper-evident change history. Use when you

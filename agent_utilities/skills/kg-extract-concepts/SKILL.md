@@ -1,5 +1,6 @@
 ---
 name: kg-extract-concepts
+skill_type: skill
 description: >
   Knowledge Graph concept extraction atomic skill. Parses text and structures
   definitions and relations for Graph-OS.

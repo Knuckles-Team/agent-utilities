@@ -1,5 +1,6 @@
 ---
 name: kg-promql
+skill_type: skill
 description: >-
   Thin verb over the engine's observability metrics — run instant or ranged PromQL
   queries. Use for metric queries — "query this PromQL", "CPU over the last hour",

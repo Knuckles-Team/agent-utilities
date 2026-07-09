@@ -1,5 +1,6 @@
 ---
 name: kg-message
+skill_type: skill
 description: >-
   Opens ephemeral (optionally durable) agent-to-agent message channels for a run — send,
   receive, replay history, close. Use for intra-run coordination between a session and its

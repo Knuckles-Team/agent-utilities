@@ -1,5 +1,6 @@
 ---
 name: agent-os-genesis
+skill_type: workflow
 aliases:
   - day0
   - day0_bootstrap_orchestrator

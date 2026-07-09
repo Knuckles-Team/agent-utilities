@@ -1,5 +1,6 @@
 ---
 name: kg-schedules
+skill_type: skill
 description: >-
   Manages the durable scheduler — list, enable/disable, prioritize, retune the interval
   of, or run-now recurring schedules. Use for periodic jobs — "list schedules", "disable

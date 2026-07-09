@@ -1,5 +1,6 @@
 ---
 name: kg-orchestrate
+skill_type: skill
 description: >-
   Orchestrates multi-agent work — dispatch/swarm agents, execute agents & workflows,
   approvals, consensus/debate, computer-use, DSPy optimization, skill distillation, loop

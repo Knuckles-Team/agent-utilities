@@ -1,5 +1,6 @@
 ---
 name: kg-sessions
+skill_type: skill
 description: >-
   Durable session management plus usage/cost/observability analytics and agent session-log
   ingestion. Use to inspect or steer runs and telemetry — "list sessions", "reply to a

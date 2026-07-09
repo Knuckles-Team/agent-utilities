@@ -1,5 +1,6 @@
 ---
 name: kg-modality-blob
+skill_type: skill
 description: >-
   Store, fetch, and stream content-addressed binary objects (media, files,
   large payloads) in the epistemic-graph engine's blob store. Use when you need

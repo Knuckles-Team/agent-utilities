@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-source-integration
+skill_type: skill
 aliases:
   - source-integration
   - connect-source

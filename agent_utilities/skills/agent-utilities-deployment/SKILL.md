@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-deployment
+skill_type: skill
 aliases:
   - self-setup
   - deploy-agent-utilities

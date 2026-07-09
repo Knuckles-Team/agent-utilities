@@ -1,5 +1,6 @@
 ---
 name: kg-traces
+skill_type: skill
 description: >-
   Thin verb over the engine's distributed-trace surface — search traces by
   service/operation/free-form filter, or fetch one by trace id. Use for trace lookups —

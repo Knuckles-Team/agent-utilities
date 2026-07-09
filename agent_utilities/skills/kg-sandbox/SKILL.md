@@ -1,5 +1,6 @@
 ---
 name: kg-sandbox
+skill_type: skill
 description: >-
   Inspects and controls the native warm-fork sandbox runtime — status, reap idle warm
   parents, or pre-warm a rung so the next fan-out forks cheaply. Use for warm-fork

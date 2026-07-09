@@ -1,5 +1,6 @@
 ---
 name: kg-etl
+skill_type: skill
 description: >-
   Runs a unified source→(ontological transform)→sink ETL flow over the KG hub — pull any
   connector in and/or load a write-back SoR, graph store, or engine SQL table out, with

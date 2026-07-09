@@ -1,5 +1,6 @@
 ---
 name: kg-ask
+skill_type: skill
 description: >-
   Answers a natural-language question over the Knowledge Graph by generating and executing
   a query (Cypher/SQL/SPARQL) for you. Use when you want KG data but would rather ask in

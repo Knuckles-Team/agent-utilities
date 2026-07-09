@@ -1,5 +1,6 @@
 ---
 name: kg-fork
+skill_type: skill
 description: >-
   Warm-fork fan-out — pay warm-up once for a parent context, then fork N copy-on-write
   branches to run per-branch computations concurrently and collect each result. Use for

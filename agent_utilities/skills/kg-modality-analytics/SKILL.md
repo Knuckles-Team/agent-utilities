@@ -1,5 +1,6 @@
 ---
 name: kg-modality-analytics
+skill_type: skill
 description: >-
   Run graph analytics and data-science kernels on the epistemic-graph engine —
   centrality, (personalized) PageRank, plus estimators, numeric primitives, and

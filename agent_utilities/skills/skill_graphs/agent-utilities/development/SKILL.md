@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-development
+skill_type: skill
 description: >-
   How to develop for agent-utilities. Covers concept lifecycle, DSTDD design
   phase, testing patterns, coding conventions, and the 1:1:1 traceability rule.

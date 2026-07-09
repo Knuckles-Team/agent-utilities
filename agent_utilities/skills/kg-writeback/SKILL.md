@@ -1,5 +1,6 @@
 ---
 name: kg-writeback
+skill_type: skill
 description: >-
   Backfeeds KG-derived knowledge into an external system-of-record (LeanIX, ServiceNow,
   ERPNext, process/capability) — fail-closed, dry-run-first. Use to push

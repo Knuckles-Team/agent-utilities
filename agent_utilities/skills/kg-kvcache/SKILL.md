@@ -1,5 +1,6 @@
 ---
 name: kg-kvcache
+skill_type: skill
 description: >-
   Thin verb over the engine's shared, content-addressed KV-cache — get/put opaque blocks,
   check membership, and read occupancy/dedup stats. Use for the shared block cache —

@@ -1,5 +1,6 @@
 ---
 name: kg-capability-builder
+skill_type: skill
 description: >-
   End-to-end meta-recipe for adding a new capability to the platform — from an
   engine crate, to an engine_<domain>/graph_* verb + REST route, to the wrapping

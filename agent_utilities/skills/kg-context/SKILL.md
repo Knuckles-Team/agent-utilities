@@ -1,5 +1,6 @@
 ---
 name: kg-context
+skill_type: skill
 description: >-
   Stores and retrieves session-scoped context blobs in the KG so work survives across
   turns/agents. Use to persist or recall working context — "remember this for the

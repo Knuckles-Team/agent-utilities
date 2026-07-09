@@ -1,5 +1,6 @@
 ---
 name: kg-document-tree
+skill_type: skill
 description: >-
   Vectorless reasoning-tree retrieval over a single document's section tree (PageIndex-style
   map-then-fetch). Build the per-document table-of-contents tree, view the text-free structure,

@@ -1,5 +1,6 @@
 ---
 name: kg-modality-txn
+skill_type: skill
 description: >-
   Run server-side ACID transactions across modalities on the epistemic-graph
   engine — begin/commit/rollback with optimistic concurrency control. Use when
