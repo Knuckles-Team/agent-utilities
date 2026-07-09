@@ -31,7 +31,14 @@ Four invariants, checked in order (first failure short-circuits):
    ``requires_state`` — the set of current states the payload may legally
    claim in ``params["state"]``. Checked against the payload's own declared
    state (never a live KG read — that is what keeps this sub-ms); a claimed
-   state outside the legal set is an illegal transition.
+   state outside the legal set is an illegal transition. **Opt-in per call**:
+   most real callers of these kinds (``auto_merge.py``, ``spec_proposals.py``,
+   ``retained_output.py``) predate this gate and never claim a ``state`` at
+   all — that absence is NOT itself a violation (else every existing caller
+   would be denied by default). Declaring a *wrong* state IS a violation; this
+   still catches the case the invariant exists for — a caller/agent that
+   asserts an illegal transition — without retrofitting every production
+   call site in the same change.
 4. **Reference existence (anti-hallucination)** — CONCEPT:AU-OS.governance.fail-closed-claim-check.
    :data:`INVARIANTS` may declare ``ref_params`` (payload keys that must name
    a real tool/target). The check is a cheap set-membership test against a
@@ -120,25 +127,19 @@ INVARIANTS: dict[str, KindInvariant] = {
         kind="secret.set", required_params={"path": str, "value": str}
     ),
     "secret.delete": KindInvariant(kind="secret.delete", required_params={"path": str}),
-    "run.select": KindInvariant(
-        kind="run.select",
-        required_params={"run_id": str},
-        requires_state=frozenset({"held"}),
-    ),
+    # NOTE: the id for these lifecycle kinds is already carried in
+    # ``request.target`` (the dataclass already requires a target) — no
+    # separate required_params id is declared, so no schema check is added
+    # beyond what ActionRequest itself already enforces structurally.
+    "run.select": KindInvariant(kind="run.select", requires_state=frozenset({"held"})),
     "run.discard": KindInvariant(
-        kind="run.discard",
-        required_params={"run_id": str},
-        requires_state=frozenset({"held"}),
+        kind="run.discard", requires_state=frozenset({"held"})
     ),
     "merge_promotion": KindInvariant(
-        kind="merge_promotion",
-        required_params={"proposal_id": str},
-        requires_state=frozenset({"proposed"}),
+        kind="merge_promotion", requires_state=frozenset({"proposed"})
     ),
     "spec_promotion": KindInvariant(
-        kind="spec_promotion",
-        required_params={"spec_id": str},
-        requires_state=frozenset({"proposed"}),
+        kind="spec_promotion", requires_state=frozenset({"proposed"})
     ),
     "workspace.computer_use": KindInvariant(
         kind="workspace.computer_use", ref_params=("tool",)
@@ -206,8 +207,11 @@ def verify_action(
 
     # (c) preconditions — a small declared state machine, checked against the
     # payload's OWN claimed current state (no live KG read: that would cost a
-    # network round trip and defeat the sub-ms budget).
-    if invariant.requires_state is not None:
+    # network round trip and defeat the sub-ms budget). Opt-in: a payload that
+    # doesn't claim a state at all is not itself a violation (most production
+    # callers of these kinds predate this gate); a payload that DOES claim one
+    # must claim a legal one.
+    if invariant.requires_state is not None and "state" in params:
         claimed_state = params.get("state")
         if claimed_state not in invariant.requires_state:
             return VerifyResult(

@@ -1632,7 +1632,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, synthesize_org, run_org, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'synthesize_org' = from a goal (in 'task'), the recruiter drafts an org chart (departments → roles) and staffs each role — reusing experienced :Employee staff grown by prior runs, else hiring a fresh template (CONCEPT:AU-ORCH.org.recruiter); optional dependencies JSON {domains:[...]}. 'run_org' = synthesize (or accept) an org, derive a :WorkItem dependency DAG, and run it over the existing orchestrator — independent items parallel, dependents wait, manager review/rework, human escalation on beyond-team blockers, and per-role experience accrual (CONCEPT:AU-ORCH.org.work-item-dag). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, synthesize_org, run_org, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component, verify_action). 'verify_action' = pre-execution assurance check (CONCEPT:AU-OS.governance.assurance-state-machine-verifier) of a proposed ActionPolicy routing payload — task=<action kind>, dependencies=JSON {target,params,source,reason,actor_id} — returns the deterministic verdict (allowed/tier/reason/invariant/verify_ms) from ActionPolicy.evaluate() WITHOUT writing an audit/approval node, so a caller can self-check a payload before proposing it for real; the same invariants (role allowed-set, argument schema, state-machine precondition, reference existence) are enforced for real inside ActionPolicy.decide(). 'synthesize_org' = from a goal (in 'task'), the recruiter drafts an org chart (departments → roles) and staffs each role — reusing experienced :Employee staff grown by prior runs, else hiring a fresh template (CONCEPT:AU-ORCH.org.recruiter); optional dependencies JSON {domains:[...]}. 'run_org' = synthesize (or accept) an org, derive a :WorkItem dependency DAG, and run it over the existing orchestrator — independent items parallel, dependents wait, manager review/rework, human escalation on beyond-team blockers, and per-role experience accrual (CONCEPT:AU-ORCH.org.work-item-dag). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -2505,6 +2505,53 @@ def register_analysis_tools(mcp):
                 )
                 return _json.dumps(
                     {"actor_id": actor_id, "status": "registered"}, default=str
+                )
+
+            elif action == "verify_action":
+                # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — pre-execution,
+                # side-effect-free assurance check of a proposed ActionPolicy routing
+                # payload: 'task' = the action kind, 'dependencies' = JSON
+                # {target, params, source, reason, actor_id} — mirrors the shape
+                # ActionRequest already takes. Read-only (evaluate(), not decide()):
+                # writes no ActionDecision/ActionApproval node, so a caller (or the
+                # REST twin) can self-check a payload before proposing it for real.
+                import json as _json
+
+                from agent_utilities.orchestration.action_policy import (
+                    ActionPolicy,
+                    ActionRequest,
+                )
+
+                kind = (task or "").strip()
+                if not kind:
+                    return "Error: verify_action requires the action kind in 'task'"
+                try:
+                    payload = _json.loads(dependencies) if dependencies else {}
+                except Exception:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                verify_request = ActionRequest(
+                    kind=kind,
+                    target=str(payload.get("target") or "*"),
+                    params=payload.get("params")
+                    if isinstance(payload.get("params"), dict)
+                    else {},
+                    source=str(payload.get("source") or "manual"),
+                    reason=str(payload.get("reason") or ""),
+                    actor_id=str(payload.get("actor_id") or ""),
+                )
+                verdict = ActionPolicy(engine=engine).evaluate(verify_request)
+                return _json.dumps(
+                    {
+                        "decision": verdict.decision,
+                        "allowed": verdict.allowed,
+                        "tier": verdict.tier,
+                        "reason": verdict.reason,
+                        "invariant": verdict.invariant,
+                        "verify_ms": verdict.verify_ms,
+                    },
+                    default=str,
                 )
             else:
                 return f"Error: Unknown orchestration action '{action}'"
