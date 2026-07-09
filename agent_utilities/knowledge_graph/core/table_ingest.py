@@ -174,31 +174,36 @@ def ingest_connector_to_table(
 
     Builds ``source`` from the connector registry, drains its ``load()`` documents
     (capped at ``limit``), flattens each into a row, then ``CREATE TABLE`` +
-    bulk ``INSERT`` into ``table`` (defaults to ``conn_<source>``). Returns a manifest.
+    bulk ``INSERT`` into ``table`` (defaults to ``conn_<source>``). Returns a
+    manifest coerced through :class:`~..etl.result.EtlResult`
+    (CONCEPT:AU-KG.etl.result-contract) — a validated ``status``/``counts``
+    contract instead of a hand-assembled dict, still a plain ``dict`` at the
+    return boundary so existing callers keep indexing it unchanged.
     """
+    from agent_utilities.knowledge_graph.etl.result import EtlResult
     from agent_utilities.protocols.source_connectors.registry import build_connector
+
+    def _result(payload: dict[str, Any]) -> dict[str, Any]:
+        return EtlResult.coerce(payload, source=source).model_dump()
 
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec"):
-        return {
-            "status": "skipped",
-            "reason": "no engine SQL surface",
-            "source": source,
-        }
+        return _result({"status": "skipped", "reason": "no engine SQL surface"})
 
     table = table or f"conn_{re.sub(r'[^A-Za-z0-9_]', '_', source)}"
     try:
         connector = build_connector(source, config or {})
     except Exception as exc:  # noqa: BLE001 — bad source / config
-        return {"status": "error", "error": str(exc), "source": source}
+        return _result({"status": "error", "error": str(exc)})
 
     loader = getattr(connector, "load", None)
     if not callable(loader):
-        return {
-            "status": "error",
-            "error": f"connector {source!r} has no load() surface (not a LoadConnector)",
-            "source": source,
-        }
+        return _result(
+            {
+                "status": "error",
+                "error": f"connector {source!r} has no load() surface (not a LoadConnector)",
+            }
+        )
 
     rows: list[dict[str, Any]] = []
     for doc in loader():
@@ -210,14 +215,15 @@ def ingest_connector_to_table(
         drop_table(engine, table)
     ensure_table(engine, table, _DOC_COLUMNS)
     written = insert_rows(engine, table, rows, _DOC_COLUMNS)
-    return {
-        "status": "ok",
-        "source": source,
-        "table": _safe_ident(table),
-        "columns": list(_DOC_COLUMNS),
-        "rows_seen": len(rows),
-        "rows_written": written,
-    }
+    return _result(
+        {
+            "status": "ok",
+            "table": _safe_ident(table),
+            "columns": list(_DOC_COLUMNS),
+            "rows_seen": len(rows),
+            "rows_written": written,
+        }
+    )
 
 
 def ingest_rows_to_table(
