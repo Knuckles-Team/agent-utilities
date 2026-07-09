@@ -1,5 +1,6 @@
 ---
 name: kg-modality-finance
+skill_type: skill
 description: >-
   Run quantitative-finance operations in the epistemic-graph engine — portfolio
   optimization, risk, regime detection, trading signals, HFT primitives, and

@@ -1,5 +1,6 @@
 ---
 name: kg-coverage-doctor
+skill_type: skill
 description: >-
   Audits that the graph-os MCP verb surface and the kg-* skill suite stay 1:1 — every
   graph_* / engine_* / ontology_* verb registered by the graph-os server is wrapped by a

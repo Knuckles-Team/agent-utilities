@@ -1,5 +1,6 @@
 ---
 name: kg-modality-channels
+skill_type: skill
 description: >-
   Create and use dynamic pub/sub communication channels in the epistemic-graph
   engine — publish, subscribe, and route messages between agents at the engine

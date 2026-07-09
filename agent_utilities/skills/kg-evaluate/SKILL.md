@@ -1,5 +1,6 @@
 ---
 name: kg-evaluate
+skill_type: skill
 description: >-
   Evaluates agents/harnesses and reasons over learned world models — scoring, harness
   gates, world-model rollouts, forecasting, causal/invariant analysis, specialization

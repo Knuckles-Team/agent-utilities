@@ -1,5 +1,6 @@
 ---
 name: kg-mux-use
+skill_type: skill
 description: >-
   Discover and mount fleet MCP tools on demand through the mcp-multiplexer
   meta-tools (find_tools / list_catalog / load_tools / unload_tools /

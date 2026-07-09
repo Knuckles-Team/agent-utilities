@@ -1,5 +1,6 @@
 ---
 name: kg-gis
+skill_type: skill
 description: >-
   Thin verb over the engine's geospatial (GIS) surface — routing, tiles, nearest-
   neighbour, and named geo-tasks. Use for geospatial ops — "route between these points",

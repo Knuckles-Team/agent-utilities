@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-evolution
+skill_type: skill
 description: >-
   Evolve the agent-utilities repository by implementing the latest research concepts
   against it. Orchestrates research-scanner → kg-ingest → comparative-analysis

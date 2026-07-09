@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-tools
+skill_type: skill
 description: >-
   Tool reference for agent-utilities. Covers KG tools (graph-os MCP),
   X search tools, workflow tools, and the tool registration system.

@@ -1,5 +1,6 @@
 ---
 name: kg-table
+skill_type: skill
 description: >-
   Manages engine-native SQL tables — mirror a connector into a table, insert rows,
   create/list/drop tables, and run read-only SELECTs. Use for tabular/relational data in

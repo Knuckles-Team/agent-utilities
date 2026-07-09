@@ -1,5 +1,6 @@
 ---
 name: kg-hydrate
+skill_type: skill
 description: >-
   Full-hydrates the KG from an external source (or all configured sources) — a thin alias
   of source_sync with mode=full. Use to (re)mirror a connector's data — "hydrate leanix",

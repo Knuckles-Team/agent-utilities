@@ -1,5 +1,6 @@
 ---
 name: kg-goals
+skill_type: skill
 description: >-
   Creates and manages background/autonomous goal loops that iterate toward an objective.
   Use for long-running autonomous objectives — "kick off a goal", "list goals", "show

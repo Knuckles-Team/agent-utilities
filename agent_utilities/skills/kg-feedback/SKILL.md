@@ -1,5 +1,6 @@
 ---
 name: kg-feedback
+skill_type: skill
 description: >-
   Records a human/agent correction so the system learns durably — reward adjustments,
   governance rules, eval cases, reads-avoided and action-outcome loops, and pinned

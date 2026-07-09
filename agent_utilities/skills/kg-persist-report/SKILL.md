@@ -1,5 +1,6 @@
 ---
 name: kg-persist-report
+skill_type: skill
 description: >
   Universal Knowledge Graph persistence atomic skill. Parses workflow summaries,
   extracts performance logs, and creates ExecutionSummary/PerformanceAnomaly nodes.

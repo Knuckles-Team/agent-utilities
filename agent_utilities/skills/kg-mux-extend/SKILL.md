@@ -1,5 +1,6 @@
 ---
 name: kg-mux-extend
+skill_type: skill
 description: >-
   Add and register a new child MCP server end-to-end so its tools become
   discoverable through the multiplexer — edit mcp_config*.json, regenerate the

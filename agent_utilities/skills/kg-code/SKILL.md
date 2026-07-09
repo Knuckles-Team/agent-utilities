@@ -1,5 +1,6 @@
 ---
 name: kg-code
+skill_type: skill
 description: >-
   Code intelligence over the ingested code graph — cited how/usage/impact answers, cross-
   repo usages, call graphs, similar code, blast radius, metrics, arch reports — plus

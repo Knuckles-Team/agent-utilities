@@ -1,5 +1,6 @@
 ---
 name: kg-observe
+skill_type: skill
 description: >-
   Reasons over the KG-native observability subgraph — traces, online scores, assertion
   verdicts, prompt versions — for root-cause and regression analysis an opaque trace store

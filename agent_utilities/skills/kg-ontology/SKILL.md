@@ -1,5 +1,6 @@
 ---
 name: kg-ontology
+skill_type: skill
 description: >-
   The full ontology + object layer — host/validate OWL/RDF ontologies, manage
   property/value types, interfaces, functions, derived properties, link materialization,

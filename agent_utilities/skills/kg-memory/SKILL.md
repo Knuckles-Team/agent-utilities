@@ -1,5 +1,6 @@
 ---
 name: kg-memory
+skill_type: skill
 description: >-
   Thin verb over the engine's EG-KG.memory.eg-batch-decay-caller memory surface — episodic→semantic consolidation, the
   spatial scene graph, RL trajectories, plus unified store/recall/link memory-CRUD. Use

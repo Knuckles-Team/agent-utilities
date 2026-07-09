@@ -1,5 +1,6 @@
 ---
 name: kg-query
+skill_type: skill
 description: >-
   Runs a read-only Cypher query against the shared Knowledge Graph to fetch nodes,
   relationships and properties. Use when you need to read graph data directly — "query the

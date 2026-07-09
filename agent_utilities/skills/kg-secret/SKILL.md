@@ -1,5 +1,6 @@
 ---
 name: kg-secret
+skill_type: skill
 description: >-
   Manages secrets in the durable, engine-encrypted secret store — set/get/list/delete,
   with values sealed at rest and mutations governed. Use for secret handling — "store this

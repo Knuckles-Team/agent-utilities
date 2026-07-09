@@ -1,5 +1,6 @@
 ---
 name: kg-configure
+skill_type: skill
 description: >-
   Manages graph-os backend configuration and credentials — register MCP servers,
   secrets/vault sync, named graph connections, schema packs, harness fences, doctors and

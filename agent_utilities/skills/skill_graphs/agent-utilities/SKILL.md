@@ -1,5 +1,6 @@
 ---
 name: agent-utilities
+skill_type: skill
 description: >-
   The agent-utilities framework — a 5-pillar self-evolving AI architecture
   providing Knowledge Graph, Orchestration, Agentic Evolution, Ecosystem

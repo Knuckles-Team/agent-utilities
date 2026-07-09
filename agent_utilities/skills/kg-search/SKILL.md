@@ -1,5 +1,6 @@
 ---
 name: kg-search
+skill_type: skill
 description: >-
   Unified semantic/keyword/concept search over the KG (hybrid, HyDE, concept, analogy,
   memory, discover, ADORE…) plus multi-hop search-task synthesis and federated cross-graph

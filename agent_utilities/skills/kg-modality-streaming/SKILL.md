@@ -1,5 +1,6 @@
 ---
 name: kg-modality-streaming
+skill_type: skill
 description: >-
   Subscribe to change-data-capture and continuous queries on the epistemic-graph
   engine — streams, watches, and triggers that fire as the graph changes. Use

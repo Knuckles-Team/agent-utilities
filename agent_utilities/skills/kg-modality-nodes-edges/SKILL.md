@@ -1,5 +1,6 @@
 ---
 name: kg-modality-nodes-edges
+skill_type: skill
 description: >-
   Low-level core graph CRUD on the epistemic-graph engine — nodes, edges, graph
   operations, and lifecycle (prune/decay/evict, batch update, context views,

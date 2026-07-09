@@ -1,5 +1,6 @@
 ---
 name: kg-write
+skill_type: skill
 description: >-
   The primary KG mutation interface — add/delete nodes and edges, bulk-ingest, atomic
   compare-and-set, store/recall memory, log chat, register external graphs. Use to change

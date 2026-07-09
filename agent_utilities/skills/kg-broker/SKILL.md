@@ -1,5 +1,6 @@
 ---
 name: kg-broker
+skill_type: skill
 description: >-
   Thin verb over the engine's AMQP-style message broker — declare exchanges/queues, bind,
   publish, consume, and inspect stats. Use for engine-level queue/stream messaging

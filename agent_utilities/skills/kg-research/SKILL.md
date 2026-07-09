@@ -1,5 +1,6 @@
 ---
 name: kg-research
+skill_type: skill
 description: >-
   Runs the research assimilation & knowledge-synthesis pipeline — synthesize, deep
   entity/relation extraction, background research, relevance sweeps, citation tracking,

@@ -1,5 +1,6 @@
 ---
 name: kg-ingest
+skill_type: skill
 description: >-
   Bulk ingests the workspace projects, ScholarX documents, and conversation logs into the Knowledge Graph,
   AND fans a single "full ingest" trigger across every ingestion path at once — workspace codebase +

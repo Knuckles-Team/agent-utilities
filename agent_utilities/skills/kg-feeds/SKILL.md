@@ -1,5 +1,6 @@
 ---
 name: kg-feeds
+skill_type: skill
 description: >-
   Manages the unified RSS/Atom feed registry — list, bulk add/remove feed sources, and run
   the world-model-gated feed sweep. Use for feed ingestion — "add these RSS feeds", "list

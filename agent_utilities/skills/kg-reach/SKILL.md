@@ -1,5 +1,6 @@
 ---
 name: kg-reach
+skill_type: skill
 description: >-
   Reaches the human user over a messaging backend (Telegram/Slack/Discord…) — routed to
   their last-active channel or an explicit target, governed and mirrored into KG memory.

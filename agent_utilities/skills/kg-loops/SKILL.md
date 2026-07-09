@@ -1,5 +1,6 @@
 ---
 name: kg-loops
+skill_type: skill
 description: >-
   The single entrypoint for long-running objectives (research/develop/skill Loops) plus
   observing and steering the self-evolution flywheel. Use to run or steer Loops and

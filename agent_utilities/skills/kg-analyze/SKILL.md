@@ -1,5 +1,6 @@
 ---
 name: kg-analyze
+skill_type: skill
 description: >-
   Runs residual ops/structural analysis across the KG — inspect, enrichment coverage,
   process write-back (Camunda/ARIS), workload placement plan, infra sweep, security scan.

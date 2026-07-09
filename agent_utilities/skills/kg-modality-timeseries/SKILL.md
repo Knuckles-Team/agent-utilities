@@ -1,5 +1,6 @@
 ---
 name: kg-modality-timeseries
+skill_type: skill
 description: >-
   Append and query native time-series data in the epistemic-graph engine's TSDB
   — append points, range/window scans, as-of lookups, and gap-filling. Use when

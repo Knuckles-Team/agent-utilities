@@ -1,5 +1,6 @@
 ---
 name: autonomous-contribution
+skill_type: skill
 description: >-
   Autonomous PR generator for contributing local evolutionary breakthroughs
   (TeamConfigs, Skills) back to the upstream agent-packages ecosystem.

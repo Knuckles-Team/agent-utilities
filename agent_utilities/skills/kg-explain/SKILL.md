@@ -1,5 +1,6 @@
 ---
 name: kg-explain
+skill_type: skill
 description: >-
   The universal context plane — routes a question to its domain provider and returns ONE
   grounded, cited answer (code, ops, deploy, entity/tickets/process). Use to ask
