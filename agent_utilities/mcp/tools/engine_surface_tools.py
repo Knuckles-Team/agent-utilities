@@ -971,7 +971,10 @@ def register_engine_surface_tools(mcp) -> None:
             "over the engine, compute-near-data (mining runs where the graph lives). "
             "Actions: 'associate' (association rules), 'cluster' (clustering), "
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
-            "(classification), 'reduce' (dimensionality reduction). "
+            "(classification), 'reduce' (dimensionality reduction), 'sequence' "
+            "(sequential-pattern mining), 'forecast' (classical time-series forecasting), "
+            "'text' (TF-IDF / topic modeling), 'subgraph' (frequent-subgraph mining / "
+            "motif counting — mines the RESIDENT GRAPH's own topology, no input rows). "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1000,9 +1003,40 @@ def register_engine_surface_tools(mcp) -> None:
             "graphviz). Params: n_components, n_neighbors/min_dist(umap), perplexity/lr(tsne), "
             "epochs, seed. writeback ⇒ :Embedding2D nodes. Returns {rows:[{id,coords}], "
             "n_components, ...} (svd adds singular_values). UMAP/t-SNE are approximate, small-N. "
+            "• sequence — frequent ORDERED subsequences: prefixspan(default)/gsp (both agree) "
+            "over 'sequences' (time-ordered lists of item labels, repeats allowed) OR a "
+            "graph-derived 'source' {node_label, direction(out|in|any), item_field, relation, "
+            "limit} (each node's chronological neighbor history becomes one sequence — "
+            "'what reliably follows what'). Params: min_support. writeback ⇒ :SequentialPattern "
+            "nodes linked to their item nodes. Returns {patterns:[{items,support,count}], "
+            "n_sequences, n_patterns, ...}. "
+            "• forecast — classical forecasting over a 1-D 'values' series (a tsdb window "
+            "handed in by the caller): arima(default, p/d/q — Hannan-Rissanen AR/MA)/"
+            "holtwinters(alpha/beta/gamma, seasonal period — degrades to Holt linear-trend at "
+            "period=0)/stl(classical decomposition + extrapolation, also returns trend/"
+            "seasonal/residual). Params: horizon, confidence (band level). writeback ⇒ "
+            ":Forecast node linked FORECAST_OF a resident node named 'series_id'. Returns "
+            "{forecast, lower, upper, horizon, ...}. "
+            "• text — TF-IDF(default, descriptive, read-only)/lda(collapsed Gibbs sampling — "
+            "alpha/beta priors, iterations)/nmf(multiplicative updates on the TF-IDF matrix) "
+            "over 'docs' (pre-tokenized word lists) OR a graph-derived 'source' {node_label, "
+            "field, limit} (tokenizes a text property per node — no Tantivy dependency). "
+            "Params: k (topic count for lda/nmf), top_n (terms kept per row). writeback ⇒ "
+            "(lda/nmf only) :Topic nodes linked HAS_TOPIC from each doc's dominant topic. "
+            "Returns {doc_terms:[...]} (tfidf) or {topics:[...], doc_topics:[...]} (lda/nmf). "
+            "• subgraph — GRAPH-NATIVE (no input rows — mines the graph itself): "
+            "gspan(default — level-wise frequent connected-subgraph pattern growth up to "
+            "'max_edges', canonicalized + exactly re-counted; 'min_support' is a fraction of "
+            "total host edges; support = raw embedding count, not min-node-image support)/"
+            "motif(label-agnostic topological census: wedges/triangles/directed-3-cycles; "
+            "min_support/max_edges ignored). Optional 'label' restricts the scanned host "
+            "graph to one node type (None = whole resident graph). writeback ⇒ (gspan only) "
+            ":FrequentSubgraph nodes linked SUBGRAPH_MEMBER to every node in any embedding. "
+            "Returns {patterns:[{nodes,edges,support,count}],...} (gspan) or "
+            "{motifs:{wedge,triangle,directed_cycle3},...} (motif). "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce} (same _execute_tool core). Degrades cleanly on a "
-            "no-mining engine build."
+            "classify_predict,reduce,sequence,forecast,text,subgraph} (same _execute_tool "
+            "core). Degrades cleanly on a no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
@@ -1010,7 +1044,8 @@ def register_engine_surface_tools(mcp) -> None:
         action: str = Field(
             default="associate",
             description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
-            "'classify_fit' | 'classify_predict' | 'reduce'.",
+            "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast' | "
+            "'text' | 'subgraph'.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1025,7 +1060,16 @@ def register_engine_surface_tools(mcp) -> None:
             '{"x":[[0,0],[10,10]],"y":[0,1],"algorithm":"logistic"} (classify_fit); '
             '{"model":{...},"x":[[0.1,0.1]]} (classify_predict); '
             '{"x":[[..]],"algorithm":"svd","n_components":2} or '
-            '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce).',
+            '{"source":{"node_label":"Doc"},"algorithm":"umap","writeback":true} (reduce); '
+            '{"sequences":[["login","browse","purchase"]],"min_support":0.5} or '
+            '{"source":{"node_label":"Session"},"algorithm":"gsp","writeback":true} (sequence); '
+            '{"values":[5,8,11,14],"algorithm":"arima","p":1,"d":1,"horizon":5} or '
+            '{"values":[...],"algorithm":"holtwinters","period":12,"horizon":12} (forecast); '
+            '{"docs":[["the","cat","sat"]],"algorithm":"tfidf"} or '
+            '{"source":{"node_label":"Doc","field":"body"},"algorithm":"lda","k":5,'
+            '"writeback":true} (text); '
+            '{"min_support":0.1,"max_edges":2,"writeback":true} or '
+            '{"label":"Concept","algorithm":"motif"} (subgraph).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
