@@ -9,6 +9,52 @@ on:
       - 'mkdocs.yml'
       - 'README.md'
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   publish-pages:
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Install MkDocs
+        run: |
+          pip install mkdocs-material mkdocs-awesome-pages-plugin
+
+      - name: Build Docs
+        run: |
+          if [ -f "mkdocs.yml" ]; then
+            mkdocs build
+          else
+            # Create a simple mkdocs.yml if it doesn't exist
+            printf 'site_name: Project Documentation\ntheme:\n  name: material\nmarkdown_extensions:\n  - pymdownx.highlight:\n      anchor_linenums: true\n  - pymdownx.superfences:\n      custom_fences:\n        - name: mermaid\n          class: mermaid\n          format: !!python/name:pymdownx.superfences.fence_code_format\n' > mkdocs.yml
+            mkdocs build
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: './site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

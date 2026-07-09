@@ -353,8 +353,8 @@ into `graph-os` — there is no separate multiplexer server anymore.)
 {
   "mcpServers": {
     "graph-os": {
-      "command": "uv",
-      "args": ["run", "graph-os"],
+      "command": "uvx",
+      "args": ["--from", "agent-utilities", "graph-os"],
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
