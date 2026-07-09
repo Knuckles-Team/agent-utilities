@@ -675,7 +675,14 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
 #: Each mounts ``POST /api/mining/<action>`` dispatching the SAME
 #: ``_execute_tool("graph_mine", action=...)`` core as the MCP verb — surface
 #: parity is a build gate, so the MCP action + its REST twin ship together.
-MINING_ACTIONS = ("associate", "cluster", "anomaly")
+MINING_ACTIONS = (
+    "associate",
+    "cluster",
+    "anomaly",
+    "classify_fit",
+    "classify_predict",
+    "reduce",
+)
 
 
 def _make_mining_endpoint(action: str):
@@ -684,7 +691,9 @@ def _make_mining_endpoint(action: str):
     ``POST /api/mining/<action>`` accepts a natural mining body (the action's
     kwargs, e.g. ``{transactions|source,...}`` for associate, ``{features|source,
     algorithm,...}`` for cluster, ``{features|values|source,algorithm,...}`` for
-    anomaly) plus an optional ``graph``, and dispatches the SAME
+    anomaly, ``{x|source,y,algorithm,...}`` for classify_fit, ``{model,x|source,...}``
+    for classify_predict, ``{x|source,algorithm,n_components,...}`` for reduce) plus an
+    optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
 
@@ -3363,8 +3372,9 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         route(_path, _make_tool_endpoint(_tool), ["POST"])
 
     # Data-mining REST twins (CONCEPT:EG-KG.mining.frequent-itemset-mining) — one natural-body
-    # /api/mining/<action> endpoint per graph_mine action (associate|cluster|anomaly),
-    # each dispatching the SAME graph_mine _execute_tool core (surface parity).
+    # /api/mining/<action> endpoint per graph_mine action (associate|cluster|anomaly|
+    # classify_fit|classify_predict|reduce), each dispatching the SAME graph_mine
+    # _execute_tool core (surface parity).
     if "graph_mine" in ACTION_TOOL_ROUTES:
         for _mine_action in MINING_ACTIONS:
             route(
