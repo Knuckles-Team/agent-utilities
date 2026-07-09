@@ -22,7 +22,10 @@ from pydantic import BaseModel, create_model
 
 from .config import RLMConfig
 from .predict_rlm import InputField, OutputField, PredictRLM
-from .telemetry import SandboxFatalError, classify_failure  # CONCEPT:AU-ORCH.execution.typed-failure-classification
+from .telemetry import (  # CONCEPT:AU-ORCH.execution.typed-failure-classification
+    SandboxFatalError,
+    classify_failure,
+)
 
 logger = logging.getLogger(__name__)
 

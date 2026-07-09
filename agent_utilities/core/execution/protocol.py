@@ -53,4 +53,5 @@ class ExecutionEngine(Protocol):
 class DistributedCoordinatorProtocol(Protocol):
     """Protocol for distributed execution coordination."""
 
-    async def coordinate(self, task: Any) -> Any: ...
+    async def coordinate(self, task: Any) -> Any:
+        ...

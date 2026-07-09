@@ -38,6 +38,7 @@ from agent_utilities.harness.assimilation_benchmark import (
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 __all__ = [
@@ -118,7 +119,7 @@ def bench_ontology_prior_retrieval(*, seed: int = 0) -> BenchmarkResult:
     dim = 8
     e = np.eye(dim, dtype=np.float32)
 
-    def vec(tilt_dim: int, tilt: float) -> np.ndarray:
+    def vec(tilt_dim: int, tilt: float) -> NDArray:
         v = e[0] + tilt * e[tilt_dim]
         return v / np.linalg.norm(v)
 

@@ -145,7 +145,10 @@ class MessagingBackend(ABC):
         flush pending messages, and release resources.
         """
         self._connected = False
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] %s backend disconnected.", self.id)
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] %s backend disconnected.",
+            self.id,
+        )
 
     @property
     def is_connected(self) -> bool:
@@ -249,7 +252,10 @@ class MessagingBackend(ABC):
         Args:
             channel_id: Channel to show typing in.
         """
-        logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] %s: typing indicator not supported.", self.id)
+        logger.debug(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] %s: typing indicator not supported.",
+            self.id,
+        )
 
     # ── Threading ────────────────────────────────────────────────────
 
@@ -369,7 +375,8 @@ class MessagingBackend(ABC):
                 :func:`agent_utilities.messaging.commands.command_specs`.
         """
         logger.debug(
-            "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] %s backend has no command-menu registration.", self.id
+            "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] %s backend has no command-menu registration.",
+            self.id,
         )
 
     # ── Utility ──────────────────────────────────────────────────────

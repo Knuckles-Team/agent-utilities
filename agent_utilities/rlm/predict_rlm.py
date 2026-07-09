@@ -61,9 +61,7 @@ class PredictRLM:
         self.config = config or RLMConfig()
         self.graph_deps = graph_deps
         self.skills: dict[str, Any] = {}
-        self.last_run_trace: Any = (
-            None  # CONCEPT:AU-AHE.rlm.long-context-benchmark — set after run() for cost capture
-        )
+        self.last_run_trace: Any = None  # CONCEPT:AU-AHE.rlm.long-context-benchmark — set after run() for cost capture
 
         # Inspect the signature to identify input and output fields
         self.inputs: list[str] = []

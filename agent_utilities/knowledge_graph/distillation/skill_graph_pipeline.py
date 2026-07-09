@@ -983,8 +983,10 @@ class SkillGraphPipeline:
         from .okf_bundle import write_okf_conformance
 
         okf = write_okf_conformance(
-            skill_dir, ftype="Reference",
-            timestamp=datetime.now(UTC).isoformat(), resource=source_url,
+            skill_dir,
+            ftype="Reference",
+            timestamp=datetime.now(UTC).isoformat(),
+            resource=source_url,
         )
 
         errors = validate_skill_graph(skill_dir)

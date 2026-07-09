@@ -292,7 +292,11 @@ class LocalBranchPublisher:
         return result
 
     def _commit_message(self, change_set: ChangeSet, result: PublishResult) -> str:
-        concepts = ", ".join(dict.fromkeys([*change_set.concept_ids, "AU-AHE.harness.evolution-branch-bridge"]))
+        concepts = ", ".join(
+            dict.fromkeys(
+                [*change_set.concept_ids, "AU-AHE.harness.evolution-branch-bridge"]
+            )
+        )
         tests_line = (
             "not named by the proposal"
             if result.tests_passed is None

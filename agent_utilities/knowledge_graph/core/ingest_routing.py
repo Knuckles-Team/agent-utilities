@@ -197,11 +197,7 @@ def route_graph(
             graph = f"{SOURCE_PREFIX}{slug}"
 
     # Fan a hot single source across K shard-keyed sub-graphs when enabled.
-    if (
-        content_key
-        and is_content_graph(graph)
-        and shard_fanout_enabled(cfg)
-    ):
+    if content_key and is_content_graph(graph) and shard_fanout_enabled(cfg):
         from .worker_scheduler import durable_shard_writers
 
         k = max(1, durable_shard_writers())

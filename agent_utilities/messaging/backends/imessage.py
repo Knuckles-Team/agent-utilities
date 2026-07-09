@@ -46,7 +46,9 @@ class IMessageBackend(MessagingBackend):
         if _platform.system() != "Darwin":
             raise ConnectionError("iMessage backend requires macOS.")
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] iMessage backend connected (macOS).")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] iMessage backend connected (macOS)."
+        )
 
     async def send_message(
         self,

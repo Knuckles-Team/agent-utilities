@@ -10,6 +10,7 @@ Source: Qlib Profit Attribution Module
 import logging
 from dataclasses import dataclass
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -70,8 +71,8 @@ class ProfitAttributor:
 
     def attribute(
         self,
-        strategy_returns: np.ndarray,
-        benchmark_returns: np.ndarray,
+        strategy_returns: NDArray,
+        benchmark_returns: NDArray,
         risk_free_rate: float = 0.0,
     ) -> AttributionResult:
         """
@@ -121,7 +122,7 @@ class ProfitAttributor:
 
 
 def compute_performance_report(
-    returns: np.ndarray,
+    returns: NDArray,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
 ) -> PerformanceReport:
@@ -203,8 +204,8 @@ def compute_performance_report(
 
 
 def compare_to_benchmark(
-    strategy_returns: np.ndarray,
-    benchmark_returns: np.ndarray,
+    strategy_returns: NDArray,
+    benchmark_returns: NDArray,
     periods_per_year: int = 252,
 ) -> BenchmarkComparison:
     """

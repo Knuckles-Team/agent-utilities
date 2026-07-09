@@ -120,7 +120,9 @@ class MediaStore:
         try:
             digest = client.blob.store(data)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] blob store failed: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] blob store failed: %s", e
+            )
             return None
 
         blob_id = f"{_BLOB_PREFIX}{digest}"
@@ -164,17 +166,23 @@ class MediaStore:
                 client.txn.add_embedding(txn, asset_id, list(embedding))
             committed = client.txn.commit(txn)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] media ACID txn failed: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] media ACID txn failed: %s", e
+            )
             return None
         if not committed:
-            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] media txn conflict (not committed)")
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] media txn conflict (not committed)"
+            )
             return None
 
         # Count this asset's reference so GC never reclaims the blob underneath it.
         try:
             client.blob.incref(digest)
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] blob incref skipped: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] blob incref skipped: %s", e
+            )
 
         # Link asset→blob (:hasBlob) and asset→message (:attachedToMessage) edges so the
         # graph is navigable. Best-effort, outside the txn (pure graph edges).
@@ -183,7 +191,10 @@ class MediaStore:
             if message_id:
                 client.edges.add(asset_id, message_id, {"type": "attachedToMessage"})
         except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:AU-KG.ingest.list-durable-media] media edge link skipped: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] media edge link skipped: %s",
+                e,
+            )
 
         logger.info(
             "[CONCEPT:AU-KG.ingest.list-durable-media] stored media asset %s (digest=%s, %d bytes, new=%s)",
@@ -205,7 +216,11 @@ class MediaStore:
         try:
             return self._client.blob.fetch(digest)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:AU-KG.ingest.list-durable-media] blob fetch failed (%s): %s", digest, e)
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] blob fetch failed (%s): %s",
+                digest,
+                e,
+            )
             return None
 
     def fetch_asset(self, asset_id: str) -> bytes | None:
@@ -214,7 +229,9 @@ class MediaStore:
             props = self._client.nodes.properties(asset_id) or {}
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "[CONCEPT:AU-KG.ingest.list-durable-media] asset lookup failed (%s): %s", asset_id, e
+                "[CONCEPT:AU-KG.ingest.list-durable-media] asset lookup failed (%s): %s",
+                asset_id,
+                e,
             )
             return None
         digest = props.get("content_digest")

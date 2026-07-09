@@ -1,3 +1,4 @@
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 
@@ -26,8 +27,8 @@ def calculate_kelly_fraction(
 
 
 def check_regime_shift(
-    historical_predictions: np.ndarray,
-    recent_predictions: np.ndarray,
+    historical_predictions: NDArray,
+    recent_predictions: NDArray,
     threshold: float = 0.1,
 ) -> bool:
     """

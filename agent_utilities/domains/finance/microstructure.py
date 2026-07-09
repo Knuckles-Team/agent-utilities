@@ -7,6 +7,7 @@ and consensus logic (Convergence Filter, Brier Score Validator).
 
 import logging
 
+from agent_utilities.numeric import NDArray
 from agent_utilities.numeric import xp as np
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class BrierScoreValidator:
     """
 
     @staticmethod
-    def calculate(predicted_probs: np.ndarray, actual_outcomes: np.ndarray) -> float:
+    def calculate(predicted_probs: NDArray, actual_outcomes: NDArray) -> float:
         """
         Calculate the Brier score for a set of predictions.
 

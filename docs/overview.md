@@ -340,7 +340,7 @@ The Agent OS is a multi-subsystem architecture where the **Active Knowledge Grap
 
 ## Evolution Pipeline — Super-Assimilation Architecture
 
-The evolution pipeline (`agent-utilities-evolution`) provides autonomous, KG-driven
+The evolution pipeline (`agent-utilities-self-evolution`) provides autonomous, KG-driven
 assimilation of external codebases and research papers into the `agent-utilities` core.
 
 ### Assimilation Heuristic

@@ -171,7 +171,9 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
                 properties={"source": "chat"},
             )
             logger.info(
-                "[CONCEPT:AU-ECO.messaging.surfaced] Surfaced %s from chat: %s", label, desc[:60]
+                "[CONCEPT:AU-ECO.messaging.surfaced] Surfaced %s from chat: %s",
+                label,
+                desc[:60],
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[ECO-4.70] %s surfacing failed: %s", label, exc)

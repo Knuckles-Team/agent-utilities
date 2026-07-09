@@ -145,7 +145,9 @@ class TelegramBackend(MessagingBackend):
         await self._app.initialize()
         await self._app.start()
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram backend connected (send-ready).")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram backend connected (send-ready)."
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from Telegram. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
@@ -215,7 +217,10 @@ class TelegramBackend(MessagingBackend):
                     channel_id=channel_id,
                 )
             except Exception as e2:  # noqa: BLE001
-                logger.error("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram send failed: %s", e2)
+                logger.error(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram send failed: %s",
+                    e2,
+                )
                 return SendResult(
                     success=False, platform=PlatformId.TELEGRAM, error=str(e2)
                 )
@@ -280,10 +285,14 @@ class TelegramBackend(MessagingBackend):
                 [BotCommand(c["command"], c["description"]) for c in commands]
             )
             logger.info(
-                "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Registered %d Telegram commands.", len(commands)
+                "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Registered %d Telegram commands.",
+                len(commands),
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Telegram setMyCommands failed: %s", e)
+            logger.warning(
+                "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] Telegram setMyCommands failed: %s",
+                e,
+            )
 
     async def _start_intake(self) -> None:
         """Start inbound intake once: webhook push if configured, else long-polling.
@@ -325,7 +334,9 @@ class TelegramBackend(MessagingBackend):
         else:
             await self._app.updater.start_polling()
             self._polling = True
-            logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram polling started.")
+            logger.info(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram polling started."
+            )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
         """Yield inbound Telegram events (webhook push or polling). CONCEPT:AU-ECO.messaging.native-backend-abstraction/4.66"""

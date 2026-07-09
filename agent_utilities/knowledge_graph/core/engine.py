@@ -283,7 +283,8 @@ class IntelligenceGraphEngine(
             count = registry.register_with_kg(self)
             self._services_registered = True
             logger.info(
-                "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine", count
+                "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine",
+                count,
             )
             return count
         except Exception as e:

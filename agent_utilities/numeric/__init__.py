@@ -60,7 +60,19 @@ from __future__ import annotations
 
 import importlib
 import sys
-from typing import Any
+from typing import Any, TypeAlias
+
+#: Type-annotation aliases for the ``xp`` surface. Call sites migrated from
+#: ``import numpy as np`` to ``from agent_utilities.numeric import xp as np`` keep the
+#: ``np.ndarray`` / ``np.random.Generator`` *values* working (``xp.__getattr__`` resolves
+#: them to the kernel-internal numpy classes at runtime), but ``np.ndarray`` is no longer
+#: valid in a TYPE annotation: ``np`` is now an ``_XP`` instance, not the numpy module, so
+#: mypy cannot resolve an attribute chain on it as a type. These aliases give annotations a
+#: real, statically-resolvable name without importing numpy (kept as ``Any`` — the array's
+#: concrete shape/dtype isn't tracked pre-migration either) — import alongside ``xp``:
+#: ``from agent_utilities.numeric import xp as np, NDArray``.
+NDArray: TypeAlias = Any
+RandomGenerator: TypeAlias = Any
 
 # ---------------------------------------------------------------------------
 # Kernel discovery — REQUIRED. Prefer the engine-shipped ``epistemic_graph.numeric``;
@@ -111,7 +123,7 @@ def _kernel_eligible(x: Any) -> bool:
     protocol preserves such wrappers on element-wise/cumulative ops, but the compiled
     kernel returns a bare ``ndarray`` and would silently strip the wrapper. Deferring
     those to the kernel-internal numpy keeps ``np.log(series)`` a ``Series`` (etc.)."""
-    return isinstance(x, (_knp.ndarray, list, tuple))
+    return isinstance(x, _knp.ndarray | list | tuple)
 
 
 def _f64_1d(x: Any) -> Any:
@@ -584,4 +596,11 @@ class _XP:
 #: The public namespace. Import as ``from agent_utilities.numeric import xp as np``.
 xp = _XP()
 
-__all__ = ["xp", "HAVE_KERNEL", "KERNEL_SOURCE", "LinAlgError"]
+__all__ = [
+    "xp",
+    "HAVE_KERNEL",
+    "KERNEL_SOURCE",
+    "LinAlgError",
+    "NDArray",
+    "RandomGenerator",
+]

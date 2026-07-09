@@ -1161,4 +1161,3 @@ _… and 1093 more._
 2. Per repo: `python scripts/migrate_concepts_hierarchy.py --apply --root <repo>`.
 3. Re-run the gates: `check_concepts`, `check_ontology`, `ruff`.
 4. Land per-repo (each repo owns its own markers + ledger).
-

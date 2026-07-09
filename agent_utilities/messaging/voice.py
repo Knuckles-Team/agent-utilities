@@ -94,7 +94,8 @@ async def transcribe_voice(url: str) -> str:
             text = await asyncio.to_thread(_sync_transcribe, path)
             if text:
                 logger.info(
-                    "[CONCEPT:AU-ECO.messaging.whisper-transcription] Transcribed voice note (%d chars).", len(text)
+                    "[CONCEPT:AU-ECO.messaging.whisper-transcription] Transcribed voice note (%d chars).",
+                    len(text),
                 )
             return text
         finally:
@@ -103,5 +104,8 @@ async def transcribe_voice(url: str) -> str:
             except OSError:
                 pass
     except Exception as e:  # noqa: BLE001
-        logger.warning("[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed: %s", e)
+        logger.warning(
+            "[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed: %s",
+            e,
+        )
         return ""

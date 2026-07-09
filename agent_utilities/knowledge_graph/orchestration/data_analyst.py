@@ -305,9 +305,9 @@ class DataAnalystAgent:
 
             if nl_query._is_mutation(parsed["query"]):
                 # A mutation is a hard refusal, not a correctable error.
-                step["error"] = (
-                    "generated query is a mutation; refused (read-only surface)"
-                )
+                step[
+                    "error"
+                ] = "generated query is a mutation; refused (read-only surface)"
                 attempts.append(step)
                 return {
                     "question": question,

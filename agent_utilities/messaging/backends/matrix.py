@@ -91,7 +91,9 @@ class MatrixBackend(MessagingBackend):
         self._client.add_event_callback(on_message, RoomMessageText)
         asyncio.create_task(self._client.sync_forever(timeout=30000))
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Matrix backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Matrix backend connected."
+        )
 
     async def disconnect(self) -> None:
         if self._client:

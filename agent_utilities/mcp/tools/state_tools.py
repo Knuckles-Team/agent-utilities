@@ -528,12 +528,17 @@ def register_state_tools(mcp):
             session = registry.acquire(run_id) if run_id else None
             if action != "list" and session is None:
                 return _json.dumps(
-                    {"error": f"no live run session {run_id!r}", "runs": registry.list_ids()}
+                    {
+                        "error": f"no live run session {run_id!r}",
+                        "runs": registry.list_ids(),
+                    }
                 )
             assert session is not None  # for type-narrowing (guarded above)
 
             if action == "status":
-                return _json.dumps({"action": "status", **session.status()}, default=str)
+                return _json.dumps(
+                    {"action": "status", **session.status()}, default=str
+                )
             if action == "commit":
                 commit = await session.commit(label)
                 return _json.dumps(
@@ -554,7 +559,9 @@ def register_state_tools(mcp):
                     }
                 )
             if action == "discard":
-                return _json.dumps({"action": "discard", **session.discard()}, default=str)
+                return _json.dumps(
+                    {"action": "discard", **session.discard()}, default=str
+                )
             if action == "replay":
                 result = replay_run(session.log)
                 return _json.dumps(

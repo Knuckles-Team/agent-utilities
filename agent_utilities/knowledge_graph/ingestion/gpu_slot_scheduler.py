@@ -84,9 +84,11 @@ class Job:
 class CheckpointStore(Protocol):
     """Where job metadata + checkpoints survive a restart."""
 
-    def save(self, job: Job) -> None: ...
+    def save(self, job: Job) -> None:
+        ...
 
-    def load_all(self) -> list[Job]: ...
+    def load_all(self) -> list[Job]:
+        ...
 
 
 class InMemoryCheckpointStore:

@@ -58,7 +58,9 @@ class VoiceCallBackend(MessagingBackend):
             raise ValueError("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.")
         self._client = Client(sid, token)
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Voice call backend connected (Twilio).")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Voice call backend connected (Twilio)."
+        )
 
     async def send_message(
         self,

@@ -134,7 +134,7 @@ def _env_str(name: str, default: str = "") -> str:
 
 
 def _as_str_list(val: Any) -> list[str]:
-    if isinstance(val, (list, tuple)):
+    if isinstance(val, list | tuple):
         return [str(x).strip() for x in val if str(x).strip()]
     if isinstance(val, str) and val.strip():
         return [p.strip() for p in val.split(",") if p.strip()]

@@ -70,7 +70,9 @@ class NextcloudTalkBackend(MessagingBackend):
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
         self._connected = True
-        logger.info("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Nextcloud Talk backend connected.")
+        logger.info(
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Nextcloud Talk backend connected."
+        )
 
     async def disconnect(self) -> None:
         if self._client:
@@ -159,5 +161,8 @@ class NextcloudTalkBackend(MessagingBackend):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Nextcloud poll error: %s", e)
+                logger.debug(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Nextcloud poll error: %s",
+                    e,
+                )
                 await asyncio.sleep(10)

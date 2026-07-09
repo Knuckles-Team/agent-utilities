@@ -45,7 +45,9 @@ class BackgroundAgentSpawner:
             return
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())
-        logger.info("[CONCEPT:AU-AHE.evaluation.backtest-harness] Started BackgroundContextSpawner.")
+        logger.info(
+            "[CONCEPT:AU-AHE.evaluation.backtest-harness] Started BackgroundContextSpawner."
+        )
 
     def stop(self):
         """Stop the background spawner loop."""

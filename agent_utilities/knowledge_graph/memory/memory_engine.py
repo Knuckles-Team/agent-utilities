@@ -859,7 +859,9 @@ class StartupChunk:
     body: str
     handle: str
     priority: int
-    source_authority: str = AUTHORITY_STANDARD  # CONCEPT:AU-KG.memory.ground-truth-preamble-declaring
+    source_authority: str = (
+        AUTHORITY_STANDARD  # CONCEPT:AU-KG.memory.ground-truth-preamble-declaring
+    )
 
     @property
     def size(self) -> int:

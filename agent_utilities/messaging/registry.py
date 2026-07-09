@@ -113,7 +113,10 @@ class MessagingRegistry:
                     ep.value,
                 )
         except Exception as e:
-            logger.debug("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Entry-point discovery failed: %s", e)
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Entry-point discovery failed: %s",
+                e,
+            )
 
         if self._entry_points:
             logger.info(
@@ -232,7 +235,11 @@ class MessagingRegistry:
                     instance = self.create_backend(backend_id, config=config)
                     created[backend_id] = instance
                 except (ImportError, ValueError) as e:
-                    logger.warning("[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Skipping %s: %s", backend_id, e)
+                    logger.warning(
+                        "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Skipping %s: %s",
+                        backend_id,
+                        e,
+                    )
         return created
 
     def _auto_config(self, backend_id: str) -> MessagingConfig:
