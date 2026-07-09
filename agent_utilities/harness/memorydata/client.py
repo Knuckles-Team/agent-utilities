@@ -343,7 +343,7 @@ class EngineBackendClient(MemoryBackendClient):
         engine = self._get_engine()
         self._counter += 1
         node_id = f"memorydata:{self.namespace}:{context_id}:{self._counter}"
-        props = {
+        props: dict[str, Any] = {
             "name": f"{self.namespace} chunk {context_id}/{self._counter}",
             "description": str(text or ""),
             "text": str(text or ""),

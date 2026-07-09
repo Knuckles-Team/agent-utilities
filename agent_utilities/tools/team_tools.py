@@ -29,9 +29,11 @@ async def spawn_team(
     """
     capability = getattr(ctx, "team_capability", None)
     if not capability:
-        # Auto-initialize if missing
+        # Auto-initialize if missing. `team_capability` is a dynamic attribute we
+        # stash on the RunContext (not a declared field) — set it via setattr so the
+        # type checker doesn't flag the not-declared attribute.
         capability = TeamCapability()
-        ctx.team_capability = capability
+        setattr(ctx, "team_capability", capability)
 
     team_id = await capability.create_team(ctx, team_name, member_ids)
     return f"Team '{team_name}' created with ID: {team_id}. Members: {', '.join(member_ids)}"

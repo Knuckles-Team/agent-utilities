@@ -64,10 +64,11 @@ from typing import Any
 
 import anyio
 
+McpError: Any = ()
 try:  # MCP protocol error (e.g. a terminated streamable-http session)
     from mcp.shared.exceptions import McpError
 except ImportError:  # pragma: no cover - mcp always present for the multiplexer
-    McpError = ()  # type: ignore[assignment,misc]
+    pass
 
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.observability.gateway_metrics import (

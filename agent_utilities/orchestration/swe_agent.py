@@ -44,7 +44,7 @@ class SweResult:
 
 def build_swe_agent(
     model: Any | None = None, *, extra_tools: list[Any] | None = None
-) -> Agent:
+) -> Agent[AgentDeps, str]:
     """Assemble the SWE agent: graph tools + workspace tools + graph-first system prompt.
 
     ``model`` may be a Pydantic-AI model object (or ``None`` to resolve the configured default).
@@ -65,7 +65,7 @@ async def run_swe_task(
     deps: AgentDeps,
     *,
     model: Any | None = None,
-    agent: Agent | None = None,
+    agent: Agent[AgentDeps, str] | None = None,
 ) -> SweResult:
     """Run the SWE agent on ``task`` inside ``deps.workspace`` and return the result + patch.
 

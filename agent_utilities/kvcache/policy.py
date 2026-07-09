@@ -253,7 +253,7 @@ class KVCacheLayeringPolicy:
 
         # Weak role prior: only tips a borderline (no strong signal but non-trivial
         # context) execution toward store; never overrides a clear one-off.
-        role_reuse = bool(role) and role.lower() in _REUSE_HEAVY_ROLES
+        role_reuse = role is not None and role.lower() in _REUSE_HEAVY_ROLES
         if not worthy and role_reuse and total_tokens >= self.min_context_tokens // 2:
             worthy = True
             reasons.append(f"reuse_heavy_role({role})")

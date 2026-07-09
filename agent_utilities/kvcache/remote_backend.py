@@ -64,6 +64,8 @@ from agent_utilities.kvcache.config import KvCacheConfig
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from agent_utilities.mcp.client_credentials import ClientCredentialsAuth
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,7 +153,7 @@ class EpistemicGraphKVBackend:
             from agent_utilities.mcp.client_credentials import bearer_auth
         except Exception:  # pragma: no cover - mcp layer optional on inference hosts
 
-            def bearer_auth(_existing: dict | None) -> Any:
+            def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
                 return None
 
         headers: dict[str, str] = {}

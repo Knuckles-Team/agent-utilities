@@ -37,7 +37,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .git_coupling import DEFAULT_MIN_SUPPORT, parse_change_coupling
 
@@ -504,7 +504,7 @@ def query_evolution(
             {"file": r.get("path") or r.get("id"), "support": _as_int(r.get("support"))}
             for r in rows
         ]
-        coupled.sort(key=lambda d: int(d["support"]), reverse=True)
+        coupled.sort(key=lambda d: cast(int, d["support"]), reverse=True)
         return {"mode": mode, "file": target, "coupled": coupled[:limit]}
 
     # default: file timeline
@@ -531,5 +531,5 @@ def query_evolution(
         }
         for r in rows
     ]
-    timeline.sort(key=lambda d: int(d["ts"]), reverse=True)
+    timeline.sort(key=lambda d: cast(int, d["ts"]), reverse=True)
     return {"mode": "file", "file": target, "timeline": timeline[:limit]}
