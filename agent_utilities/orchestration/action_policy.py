@@ -204,6 +204,12 @@ class ActionDecision:
     rule_origin: str = "default"
     approval_id: str | None = None
     audit_id: str | None = None
+    # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — which invariant the
+    # pre-execution verifier failed ("role" | "schema" | "precondition" | "reference"),
+    # empty when the verifier passed (or was never reached, e.g. an earlier fail-closed
+    # error). ``verify_ms`` is the verifier's own measured latency for observability.
+    invariant: str = ""
+    verify_ms: float = 0.0
 
     @property
     def allowed(self) -> bool:
@@ -451,6 +457,80 @@ class ActionPolicy:
         targets.add(request.target)
         return len(targets) > max_targets
 
+    # ── assurance verifier (CONCEPT:AU-OS.governance.assurance-state-machine-verifier) ──
+
+    def _verify(self, request: ActionRequest):
+        """Run the deterministic invariant verifier for ``request``.
+
+        The reference-existence check (invariant 4) is best-effort: it only
+        activates when the shipped policy's ``options:`` section declares
+        ``known_tools``/``known_targets`` registries (empty/absent ⇒ skipped,
+        never a false deny — CONCEPT:AU-OS.governance.fail-closed-claim-check).
+        """
+        from agent_utilities.orchestration.assurance_verifier import verify_action
+
+        known_tools = self.option("known_tools")
+        known_targets = self.option("known_targets")
+        return verify_action(
+            request,
+            known_tools=frozenset(known_tools) if known_tools else None,
+            known_targets=frozenset(known_targets) if known_targets else None,
+        )
+
+    def evaluate(self, request: ActionRequest) -> ActionDecision:
+        """Side-effect-free verdict: the assurance verifier + rule tier, no audit/approval writes.
+
+        This is what backs the ``verify_action`` MCP/REST surface (a caller
+        self-checking a routing payload before proposing it for real) — unlike
+        :meth:`decide`, it writes no ``ActionDecision``/``ActionApproval`` node
+        and applies no rate-limit/blast-radius accounting (those are stateful
+        side effects, not a payload's structural validity). Never raises —
+        fails CLOSED like every other entry point here.
+        """
+        try:
+            verify = self._verify(request)
+            if not verify.ok:
+                return ActionDecision(
+                    decision=DECISION_DENY,
+                    tier=TIER_FORBIDDEN,
+                    request=request,
+                    reason=f"assurance gate ({verify.invariant}): {verify.reason}",
+                    rule_origin="assurance",
+                    invariant=verify.invariant,
+                    verify_ms=verify.latency_ms,
+                )
+            rule, _defaults = self._match(request)
+            tier = rule.tier
+            if tier == TIER_APPROVAL and self._graduates(request):
+                tier = TIER_AUTO_NOTIFY
+            decision = (
+                DECISION_ALLOW_NOTIFY
+                if tier == TIER_AUTO_NOTIFY
+                else DECISION_QUEUE
+                if tier == TIER_APPROVAL
+                else DECISION_DENY
+                if tier == TIER_FORBIDDEN
+                else DECISION_ALLOW
+            )
+            return ActionDecision(
+                decision=decision,
+                tier=tier,
+                request=request,
+                reason=f"tier {tier}",
+                rule_origin=rule.origin,
+                verify_ms=verify.latency_ms,
+            )
+        except Exception as e:  # noqa: BLE001 — evaluate fails CLOSED
+            logger.warning(
+                "action_policy: evaluate error for %s: %s", request.summary(), e
+            )
+            return ActionDecision(
+                decision=DECISION_DENY,
+                tier=TIER_FORBIDDEN,
+                request=request,
+                reason=f"policy error (fail closed): {e}",
+            )
+
     # ── the decision ────────────────────────────────────────────────
 
     def _graduates(self, request: ActionRequest) -> bool:
@@ -488,8 +568,17 @@ class ActionPolicy:
         gate (CONCEPT:AU-OS.deployment.dynamic-two-fail-closed), which would otherwise spam the KG with an audit
         node for every IDE tool call. Never raises — fails CLOSED to
         ``forbidden`` on any internal error.
+
+        CONCEPT:AU-OS.governance.assurance-state-machine-verifier — the deterministic
+        invariant verifier runs FIRST: a payload that fails role/schema/precondition/
+        reference checks classifies as ``forbidden`` regardless of the matched rule's
+        tier, so the PreToolUse gate (and any other ``classify()`` caller) blocks it
+        before the rule-based tier is even consulted.
         """
         try:
+            verify = self._verify(request)
+            if not verify.ok:
+                return TIER_FORBIDDEN
             rule, _defaults = self._match(request)
             tier = rule.tier
             # CONCEPT:AU-OS.governance.autonomy-change-proposer — earned-autonomy ramp: an allowlisted action kind the
@@ -532,12 +621,30 @@ class ActionPolicy:
         return decision
 
     def _decide_inner(self, request: ActionRequest) -> ActionDecision:
+        # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — the deterministic
+        # invariant verifier runs BEFORE the rule/tier pipeline: a payload that fails
+        # role/schema/precondition/reference checks is denied outright (fail-closed),
+        # regardless of what tier its kind/target would otherwise match. This is the
+        # enforced half of the gate — the caller's action genuinely does not execute.
+        verify = self._verify(request)
+        if not verify.ok:
+            return ActionDecision(
+                decision=DECISION_DENY,
+                tier=TIER_FORBIDDEN,
+                request=request,
+                reason=f"assurance gate ({verify.invariant}): {verify.reason}",
+                rule_origin="assurance",
+                invariant=verify.invariant,
+                verify_ms=verify.latency_ms,
+            )
+
         rule, defaults = self._match(request)
         base = ActionDecision(
             decision=DECISION_DENY,
             tier=rule.tier,
             request=request,
             rule_origin=rule.origin,
+            verify_ms=verify.latency_ms,
         )
 
         if rule.tier == TIER_FORBIDDEN:
