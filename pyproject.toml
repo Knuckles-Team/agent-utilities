@@ -38,16 +38,29 @@ dependencies = [
     # Tiny pure-Python safe-XML parser used on the hydration path; kept in base so the
     # XML path is never unguarded.
     "defusedxml>=0.7.1",
-    # CONCEPT:KG-2.324 — the numeric kernel is a HARD base dependency (Analytics Program
-    # P5 final, the numpy/scipy drop). `agent_utilities.numeric` is the SOLE numeric
-    # backend and raises ImportError without the compiled `epistemic_graph.numeric`
-    # kernel, so it must be present in every install. There is ONE published package —
-    # the `eg-numeric` kernel `.so` is folded into the `epistemic-graph` wheel behind its
-    # `numeric` extra (engine CONCEPT:EG-346); `[numeric]` also pulls the numpy the kernel
-    # uses INTERNALLY (rust-numpy zero-copy interop). agent-utilities itself imports numpy
-    # nowhere. Loose floor (`>=2.7.0`, the release with the full Surface-A op set incl. the
-    # array constructors + axis/keepdims reductions + eigsh/spearmanr/ks_2samp/norm ops),
-    # never an exact pin. See docs/guides/numeric-kernel.md.
+    # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the
+    # engine is a HARD base dependency, so a bare `pip install agent-utilities` already
+    # yields a self-contained, FULLY-CAPABLE graph-os: the published `epistemic-graph` wheel
+    # is built with the whole main CPU feature set (`MATURIN_FEATURES=full,ast-extended` →
+    # compute/finance/datascience/mining/graphlearn/reasoning + query/cypher +
+    # redb-authoritative durability + security + every wire protocol), and bundles the
+    # `epistemic-graph-server` binary (next to `sys.executable`) that graph-os autostarts +
+    # supervises over a private UDS socket (EngineResolver, OS-5.63) — no external DB/service.
+    # `[numeric]` pulls the compiled `epistemic_graph.numeric` kernel (the SOLE numeric
+    # backend — ImportError without it) plus the numpy it uses INTERNALLY for rust-numpy
+    # zero-copy interop; agent-utilities imports numpy nowhere.
+    #
+    # TARGET: bump this to `epistemic-graph[full]` (= `[owl,lmcache,numeric]`, adding the
+    # pyoxigraph SPARQL/RDF Python interop + httpx accel) once the engine RELEASE that
+    # exposes those extras is published — the currently-published wheel only defines
+    # `[numeric]`, so `[full]` would warn + no-op against PyPI metadata. NOT `[full-extras]`:
+    # that is the engine's opt-in GPU (cudarc) + ROS2/DDS cargo layer, which needs an external
+    # CUDA/robotics TOOLCHAIN to run — the opposite of "self-contained, no external dependency"
+    # — and is a wheel build variant, not a pip extra (absent from the published CPU wheel).
+    #
+    # Loose floor (`>=2.7.0`, the release with the full Surface-A op set incl. the array
+    # constructors + axis/keepdims reductions + eigsh/spearmanr/ks_2samp/norm ops), never an
+    # exact pin. See docs/guides/numeric-kernel.md.
     "epistemic-graph[numeric]>=2.7.0",
 ]
 
@@ -80,6 +93,10 @@ sandbox = [
 # kernel wheel (cp39-abi3) folded in behind its `numeric` maturin feature. Still a
 # floor (`>=`), never an exact pin: published deps express minimums; dev overlays
 # live source via source-mounts + PYTHONPATH.
+    # Self-contained, fully-capable engine (the published wheel is the full CPU build;
+    # graph-os autostarts + supervises it locally — see the base-deps note above). TARGET:
+    # `epistemic-graph[full]` once the engine release exposing `[owl,lmcache]` is published;
+    # NOT `[full-extras]` (engine GPU/ROS2 cargo layer — external toolchain, not a pip extra).
 engine = [
     "epistemic-graph[numeric]>=2.7.0",
     # Security floor: pulled transitively by epistemic-graph; CVE-2026-57585.
