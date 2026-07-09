@@ -279,6 +279,34 @@ Rules:
 The check: `import agent_utilities` and a `kg_server` boot must succeed with torch uninstalled
 (the lean serving image has no torch).
 
+### Lockfile & dependency-security hygiene (keep `uv.lock` fresh — READ before touching deps)
+
+The committed **`uv.lock` is the security surface** — Dependabot (and our own audit) scan it, and
+consumers pin against it. A stale or loose lock is how known-vulnerable transitive versions linger.
+Rules:
+
+1. **Re-lock on every dependency change.** After editing `pyproject.toml` deps/extras, run
+   **`uv lock`** and commit the updated `uv.lock` in the same change. The `uv-lock` pre-commit hook
+   runs with **`--locked`** and will *fail* (not silently rewrite) if the lock drifts from
+   `pyproject.toml` — never bypass it. Do not let a code-only commit leave a latent lock/pyproject
+   inconsistency (that is exactly how the lock went stale before).
+2. **Patch CVEs at the source with a version floor.** When a dependency (direct *or* transitive)
+   has a disclosed CVE, add an explicit lower-bound to `pyproject.toml` — in the **extra that pulls
+   it** (e.g. server deps in `[mcp]`, llama-index deps in `[documents]`, engine deps in `[engine]`),
+   or core `dependencies` only for ubiquitous base transitives like `idna`. **uv resolves ONE
+   version graph-wide**, so a single floor anywhere it's pulled raises it for the whole
+   all-extras lock — you don't need to floor it in every extra. Then `uv lock` and commit.
+3. **The audit gate.** The `dependency-audit` pre-commit hook (`scripts/audit_dependencies.py`,
+   OSV-backed, stdlib-only, offline-tolerant) fails the commit on any **fixable** advisory in
+   `uv.lock`. If a CVE has **no upstream fix**, risk-accept it by adding the package to
+   **`.security-audit-allow.txt`** with a one-line justification (reviewed periodically; remove the
+   entry once a fix ships so the audit re-flags it). Run it ad hoc with
+   `python scripts/audit_dependencies.py uv.lock`.
+4. **Keep the version mirrors consistent.** `bump-my-version` (`.bumpversion.cfg`) drives the
+   version across `pyproject.toml`, `README.md`, `docker/Dockerfile`, and `__version__` in one
+   step — never hand-edit one and leave the others; a mismatch makes the next bump throw
+   `VersionNotFoundException`. Run the bump, don't patch versions by hand.
+
 ## Sprawl boundaries — WHERE new deps / ontology / daemons go (READ BEFORE adding any of them)
 
 Anti-sprawl is not just "don't duplicate code" — it's "put each thing in the ONE place it belongs."
