@@ -421,6 +421,25 @@ egress is deterministic):
 - NVIDIA device-plugin on the GPU nodes; configure `registries.yaml` → `registry.arpa` + internal CA on every node.
 - Expected: `cluster-ready, cilium-healthy, gpu-advertised`
 
+**Gotchas (hardened 2026-07-09, live RKE2 Stage-1 bring-up — see `inventory/k8s-migration/STAGE1-FINDINGS.md`):**
+- **Run the RKE2 playbook with the full `ansible` distribution, not `ansible-core`.**
+  `ansible-core` can't resolve the bare `sysctl:` task (`ansible.posix.sysctl` ships only in
+  full `ansible`) and its `ansible.cfg` must use `stdout_callback = default` +
+  `result_format = yaml` — the old `community.general.yaml` callback was removed in
+  community.general 12.0. Invocation: `uvx --from ansible ansible-playbook -i
+  inventory.k8s.yml rke2.yml -e mode=native --limit '<nodes>'`.
+- **Create `/var/lib/rancher/rke2/server/manifests` before copying the Cilium
+  HelmChartConfig into it** — on a greenfield node that dir doesn't exist until
+  rke2-server installs, so the copy task must create it first.
+- **The Cilium L2 `kubectl apply` must run against a manifest staged ON the server**
+  (e.g. `/etc/rancher/rke2/cilium-l2.yaml`), not a controller-local `playbook_dir` path —
+  the apply task runs on the server host.
+- **`CiliumLoadBalancerIPPool` is `cilium.io/v2`** (`v2alpha1` is deprecated and warns on apply).
+- **RKE2's bundled ingress-nginx is a hostPort DaemonSet — there is no controller Service
+  to pin the VIP.** Give it one via a `rke2-ingress-nginx` HelmChartConfig at the platform
+  step (`controller.service.type=LoadBalancer`, `loadBalancerIP: 10.0.0.240`) so it draws
+  `.240` from the `CiliumLoadBalancerIPPool`.
+
 **`orchestrator == podman` / `podman-compose` → `podman-mesh-provisioner`.**
 Provision a Podman control plane (rootful or rootless per `podman_rootless`): enable
 the Podman API socket, wire `podman-compose` (`COMPOSE_TOOL=podman-compose`), and
@@ -693,6 +712,14 @@ also register the **`edge-ingress`** confidential OIDC client (redirect
 - Requires: `keycloak-mcp`, `openbao-mcp` (+ skills `keycloak-client-onboarder`, `eunomia-policy-manager`)
 - Expected: `sso-wired, mcp-multiplexer-client-created, eunomia-baseline-loaded` (+ `edge-ingress-client-created` when the edge is enabled)
 
+**Gotcha (hardened 2026-07-09):** on `orchestrator == kubernetes`, Step 5 already hard-wires
+`kube-apiserver-arg: oidc-issuer-url=https://keycloak.arpa/...` at cluster bring-up — but this is
+**lazy/non-blocking**: the apiserver boots `Running` with the flag present and only fetches JWKS /
+authenticates OIDC users once Keycloak(prod) exists here at Step 14. So "OIDC authenticates cluster
+users" is a **Step-14 completion gate, not a Step-5 gate** — cluster admin uses the cert-based
+`rke2.yaml` kubeconfig regardless. **WARN:** if `oidc-ca-file` is configured on the apiserver, the CA
+file MUST already exist on disk or the apiserver **fails to boot** — only set it once the CA is placed.
+
 ### Step 14b: credential-rotation-policy
 [depends_on: Step 14] (profiles: single-node-prod, enterprise — skipped for tiny)
 Establish recurring, policy-driven secret rotation via the
@@ -916,6 +943,15 @@ which flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE drift across `.env.example`,
   module is a packaging fix (add dep + rebuild), not a mount.
 - After restarting any child, **reconnect the multiplexer** before re-validating (§12) — stale
   sessions hang tool calls 300s.
+- **(hardened 2026-07-09) `container-manager-mcp` needs three things to drive Kubernetes:**
+  the deployed image must include the `[mcp]` extra's `kubernetes` client (publish
+  `>=2.1.1` to PyPI, or build the image from local source — the Dockerfile installs from
+  PyPI, which can lag the k8s code on git); a kubeconfig mounted at
+  `/home/genius/.kube/config` → `/root/.kube/config:ro`; and the `K8S*TOOL` toggles set
+  **explicitly** to `True` in `.env` (an unset `${K8SWORKLOADSTOOL}`-style var interpolates
+  empty = disabled). Since CM-MCP is a standalone Swarm service graph-os reaches over
+  `http://container-manager-mcp.arpa/mcp`, no graph-os restart is needed after fixing/
+  redeploying it — it auto-reconnects on the next `cm_*` call.
 - Requires: `portainer-mcp`, `container-manager-mcp`
 - Expected: `mcp-fleet-deployed, auth-on, metrics-exposed, deferred-report`
 
