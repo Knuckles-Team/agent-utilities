@@ -390,13 +390,42 @@ class QueryMixin(_Base):
         results = []
         query_lower = query.lower()
 
-        # 1. Prepare keywords
+        # Prepare keywords
         keywords = [k.strip() for k in query_lower.split() if len(k.strip()) > 1]
         if not keywords:
             keywords = [query_lower]
 
-        # 2. Search Backend if available
-        if self.backend:
+        # 1. Engine-scalable keyword leg.
+        # The engine's `discover` ranks keyword overlap (name/description/type)
+        # server-side in ONE round-trip and returns the top-k, instead of the O(N)
+        # full-node scan the `MATCH (n) WHERE … CONTAINS` path below degrades to on the
+        # engine (which does not evaluate the WHERE server-side and returns every node).
+        # Per the dependency edict, keyword/vector ranking belongs on the engine, never
+        # an O(N) Python loop. Hydrate each hit for RBAC + soft-delete enforcement
+        # (discover returns only id/name/description/type/score).
+        disc = getattr(self.graph, "discover", None)
+        if callable(disc):
+            try:
+                for item in disc(keywords, [], max(top_k * 4, top_k)) or []:
+                    if not isinstance(item, dict):
+                        continue
+                    node_id = str(item.get("id", ""))
+                    if not node_id:
+                        continue
+                    data = self.graph._get_node_properties(node_id) or dict(item)
+                    data["id"] = node_id
+                    req_class = data.get("requiresClassification", 0)
+                    if isinstance(req_class, int) and req_class > clearance_level:
+                        continue
+                    if str(data.get("status", "")).upper() == "ARCHIVED":
+                        continue
+                    results.append(data)
+            except Exception as e:
+                logger.debug(f"engine discover keyword search unavailable: {e}")
+
+        # 2. Fallback — a backend that DOES evaluate a Cypher WHERE server-side
+        # (pg-age / neo4j mirror). Only when the engine discover path found nothing.
+        if not results and self.backend:
             # Simple keyword search across all nodes in backend
             q = []
             params = {}
@@ -442,7 +471,8 @@ class QueryMixin(_Base):
                 except Exception as e:
                     logger.debug(f"Backend keyword search failed: {e}")
 
-        # 2. Search GCE for name/ID matches
+        # 3. Last-resort O(N) GCE scan for name/ID matches — only when neither the
+        # engine discover nor a Cypher-evaluating backend returned anything.
         if not results:
             for node_id in self.graph.node_ids():
                 data = self.graph._get_node_properties(node_id)

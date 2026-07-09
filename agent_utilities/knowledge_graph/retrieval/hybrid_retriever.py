@@ -1149,16 +1149,50 @@ class HybridRetriever:
     ) -> list[dict[str, Any]]:
         """Keyword/lexical fallback when the vector path returns nothing (CONCEPT:AU-KG.retrieval.triviality-gate).
 
-        Degradation tiers 3-4 of the cascade: a backend ``CONTAINS`` scan over node content/name
-        for the query's distinctive tokens. Returns [] if no backend is available (tier-4 no-op).
+        Degradation tiers 3-4 of the cascade: a keyword ranking for the query's
+        distinctive tokens. Prefers the engine's scalable one-round-trip ``discover``
+        (server-side keyword ranking + batch hydration); degrades to a Cypher-evaluating
+        backend ``CONTAINS`` scan (pg-age/neo4j), then to a tier-4 no-op. Returns [].
         """
-        backend = getattr(self.engine, "backend", None)
-        if backend is None:
-            return []
         import re as _re
 
         tokens = [t for t in _re.findall(r"[A-Za-z0-9_]{3,}", query)][:6]
         if not tokens:
+            return []
+
+        def _wrap(data: dict[str, Any], nid: Any) -> dict[str, Any]:
+            data = dict(data)
+            data["id"] = nid
+            data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
+            data["_fallback"] = "lexical"
+            return data
+
+        # Tier 3 — engine-scalable keyword leg: `discover` ranks keyword overlap
+        # (name/description/type) server-side in ONE round-trip, then hydrate the top-k
+        # in ONE batch call. This replaces the O(N) `MATCH (n) WHERE ... CONTAINS ...
+        # LIMIT k` scan below, which the engine does not filter server-side (it returns
+        # arbitrary unfiltered nodes up to LIMIT — both slow and wrong on the engine).
+        graph = getattr(self.engine, "graph", None)
+        disc = getattr(graph, "discover", None)
+        if callable(disc):
+            try:
+                hits = disc(tokens, [], max(1, context_window)) or []
+                ids = [
+                    str(h.get("id", ""))
+                    for h in hits
+                    if isinstance(h, dict) and h.get("id")
+                ]
+                if ids:
+                    props = self._batch_node_properties(ids)
+                    out = [_wrap(props.get(nid) or {}, nid) for nid in ids]
+                    if out:
+                        return out
+            except Exception as e:  # noqa: BLE001 — degrade to the backend scan
+                logger.debug("engine discover lexical fallback unavailable: %s", e)
+
+        # Tier 4 — a backend that DOES evaluate the Cypher WHERE (pg-age/neo4j mirror).
+        backend = getattr(self.engine, "backend", None)
+        if backend is None:
             return []
         where = " OR ".join(
             f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
@@ -1174,14 +1208,11 @@ class HybridRetriever:
         except Exception as e:  # pragma: no cover - backend dialect variance
             logger.debug("Lexical fallback query failed: %s", e)
             return []
-        out: list[dict[str, Any]] = []
+        out = []
         for row in rows or []:
             if not isinstance(row, dict):
                 continue
             _d = row.get("data")
             data = dict(_d) if isinstance(_d, dict) else {}
-            data["id"] = row.get("id")
-            data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
-            data["_fallback"] = "lexical"
-            out.append(data)
+            out.append(_wrap(data, row.get("id")))
         return out
