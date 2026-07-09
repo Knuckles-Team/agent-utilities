@@ -1492,9 +1492,15 @@ def _sync_dockerhub(
     else ``ids`` as namespaces) drains the ``dockerhub-repos`` preset over ``dockerhub-mcp``
     and rebuilds each repo as a :ContainerImage (image coordinates + pull/star counts) that
     ``contains`` the namespace's :Repository. Delta = the ``last_updated`` watermark.
+
+    Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
+    :func:`~..etl.transforms.coalesce` for the image-name fallback and
+    :func:`~..etl.transforms.stable_id` for the ``dockerhub:<ns>[/<name>]`` node ids
+    — as the first migrated handler proving the pattern.
     """
     if not _server_configured(("dockerhub-mcp", "dockerhub-api")):
         return {"status": "skipped", "reason": "dockerhub-mcp not in mcp_config"}
+    from ..etl.transforms import coalesce, stable_id
     from ...core.config import setting
 
     namespaces = [
@@ -1515,7 +1521,7 @@ def _sync_dockerhub(
         wm_key = f"dockerhub:{ns}"
         since = None if mode == "full" else _read_watermark(backend, wm_key)
         docs = _drain_preset("dockerhub-repos", params={"namespace": ns})
-        repo_node = f"dockerhub:{ns}"
+        repo_node = stable_id(ns, prefix="dockerhub")
         entities: list[dict[str, Any]] = [
             {
                 "id": repo_node,
@@ -1528,7 +1534,7 @@ def _sync_dockerhub(
         rels: list[dict[str, Any]] = []
         for doc in docs:
             rec = _record_of(doc)
-            name = rec.get("name") or getattr(doc, "id", None)
+            name = coalesce(rec, "name") or getattr(doc, "id", None)
             if not name:
                 continue
             img_id = f"dockerhub:{ns}/{name}"
@@ -2373,9 +2379,16 @@ def _sync_firefly_iii(
     presets over ``firefly-iii-mcp``. Each JSON:API record's ``attributes`` block carries
     the real fields. A transaction's first split is linked ``part_of`` its source :Account.
     Delta = the ``updated_at`` watermark across the three object types.
+
+    Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
+    :func:`~..etl.transforms.dig` for the JSON:API ``attributes`` envelope unwrap
+    (replacing the handler-local ``_attrs`` helper), :func:`~..etl.transforms.coalesce`
+    for name fallbacks, and :func:`~..etl.transforms.stable_id` for node ids.
     """
     if not _server_configured(("firefly-iii-mcp", "firefly-iii-agent")):
         return {"status": "skipped", "reason": "firefly-iii-mcp not in mcp_config"}
+    from ..etl.transforms import coalesce, dig, stable_id
+
     backend = getattr(engine, "backend", None)
     wm_key = "firefly_iii"
     since = None if mode == "full" else _read_watermark(backend, wm_key)
@@ -2387,20 +2400,16 @@ def _sync_firefly_iii(
     entities: list[dict[str, Any]] = []
     rels: list[dict[str, Any]] = []
 
-    def _attrs(rec: dict[str, Any]) -> dict[str, Any]:
-        a = rec.get("attributes")
-        return a if isinstance(a, dict) else {}
-
     for doc in accounts:
         aid = getattr(doc, "id", None)
         if not aid:
             continue
-        attrs = _attrs(_record_of(doc))
+        attrs = dig(_record_of(doc), "attributes", default={})
         entities.append(
             {
-                "id": f"firefly:account:{aid}",
+                "id": stable_id(aid, prefix="firefly:account"),
                 "type": "account",
-                "name": attrs.get("name") or f"Account {aid}",
+                "name": coalesce(attrs, "name", default=f"Account {aid}"),
                 "account_type": attrs.get("type"),
                 "account_role": attrs.get("account_role"),
                 "currency_code": attrs.get("currency_code"),
@@ -2415,12 +2424,12 @@ def _sync_firefly_iii(
         bid = getattr(doc, "id", None)
         if not bid:
             continue
-        attrs = _attrs(_record_of(doc))
+        attrs = dig(_record_of(doc), "attributes", default={})
         entities.append(
             {
-                "id": f"firefly:budget:{bid}",
+                "id": stable_id(bid, prefix="firefly:budget"),
                 "type": "budget",
-                "name": attrs.get("name") or f"Budget {bid}",
+                "name": coalesce(attrs, "name", default=f"Budget {bid}"),
                 "active": attrs.get("active"),
                 "domain": "firefly_iii",
                 "source_system": src,
@@ -2432,18 +2441,17 @@ def _sync_firefly_iii(
         tid = getattr(doc, "id", None)
         if not tid:
             continue
-        attrs = _attrs(_record_of(doc))
+        attrs = dig(_record_of(doc), "attributes", default={})
         splits = attrs.get("transactions")
         first = splits[0] if isinstance(splits, list) and splits else {}
         first = first if isinstance(first, dict) else {}
-        node_id = f"firefly:transaction:{tid}"
+        node_id = stable_id(tid, prefix="firefly:transaction")
         entities.append(
             {
                 "id": node_id,
                 "type": "transaction",
-                "name": attrs.get("group_title")
-                or first.get("description")
-                or f"Transaction {tid}",
+                "name": coalesce(attrs, "group_title")
+                or coalesce(first, "description", default=f"Transaction {tid}"),
                 "transaction_type": first.get("type"),
                 "amount": first.get("amount"),
                 "currency_code": first.get("currency_code"),
@@ -2459,7 +2467,7 @@ def _sync_firefly_iii(
             rels.append(
                 {
                     "source": node_id,
-                    "target": f"firefly:account:{src_acct}",
+                    "target": stable_id(src_acct, prefix="firefly:account"),
                     "type": "part_of",
                     "domain": "firefly_iii",
                 }
@@ -2468,7 +2476,7 @@ def _sync_firefly_iii(
             rels.append(
                 {
                     "source": node_id,
-                    "target": f"firefly:budget:{budget_id}",
+                    "target": stable_id(budget_id, prefix="firefly:budget"),
                     "type": "member_of",
                     "domain": "firefly_iii",
                 }
@@ -2505,9 +2513,15 @@ def _sync_paperless_ngx(
     presets over ``paperless-ngx-mcp`` (each tool paginates internally → a flat list). Each
     document → a :Document linked ``member_of`` its :Correspondent and ``tagged_with`` each
     :Tag. Delta = the ``modified`` watermark on documents.
+
+    Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
+    :func:`~..etl.transforms.coalesce` for name fallbacks and
+    :func:`~..etl.transforms.stable_id` for the ``paperless:<type>:<id>`` node ids.
     """
     if not _server_configured(("paperless-ngx-mcp", "paperless-ngx-agent")):
         return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
+    from ..etl.transforms import coalesce, stable_id
+
     backend = getattr(engine, "backend", None)
     wm_key = "paperless_ngx"
     since = None if mode == "full" else _read_watermark(backend, wm_key)
@@ -2526,9 +2540,9 @@ def _sync_paperless_ngx(
         rec = _record_of(doc)
         entities.append(
             {
-                "id": f"paperless:correspondent:{cid}",
+                "id": stable_id(cid, prefix="paperless:correspondent"),
                 "type": "correspondent",
-                "name": rec.get("name") or f"Correspondent {cid}",
+                "name": coalesce(rec, "name", default=f"Correspondent {cid}"),
                 "document_count": rec.get("document_count"),
                 "domain": "paperless_ngx",
                 "source_system": src,
@@ -2542,9 +2556,9 @@ def _sync_paperless_ngx(
         rec = _record_of(doc)
         entities.append(
             {
-                "id": f"paperless:tag:{tid}",
+                "id": stable_id(tid, prefix="paperless:tag"),
                 "type": "tag",
-                "name": rec.get("name") or f"Tag {tid}",
+                "name": coalesce(rec, "name", default=f"Tag {tid}"),
                 "color": rec.get("color"),
                 "domain": "paperless_ngx",
                 "source_system": src,
@@ -2556,12 +2570,12 @@ def _sync_paperless_ngx(
         if did is None:
             continue
         rec = _record_of(doc)
-        node_id = f"paperless:document:{did}"
+        node_id = stable_id(did, prefix="paperless:document")
         entities.append(
             {
                 "id": node_id,
                 "type": "document",
-                "name": rec.get("title") or f"Document {did}",
+                "name": coalesce(rec, "title", default=f"Document {did}"),
                 "created": rec.get("created"),
                 "added": rec.get("added"),
                 "archive_serial_number": rec.get("archive_serial_number"),
@@ -2575,7 +2589,7 @@ def _sync_paperless_ngx(
             rels.append(
                 {
                     "source": node_id,
-                    "target": f"paperless:correspondent:{corr}",
+                    "target": stable_id(corr, prefix="paperless:correspondent"),
                     "type": "member_of",
                     "domain": "paperless_ngx",
                 }
@@ -2584,7 +2598,7 @@ def _sync_paperless_ngx(
             rels.append(
                 {
                     "source": node_id,
-                    "target": f"paperless:tag:{tag_id}",
+                    "target": stable_id(tag_id, prefix="paperless:tag"),
                     "type": "tagged_with",
                     "domain": "paperless_ngx",
                 }
@@ -3220,8 +3234,30 @@ def sync_source(
     ``mode`` ∈ {delta, full, reconcile}. Delta-capable sources (``_DELTA_HANDLERS``)
     do incremental watermark/reconcile; any other registered source falls back to a
     full hydrate via the capability registry.
+
+    The heterogeneous result each of the ~20 ``_sync_*`` handlers / the
+    materialize core / the capability-registry hydrate / the fleet sweep returns
+    is coerced through :class:`..etl.result.EtlResult` (CONCEPT:AU-KG.etl.result-contract)
+    at this single choke point — every dispatch path gets a validated ``status``/
+    ``counts`` contract without any handler needing to be rewritten (their extra,
+    handler-specific fields pass through unedited).
     """
-    source = (source or "").lower().strip()
+    from ..etl.result import EtlResult
+
+    norm_source = (source or "").lower().strip()
+    res = _dispatch_sync_source(engine, norm_source, mode=mode, ids=ids, client=client)
+    return EtlResult.coerce(res, source=norm_source or None, mode=mode).model_dump()
+
+
+def _dispatch_sync_source(
+    engine: Any,
+    source: str,
+    *,
+    mode: str = "delta",
+    ids: list[str] | None = None,
+    client: Any = None,
+) -> dict[str, Any]:
+    """The raw dispatch logic for :func:`sync_source` (pre-``EtlResult`` coercion)."""
 
     # "all"/"*"/"sweep" → fan out across every configured connector in one pass
     # so the one entrypoint also covers "ingest everything" (CONCEPT:AU-KG.ingest.enterprise-source-extractor).

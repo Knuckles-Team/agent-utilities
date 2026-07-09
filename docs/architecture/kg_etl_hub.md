@@ -132,6 +132,12 @@ sequenceDiagram
 (`action=run|list|lineage`) and the `/graph/etl` REST twin (auto-served from
 `ACTION_TOOL_ROUTES`).
 
+The `{status, inbound, outbound, lineage}` manifest is built from `etl.result.EtlResult`
+(AU-KG.etl.result-contract) — a validated pydantic contract (adds a typed `counts` dict,
+replacing the old ad hoc `_count()` shape-guessing) — then serialized back to a plain
+`dict` (`.model_dump()`) so existing callers keep indexing it unchanged. `sync_source` and
+`ingest_connector_to_table` return the same coerced shape.
+
 ## ETL lineage (AU-KG.ontology.kg-3)
 
 Every run records a trail in the KG itself, reusing the existing provenance ontology (no new
