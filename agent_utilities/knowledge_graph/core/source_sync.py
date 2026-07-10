@@ -3241,10 +3241,47 @@ def sync_source(
     at this single choke point — every dispatch path gets a validated ``status``/
     ``counts`` contract without any handler needing to be rewritten (their extra,
     handler-specific fields pass through unedited).
+
+    Before dispatch, a **compile-before-sync** gate (CONCEPT:AU-KG.ontology.connector-manifest-gate,
+    D17) looks up this source's ``agents/<pkg>/connector_manifest.yml`` (if any) and
+    re-verifies its compiled canonical hash. No manifest yet -> silent pass-through
+    (most sources aren't onboarded to C5 yet); a manifest that fails to compile or
+    whose hash no longer matches its signed ``provenance.integrity.hash`` -> **fail
+    closed**, the sync is refused rather than pulling data through a manifest that
+    doesn't match what was actually reviewed/signed.
     """
     from ..etl.result import EtlResult
 
     norm_source = (source or "").lower().strip()
+
+    if norm_source not in {"all", "*", "sweep"}:
+        try:
+            from ..ontology.connector_manifest_gate import precheck_source
+
+            gate = precheck_source(norm_source)
+        except Exception:  # noqa: BLE001 — the gate itself must never break sync
+            logger.debug(
+                "connector-manifest precheck unavailable for %s", norm_source, exc_info=True
+            )
+            gate = {"checked": False}
+        if gate.get("checked") and not gate.get("ok"):
+            logger.warning(
+                "source_sync: %s refused — connector_manifest.yml failed the "
+                "compile-before-sync gate: %s",
+                norm_source,
+                gate.get("violations"),
+            )
+            return EtlResult.coerce(
+                {
+                    "status": "error",
+                    "source": norm_source,
+                    "reason": "connector_manifest.yml failed the compile-before-sync "
+                    f"gate ({gate.get('connector')}): {gate.get('violations')}",
+                },
+                source=norm_source or None,
+                mode=mode,
+            ).model_dump()
+
     res = _dispatch_sync_source(engine, norm_source, mode=mode, ids=ids, client=client)
     return EtlResult.coerce(res, source=norm_source or None, mode=mode).model_dump()
 
