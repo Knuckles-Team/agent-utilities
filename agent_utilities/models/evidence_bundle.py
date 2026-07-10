@@ -372,21 +372,55 @@ class EvidenceBundle(BaseModel):
         return cls(**fields)
 
     # ------------------------------------------------------------------
-    # Engine wire (future epistemic-graph KnowledgeSet/EvidenceBundle)
+    # Engine wire (the epistemic-graph engine's KnowledgeSet/EvidenceBundle, D11)
     # ------------------------------------------------------------------
     @classmethod
     def from_engine_wire(cls, ws: dict[str, Any]) -> EvidenceBundle:
-        """Map a future engine-side ``KnowledgeSet``/``EvidenceBundle`` wire dict.
+        """Map the engine's ``KnowledgeSet``/``EvidenceBundle`` wire dict.
 
-        NOTE: the engine-side wire type is being designed separately (a different
-        workstream of the Epistemic Substrate Program); its exact field names are
-        not final yet. Until that lands, this is a minimal, best-effort passthrough
-        that assumes the wire dict already uses (a subset of) this class's own
-        field names — safe because every lookup defaults to this class's own safe
-        defaults, so an unrecognized/partial payload degrades cleanly rather than
-        raising. Replace with a real 1:1 mapping once the engine wire schema is
-        finalized.
+        Epistemic Substrate Program, control-plane closeout D11. The engine's E3
+        ``KnowledgeSet`` returns a ``{"rows": [...]}`` shape — one row per
+        candidate answer/fact, each carrying ``id``/``kind``/``score``/
+        ``confidence``/``valid_time``/``tx_time`` (bitemporal E2 belief-op
+        provenance) /``source_refs``/``evidence_refs``/``policy_labels``. When
+        ``rows`` is present this method does the REAL 1:1 mapping documented
+        below; when it is absent (a caller-assembled dict already shaped like
+        this class's own fields — the pre-D11 stub's contract, still exercised
+        by ``test_from_engine_wire_passthrough``) it falls back to the original
+        best-effort passthrough so existing callers keep working unchanged.
+
+        Row mapping (no fabrication — mirrors the module docstring's contract):
+
+        * ``claims`` — one entry per row (``id``/``text`` via the same
+          heterogeneous-shape extraction :func:`_claim_text` uses elsewhere in
+          this module, plus the row's own ``kind``).
+        * ``evidence_spans`` — every ``evidence_refs``/``source_refs`` entry,
+          tagged with the row it grounds and whether it is an evidence or a
+          source reference.
+        * ``confidence`` — the TOP-SCORED row's own ``confidence`` (never an
+          invented cross-row average) — falls back to a top-level
+          ``ws["confidence"]`` when no row carries one.
+        * ``freshness`` — the min/max ``valid_time``/``tx_time`` observed
+          across rows (a real bitemporal coverage signal, not derived from
+          nothing).
+        * ``policy_exclusions`` — every row's ``policy_labels``, deduped,
+          order-preserving.
+        * ``reasoning_trace`` — one ``knowledge_set_row`` entry per row
+          (nothing dropped: score/confidence/valid_time/tx_time/refs/labels
+          all carried through) plus a trailing ``meta`` entry for any
+          top-level wire fields with no dedicated slot.
+        * ``answer_candidate`` — the wire's own ``answer_candidate``/``answer``
+          when present; otherwise a deterministic, templated row-count
+          restatement (mirrors :meth:`from_nl_query` — never an invented
+          summary).
         """
+        rows = ws.get("rows")
+        if isinstance(rows, list) and rows:
+            return cls._from_knowledge_set_rows(ws, rows)
+
+        # -- forward-compat passthrough: a wire dict already shaped like this
+        # class's own fields (no "rows") — every lookup defaults safely, so an
+        # unrecognized/partial payload degrades cleanly rather than raising. --
         return cls(
             answer_candidate=str(ws.get("answer_candidate") or ws.get("answer") or ""),
             claims=list(ws.get("claims") or []),
@@ -397,5 +431,136 @@ class EvidenceBundle(BaseModel):
             freshness=dict(ws.get("freshness") or {}),
             policy_exclusions=list(ws.get("policy_exclusions") or []),
             reasoning_trace=list(ws.get("reasoning_trace") or []),
+            next_actions=list(ws.get("next_actions") or []),
+        )
+
+    @classmethod
+    def _from_knowledge_set_rows(
+        cls, ws: dict[str, Any], rows: list[Any]
+    ) -> EvidenceBundle:
+        """The real E3 ``KnowledgeSet`` row → bundle mapping (see :meth:`from_engine_wire`)."""
+        rows = [r for r in rows if isinstance(r, dict)]
+        claims: list[dict[str, Any]] = []
+        evidence_spans: list[dict[str, Any]] = []
+        policy_labels: list[str] = []
+        valid_times: list[Any] = []
+        tx_times: list[Any] = []
+        reasoning_trace: list[dict[str, Any]] = []
+        best_row: dict[str, Any] | None = None
+        best_score = float("-inf")
+
+        for i, row in enumerate(rows):
+            rid = row.get("id")
+            kind = row.get("kind")
+            score = row.get("score")
+            confidence = row.get("confidence")
+            valid_time = row.get("valid_time")
+            tx_time = row.get("tx_time")
+            source_refs = list(row.get("source_refs") or [])
+            evidence_refs = list(row.get("evidence_refs") or [])
+            labels = list(row.get("policy_labels") or [])
+
+            cid, text = _claim_text(row, fallback_id=str(rid or f"row:{i}"))
+            claims.append({"id": cid, "text": text, "kind": kind})
+
+            for ref in evidence_refs:
+                evidence_spans.append(
+                    {"ref": ref, "row_id": rid, "type": "evidence_ref"}
+                )
+            for ref in source_refs:
+                evidence_spans.append({"ref": ref, "row_id": rid, "type": "source_ref"})
+
+            for lbl in labels:
+                if lbl not in policy_labels:
+                    policy_labels.append(lbl)
+
+            if valid_time is not None:
+                valid_times.append(valid_time)
+            if tx_time is not None:
+                tx_times.append(tx_time)
+
+            reasoning_trace.append(
+                {
+                    "step": "knowledge_set_row",
+                    "id": rid,
+                    "kind": kind,
+                    "score": score,
+                    "confidence": confidence,
+                    "valid_time": valid_time,
+                    "tx_time": tx_time,
+                    "source_refs": source_refs,
+                    "evidence_refs": evidence_refs,
+                    "policy_labels": labels,
+                }
+            )
+
+            try:
+                numeric_score = float(score) if score is not None else None
+            except (TypeError, ValueError):
+                numeric_score = None
+            if numeric_score is not None and numeric_score > best_score:
+                best_score = numeric_score
+                best_row = row
+
+        # confidence: the top-scoring row's own confidence — never an invented
+        # average across heterogeneous rows.
+        confidence: float | None = None
+        if best_row is not None and best_row.get("confidence") is not None:
+            try:
+                confidence = max(0.0, min(1.0, float(best_row["confidence"])))
+            except (TypeError, ValueError):
+                confidence = None
+        if confidence is None and ws.get("confidence") is not None:
+            try:
+                confidence = max(0.0, min(1.0, float(ws["confidence"])))
+            except (TypeError, ValueError):
+                confidence = None
+
+        answer_candidate = str(ws.get("answer_candidate") or ws.get("answer") or "")
+        if not answer_candidate:
+            query = str(ws.get("query") or ws.get("question") or "")
+            answer_candidate = (
+                f"{len(rows)} row(s) for: {query}".strip()
+                if query
+                else f"{len(rows)} row(s) from the engine KnowledgeSet"
+            )
+
+        freshness: dict[str, Any] = {}
+        try:
+            if valid_times:
+                freshness["valid_time"] = {
+                    "min": min(valid_times),
+                    "max": max(valid_times),
+                }
+            if tx_times:
+                freshness["tx_time"] = {"min": min(tx_times), "max": max(tx_times)}
+        except TypeError:
+            # Heterogeneous/uncomparable timestamp types — degrade to no
+            # freshness signal rather than raising.
+            freshness = {}
+
+        _mapped_keys = {
+            "rows",
+            "answer_candidate",
+            "answer",
+            "confidence",
+            "query",
+            "question",
+            "next_actions",
+        }
+        meta_extras = {k: v for k, v in ws.items() if k not in _mapped_keys}
+        if meta_extras:
+            reasoning_trace.append({"step": "meta", **meta_extras})
+
+        return cls(
+            answer_candidate=answer_candidate,
+            claims=claims,
+            evidence_spans=evidence_spans,
+            source_authority=_source_authority_from_citations(evidence_spans),
+            contradictions=_scan_contradictions(claims),
+            confidence=confidence,
+            freshness=freshness,
+            policy_exclusions=policy_labels,
+            reasoning_trace=reasoning_trace,
             next_actions=list(ws.get("next_actions") or []),
         )
