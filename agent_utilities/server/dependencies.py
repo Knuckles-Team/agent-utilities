@@ -147,11 +147,15 @@ def _build_model_from_registry(
         from agent_utilities.core.model_factory import create_model
 
         api_key = setting(definition.api_key_env) if definition.api_key_env else None
+        # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — graph-os's registry-driven
+        # model path historically only carried a static api_key_env; a definition configured with
+        # an oauth2 client-credentials block instead mints/renews its own bearer transparently.
         return create_model(
             provider=definition.provider,
             model_id=definition.model_id,
             base_url=definition.base_url,
             api_key=api_key,
+            oauth2=definition.oauth2,
         )
     except Exception as e:
         logger.warning(
