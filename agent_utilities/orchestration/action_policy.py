@@ -102,6 +102,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
         {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        # Durable :AgentTask execution (Codex Gap-6 orchestration flow,
+        # agent_dispatch_worker.execute_agent_task_turn): the task itself was
+        # already approved into its DAG at creation time (out of scope for
+        # this gate) — auto+notify so the claim->execute->outcome fleet loop
+        # runs unattended while every execution is audited via the
+        # AgentPolicyDecision this same gate writes. Tighten to
+        # approval_required for a stricter posture.
+        {"kind": "agent_task.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating) default to
         # auto: the workspace container/process IS the containment boundary.
@@ -127,6 +135,24 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "deploy_service", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "redeploy_stack", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "merge_promotion", "target": "*", "tier": TIER_APPROVAL},
+        # Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
+        # workstream C4): a mined finding (:AssociationRule/:Anomaly/:PredictedEdge)
+        # that cleared its confidence floor and the promotion-governance validator
+        # still requires a human before it is promoted from a proposal Claim to a
+        # verified one — SAFETY-CRITICAL, this tier must never silently become
+        # auto/auto_notify (see
+        # tests/unit/test_action_policy.py::test_promote_mined_claim_default_never_auto).
+        {"kind": "promote_mined_claim", "target": "*", "tier": TIER_APPROVAL},
+        # Closed-loop agent mining (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
+        # workstream C6): a mined repeated-failure tool-call pattern
+        # (:SequentialPattern) that cleared its confidence floor and governance
+        # still requires a human before ``trace_pattern_miner`` applies any
+        # routing/prompt/tool change AND records the pattern's outcome via the
+        # EXISTING ``OutcomeRouter`` — SAFETY-CRITICAL, this tier must never
+        # silently become auto/auto_notify (see
+        # tests/unit/knowledge_graph/test_trace_pattern_miner.py::
+        # test_route_policy_update_default_never_auto).
+        {"kind": "route_policy_update", "target": "*", "tier": TIER_APPROVAL},
         # Spec-level review/veto (CONCEPT:AU-OS.config.autonomous-spec-develop-off): a distilled :SpecProposal must
         # clear this gate before it becomes a develop Loop — the EARLY checkpoint
         # before any code is synthesized (merge_promotion is the LATE, publish-time

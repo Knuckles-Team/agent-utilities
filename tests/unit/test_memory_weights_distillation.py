@@ -470,6 +470,182 @@ def test_kg_2_318_default_dispatch_skips_non_orchestration_engine(
     assert "no orchestration engine" in job.handoff["dispatch"]["detail"]
 
 
+# ── GRPO: EG-099 Trajectory/Step reward sequences → GRPO groups ────────────────
+def _synthetic_trajectory_steps() -> list[dict[str, Any]]:
+    """Two rollout groups (distinct ``state_ref``) of trajectory ``:Step`` nodes.
+
+    Mirrors EG-099 ``:Trajectory``/``:Step{state_ref, action, reward,
+    next_state_ref}`` — several sampled actions rolled out from the SAME state,
+    each carrying its own reward (the GRPO source shape).
+    """
+    return [
+        {
+            "id": "step-a1",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "trajectory_id": "traj-1",
+            "state_ref": "state:deploy-decision",
+            "action": "roll forward",
+            "reward": 1.0,
+            "next_state_ref": "state:post-deploy-ok",
+        },
+        {
+            "id": "step-a2",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "trajectory_id": "traj-2",
+            "state_ref": "state:deploy-decision",
+            "action": "roll back",
+            "reward": -1.0,
+            "next_state_ref": "state:post-deploy-rollback",
+        },
+        {
+            "id": "step-a3",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "trajectory_id": "traj-3",
+            "state_ref": "state:deploy-decision",
+            "action": "wait and retry",
+            "reward": 0.0,
+            "next_state_ref": "state:post-deploy-retry",
+        },
+        {
+            "id": "step-b1",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "trajectory_id": "traj-4",
+            "state_ref": "state:scale-decision",
+            "action": "scale up",
+            "reward": 2.0,
+            "next_state_ref": "state:post-scale-ok",
+        },
+        {
+            "id": "step-b2",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "trajectory_id": "traj-5",
+            "state_ref": "state:scale-decision",
+            "action": "no-op",
+            "reward": 0.0,
+            "next_state_ref": "state:post-scale-noop",
+        },
+        # Noise: retired step + a step missing an action (unusable).
+        {
+            "id": "step-old",
+            "memory_type": "trajectory",
+            "status": "RETIRED",
+            "state_ref": "state:deploy-decision",
+            "action": "stale",
+            "reward": 0.5,
+        },
+        {
+            "id": "step-incomplete",
+            "memory_type": "trajectory",
+            "status": "ACTIVE",
+            "state_ref": "",
+            "action": None,
+            "reward": 0.1,
+        },
+    ]
+
+
+def test_grpo_spec_is_grpo_and_format_name() -> None:
+    spec = DistillationTargetSpec(base_model="m", method="GRPO", scopes=["trajectory"])
+    assert spec.method == "grpo"
+    assert spec.is_grpo is True
+    assert spec.is_preference is False
+    assert spec.format_name == "grpo"
+
+
+def test_grpo_renderer_groups_steps_by_state_ref_with_advantage() -> None:
+    from agent_utilities.graph.training_signals import batch_normalized_advantage
+
+    spec = DistillationTargetSpec(base_model="m", method="grpo", scopes=["trajectory"])
+    dist = MemoryWeightsDistiller(_MockEngine(_synthetic_trajectory_steps()), spec=spec)
+
+    # ``to_grpo_groups`` renders already-SELECTED nodes (status/scope filtering
+    # is ``select()``'s job — mirrors the SFT/DPO ``to_example`` contract).
+    selected = dist.select()
+    records, source_ids = dist.to_grpo_groups(selected)
+
+    assert len(records) == 2
+    deploy = next(r for r in records if r["prompt"] == "state:deploy-decision")
+    scale = next(r for r in records if r["prompt"] == "state:scale-decision")
+
+    # Valid GRPO shape: {prompt, samples:[{completion, reward, advantage}]}.
+    for record in (deploy, scale):
+        assert set(record.keys()) == {"prompt", "samples"}
+        for sample in record["samples"]:
+            assert set(sample.keys()) == {"completion", "reward", "advantage"}
+
+    assert {s["completion"] for s in deploy["samples"]} == {
+        "roll forward",
+        "roll back",
+        "wait and retry",
+    }
+    # The advantage matches the shared reward-spine primitive exactly.
+    rewards = [1.0, -1.0, 0.0]
+    expected_adv = batch_normalized_advantage(rewards)
+    got_adv = [s["advantage"] for s in deploy["samples"]]
+    assert got_adv == expected_adv
+
+    assert len(scale["samples"]) == 2
+    # Only steps that landed in an emitted record count as sources (RETIRED /
+    # incomplete steps are excluded upstream by ``select()``; this call renders
+    # the already-selected nodes directly, so nothing here is dropped).
+    assert set(source_ids) == {"step-a1", "step-a2", "step-a3", "step-b1", "step-b2"}
+
+
+def test_grpo_export_selects_trajectory_scope_and_builds_groups() -> None:
+    spec = DistillationTargetSpec(base_model="m", method="grpo", scopes=["trajectory"])
+    dist = MemoryWeightsDistiller(_MockEngine(_synthetic_trajectory_steps()), spec=spec)
+
+    corpus = dist.export()
+
+    assert isinstance(corpus, DistillationCorpus)
+    assert corpus.stats["format"] == "grpo"
+    # RETIRED + incomplete steps are excluded by select(); only the 5 ACTIVE,
+    # well-formed steps feed the two GRPO groups.
+    assert corpus.stats["selected"] == 5
+    assert len(corpus.examples) == 2
+    summary = corpus.summary()
+    assert summary["format"] == "grpo"
+    prompts = {ex["prompt"] for ex in corpus.examples}
+    assert prompts == {"state:deploy-decision", "state:scale-decision"}
+
+
+def test_grpo_export_feeds_build_training_dataset_kind_grpo() -> None:
+    """The renderer's output is exactly what ``build_training_dataset kind=grpo``
+    (data-science-mcp ``training_data.build_grpo_groups``) accepts as GROUPED
+    INPUT, and its shape survives that pass through unchanged (this repo owns
+    the same ``batch_normalized_advantage`` primitive data-science-mcp calls, so
+    the two are byte-shape-identical without a cross-repo import)."""
+    from agent_utilities.graph.training_signals import batch_normalized_advantage
+
+    spec = DistillationTargetSpec(base_model="m", method="grpo", scopes=["trajectory"])
+    dist = MemoryWeightsDistiller(_MockEngine(_synthetic_trajectory_steps()), spec=spec)
+    corpus = dist.export()
+
+    # Re-derive the equivalent of data-science-mcp's build_grpo_groups() input
+    # shape ({prompt, completions, rewards}) from our already-grouped records,
+    # and confirm re-normalizing produces the SAME advantages already attached
+    # — i.e. our records are a valid, already-normalized `kind=grpo` output.
+    for record in corpus.examples:
+        rewards = [s["reward"] for s in record["samples"]]
+        recomputed = batch_normalized_advantage(rewards)
+        assert [s["advantage"] for s in record["samples"]] == recomputed
+
+
+def test_grpo_handoff_routes_to_train_grpo_tool() -> None:
+    spec = DistillationTargetSpec(
+        base_model="m", method="grpo", adapter_rank=8, scopes=["trajectory"]
+    )
+    dist = MemoryWeightsDistiller(_MockEngine([]), spec=spec)
+    handoff = dist._build_handoff("inline:test")
+    assert handoff["workflow"]["task"]["corpus_format"] == ["prompt", "samples"]
+    assert handoff["tools"][1]["tool"] == "train_grpo"
+
+
 def test_kg_2_318_action_core_poll_reads_status_back(tmp_path, monkeypatch) -> None:
     """The ``poll_job_id`` param on the action-core reads a job's live state back —
     the status-poll surface both the MCP tool and its REST twin dispatch into."""

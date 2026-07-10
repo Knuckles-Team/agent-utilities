@@ -44,6 +44,8 @@ import os
 import socket
 import threading
 import time
+import uuid
+from collections.abc import Callable
 from typing import Any
 
 from agent_utilities.orchestration.agent_dispatch import (
@@ -64,6 +66,10 @@ CLAIM_TTL_S = 3600.0
 
 _GOAL_TERMINAL = ("completed", "failed", "cancelled", "paused")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
+#: Terminal statuses for a durable ``:AgentTask`` (C3/Phase 3a) — same three
+#: outcomes as ``_TASK_TERMINAL``; kept as its own tuple because the two node
+#: kinds are independent schemas that may diverge later.
+_AGENT_TASK_TERMINAL = ("completed", "failed", "cancelled")
 
 
 def worker_token() -> str:
@@ -237,6 +243,497 @@ def claim_orchestrator_task(
         },
     )
     return {"job_id": job_id, "description": row.get("d") or ""}
+
+
+def claim_agent_task(
+    engine: Any,
+    task_id: str,
+    *,
+    token: str | None = None,
+    now: float | None = None,
+    claim_ttl_s: float = CLAIM_TTL_S,
+) -> dict[str, Any] | None:
+    """Claim one durable ``:AgentTask`` node; return its payload, or ``None`` to skip.
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+    Generalizes :func:`claim_goal_run`/:func:`claim_orchestrator_task`
+    (same stale-claim-aware idempotency contract, same ``CLAIM_TTL_S`` /
+    :func:`worker_token`) from stamping ownership inline on the claimed node
+    to a dedicated ``:AgentLease`` node keyed by ``resource_id == task_id``
+    — the reusable claim primitive C3/Phase 3a introduces so any resource
+    (not only dispatch turns) can be leased identically. Terminal task
+    statuses are duplicate-delivery skips; a lease with a fresh
+    ``lease_expires_at`` is owned by a live worker (skip); a lease past
+    that deadline is re-claimed — the same crash-recovery path as the two
+    claims above, now over ``:AgentLease`` instead of an inline stamp.
+    """
+    token = token or worker_token()
+    now = now if now is not None else time.time()
+
+    rows = engine.query_cypher(
+        "MATCH (t:AgentTask {id: $id}) RETURN t.status AS status, "
+        "t.depends_on_task_ids AS depends_on_task_ids, t.dag_id AS dag_id, "
+        "t.checkpoint_id AS checkpoint_id",
+        {"id": task_id},
+    )
+    if not rows:
+        logger.warning("Dispatch envelope for unknown agent task %s skipped.", task_id)
+        return None
+    row = rows[0]
+    status = str(row.get("status") or "")
+    if status in _AGENT_TASK_TERMINAL:
+        logger.debug(
+            "Duplicate delivery of agent task %s (%s) skipped.", task_id, status
+        )
+        return None
+
+    lease_rows = engine.query_cypher(
+        "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
+        "l.lease_expires_at AS lease_expires_at ORDER BY l.acquired_at DESC LIMIT 1",
+        {"rid": task_id},
+    )
+    if lease_rows:
+        lease = lease_rows[0]
+        expires_at = float(lease.get("lease_expires_at") or 0.0)
+        if expires_at > now:
+            logger.debug(
+                "Agent task %s has a fresh lease (owner=%s, %.0fs remaining) — skipping.",
+                task_id,
+                lease.get("owner_token"),
+                expires_at - now,
+            )
+            return None
+        logger.warning(
+            "Re-claiming agent task %s: previous lease expired %.0fs ago.",
+            task_id,
+            now - expires_at,
+        )
+
+    lease_id = f"lease:{task_id}:{uuid.uuid4().hex[:8]}"
+    try:
+        engine.add_node(
+            lease_id,
+            "AgentLease",
+            properties={
+                "name": f"Lease: {task_id}",
+                "owner_token": token,
+                "resource_id": task_id,
+                "acquired_at": now,
+                "lease_expires_at": now + claim_ttl_s,
+            },
+        )
+        engine.add_node(task_id, "AgentTask", properties={"status": "running"})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Agent task %s claim write failed: %s", task_id, e)
+
+    return {
+        "task_id": task_id,
+        "lease_id": lease_id,
+        "dag_id": row.get("dag_id") or "",
+        "checkpoint_id": row.get("checkpoint_id"),
+        "depends_on_task_ids": list(row.get("depends_on_task_ids") or []),
+    }
+
+
+# ── capability grants (Codex Gap-6) ─────────────────────────────────────────
+#
+# The write/read pair completing the ``AUTHORIZED_FOR`` edge team-synthesis
+# (``orchestration/engine.py``) already queries but that, until now, nothing
+# in this codebase actually wrote. See ``AgentCapabilityGrantNode`` for the
+# reuse-audit against ``AgentIdentityNode.capabilities``/``AgentCapabilityNode``.
+
+
+def resolve_capability_grant(
+    engine: Any,
+    agent_id: str,
+    capability: str,
+    *,
+    now: float | None = None,
+) -> dict[str, Any] | None:
+    """Look up the most recent live (non-revoked, non-expired) grant for ``(agent_id, capability)``.
+
+    Best-effort — a query failure or no engine returns ``None`` (never
+    raises), same posture as every other durable-accounting read in this
+    codebase (e.g. ``action_policy._recent_decisions``).
+    """
+    if engine is None:
+        return None
+    now = now if now is not None else time.time()
+    try:
+        rows = engine.query_cypher(
+            "MATCH (a:Agent {agent_id: $agent_id})-[:AUTHORIZED_FOR]->"
+            "(g:AgentCapabilityGrant {capability: $capability}) "
+            "RETURN g.id AS id, g.issuer AS issuer, g.granted_at AS granted_at, "
+            "g.expires_at AS expires_at, g.revoked AS revoked "
+            "ORDER BY g.granted_at DESC LIMIT 1",
+            {"agent_id": agent_id, "capability": capability},
+        )
+    except Exception as e:  # noqa: BLE001 — resolution is best-effort
+        logger.debug(
+            "resolve_capability_grant: query failed for %s/%s: %s",
+            agent_id,
+            capability,
+            e,
+        )
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    if not row.get("id") or row.get("revoked"):
+        return None
+    expires_at = row.get("expires_at")
+    if expires_at is not None and float(expires_at) <= now:
+        return None
+    return dict(row)
+
+
+def grant_capability(
+    engine: Any,
+    agent_id: str,
+    capability: str,
+    *,
+    issuer: str = "system",
+    ttl_seconds: float | None = None,
+    now: float | None = None,
+) -> str | None:
+    """Issue and persist one ``:AgentCapabilityGrant``, linked ``Agent -[:AUTHORIZED_FOR]-> grant``.
+
+    Best-effort (never raises); returns the new grant id, or ``None`` on a
+    missing engine / write failure.
+    """
+    if engine is None:
+        return None
+    now = now if now is not None else time.time()
+    grant_id = f"capability_grant:{agent_id}:{capability}:{uuid.uuid4().hex[:8]}"
+    expires_at = (now + ttl_seconds) if ttl_seconds else None
+    try:
+        engine.add_node(
+            grant_id,
+            "AgentCapabilityGrant",
+            properties={
+                "name": f"Grant: {capability} -> {agent_id}",
+                "agent_id": agent_id,
+                "capability": capability,
+                "issuer": issuer,
+                "granted_at": now,
+                "expires_at": expires_at,
+                "revoked": False,
+            },
+        )
+        add_edge = getattr(engine, "add_edge", None)
+        if callable(add_edge):
+            add_edge(agent_id, grant_id, "AUTHORIZED_FOR")
+    except Exception as e:  # noqa: BLE001 — grant issuance is best-effort
+        logger.warning(
+            "grant_capability: write failed for %s/%s: %s", agent_id, capability, e
+        )
+        return None
+    return grant_id
+
+
+def _default_agent_task_executor(claim: dict[str, Any]) -> str:
+    """Structural default executor: acknowledges the claim, fabricates no result.
+
+    Concrete ``:AgentTask`` producers (e.g. ``TeamComposition.to_durable_task_dag()``
+    callers) should pass a real ``executor=`` callable to
+    :func:`execute_agent_task_turn`; this default exists purely so the
+    generalized DAG task type has a safe, honest fallback instead of raising —
+    the same no-fabrication discipline :class:`~agent_utilities.models.
+    evidence_bundle.EvidenceBundle` documents for the identical reason.
+    """
+    return f"acknowledged (no executor bound) for task {claim.get('task_id')}"
+
+
+def _write_agent_task_provenance(
+    engine: Any,
+    *,
+    task_id: str,
+    claim: dict[str, Any],
+    agent_id: str,
+    status: str,
+    result: Any,
+    evidence: Any,
+    policy_decision_node: Any,
+    grant_id: str | None,
+) -> None:
+    """Write the Observation/Claim/Action/AgentTrace provenance for one executed ``:AgentTask``.
+
+    Best-effort (mirrors ``action_policy._audit``'s posture: an audit-write
+    failure never unwinds the decision/execution that already happened).
+    """
+    if engine is None:
+        return
+    from agent_utilities.models.knowledge_graph import (
+        ActionNode,
+        AgentTraceNode,
+        ClaimNode,
+        ObservationNode,
+    )
+
+    obs_id = f"observation:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    claim_node_id = f"claim:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    action_id = f"action:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    trace_id = f"trace:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    lease_id = claim.get("lease_id", "")
+    confidence = getattr(evidence, "confidence", None)
+    confidence = confidence if confidence is not None else 1.0
+
+    try:
+        observation = ObservationNode(
+            id=obs_id,
+            name=f"Observation: {task_id}",
+            content=(
+                f"AgentTask {task_id} claimed via lease {lease_id} "
+                f"(dag={claim.get('dag_id') or 'n/a'})"
+            ),
+            confidence=confidence,
+            source="agent-dispatch",
+        )
+        obs_props = observation.model_dump(exclude={"id", "type"})
+        obs_props["task_id"] = task_id
+        obs_props["lease_id"] = lease_id
+        engine.add_node(obs_id, "Observation", properties=obs_props)
+
+        policy_claim = ClaimNode(
+            id=claim_node_id,
+            name=f"Claim: {task_id} policy decision",
+            claim_text=(
+                f"{policy_decision_node.kind}({policy_decision_node.target}) -> "
+                f"{policy_decision_node.decision} ({policy_decision_node.reason})"
+            ),
+            claim_type="decision",
+            is_verified=policy_decision_node.allowed,
+        )
+        claim_props = policy_claim.model_dump(exclude={"id", "type"})
+        claim_props["task_id"] = task_id
+        claim_props["policy_decision_id"] = policy_decision_node.id
+        engine.add_node(claim_node_id, "Claim", properties=claim_props)
+
+        action = ActionNode(
+            id=action_id,
+            name=f"Action: execute {task_id}",
+            action_type="agent_task.execute",
+            status=status,
+            result=str(result)[:4000],
+        )
+        action_props = action.model_dump(exclude={"id", "type"})
+        action_props["task_id"] = task_id
+        action_props["lease_id"] = lease_id
+        action_props["policy_decision_id"] = policy_decision_node.id
+        action_props["capability_grant_id"] = grant_id or ""
+        action_props["agent_id"] = agent_id
+        engine.add_node(action_id, "Action", properties=action_props)
+
+        trace = AgentTraceNode(
+            id=trace_id,
+            name=f"Trace: agent_task {task_id}",
+            agent=agent_id or None,
+            task_id=task_id,
+            status="ok" if status == "completed" else "error",
+            outcome=status,
+        )
+        trace_props = trace.model_dump(exclude={"id", "type"})
+        trace_props["lease_id"] = lease_id
+        engine.add_node(trace_id, "Trace", properties=trace_props)
+    except Exception as e:  # noqa: BLE001 — provenance is audit, never blocks the outcome
+        logger.warning("agent_task provenance write failed for %s: %s", task_id, e)
+
+
+def _finalize_agent_task(
+    engine: Any,
+    task_id: str,
+    claim: dict[str, Any],
+    *,
+    status: str,
+    reward: float,
+    feedback_text: str,
+) -> None:
+    """Writeback: the ``AgentOutcome`` (``OutcomeEvaluationNode``) + the ``:AgentTask`` status flip.
+
+    ``OutcomeEvaluationNode.lease_id``/``dag_id`` were already wired for
+    exactly this C3/Phase 3a purpose. The status flip is what
+    ``fire_ready_agent_tasks``/the fleet reconciler already polls to wake
+    ``TASK_DEPENDS_ON`` dependents (D23/C3) — untouched here, just triggered
+    by this write like every other ``:AgentTask`` status transition.
+    """
+    if engine is None:
+        return
+    from agent_utilities.models.knowledge_graph import OutcomeEvaluationNode
+
+    outcome_id = f"outcome:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    try:
+        outcome = OutcomeEvaluationNode(
+            id=outcome_id,
+            name=f"Outcome: {task_id}",
+            reward=reward,
+            feedback_text=feedback_text,
+            lease_id=claim.get("lease_id", ""),
+            dag_id=claim.get("dag_id", ""),
+        )
+        engine.add_node(
+            outcome_id, "OutcomeEvaluation", properties=outcome.model_dump(exclude={"id", "type"})
+        )
+        engine.add_node(task_id, "AgentTask", properties={"status": status})
+    except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
+        logger.warning("agent_task finalize failed for %s: %s", task_id, e)
+
+
+def execute_agent_task_turn(
+    engine: Any,
+    task_id: str,
+    *,
+    agent_id: str = "",
+    capability: str = "agent_task.execute",
+    executor: Callable[[dict[str, Any]], Any] | None = None,
+    evidence: Any = None,
+    token: str | None = None,
+    now: float | None = None,
+    claim_ttl_s: float = CLAIM_TTL_S,
+) -> str:
+    """Claim -> execute -> writeback ONE durable ``:AgentTask`` (Codex Gap-6 orchestration flow).
+
+    Generalizes :func:`execute_agent_turn`'s claim/execute/writeback shape
+    (see :func:`_execute_goal_turn`/:func:`_execute_orchestrator_turn`) to the
+    C3 durable ``:AgentTask`` DAG primitive, making the full chain explicit
+    end to end::
+
+        ClaimNext (claim_agent_task) -> EvidenceBundle (C1) -> policy frame
+        (AgentPolicyDecisionNode over action_policy.decide()) -> capability
+        grant (AgentCapabilityGrantNode over AUTHORIZED_FOR) -> execute ->
+        Observation/Claim/Action + AgentTrace + AgentOutcome
+        (OutcomeEvaluationNode, lease_id/dag_id already wired C3/Phase 3a) ->
+        :AgentTask status flip (already polled by fire_ready_agent_tasks /
+        the fleet reconciler to wake TASK_DEPENDS_ON dependents — D23/C3,
+        untouched here).
+
+    Outcomes: ``"skipped"`` (duplicate delivery / live claim elsewhere, from
+    :func:`claim_agent_task`), ``"blocked"`` (action_policy queued the action
+    for human approval — the task is left non-terminal so a fresh claim after
+    approval retries it), ``"denied"`` (action_policy forbade the action
+    outright — terminal), ``"completed"`` | ``"failed"`` (the executor ran;
+    writeback recorded). Never raises — an executor exception is caught and
+    recorded as a failed outcome, mirroring
+    :func:`_execute_orchestrator_turn`'s durable failure path.
+    """
+    token = token or worker_token()
+    now = now if now is not None else time.time()
+
+    claim = claim_agent_task(
+        engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+    )
+    if claim is None:
+        return "skipped"
+
+    # EvidenceBundle (C1) — minimal, honest envelope: what is known about this
+    # claim before executing. Callers with a real retrieval surface should
+    # pass `evidence=` instead of relying on this placeholder.
+    if evidence is None:
+        from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+        evidence = EvidenceBundle(
+            reasoning_trace=[{"step": "agent_task_claim", **claim}]
+        )
+
+    # Policy frame (AgentPolicyDecision) — the SAME action_policy gate every
+    # other autonomous mutating action goes through.
+    from agent_utilities.models.knowledge_graph import AgentPolicyDecisionNode
+    from agent_utilities.orchestration.action_policy import (
+        DECISION_QUEUE,
+        ActionRequest,
+        get_action_policy,
+    )
+
+    policy_decision = get_action_policy(engine).decide(
+        ActionRequest(
+            kind="agent_task.execute",
+            target=task_id,
+            source="agent-dispatch",
+            actor_id=agent_id,
+        )
+    )
+    policy_decision_node = AgentPolicyDecisionNode.from_action_decision(
+        policy_decision, agent_id=agent_id
+    )
+
+    if not policy_decision.allowed:
+        status = "blocked" if policy_decision.decision == DECISION_QUEUE else "failed"
+        result = (
+            f"policy {policy_decision.decision} ({policy_decision.tier}): "
+            f"{policy_decision.reason}"
+        )
+        _write_agent_task_provenance(
+            engine,
+            task_id=task_id,
+            claim=claim,
+            agent_id=agent_id,
+            status=status,
+            result=result,
+            evidence=evidence,
+            policy_decision_node=policy_decision_node,
+            grant_id=None,
+        )
+        _finalize_agent_task(
+            engine,
+            task_id,
+            claim,
+            status=status,
+            reward=0.0,
+            feedback_text=result[:2000],
+        )
+        return "blocked" if status == "blocked" else "denied"
+
+    # Capability grant — resolve an existing grant, or self-issue a bootstrap
+    # one so there is always SOME AUTHORIZED_FOR audit trail for the
+    # execution (advisory today: action_policy above is the hard gate; this
+    # is the per-grant record team-synthesis already reads).
+    grant_id: str | None = None
+    if agent_id:
+        existing = resolve_capability_grant(engine, agent_id, capability, now=now)
+        grant_id = existing.get("id") if existing else None
+        if grant_id is None:
+            grant_id = grant_capability(
+                engine,
+                agent_id,
+                capability,
+                issuer="agent-dispatch",
+                ttl_seconds=claim_ttl_s,
+                now=now,
+            )
+
+    # Execute — pluggable body; the default fabricates no result (mirrors
+    # EvidenceBundle's no-fabrication contract). Concrete task kinds plug
+    # their own executor in, same shape as _execute_goal_turn/
+    # _execute_orchestrator_turn.
+    try:
+        result = (executor or _default_agent_task_executor)(claim)
+        status = "completed"
+        reward = 1.0
+    except Exception as e:  # noqa: BLE001 — durably record, never raise
+        result = str(e)
+        status = "failed"
+        reward = 0.0
+
+    _write_agent_task_provenance(
+        engine,
+        task_id=task_id,
+        claim=claim,
+        agent_id=agent_id,
+        status=status,
+        result=result,
+        evidence=evidence,
+        policy_decision_node=policy_decision_node,
+        grant_id=grant_id,
+    )
+    _finalize_agent_task(
+        engine,
+        task_id,
+        claim,
+        status=status,
+        reward=reward,
+        feedback_text=str(result)[:2000],
+    )
+    return status
 
 
 # ── execution (the existing bodies, relocated) ─────────────────────────────

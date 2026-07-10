@@ -89,6 +89,13 @@ _DEFAULT_SCOPES: tuple[str, ...] = ("procedural", "semantic")
 # Methods that consume a preference (chosen/rejected) corpus rather than SFT.
 _PREF_METHODS = frozenset({"dpo", "orpo", "kto", "preference"})
 
+# GRPO consumes reward-tagged completion GROUPS rather than single examples.
+_GRPO_METHODS = frozenset({"grpo"})
+
+# The trajectory scope: EG-099 ``:Trajectory``/``:Step`` reward-sequence nodes
+# (state_ref/action/reward/next_state_ref), the GRPO source tier.
+_TRAJECTORY_SCOPE = "trajectory"
+
 # Default instruction synthesized for a memory node that carries only prose.
 _DEFAULT_INSTRUCTION_TEMPLATE = (
     "Recall the consolidated {memory_type} knowledge about {topic}."
@@ -103,6 +110,7 @@ DATA_SCIENCE_MCP_CONTRACT: dict[str, Any] = {
     "corpus_format": {
         "sft": ["prompt", "completion"],
         "dpo": ["prompt", "chosen", "rejected"],
+        "grpo": ["prompt", "samples"],
     },
     # Preferred: drive the whole DAG (curate → train → eval → register) as one call.
     "workflow": {
@@ -113,7 +121,7 @@ DATA_SCIENCE_MCP_CONTRACT: dict[str, Any] = {
     # Or call the data-science-mcp tools directly (plan-by-default, execute=true):
     "mcp_tools": {
         "build_dataset": "build_training_dataset",
-        "train": {"sft": "train_sft", "dpo": "train_dpo"},
+        "train": {"sft": "train_sft", "dpo": "train_dpo", "grpo": "train_grpo"},
         "merge_adapters": "merge_adapters_ties",
         "register_checkpoint": "register_checkpoint",
     },
@@ -214,7 +222,7 @@ class DistillationTargetSpec:
     """
 
     base_model: str = ""
-    method: str = "sft"  # "sft" | "dpo" (preference)
+    method: str = "sft"  # "sft" | "dpo" (preference) | "grpo" (reward groups)
     adapter_type: str = "lora"
     adapter_rank: int = 16
     adapter_alpha: int = 32
@@ -239,6 +247,19 @@ class DistillationTargetSpec:
     @property
     def is_preference(self) -> bool:
         return self.method in _PREF_METHODS
+
+    @property
+    def is_grpo(self) -> bool:
+        return self.method in _GRPO_METHODS
+
+    @property
+    def format_name(self) -> str:
+        """The corpus-shape name (``"grpo"`` | ``"preference"`` | ``"sft"``)."""
+        if self.is_grpo:
+            return "grpo"
+        if self.is_preference:
+            return "preference"
+        return "sft"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -312,7 +333,7 @@ class DistillationCorpus:
         return {
             "example_count": len(self.examples),
             "source_count": len(self.source_ids),
-            "format": "preference" if self.spec.is_preference else "sft",
+            "format": self.spec.format_name,
             "checksum": self.checksum,
             "spec": self.spec.to_dict(),
             "stats": dict(self.stats),
@@ -409,10 +430,13 @@ class MemoryWeightsDistiller:
         """Return the in-scope memory nodes to distil, deterministically ordered.
 
         A node is in scope (CONCEPT:AU-KG.memory.memory-weights-distillation-export) when its ``memory_type`` is one of
-        ``spec.scopes``, its status is ACTIVE (not retired/merged/…), it carries
-        content, it clears the trust floor and the optional time-window, and — if
-        ``target_entities`` is set — its ``target_entity``/``category`` matches.
-        Ordered by id and capped at ``spec.max_examples`` so the export is stable.
+        ``spec.scopes``, its status is ACTIVE (not retired/merged/…), it carries a
+        renderable payload, it clears the trust floor and the optional
+        time-window, and — if ``target_entities`` is set — its
+        ``target_entity``/``category`` matches. A "renderable payload" is prose
+        content (SFT/DPO) OR, for the ``grpo`` method, an EG-099 trajectory
+        ``:Step`` shape (``state_ref`` + ``action``). Ordered by id and capped at
+        ``spec.max_examples`` so the export is stable.
         """
         now = now or datetime.now(UTC)
         if nodes is None:
@@ -427,7 +451,10 @@ class MemoryWeightsDistiller:
                 continue
             if str(n.get("status", "ACTIVE")).upper() in _INACTIVE_STATUSES:
                 continue
-            if not self._content(n):
+            if self.spec.is_grpo:
+                if n.get("state_ref") is None or n.get("action") is None:
+                    continue
+            elif not self._content(n):
                 continue
             try:
                 if float(n.get("trust_score", 1.0)) < self.spec.min_trust:
@@ -514,6 +541,76 @@ class MemoryWeightsDistiller:
             "source_id": str(node.get("id", "")),
         }
 
+    @staticmethod
+    def _group_trajectory_steps(
+        nodes: list[dict[str, Any]],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Group EG-099 ``:Step`` nodes by ``state_ref`` (insertion-ordered dict).
+
+        A "step" is any node carrying both ``state_ref`` (the GRPO grouping key —
+        the state a completion was rolled out from) and ``action`` (the sampled
+        completion). Nodes missing either are skipped (not a renderable step).
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for n in nodes:
+            state_ref = str(n.get("state_ref") or "").strip()
+            if not state_ref or n.get("action") is None:
+                continue
+            groups.setdefault(state_ref, []).append(n)
+        return groups
+
+    def to_grpo_groups(
+        self, nodes: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Render EG-099 ``:Trajectory``/``:Step`` reward sequences into GRPO records.
+
+        Steps are grouped by ``state_ref`` — the trajectory-memory analogue of a
+        GRPO "prompt": multiple sampled ``action`` completions (and their
+        ``reward``) rolled out from the SAME state. Each group becomes one record
+        ``{prompt, samples:[{completion, reward, advantage}, ...]}`` with the
+        group-normalized advantage computed by the same reward-spine primitive
+        (:func:`agent_utilities.graph.training_signals.batch_normalized_advantage`)
+        ``data-science-mcp``'s ``training_data.build_grpo_groups`` uses — so a
+        record produced here is byte-shape-identical to what
+        ``build_training_dataset kind=grpo`` emits, and can be handed straight to
+        ``train_grpo`` unchanged.
+
+        Groups are ordered by first-seen ``state_ref`` (deterministic); a group
+        whose rewards don't all parse as ``float`` is dropped rather than raising
+        (defensive against malformed trajectory data).
+
+        Returns:
+            ``(records, source_ids)`` — the GRPO records, and the ``id``s of the
+            step nodes that actually landed in an emitted record.
+        """
+        from agent_utilities.graph.training_signals import batch_normalized_advantage
+
+        groups = self._group_trajectory_steps(nodes)
+        records: list[dict[str, Any]] = []
+        source_ids: list[str] = []
+        for state_ref, steps in groups.items():
+            try:
+                rewards = [float(s.get("reward", 0.0)) for s in steps]
+            except (TypeError, ValueError):
+                continue
+            completions = [str(s.get("action", "")) for s in steps]
+            advantages = batch_normalized_advantage(rewards)
+            records.append(
+                {
+                    "prompt": state_ref,
+                    "samples": [
+                        {
+                            "completion": completions[i],
+                            "reward": rewards[i],
+                            "advantage": advantages[i],
+                        }
+                        for i in range(len(completions))
+                    ],
+                }
+            )
+            source_ids.extend(str(s.get("id", "")) for s in steps if s.get("id"))
+        return records, source_ids
+
     # ── Export ─────────────────────────────────────────────────────────────────
     def export(
         self,
@@ -523,9 +620,27 @@ class MemoryWeightsDistiller:
         """Produce a :class:`DistillationCorpus` from the in-scope memory."""
         now = now or datetime.now(UTC)
         selected = self.select(nodes, now)
-        examples: list[dict[str, Any]] = []
-        source_ids: list[str] = []
         by_scope: dict[str, int] = {}
+        for n in selected:
+            scope = str(n.get("memory_type", "")).lower()
+            by_scope[scope] = by_scope.get(scope, 0) + 1
+
+        if self.spec.is_grpo:
+            # GRPO groups MULTIPLE steps (same state_ref) into one record, so the
+            # example count is per-GROUP, not per-node.
+            examples, source_ids = self.to_grpo_groups(selected)
+            stats = {
+                "selected": len(selected),
+                "examples": len(examples),
+                "by_scope": by_scope,
+                "format": self.spec.format_name,
+            }
+            return DistillationCorpus(
+                spec=self.spec, examples=examples, source_ids=source_ids, stats=stats
+            )
+
+        examples = []
+        source_ids = []
         for n in selected:
             ex = self.to_example(n)
             if ex is None:
@@ -534,13 +649,11 @@ class MemoryWeightsDistiller:
             sid = str(n.get("id", ""))
             if sid:
                 source_ids.append(sid)
-            scope = str(n.get("memory_type", "")).lower()
-            by_scope[scope] = by_scope.get(scope, 0) + 1
         stats = {
             "selected": len(selected),
             "examples": len(examples),
             "by_scope": by_scope,
-            "format": "preference" if self.spec.is_preference else "sft",
+            "format": self.spec.format_name,
         }
         return DistillationCorpus(
             spec=self.spec, examples=examples, source_ids=source_ids, stats=stats
@@ -555,17 +668,16 @@ class MemoryWeightsDistiller:
         ref + spec, plus the equivalent direct-tool sequence. The actual run is the
         integration point (GPU-gated, executes in data-science-mcp).
         """
+        contract_key = (
+            "grpo" if self.spec.is_grpo else "dpo" if self.spec.is_preference else "sft"
+        )
         task = {
             "objective": "memory_to_weights_lora",
             "corpus_ref": corpus_ref,
-            "corpus_format": DATA_SCIENCE_MCP_CONTRACT["corpus_format"][
-                "dpo" if self.spec.is_preference else "sft"
-            ],
+            "corpus_format": DATA_SCIENCE_MCP_CONTRACT["corpus_format"][contract_key],
             "spec": self.spec.to_dict(),
         }
-        train_tool = DATA_SCIENCE_MCP_CONTRACT["mcp_tools"]["train"][
-            "dpo" if self.spec.is_preference else "sft"
-        ]
+        train_tool = DATA_SCIENCE_MCP_CONTRACT["mcp_tools"]["train"][contract_key]
         return {
             "contract": "AU-KG.memory.memory-weights-distillation-export",
             "server": DATA_SCIENCE_MCP_CONTRACT["server"],

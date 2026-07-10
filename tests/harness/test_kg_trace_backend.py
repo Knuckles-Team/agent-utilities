@@ -86,6 +86,42 @@ def test_readback_summary_and_scores():
     assert missing["error"] == "not_found"
 
 
+def test_emit_trace_rolls_up_tool_calls_from_spans():
+    """Codex Gap-6: TraceNode.tool_calls (the 'AgentTrace' fields) rolls up from
+    ``span_kind == "tool"`` spans on the batch ``emit_trace`` path, mirroring the
+    existing total_cost_usd/input_tokens/output_tokens rollups."""
+    be = KGTraceBackend()
+    trace = TraceNode(id="trace:tool-rollup", name="run")
+    spans = [
+        SpanNode(id="s1", name="a", trace_id="trace:tool-rollup", span_kind="tool"),
+        SpanNode(id="s2", name="b", trace_id="trace:tool-rollup", span_kind="tool"),
+        SpanNode(id="s3", name="c", trace_id="trace:tool-rollup", span_kind="retrieval"),
+    ]
+    be.emit_trace(trace, spans=spans)
+    assert trace.tool_calls == 2
+
+
+def test_record_event_rolls_up_tool_calls_incrementally():
+    """Same rollup, but via the incremental record_event path (the decorator sink)."""
+    be = KGTraceBackend()
+    be.record_event(trace_id="trace:incr", span_id="root", name="root", is_root=True)
+    be.record_event(
+        trace_id="trace:incr", span_id="tool:1", name="search", is_root=False, kind="tool"
+    )
+    be.record_event(
+        trace_id="trace:incr", span_id="tool:2", name="fetch", is_root=False, kind="tool"
+    )
+    be.record_event(
+        trace_id="trace:incr",
+        span_id="span:1",
+        name="retrieve",
+        is_root=False,
+        kind="retrieval",
+    )
+    entry = be.get_trace("trace:incr")
+    assert entry["trace"].tool_calls == 2
+
+
 def test_kg_is_the_default_backend_when_no_vendor_configured(monkeypatch):
     # No Langfuse/OTel/trace_dir → KG-native is the default sink (always-on, OS-5.68).
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-10 — Epistemic Substrate (control plane)
+
+Control-plane half of the coordinated `epistemic-graph 2.16.0` / `agent-utilities 1.12.0`
+epistemic-substrate release. (Note: the 1.7.0–1.11.0 line shipped between 1.6.0 and this
+entry — data-mining/KAN, dep-security, git-platform review, skill standards — see git tags.)
+
+### Added
+- **`EvidenceBundle`** — unified LLM-facing return envelope (answer/claims/evidence-spans/
+  source-authority/contradictions/confidence/freshness/policy-exclusions/reasoning-trace/
+  next-actions) wrapping `CodeContextAnswer`/`RagResult`/`nl_query`; opt-in `envelope=bundle`
+  on `graph_ask`/`nl_query`/`graph_analyze`, byte-identical `raw` default; `from_engine_wire`
+  maps the engine `KnowledgeSet`.
+- **Belief-revision** (propose-only confidence propagation + contradiction surfacing, engine-
+  delegated with Python fallback).
+- **Graph-native Agent-OS objects** — `AgentLease`/`AgentTask`/`AgentMailbox` +
+  `AgentCapabilityGrant`/`AgentPolicyDecision`/`AgentTrace`; `claim_agent_task` (engine
+  `ClaimNext` backend + KG fallback), `TeamComposition.to_durable_task_dag`, CDC-fired deps,
+  and the full claim→EvidenceBundle→policy→execute→Observation/Claim/Action/Outcome flow.
+- **Insight Engine closed loop** — Mine→CandidateInsight→EvidenceBundle→Claim→Validation→
+  Action reusing the governance stack; default `approval_required`, opt-in autonomy tier;
+  **closed-loop trace mining** (tool-sequence failure patterns → governed routing updates).
+- **Connector Ontology Manifest compiler + fleet rollout** — deterministic zero-LLM generator
+  across 66 connector repos; **URDNA2015-canonicalized, HMAC-signed, `ontology.lock`-pinned
+  supply-chain integrity** enforced fail-closed (per-repo pre-commit + CI + `apply_manifest`
+  + engine ICV); auto SHACL + RLS/ABAC.
+- **OAuth2 client-credentials** token lifecycle for LLM + embedding + graph-os endpoints
+  (`token_url`/`client_id`/`client_secret`/`scope`+`audience`, proactive renewal, secret-ref
+  resolution, bearer injection — never plaintext, never logged).
+- Memory→weights trajectory→GRPO renderer + hardened distill path.
+
 ## [1.6.0] - 2026-07-05
 
 ### Added — Claude Code file-based memory → KG ingestion (CONCEPT:AU-KG.ingest.claude-memory-connector)
