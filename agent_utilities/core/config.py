@@ -313,12 +313,43 @@ def _total_model_capacity(parallel_instances: int, max_parallel_calls: int) -> i
     return max(1, int(parallel_instances or 1) * int(max_parallel_calls or 1))
 
 
+def _validate_oauth2_block(oauth2: dict[str, Any], owner_label: str) -> dict[str, Any]:
+    """Validate + normalize a raw ``oauth2`` dict via the strict submodel (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle).
+
+    Imported lazily (function-body, not module-top) to avoid a core↔security import cycle:
+    ``agent_utilities.security`` (via its package ``__init__``) imports several submodules that
+    themselves import ``agent_utilities.core.config`` — safe once this module has finished
+    defining ``setting`` (near the top), but not safe to import eagerly at THIS module's own
+    top-level. This import only actually fires when a config carries a non-empty ``oauth2``
+    block, which is never true during this module's own class-definition phase.
+
+    Raises ``ValueError`` (via pydantic) if the shape is wrong or ``client_secret`` is a
+    plaintext value rather than a secret-reference URI.
+    """
+    from agent_utilities.security.oauth_client_credentials import (
+        OAuth2ClientCredentialsConfig,
+    )
+
+    try:
+        return OAuth2ClientCredentialsConfig.model_validate(oauth2).model_dump()
+    except Exception as exc:  # re-raise with the owning model/id for a diagnosable error
+        raise ValueError(f"{owner_label}: invalid oauth2 block: {exc}") from exc
+
+
 class ChatModelConfig(BaseModel):
     id: str
     provider: str
     intelligence_level: str = "normal"
     base_url: str | None = None
     api_key: str | None = None
+    oauth2: dict[str, Any] | None = None
+    """OAuth2 ``client_credentials`` block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) — machine-to-
+    machine auth for enterprise OpenAI-compatible/Azure endpoints that require a short-lived
+    minted bearer instead of a static key. Mutually exclusive with :pyattr:`api_key` (validated
+    below). Shape: ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``
+    (``token_url``/``client_id``/``client_secret``[secret-ref]/``scope``/``audience``/``extra_params``).
+    Stored as a plain dict here (not the strict submodel) to avoid a core↔security import cycle;
+    validated lazily below and by every consumer via ``httpx_auth_from_config``."""
     supports_json: bool = False
     vision: bool = False
     reasoning: bool = False
@@ -353,6 +384,20 @@ class ChatModelConfig(BaseModel):
     can_route: bool = False
     can_kg: bool = False
 
+    @model_validator(mode="after")
+    def _validate_auth_mode(self) -> "ChatModelConfig":
+        """``api_key`` and ``oauth2`` are mutually exclusive (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)."""
+        if self.api_key and self.oauth2:
+            raise ValueError(
+                f"ChatModelConfig {self.id!r}: 'api_key' and 'oauth2' are mutually exclusive — "
+                "configure exactly one authentication mode."
+            )
+        if self.oauth2:
+            self.oauth2 = _validate_oauth2_block(
+                self.oauth2, f"ChatModelConfig {self.id!r}"
+            )
+        return self
+
     @property
     def total_capacity(self) -> int:
         """Total in-flight calls this model can serve = instances × per-instance.
@@ -368,6 +413,9 @@ class EmbeddingModelConfig(BaseModel):
     provider: str
     base_url: str | None = None
     api_key: str | None = None
+    oauth2: dict[str, Any] | None = None
+    """OAuth2 ``client_credentials`` block — same shape/semantics as :pyattr:`ChatModelConfig.oauth2`
+    (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle); mutually exclusive with :pyattr:`api_key`."""
     parallel_instances: int = 1
     """Number of parallel vLLM instances behind this embedding model's
     ``base_url``. Total parallel-call capacity is ``parallel_instances *
@@ -402,6 +450,20 @@ class EmbeddingModelConfig(BaseModel):
     (e.g. ``vllm-embed.arpa`` ``gpu_group="gb10"``) so fallback embeds share the
     GB10's joint budget with the generator and can never OOM it. A nested
     ``fallback`` here is ignored (single-level failover)."""
+
+    @model_validator(mode="after")
+    def _validate_auth_mode(self) -> "EmbeddingModelConfig":
+        """``api_key`` and ``oauth2`` are mutually exclusive (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)."""
+        if self.api_key and self.oauth2:
+            raise ValueError(
+                f"EmbeddingModelConfig {self.id!r}: 'api_key' and 'oauth2' are mutually "
+                "exclusive — configure exactly one authentication mode."
+            )
+        if self.oauth2:
+            self.oauth2 = _validate_oauth2_block(
+                self.oauth2, f"EmbeddingModelConfig {self.id!r}"
+            )
+        return self
 
     @property
     def total_capacity(self) -> int:

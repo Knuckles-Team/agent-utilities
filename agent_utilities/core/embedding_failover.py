@@ -68,6 +68,7 @@ class EmbeddingEndpoint:
     provider: str | None
     base_url: str | None
     api_key: str | None
+    oauth2: dict[str, object] | None
     gpu_group: str | None
     is_fallback: bool
 
@@ -129,6 +130,7 @@ def _endpoint_from_cfg(
         provider=getattr(cfg, "provider", None),
         base_url=getattr(cfg, "base_url", None),
         api_key=getattr(cfg, "api_key", None),
+        oauth2=getattr(cfg, "oauth2", None),
         gpu_group=gpu_group,
         is_fallback=is_fallback,
     )
@@ -158,6 +160,7 @@ def active_embedding_endpoint() -> EmbeddingEndpoint:
             provider=None,
             base_url=None,
             api_key=None,
+            oauth2=None,
             gpu_group=None,
             is_fallback=False,
         )

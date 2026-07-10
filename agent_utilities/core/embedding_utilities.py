@@ -8,6 +8,7 @@ embedding models. It supports various providers including OpenAI, Ollama,
 HuggingFace, and local models, with robust environment-based configuration.
 """
 
+import json
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +68,7 @@ def create_embedding_model(
     model: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
+    oauth2: dict[str, Any] | None = None,
     ssl_verify: bool = to_boolean(string=setting("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
@@ -78,6 +80,9 @@ def create_embedding_model(
         model: Specific model identifier.
         base_url: Base URL for provider API requests.
         api_key: Optional API key for authentication.
+        oauth2: OAuth2 client_credentials block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)
+            — mutually exclusive with ``api_key``. See
+            ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``.
         ssl_verify: Whether to verify SSL certificates.
         timeout: Request timeout in seconds.
 
@@ -86,9 +91,15 @@ def create_embedding_model(
 
     Raises:
         ImportError: If a requested provider's dependency is missing.
-        ValueError: If an unsupported provider is specified.
+        ValueError: If an unsupported provider is specified, or if both ``api_key`` and
+            ``oauth2`` are supplied.
 
     """
+    if oauth2 and api_key:
+        raise ValueError(
+            "create_embedding_model: 'api_key' and 'oauth2' are mutually exclusive — "
+            "pass exactly one."
+        )
     # Resolve defaults from the model registry. When the caller pins nothing
     # explicit (the "give me the default embedder" call — make_embed_fn and every
     # enrichment/query embed), resolve the ACTIVE failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active)
@@ -103,6 +114,7 @@ def create_embedding_model(
     _active_model = _embed_cfg.id if _embed_cfg else None
     _active_base_url = _embed_cfg.base_url if _embed_cfg else None
     _active_api_key = _embed_cfg.api_key if _embed_cfg else None
+    _active_oauth2 = _embed_cfg.oauth2 if _embed_cfg else None
     if provider is None and model is None and base_url is None:
         try:
             from agent_utilities.core.embedding_failover import (
@@ -114,6 +126,7 @@ def create_embedding_model(
             _active_model = _ep.model_id or _active_model
             _active_base_url = _ep.base_url or _active_base_url
             _active_api_key = _ep.api_key or _active_api_key
+            _active_oauth2 = _ep.oauth2 or _active_oauth2
         except Exception:  # noqa: BLE001 — failover is best-effort; keep static defaults
             pass
     provider_str = (
@@ -133,6 +146,12 @@ def create_embedding_model(
     api_key_str = (
         api_key or _active_api_key or (_chat_cfg.api_key if _chat_cfg else None)
     )
+    # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — an explicit call-site oauth2
+    # wins; else the resolved (possibly failed-over) embedding endpoint's oauth2 block; else the
+    # default chat model's, mirroring the api_key_str fallback chain above.
+    oauth2_val: dict[str, Any] | None = (
+        oauth2 or _active_oauth2 or (_chat_cfg.oauth2 if _chat_cfg else None)
+    )
 
     if provider_str == "mock":
         raise ValueError(
@@ -141,18 +160,22 @@ def create_embedding_model(
 
     # OpenAI's LM-Studio/local fallback key is resolved here so it participates in
     # the cache key (otherwise an empty-key call and a "Test-1234"-key call would
-    # build two clients).
+    # build two clients). The openai SDK requires a non-empty ``api_key`` string at
+    # construction time even when oauth2 is configured — it is a harmless placeholder in
+    # that case, immediately overwritten on every request by the oauth2 httpx.Auth below.
     if provider_str == "openai" and not api_key_str:
-        api_key_str = config.openai_api_key or "Test-1234"
+        api_key_str = "oauth2-managed" if oauth2_val else (config.openai_api_key or "Test-1234")
 
     # CONCEPT:AU-KG.compute.config-keyed-embedder-client — return the cached client for this exact resolved config
     # instead of constructing a new one on every call. Key on every input that
     # changes the client's identity/behaviour.
+    oauth2_key = json.dumps(oauth2_val, sort_keys=True) if oauth2_val else None
     cache_key: tuple[Any, ...] = (
         provider_str,
         model_str,
         base_url_str,
         api_key_str,
+        oauth2_key,
         bool(ssl_verify),
         float(timeout),
     )
@@ -169,6 +192,7 @@ def create_embedding_model(
             model_str=model_str,
             base_url_str=base_url_str,
             api_key_str=api_key_str,
+            oauth2_cfg=oauth2_val,
             ssl_verify=ssl_verify,
             timeout=timeout,
             provider=provider,
@@ -186,6 +210,7 @@ def _build_embedding_model(
     ssl_verify: bool,
     timeout: float,
     provider: str | None,
+    oauth2_cfg: dict[str, Any] | None = None,
 ) -> "BaseEmbedding":
     """Construct a fresh embedding client (the un-cached path, CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
@@ -193,19 +218,43 @@ def _build_embedding_model(
     construction site. Logs once per distinct config because the caller only
     invokes it on a cache miss.
     """
+    # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — mint/attach an OAuth2
+    # client-credentials bearer instead of relying on the static api_key baked into the client.
+    # ``None`` when oauth2 is not configured (zero behaviour change).
+    oauth2_auth = None
+    if oauth2_cfg:
+        from agent_utilities.security.oauth_client_credentials import (
+            httpx_auth_from_config,
+        )
+
+        oauth2_auth = httpx_auth_from_config(oauth2_cfg)
+
     # TLS verification is ON unless the deployment's SSL_VERIFY flag (or an
     # explicit ssl_verify=False argument) opts out — the canonical factory
-    # keeps verify=True the default; insecure stays a per-call decision.
+    # keeps verify=True the default; insecure stays a per-call decision. An oauth2-configured
+    # endpoint always gets a real client (sync + async) so the bearer is injected on every
+    # request regardless of the ssl_verify setting.
     http_client: httpx.Client | None = None
-    if not ssl_verify:
-        http_client = create_http_client(verify=False, timeout=timeout)  # nosec B501
+    async_http_client: httpx.AsyncClient | None = None
+    if not ssl_verify or oauth2_auth is not None:
+        http_client = create_http_client(
+            verify=ssl_verify, timeout=timeout, auth=oauth2_auth
+        )  # nosec B501
+        if oauth2_auth is not None:
+            from agent_utilities.core.http_client import create_async_http_client
+
+            async_http_client = create_async_http_client(
+                verify=ssl_verify, timeout=timeout, auth=oauth2_auth
+            )
 
     if provider_str == "openai":
         import sys
 
         from llama_index.embeddings.openai import OpenAIEmbedding
 
-        # One line per distinct embedder config now (cache-miss only), not per call.
+        # One line per distinct embedder config now (cache-miss only), not per call. Never logs
+        # the oauth2 bearer/secret — only the static api_key placeholder, which is a harmless
+        # sentinel ("Test-1234"/"EMPTY"-style) when oauth2 is configured (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle).
         print(f"Creating OpenAIEmbedding with key={api_key_str}", file=sys.stderr)
 
         return OpenAIEmbedding(
@@ -214,6 +263,7 @@ def _build_embedding_model(
             api_base=base_url_str,
             timeout=timeout,
             http_client=http_client,
+            async_http_client=async_http_client,
         )
 
     elif provider_str == "huggingface":
