@@ -426,3 +426,25 @@ def test_use_engine_prefers_live_surface_when_present(
     revision = BeliefRevisionPass(use_engine=True).check(belief, [], [])
     assert revision.new_confidence == pytest.approx(0.42)
     assert revision.reasoning_trace == [{"role": "summary", "new_confidence": 0.42}]
+
+
+def test_use_engine_probes_multiple_candidate_surface_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D12: the delegation seam probes several plausible engine surface namings
+    (not just one), so it lights up regardless of which name a given engine
+    build exposes E2's confidence-propagation op under."""
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+
+    captured: dict = {}
+
+    def fake_invoke(*, surface, action, graph, candidates, params):
+        captured["candidates"] = candidates
+        return json.dumps({"surface": surface, "action": action, "error": "degraded"})
+
+    monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
+
+    belief = _belief("b1", "x is true", 0.5)
+    BeliefRevisionPass(use_engine=True).check(belief, [], [])
+    assert len(captured["candidates"]) > 1
+    assert ("epistemic", "propagate") in captured["candidates"]
