@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
     from .graph import GraphPlan
 
 
@@ -149,6 +151,20 @@ class RegistryNodeType(StrEnum):
     AGENT_PROCESS = "agent_process"
     AGENT_IDENTITY = "agent_identity"
     SPECIALIST_PACKAGE = "specialist_package"
+    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — engine-independent
+    # KG-native lease/task-DAG/mailbox primitives; ClaimNext (Phase 3b) is a
+    # separate, later, engine-gated cutover and reuses these same node types.
+    AGENT_LEASE = "agent_lease"
+    AGENT_TASK = "agent_task"
+    AGENT_MAILBOX = "agent_mailbox"
+    # Codex Gap-6 Agent-OS Objects — named objects over EXISTING C3/governance/
+    # observability mechanisms (the `AUTHORIZED_FOR` capability edge and
+    # `action_policy.decide()`'s `ActionDecision` audit, respectively); the
+    # reuse-audit found the third named object (AgentTrace) already fully
+    # covered by `TraceNode` (aliased below as `AgentTraceNode`, not a new
+    # type) — see tests/unit/knowledge_graph/test_agentos_gap6_objects.py.
+    AGENT_CAPABILITY_GRANT = "agent_capability_grant"
+    AGENT_POLICY_DECISION = "agent_policy_decision"
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
@@ -1431,6 +1447,28 @@ class TraceNode(RegistryNode):
     # Root input/output text (truncated) — what online-scoring/regression judges against.
     input: str = ""
     output: str = ""
+    # Codex Gap-6 — an "AgentTrace" (agent run trace: task_id/spans/tool_calls/
+    # outcome) IS this TraceNode; these three fields are the extension that
+    # closes the reuse-audit gap rather than introducing a second node type.
+    task_id: str | None = Field(
+        default=None,
+        description="AgentTaskNode id this run trace executed, if any (Codex Gap-6)",
+    )
+    tool_calls: int = Field(
+        default=0,
+        description="Count of child tool-kind spans (rolled up as spans are recorded, mirrors total_cost_usd/input_tokens/output_tokens)",
+    )
+    outcome: str | None = Field(
+        default=None,
+        description="Terminal outcome of the traced run: completed | failed | cancelled | blocked, if known",
+    )
+
+
+#: Codex Gap-6 named alias — the "AgentTrace" object over the existing TRACE/
+#: SPAN/GENERATION observability subgraph is this SAME ``TraceNode`` (same
+#: ``Trace`` graph label, same ``HAS_SPAN``/``HAS_GENERATION`` children); this
+#: is a documented alias, not a duplicate node type.
+AgentTraceNode = TraceNode
 
 
 class SpanNode(RegistryNode):
@@ -1938,6 +1976,16 @@ class OutcomeEvaluationNode(RegistryNode):
     reward: float
     success_criteria_met: list[str] = Field(default_factory=list)
     feedback_text: str
+    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — links an
+    # outcome back to the durable claim/DAG it was evaluated under.
+    lease_id: str = Field(
+        default="",
+        description="AgentLeaseNode id held by the executor when this outcome was recorded, if any",
+    )
+    dag_id: str = Field(
+        default="",
+        description="Owning task-DAG id (AgentTaskNode.dag_id) this outcome evaluates, if any",
+    )
 
 
 class CritiqueNode(RegistryNode):
@@ -3276,6 +3324,17 @@ class SessionCheckpointNode(RegistryNode):
         default="",
         description="ID of the TopologyTemplate that was materialized for this session",
     )
+    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — ties a
+    # checkpoint to the durable AgentTask/lease that was active when it was
+    # written, so a resumed task can look up its last checkpoint by either.
+    agent_task_id: str = Field(
+        default="",
+        description="AgentTaskNode id this checkpoint captures resume state for, if any",
+    )
+    lease_id: str = Field(
+        default="",
+        description="AgentLeaseNode id active when this checkpoint was written, if any",
+    )
 
 
 class PersistentAgentNode(RegistryNode):
@@ -3463,6 +3522,66 @@ class TeamComposition(BaseModel):
             },
         )
 
+    def to_durable_task_dag(
+        self,
+        store: WorkflowStore,
+        *,
+        dag_name: str | None = None,
+    ) -> str:
+        """Opt-in: persist this team as a durable ``:AgentTask`` DAG.
+
+        CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+        Companion to :meth:`to_graph_plan`, NOT a replacement: the in-memory
+        ``GraphPlan`` still drives the unchanged ``ParallelEngine`` execution
+        path. This additionally persists one :class:`AgentTaskNode` per
+        ``ExecutionStep`` — mirroring ``ExecutionStep.depends_on`` as
+        ``depends_on_task_ids`` — as a KG subgraph via the EXISTING
+        ``WorkflowStore.save_workflow`` (no new persistence path invented).
+        Any fleet worker can subsequently resume/claim a step through
+        ``orchestration.agent_dispatch_worker.claim_agent_task`` even if the
+        process that composed this team has since died.
+
+        Dependency firing is poll-based today (a reconciler tick flips
+        'blocked' → 'ready' once every dependency completes); a
+        change-data-capture push is engine-gated and deferred to a separate,
+        later Phase 3b ClaimNext cutover.
+
+        Args:
+            store: The ``WorkflowStore`` to persist through.
+            dag_name: Optional workflow name; defaults to ``team_dag:<team_id>``.
+
+        Returns:
+            The workflow/DAG id ``WorkflowStore.save_workflow`` assigned;
+            every persisted ``AgentTaskNode.dag_id`` equals this id.
+        """
+        plan = self.to_graph_plan()
+        dag_id = store.save_workflow(
+            name=dag_name or f"team_dag:{self.team_id}",
+            plan=plan,
+            description="Durable task DAG materialized from a TeamComposition",
+            metadata={"source": "team_composition_dag", "team_id": self.team_id},
+        )
+
+        for step in plan.steps:
+            task_id = f"{dag_id}:task:{step.id}"
+            depends_on_task_ids = [f"{dag_id}:task:{dep}" for dep in step.depends_on]
+            node = AgentTaskNode(
+                id=task_id,
+                name=f"Task: {step.id}",
+                description=str(step.refined_subtask or ""),
+                dag_id=dag_id,
+                depends_on_task_ids=depends_on_task_ids,
+                status="blocked" if depends_on_task_ids else "pending",
+            )
+            store.engine.add_node(task_id, "AgentTask", properties=node.model_dump())
+            for dep_id in depends_on_task_ids:
+                store.engine.link_nodes(
+                    task_id, dep_id, RegistryEdgeType.TASK_DEPENDS_ON
+                )
+
+        return dag_id
+
 
 # --- Agent OS Architecture Nodes (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
@@ -3511,6 +3630,18 @@ class AgentProcessNode(RegistryNode):
     preempted_at: float | None = Field(
         default=None,
         description="Timestamp when process was last preempted",
+    )
+    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — budget
+    # fields backed by ``orchestration/cost_governor.py``'s per-replica/hour cost
+    # math (reused, not reimplemented): a process-level analogue of the
+    # fleet-level ``budget_per_hour`` cap.
+    cost_ceiling_usd: float | None = Field(
+        default=None,
+        description="Optional hard USD budget ceiling for this process; None = unbounded",
+    )
+    spent_usd: float = Field(
+        default=0.0,
+        description="Cumulative USD spend attributed to this process so far",
     )
 
 
@@ -3584,6 +3715,232 @@ class SpecialistPackageNode(RegistryNode):
         default="local",
         description="Registry source: local, remote, or systems-manager",
     )
+
+
+class AgentLeaseNode(RegistryNode):
+    """Distributed, stale-aware claim lease over a contended resource.
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+    Generalizes the ownership stamp
+    ``orchestration.agent_dispatch_worker.claim_goal_run``/
+    ``claim_orchestrator_task`` already write inline onto the claimed node
+    into a first-class, reusable KG object. A lease is held by
+    ``owner_token`` (the same ``hostname:pid:role`` identity
+    ``worker_token()`` returns) until ``lease_expires_at``; a lease past
+    that deadline is presumed dead (its owner crashed between claim and
+    writeback) and may be re-claimed — the same crash-recovery reasoning as
+    the two claims above, now over any ``resource_id`` rather than only
+    goal/task nodes.
+
+    See ``orchestration.agent_dispatch_worker.claim_agent_task`` for the
+    read/re-claim contract that operates on this node type.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_LEASE
+    owner_token: str = Field(
+        default="",
+        description="Claim owner identity, e.g. 'hostname:pid:role' (worker_token())",
+    )
+    resource_id: str = Field(
+        default="",
+        description="ID of the leased resource (typically an AgentTaskNode id)",
+    )
+    acquired_at: float = Field(
+        default=0.0,
+        description="Unix timestamp when the lease was (re-)acquired",
+    )
+    lease_expires_at: float = Field(
+        default=0.0,
+        description="Unix timestamp after which the lease is stale and re-claimable",
+    )
+
+
+class AgentTaskNode(RegistryNode):
+    """Durable, DAG-aware unit of work claimable by the agent dispatch fleet.
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+    Mirrors an ``ExecutionStep``/``TeamComposition`` specialist slot as a
+    first-class KG node so a multi-step plan survives process restarts and
+    can be claimed by any worker in the fleet, not just resumed in-memory.
+    ``depends_on_task_ids`` mirrors ``ExecutionStep.depends_on`` (see
+    ``TeamComposition.to_durable_task_dag()``); a task only becomes eligible
+    to run once every id in that list resolves to ``status == 'completed'``
+    — checked by a poll-based ``fleet_reconciler``/``RecoveryDaemon`` tick
+    (``fire_ready_agent_tasks``) until change-data-capture firing lands
+    (Phase 3b, engine-gated, a separate later task — NOT done here).
+
+    Linked to its lease by a property match (``AgentLeaseNode.resource_id ==
+    AgentTaskNode.id`` — no dedicated edge; see ``claim_agent_task``), to its
+    dependencies via ``TASK_DEPENDS_ON`` edges, and to a resume point via
+    ``CHECKPOINTED_TO``.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_TASK
+    dag_id: str = Field(
+        default="",
+        description="ID of the owning task DAG / WorkflowDefinition this task belongs to",
+    )
+    depends_on_task_ids: list[str] = Field(
+        default_factory=list,
+        description="AgentTaskNode ids that must reach 'completed' before this task is claimable",
+    )
+    status: str = Field(
+        default="pending",
+        description="pending | blocked | ready | running | completed | failed | cancelled",
+    )
+    checkpoint_id: str | None = Field(
+        default=None,
+        description="ID of a CheckpointNode/SessionCheckpointNode to resume from, if any",
+    )
+
+
+class AgentMailboxNode(RegistryNode):
+    """Durable per-agent inbox for asynchronous inter-agent messages.
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+    A KG-native alternative to an in-memory queue for agent-to-agent
+    handoffs: messages persist across restarts and are queryable like any
+    other node. ``messages`` holds small inline envelopes (``sender``,
+    ``body``, ``sent_at``); large payloads should reference another KG node
+    id instead of inlining the body.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_MAILBOX
+    recipient_agent_id: str = Field(
+        default="",
+        description="Agent id this mailbox belongs to",
+    )
+    messages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Inline message envelopes: [{sender, body, sent_at}, ...]",
+    )
+    unread_count: int = Field(
+        default=0,
+        description="Number of messages not yet marked read",
+    )
+
+
+class AgentCapabilityGrantNode(RegistryNode):
+    """A per-agent grant of one capability/tool/scope (Codex Gap-6).
+
+    Formalizes the ``AUTHORIZED_FOR`` edge target
+    ``orchestration/engine.py``'s team-synthesis query already expects
+    (``MATCH (a:Agent)-[:HAS_DELEGATED_AUTHORITY_FROM|AUTHORIZED_FOR]->
+    (auth {id: $delegated_authority})``) but that, until now, nothing in this
+    codebase actually wrote — ``AgentIdentityNode.capabilities`` is a flat,
+    un-audited list of granted identifiers with no per-grant issuer/expiry.
+    This is that missing write/read pair's node, NOT a second capability
+    concept: it does not replace ``AgentIdentityNode.capabilities`` (the
+    identity's live authorization list) or ``AgentCapabilityNode`` (a
+    capability TYPE definition like 'rlm'/'critic') — it is the audit-style
+    record of one grant of a capability/tool/scope to one agent, linked
+    ``Agent -[:AUTHORIZED_FOR]-> AgentCapabilityGrant`` (the exact edge
+    already queried). See
+    ``orchestration.agent_dispatch_worker.grant_capability``/
+    ``resolve_capability_grant`` for the write/read helpers.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_CAPABILITY_GRANT
+    agent_id: str = Field(
+        default="", description="Agent id the capability is granted to"
+    )
+    capability: str = Field(
+        default="",
+        description="Granted capability/tool/scope identifier (a tool name, an action_policy `kind`, or a capability_type)",
+    )
+    issuer: str = Field(
+        default="",
+        description="Identity that issued the grant ('system', an operator, or another agent id)",
+    )
+    granted_at: float = Field(
+        default=0.0, description="Unix timestamp the grant was issued"
+    )
+    expires_at: float | None = Field(
+        default=None,
+        description="Unix timestamp after which the grant is stale; None = no expiry",
+    )
+    revoked: bool = Field(
+        default=False, description="True once explicitly revoked before expiry"
+    )
+
+    def is_active(self, now: float | None = None) -> bool:
+        """True when not revoked and (no expiry or not yet expired)."""
+        if self.revoked:
+            return False
+        if self.expires_at is None:
+            return True
+        import time as _time
+
+        return self.expires_at > (now if now is not None else _time.time())
+
+
+class AgentPolicyDecisionNode(RegistryNode):
+    """Named, first-class object over the ``action_policy`` governance audit (Codex Gap-6).
+
+    Formalizes ``orchestration.action_policy.ActionPolicy.decide()``'s
+    ``ActionDecision`` audit — until now an ad-hoc
+    ``engine.add_node(audit_id, "ActionDecision", properties={...})`` write
+    (see ``ActionPolicy._audit``) with no typed KG schema entry anywhere in
+    this module. EXTENDS that existing object rather than duplicating it:
+    the persisted graph label stays ``ActionDecision`` — ``_audit``/
+    ``_recent_decisions`` and every existing caller
+    (``orchestration/fleet_autoscaler.py``,
+    ``knowledge_graph/research/spec_proposals.py``,
+    ``runtime/run_vcs/retained_output.py``, the full
+    ``tests/unit/test_action_policy.py`` suite) key off that exact label;
+    renaming it would be a wide, needless migration for a
+    formalization-only change. Construct via :meth:`from_action_decision` to
+    get a typed view of an already-persisted ``ActionDecision`` node without
+    a second write.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_POLICY_DECISION
+    kind: str = ""
+    target: str = ""
+    tier: str = ""
+    decision: str = ""
+    reason: str = ""
+    rule_origin: str = "default"
+    source: str = "manual"
+    agent_id: str = ""
+    approval_id: str | None = None
+    decided_at: str = ""
+    decided_unix: float = 0.0
+
+    @property
+    def allowed(self) -> bool:
+        return self.decision in ("allow", "allow_notify")
+
+    @classmethod
+    def from_action_decision(
+        cls, decision: Any, *, agent_id: str = ""
+    ) -> AgentPolicyDecisionNode:
+        """Wrap an already-decided ``action_policy.ActionDecision`` as this typed node.
+
+        Duck-typed on purpose (accepts the dataclass by attribute access, not
+        by import) so this schema module never depends on
+        ``orchestration.action_policy`` — the dependency runs the other way
+        (orchestration depends on models). Reuses ``decision.audit_id`` as
+        this node's id: SAME already-persisted graph node, no second write.
+        """
+        req = decision.request
+        return cls(
+            id=getattr(decision, "audit_id", None)
+            or f"action_decision:unaudited:{req.kind}:{req.target}",
+            name=f"PolicyDecision: {req.kind}({req.target})",
+            kind=req.kind,
+            target=req.target,
+            tier=decision.tier,
+            decision=decision.decision,
+            reason=decision.reason,
+            rule_origin=decision.rule_origin,
+            source=req.source,
+            agent_id=agent_id or req.actor_id,
+            approval_id=decision.approval_id,
+        )
 
 
 class HostNode(RegistryNode):

@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_utilities.agent.sampling_profile import DEFAULT_PROFILE, SamplingProfile
 
@@ -161,6 +161,16 @@ class ModelDefinition(BaseModel):
             "(e.g. local LM Studio)."
         ),
     )
+    oauth2: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "OAuth2 client_credentials block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) — "
+            "machine-to-machine auth for enterprise OpenAI-compatible/Azure endpoints requiring a "
+            "short-lived minted bearer instead of a static api_key_env. Mutually exclusive with "
+            "api_key_env (validated below). Shape: "
+            "agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig."
+        ),
+    )
     tier: ModelTier = Field(
         default="medium",
         description=(
@@ -185,6 +195,31 @@ class ModelDefinition(BaseModel):
     is_default: bool = False
 
     model_config = ConfigDict(extra="forbid", frozen=False)
+
+    @model_validator(mode="after")
+    def _validate_auth_mode(self) -> ModelDefinition:
+        """``api_key_env`` and ``oauth2`` are mutually exclusive (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)."""
+        if self.api_key_env and self.oauth2:
+            raise ValueError(
+                f"ModelDefinition {self.id!r}: 'api_key_env' and 'oauth2' are mutually "
+                "exclusive — configure exactly one authentication mode."
+            )
+        if self.oauth2:
+            # Lazy import: avoids a core-models↔security import cycle at module-load time;
+            # only fires when a definition actually carries an oauth2 block.
+            from agent_utilities.security.oauth_client_credentials import (
+                OAuth2ClientCredentialsConfig,
+            )
+
+            try:
+                self.oauth2 = OAuth2ClientCredentialsConfig.model_validate(
+                    self.oauth2
+                ).model_dump()
+            except Exception as exc:
+                raise ValueError(
+                    f"ModelDefinition {self.id!r}: invalid oauth2 block: {exc}"
+                ) from exc
+        return self
 
 
 class ModelRegistry(BaseModel):

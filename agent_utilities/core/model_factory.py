@@ -154,6 +154,7 @@ def create_model(
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
+    oauth2: dict[str, Any] | None = None,
 ):
     """Build a model and (when a KG trace sink is installed) wrap it so EVERY LLM call
     persists a GenerationNode with model/tokens/cost/latency — the always-on per-call
@@ -168,7 +169,12 @@ def create_model(
     returns content directly (verified: only the top-level ``reasoning_effort`` request param
     works on this vLLM build; ``enable_thinking``/``chat_template_kwargs``/``/no_think`` do
     not). Pass an effort level (``"low"``/``"medium"``/``"high"``) or ``None`` per call to opt
-    back into reasoning for genuinely hard tasks."""
+    back into reasoning for genuinely hard tasks.
+
+    ``oauth2`` (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) wires an OAuth2
+    ``client_credentials`` bearer instead of a static ``api_key`` — mutually exclusive with
+    ``api_key``. See ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``
+    for the expected shape."""
     model = _create_model_impl(
         provider=provider,
         model_id=model_id,
@@ -179,6 +185,7 @@ def create_model(
         timeout=timeout,
         role=role,
         reasoning_effort=reasoning_effort,
+        oauth2=oauth2,
     )
     try:
         from agent_utilities.harness.tracing import wrap_model_for_tracing
@@ -234,6 +241,7 @@ def _create_model_impl(
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
+    oauth2: dict[str, Any] | None = None,
 ):
     """Initialize a pydantic-ai Model instance.
 
@@ -292,6 +300,24 @@ def _create_model_impl(
             base_url = model_info["base_url"]
         if "api_key" in model_info and api_key is None:
             api_key = model_info["api_key"]
+        if oauth2 is None and model_info.get("oauth2"):
+            oauth2 = model_info["oauth2"]
+
+    # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — an OAuth2 client-credentials
+    # bearer instead of a static api_key. Mutually exclusive at the call site (the config-layer
+    # ChatModelConfig/ModelDefinition already reject both being set; this is defense-in-depth for
+    # direct callers of create_model()).
+    if oauth2 and api_key:
+        raise ValueError(
+            "create_model: 'api_key' and 'oauth2' are mutually exclusive — pass exactly one."
+        )
+    _oauth2_auth = None
+    if oauth2:
+        from agent_utilities.security.oauth_client_credentials import (
+            httpx_auth_from_config,
+        )
+
+        _oauth2_auth = httpx_auth_from_config(oauth2)
 
     http_client = None
     if http_client is None:
@@ -303,8 +329,11 @@ def _create_model_impl(
 
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
         timeout_obj = httpx.Timeout(timeout, connect=30.0)
+        # ``auth=_oauth2_auth`` (None when no oauth2 is configured — zero behaviour change)
+        # mints/renews the bearer transparently on every request this client sends, which is
+        # exactly ONE model's worth of client since this factory builds a single model per call.
         http_client = httpx.AsyncClient(
-            verify=ssl_verify, timeout=timeout_obj, limits=limits
+            verify=ssl_verify, timeout=timeout_obj, limits=limits, auth=_oauth2_auth
         )
 
     if _provider == "openai":

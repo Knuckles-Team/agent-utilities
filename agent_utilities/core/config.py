@@ -313,12 +313,43 @@ def _total_model_capacity(parallel_instances: int, max_parallel_calls: int) -> i
     return max(1, int(parallel_instances or 1) * int(max_parallel_calls or 1))
 
 
+def _validate_oauth2_block(oauth2: dict[str, Any], owner_label: str) -> dict[str, Any]:
+    """Validate + normalize a raw ``oauth2`` dict via the strict submodel (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle).
+
+    Imported lazily (function-body, not module-top) to avoid a core↔security import cycle:
+    ``agent_utilities.security`` (via its package ``__init__``) imports several submodules that
+    themselves import ``agent_utilities.core.config`` — safe once this module has finished
+    defining ``setting`` (near the top), but not safe to import eagerly at THIS module's own
+    top-level. This import only actually fires when a config carries a non-empty ``oauth2``
+    block, which is never true during this module's own class-definition phase.
+
+    Raises ``ValueError`` (via pydantic) if the shape is wrong or ``client_secret`` is a
+    plaintext value rather than a secret-reference URI.
+    """
+    from agent_utilities.security.oauth_client_credentials import (
+        OAuth2ClientCredentialsConfig,
+    )
+
+    try:
+        return OAuth2ClientCredentialsConfig.model_validate(oauth2).model_dump()
+    except Exception as exc:  # re-raise with the owning model/id for a diagnosable error
+        raise ValueError(f"{owner_label}: invalid oauth2 block: {exc}") from exc
+
+
 class ChatModelConfig(BaseModel):
     id: str
     provider: str
     intelligence_level: str = "normal"
     base_url: str | None = None
     api_key: str | None = None
+    oauth2: dict[str, Any] | None = None
+    """OAuth2 ``client_credentials`` block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) — machine-to-
+    machine auth for enterprise OpenAI-compatible/Azure endpoints that require a short-lived
+    minted bearer instead of a static key. Mutually exclusive with :pyattr:`api_key` (validated
+    below). Shape: ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``
+    (``token_url``/``client_id``/``client_secret``[secret-ref]/``scope``/``audience``/``extra_params``).
+    Stored as a plain dict here (not the strict submodel) to avoid a core↔security import cycle;
+    validated lazily below and by every consumer via ``httpx_auth_from_config``."""
     supports_json: bool = False
     vision: bool = False
     reasoning: bool = False
@@ -353,6 +384,20 @@ class ChatModelConfig(BaseModel):
     can_route: bool = False
     can_kg: bool = False
 
+    @model_validator(mode="after")
+    def _validate_auth_mode(self) -> "ChatModelConfig":
+        """``api_key`` and ``oauth2`` are mutually exclusive (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)."""
+        if self.api_key and self.oauth2:
+            raise ValueError(
+                f"ChatModelConfig {self.id!r}: 'api_key' and 'oauth2' are mutually exclusive — "
+                "configure exactly one authentication mode."
+            )
+        if self.oauth2:
+            self.oauth2 = _validate_oauth2_block(
+                self.oauth2, f"ChatModelConfig {self.id!r}"
+            )
+        return self
+
     @property
     def total_capacity(self) -> int:
         """Total in-flight calls this model can serve = instances × per-instance.
@@ -368,6 +413,9 @@ class EmbeddingModelConfig(BaseModel):
     provider: str
     base_url: str | None = None
     api_key: str | None = None
+    oauth2: dict[str, Any] | None = None
+    """OAuth2 ``client_credentials`` block — same shape/semantics as :pyattr:`ChatModelConfig.oauth2`
+    (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle); mutually exclusive with :pyattr:`api_key`."""
     parallel_instances: int = 1
     """Number of parallel vLLM instances behind this embedding model's
     ``base_url``. Total parallel-call capacity is ``parallel_instances *
@@ -402,6 +450,20 @@ class EmbeddingModelConfig(BaseModel):
     (e.g. ``vllm-embed.arpa`` ``gpu_group="gb10"``) so fallback embeds share the
     GB10's joint budget with the generator and can never OOM it. A nested
     ``fallback`` here is ignored (single-level failover)."""
+
+    @model_validator(mode="after")
+    def _validate_auth_mode(self) -> "EmbeddingModelConfig":
+        """``api_key`` and ``oauth2`` are mutually exclusive (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)."""
+        if self.api_key and self.oauth2:
+            raise ValueError(
+                f"EmbeddingModelConfig {self.id!r}: 'api_key' and 'oauth2' are mutually "
+                "exclusive — configure exactly one authentication mode."
+            )
+        if self.oauth2:
+            self.oauth2 = _validate_oauth2_block(
+                self.oauth2, f"EmbeddingModelConfig {self.id!r}"
+            )
+        return self
 
     @property
     def total_capacity(self) -> int:
@@ -1099,6 +1161,38 @@ class AgentConfig(BaseSettings):
     # independently best-effort and degrades to an empty/no-op result on a
     # no-mining engine build, so it's safe to leave on everywhere.
     kg_loop_mine_discovery: bool = Field(default=True, alias="KG_LOOP_MINE_DISCOVERY")
+    # Confidence propagation + light TMS over Belief nodes, workstream C2
+    # (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) —
+    # recomputes every ``Belief`` node's confidence from fresh
+    # ``ContradictionDetector`` friction plus its already-recorded
+    # support/contradiction edges, persisting each outcome as a
+    # ``:BeliefRevisionProposal`` (propose-only; never mutates the live belief).
+    # Default ON: degrades to a no-op ``skipped`` result with fewer than 2 Belief
+    # nodes, so it's safe to leave on everywhere.
+    kg_loop_belief_revision: bool = Field(default=True, alias="KG_LOOP_BELIEF_REVISION")
+    # Insight Engine closed loop, workstream C4 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mined findings (:AssociationRule/:Anomaly/:PredictedEdge, from mine_discovery)
+    # above CandidateInsight's confidence floor become reviewable ClaimNodes,
+    # EvidenceBundle-packaged, run through the EXISTING promotion-governance +
+    # capability-ratchet stack, then gated by action_policy.decide(kind=
+    # "promote_mined_claim") — default ON: the stage is itself propose-only
+    # (persisting a "proposal" Claim is safe) and the shipped ActionPolicy default
+    # for promote_mined_claim is approval_required, so leaving this on everywhere
+    # never auto-promotes anything by itself.
+    kg_loop_insight_validation: bool = Field(
+        default=True, alias="KG_LOOP_INSIGHT_VALIDATION"
+    )
+    # X3 — opt-in autonomy tier for the Insight Engine (CONCEPT:AU-KG.evolution.insight-engine-closed-loop).
+    # OFF by default: even when this is True, a mined claim only auto-promotes
+    # if BOTH action_policy.decide(kind="promote_mined_claim") allows (shipped
+    # default: approval_required — never allows out of the box) AND the
+    # promotion-governance validator (SHACL + capability ratchet + regression
+    # gate + constitution rules) is valid. Turning this on wires the EXISTING
+    # GovernedAutoMerger + capability_ratchet monotonic-improvement guarantee
+    # onto claim promotion for an operator who has ALSO relaxed the
+    # promote_mined_claim policy tier — a deliberate two-key turn, not a
+    # single flag that silently starts auto-promoting mined claims.
+    kg_insight_autonomy: bool = Field(default=False, alias="KG_INSIGHT_AUTONOMY")
     # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop
@@ -1106,6 +1200,15 @@ class AgentConfig(BaseSettings):
     # ``spec_promotion`` ActionPolicy gate (still approval_required by default, so it
     # only auto-develops where an operator has explicitly relaxed that tier).
     kg_loop_auto_develop: bool = Field(default=False, alias="KG_LOOP_AUTO_DEVELOP")
+    # Closed-loop agent mining, workstream C6 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mines Episode/OutcomeEvaluation/ToolCall provenance for repeated FAILURE
+    # tool-call sequences (``trace_pattern_miner``) and feeds each pattern through
+    # the SAME CandidateInsight→Claim→Validation→Action-gate pipeline C4 uses —
+    # default ON: the stage is itself propose-only (persisting a "proposal" Claim
+    # is safe) and the shipped ActionPolicy default for route_policy_update is
+    # approval_required, so leaving this on everywhere never auto-applies a
+    # routing/prompt/tool change or records an OutcomeRouter reward by itself.
+    kg_loop_trace_mining: bool = Field(default=True, alias="KG_LOOP_TRACE_MINING")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
