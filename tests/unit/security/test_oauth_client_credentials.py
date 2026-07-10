@@ -103,6 +103,46 @@ class TestMint:
         assert kwargs["data"]["audience"] == "https://api.example.com"
         assert kwargs["data"]["resource"] == "https://api.example.com"
 
+    def test_body_style_default_sends_no_basic_auth(self):
+        """Default 'body' style keeps the historical behaviour: creds in the form body,
+        no HTTP Basic ``auth`` on the token request."""
+        provider = OAuthClientCredentialsProvider(
+            "https://idp.example.com/token", "client-a", "s3cr3t"
+        )
+        with patch(
+            "agent_utilities.security.oauth_client_credentials.requests.post",
+            return_value=_resp("tok"),
+        ) as post:
+            provider.get_token()
+        _, kwargs = post.call_args
+        assert kwargs["auth"] is None
+        assert kwargs["data"]["client_id"] == "client-a"
+        assert kwargs["data"]["client_secret"] == "s3cr3t"
+
+    def test_basic_style_uses_http_basic_and_omits_body_creds(self):
+        """'basic' style (client_secret_basic) presents the credentials via HTTP Basic
+        auth and keeps them OUT of the form body (RFC 6749 §2.3.1)."""
+        provider = OAuthClientCredentialsProvider(
+            "https://idp.example.com/token",
+            "client-a",
+            "s3cr3t",
+            scope="api://resource/.default",
+            token_auth_style="basic",
+        )
+        with patch(
+            "agent_utilities.security.oauth_client_credentials.requests.post",
+            return_value=_resp("tok-basic"),
+        ) as post:
+            token = provider.get_token()
+        assert token == "tok-basic"
+        _, kwargs = post.call_args
+        assert kwargs["auth"] == ("client-a", "s3cr3t")
+        assert "client_id" not in kwargs["data"]
+        assert "client_secret" not in kwargs["data"]
+        # non-credential params still ride in the body
+        assert kwargs["data"]["grant_type"] == "client_credentials"
+        assert kwargs["data"]["scope"] == "api://resource/.default"
+
     def test_missing_access_token_raises(self):
         provider = OAuthClientCredentialsProvider(
             "https://idp.example.com/token", "client-a", "s3cr3t"
@@ -110,10 +150,13 @@ class TestMint:
         bad = MagicMock()
         bad.json.return_value = {"token_type": "bearer"}  # no access_token
         bad.raise_for_status.return_value = None
-        with patch(
-            "agent_utilities.security.oauth_client_credentials.requests.post",
-            return_value=bad,
-        ), pytest.raises(ValueError, match="access_token"):
+        with (
+            patch(
+                "agent_utilities.security.oauth_client_credentials.requests.post",
+                return_value=bad,
+            ),
+            pytest.raises(ValueError, match="access_token"),
+        ):
             provider.get_token()
 
 
@@ -211,7 +254,9 @@ class TestForceRefreshOn401:
             side_effect=[_resp("tok-1"), _resp("tok-2")],
         ):
             auth = OAuth2ClientCredentialsAuth(provider)
-            request = httpx.Request("POST", "http://llm.example.com/v1/chat/completions")
+            request = httpx.Request(
+                "POST", "http://llm.example.com/v1/chat/completions"
+            )
             flow = auth.auth_flow(request)
             first = next(flow)
             assert first.headers["Authorization"] == "Bearer tok-1"
@@ -227,7 +272,9 @@ class TestForceRefreshOn401:
             return_value=_resp("tok-1"),
         ) as post:
             auth = OAuth2ClientCredentialsAuth(provider)
-            request = httpx.Request("POST", "http://llm.example.com/v1/chat/completions")
+            request = httpx.Request(
+                "POST", "http://llm.example.com/v1/chat/completions"
+            )
             flow = auth.auth_flow(request)
             sent = next(flow)
             with pytest.raises(StopIteration):

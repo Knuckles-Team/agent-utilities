@@ -52,7 +52,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import requests
@@ -133,6 +133,16 @@ class OAuth2ClientCredentialsConfig(BaseModel):
             "(e.g. Azure AD v1 'resource')."
         ),
     )
+    token_auth_style: Literal["body", "basic"] = Field(
+        default="body",
+        description=(
+            "How the client credentials are presented AT the token endpoint (RFC 6749 §2.3.1). "
+            "'body' (default) sends client_id/client_secret as form params in the POST body; "
+            "'basic' sends them via HTTP Basic auth (Authorization: Basic base64(id:secret)) "
+            "and omits them from the body — required by IdPs that mandate "
+            "'client_secret_basic' token-endpoint auth."
+        ),
+    )
     verify: bool = Field(
         default=True, description="TLS verification for the token request."
     )
@@ -209,6 +219,7 @@ class OAuthClientCredentialsProvider:
         verify: bool = True,
         timeout: float = 15.0,
         refresh_skew_seconds: float | None = None,
+        token_auth_style: Literal["body", "basic"] = "body",
         clock: Callable[[], float] | None = None,
     ) -> None:
         self.token_url = token_url
@@ -217,6 +228,7 @@ class OAuthClientCredentialsProvider:
         self.scope = scope
         self.audience = audience
         self.extra_params = dict(extra_params or {})
+        self.token_auth_style = token_auth_style
         self.verify = verify
         self.timeout = timeout
         self._explicit_skew = refresh_skew_seconds
@@ -260,11 +272,16 @@ class OAuthClientCredentialsProvider:
         degrading silently — a caller with no bearer must see a loud auth failure, not a
         request that quietly goes out unauthenticated.
         """
-        data: dict[str, str] = {
-            "grant_type": "client_credentials",
-            "client_id": self.client_id,
-            "client_secret": self._client_secret,
-        }
+        data: dict[str, str] = {"grant_type": "client_credentials"}
+        # client_secret_basic (HTTP Basic at the token endpoint) vs client_secret_post (body
+        # params) — RFC 6749 §2.3.1. 'basic' presents id/secret via HTTP Basic and keeps them
+        # OUT of the body; 'body' (default) sends them as form params exactly as before.
+        basic_auth: tuple[str, str] | None = None
+        if self.token_auth_style == "basic":
+            basic_auth = (self.client_id, self._client_secret)
+        else:
+            data["client_id"] = self.client_id
+            data["client_secret"] = self._client_secret
         if self.scope:
             data["scope"] = self.scope
         if self.audience:
@@ -273,6 +290,7 @@ class OAuthClientCredentialsProvider:
         resp = requests.post(
             self.token_url,
             data=data,
+            auth=basic_auth,
             verify=self.verify,
             timeout=self.timeout,
         )
@@ -378,6 +396,7 @@ def get_client_credentials_provider(
     verify: bool = True,
     timeout: float = 15.0,
     refresh_skew_seconds: float | None = None,
+    token_auth_style: Literal["body", "basic"] = "body",
     clock: Callable[[], float] | None = None,
 ) -> OAuthClientCredentialsProvider:
     """Return the process-wide provider for ``(token_url, client_id, scope)``, building it once.
@@ -403,6 +422,7 @@ def get_client_credentials_provider(
             verify=verify,
             timeout=timeout,
             refresh_skew_seconds=refresh_skew_seconds,
+            token_auth_style=token_auth_style,
             clock=clock,
         )
         _PROVIDERS[key] = provider
@@ -461,6 +481,7 @@ def build_provider_from_config(
         verify=cfg.verify,
         timeout=cfg.timeout,
         refresh_skew_seconds=cfg.refresh_skew_seconds,
+        token_auth_style=cfg.token_auth_style,
     )
 
 
