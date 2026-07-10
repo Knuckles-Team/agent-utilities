@@ -10,7 +10,7 @@ and triggers automatic restore operations using context paging and checkpoints.
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..core.cognitive_scheduler import CognitiveScheduler
@@ -38,6 +38,10 @@ class RecoveryDaemon:
         self._task: asyncio.Task | None = None
         self._running = False
         self.recovered_count = 0
+        # C3/Phase 3b (D13): lazily built so a scheduler with no engine yet at
+        # construction time still gets a watcher once one is available; cached
+        # thereafter so its CDC cursor persists across ticks.
+        self._agent_task_watcher: Any = None
 
     def start(self) -> None:
         """Start the background recovery loop."""
@@ -103,5 +107,27 @@ class RecoveryDaemon:
                     if checkpoint_id:
                         recovered += 1
                         self.recovered_count += 1
+
+        # 3. C3/Phase 3b (D13): CDC-fired :AgentTask dependency firing when the
+        # engine's change-feed is reachable, poll sweep as the fallback — this
+        # local tick and the leader-only ``FleetReconciler`` tick share the
+        # SAME ``AgentTaskDepWatcher`` class (no duplicated dependency logic),
+        # each holding its own instance so their CDC cursors stay independent
+        # (CONCEPT:AU-OS.state.cognitive-scheduler-preemption).
+        if self.scheduler.engine is not None:
+            try:
+                if self._agent_task_watcher is None:
+                    from agent_utilities.orchestration.fleet_reconciler import (
+                        AgentTaskDepWatcher,
+                    )
+
+                    self._agent_task_watcher = AgentTaskDepWatcher(
+                        self.scheduler.engine
+                    )
+                self._agent_task_watcher.fire()
+            except Exception as e:
+                logger.debug(
+                    "RecoveryDaemon: agent-task dependency sweep failed: %s", e
+                )
 
         return recovered

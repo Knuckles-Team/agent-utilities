@@ -44,6 +44,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from typing import Any
 
 from agent_utilities.orchestration.agent_dispatch import (
@@ -64,6 +65,10 @@ CLAIM_TTL_S = 3600.0
 
 _GOAL_TERMINAL = ("completed", "failed", "cancelled", "paused")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
+#: Terminal statuses for a durable ``:AgentTask`` (C3/Phase 3a) — same three
+#: outcomes as ``_TASK_TERMINAL``; kept as its own tuple because the two node
+#: kinds are independent schemas that may diverge later.
+_AGENT_TASK_TERMINAL = ("completed", "failed", "cancelled")
 
 
 def worker_token() -> str:
@@ -237,6 +242,97 @@ def claim_orchestrator_task(
         },
     )
     return {"job_id": job_id, "description": row.get("d") or ""}
+
+
+def claim_agent_task(
+    engine: Any,
+    task_id: str,
+    *,
+    token: str | None = None,
+    now: float | None = None,
+    claim_ttl_s: float = CLAIM_TTL_S,
+) -> dict[str, Any] | None:
+    """Claim one durable ``:AgentTask`` node; return its payload, or ``None`` to skip.
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+
+    Generalizes :func:`claim_goal_run`/:func:`claim_orchestrator_task`
+    (same stale-claim-aware idempotency contract, same ``CLAIM_TTL_S`` /
+    :func:`worker_token`) from stamping ownership inline on the claimed node
+    to a dedicated ``:AgentLease`` node keyed by ``resource_id == task_id``
+    — the reusable claim primitive C3/Phase 3a introduces so any resource
+    (not only dispatch turns) can be leased identically. Terminal task
+    statuses are duplicate-delivery skips; a lease with a fresh
+    ``lease_expires_at`` is owned by a live worker (skip); a lease past
+    that deadline is re-claimed — the same crash-recovery path as the two
+    claims above, now over ``:AgentLease`` instead of an inline stamp.
+    """
+    token = token or worker_token()
+    now = now if now is not None else time.time()
+
+    rows = engine.query_cypher(
+        "MATCH (t:AgentTask {id: $id}) RETURN t.status AS status, "
+        "t.depends_on_task_ids AS depends_on_task_ids, t.dag_id AS dag_id, "
+        "t.checkpoint_id AS checkpoint_id",
+        {"id": task_id},
+    )
+    if not rows:
+        logger.warning("Dispatch envelope for unknown agent task %s skipped.", task_id)
+        return None
+    row = rows[0]
+    status = str(row.get("status") or "")
+    if status in _AGENT_TASK_TERMINAL:
+        logger.debug(
+            "Duplicate delivery of agent task %s (%s) skipped.", task_id, status
+        )
+        return None
+
+    lease_rows = engine.query_cypher(
+        "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
+        "l.lease_expires_at AS lease_expires_at ORDER BY l.acquired_at DESC LIMIT 1",
+        {"rid": task_id},
+    )
+    if lease_rows:
+        lease = lease_rows[0]
+        expires_at = float(lease.get("lease_expires_at") or 0.0)
+        if expires_at > now:
+            logger.debug(
+                "Agent task %s has a fresh lease (owner=%s, %.0fs remaining) — skipping.",
+                task_id,
+                lease.get("owner_token"),
+                expires_at - now,
+            )
+            return None
+        logger.warning(
+            "Re-claiming agent task %s: previous lease expired %.0fs ago.",
+            task_id,
+            now - expires_at,
+        )
+
+    lease_id = f"lease:{task_id}:{uuid.uuid4().hex[:8]}"
+    try:
+        engine.add_node(
+            lease_id,
+            "AgentLease",
+            properties={
+                "name": f"Lease: {task_id}",
+                "owner_token": token,
+                "resource_id": task_id,
+                "acquired_at": now,
+                "lease_expires_at": now + claim_ttl_s,
+            },
+        )
+        engine.add_node(task_id, "AgentTask", properties={"status": "running"})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Agent task %s claim write failed: %s", task_id, e)
+
+    return {
+        "task_id": task_id,
+        "lease_id": lease_id,
+        "dag_id": row.get("dag_id") or "",
+        "checkpoint_id": row.get("checkpoint_id"),
+        "depends_on_task_ids": list(row.get("depends_on_task_ids") or []),
+    }
 
 
 # ── execution (the existing bodies, relocated) ─────────────────────────────

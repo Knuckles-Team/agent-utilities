@@ -1099,6 +1099,38 @@ class AgentConfig(BaseSettings):
     # independently best-effort and degrades to an empty/no-op result on a
     # no-mining engine build, so it's safe to leave on everywhere.
     kg_loop_mine_discovery: bool = Field(default=True, alias="KG_LOOP_MINE_DISCOVERY")
+    # Confidence propagation + light TMS over Belief nodes, workstream C2
+    # (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) —
+    # recomputes every ``Belief`` node's confidence from fresh
+    # ``ContradictionDetector`` friction plus its already-recorded
+    # support/contradiction edges, persisting each outcome as a
+    # ``:BeliefRevisionProposal`` (propose-only; never mutates the live belief).
+    # Default ON: degrades to a no-op ``skipped`` result with fewer than 2 Belief
+    # nodes, so it's safe to leave on everywhere.
+    kg_loop_belief_revision: bool = Field(default=True, alias="KG_LOOP_BELIEF_REVISION")
+    # Insight Engine closed loop, workstream C4 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mined findings (:AssociationRule/:Anomaly/:PredictedEdge, from mine_discovery)
+    # above CandidateInsight's confidence floor become reviewable ClaimNodes,
+    # EvidenceBundle-packaged, run through the EXISTING promotion-governance +
+    # capability-ratchet stack, then gated by action_policy.decide(kind=
+    # "promote_mined_claim") — default ON: the stage is itself propose-only
+    # (persisting a "proposal" Claim is safe) and the shipped ActionPolicy default
+    # for promote_mined_claim is approval_required, so leaving this on everywhere
+    # never auto-promotes anything by itself.
+    kg_loop_insight_validation: bool = Field(
+        default=True, alias="KG_LOOP_INSIGHT_VALIDATION"
+    )
+    # X3 — opt-in autonomy tier for the Insight Engine (CONCEPT:AU-KG.evolution.insight-engine-closed-loop).
+    # OFF by default: even when this is True, a mined claim only auto-promotes
+    # if BOTH action_policy.decide(kind="promote_mined_claim") allows (shipped
+    # default: approval_required — never allows out of the box) AND the
+    # promotion-governance validator (SHACL + capability ratchet + regression
+    # gate + constitution rules) is valid. Turning this on wires the EXISTING
+    # GovernedAutoMerger + capability_ratchet monotonic-improvement guarantee
+    # onto claim promotion for an operator who has ALSO relaxed the
+    # promote_mined_claim policy tier — a deliberate two-key turn, not a
+    # single flag that silently starts auto-promoting mined claims.
+    kg_insight_autonomy: bool = Field(default=False, alias="KG_INSIGHT_AUTONOMY")
     # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop
@@ -1106,6 +1138,15 @@ class AgentConfig(BaseSettings):
     # ``spec_promotion`` ActionPolicy gate (still approval_required by default, so it
     # only auto-develops where an operator has explicitly relaxed that tier).
     kg_loop_auto_develop: bool = Field(default=False, alias="KG_LOOP_AUTO_DEVELOP")
+    # Closed-loop agent mining, workstream C6 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mines Episode/OutcomeEvaluation/ToolCall provenance for repeated FAILURE
+    # tool-call sequences (``trace_pattern_miner``) and feeds each pattern through
+    # the SAME CandidateInsight→Claim→Validation→Action-gate pipeline C4 uses —
+    # default ON: the stage is itself propose-only (persisting a "proposal" Claim
+    # is safe) and the shipped ActionPolicy default for route_policy_update is
+    # approval_required, so leaving this on everywhere never auto-applies a
+    # routing/prompt/tool change or records an OutcomeRouter reward by itself.
+    kg_loop_trace_mining: bool = Field(default=True, alias="KG_LOOP_TRACE_MINING")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"

@@ -54,6 +54,12 @@ def register_analysis_tools(mcp):
         target: str = Field(
             default="", description="Target for the analysis or inspection."
         ),
+        envelope: str = Field(
+            default="raw",
+            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
+            "(additionally wrap the result as an EvidenceBundle — code_context, "
+            "executable_rag). Additive/opt-in; every other action ignores it.",
+        ),
     ) -> str:
         """Execute complex analysis across the Knowledge Graph. Enables advanced semantic synthesis, causal dependency mapping, and structural inspection."""
         engine = kg_server._get_engine()
@@ -1472,7 +1478,43 @@ def register_analysis_tools(mcp):
                     depth=depth,
                     cross_repo=cross or intent == "usage",
                 )
+                # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
+                # that omits `envelope` binds it to the Field(...) descriptor itself, not
+                # the string default — normalize defensively so that degrades to "raw".
+                envelope_mode = envelope if isinstance(envelope, str) else "raw"
+                if envelope_mode.strip().lower() == "bundle":
+                    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+                    result = {
+                        **result,
+                        "evidence_bundle": EvidenceBundle.from_code_context_answer(
+                            result
+                        ).model_dump(),
+                    }
                 return _json.dumps(result, default=str)
+            elif action == "executable_rag":
+                # CONCEPT:AU-KG.retrieval.memory-first-retrieval — the executable multi-hop RAG
+                # interpreter, exposed over MCP for the first time (previously library-only).
+                # `query` = the question; `top_k` = retrieval width per step; `target`="planner"
+                # opts into LLM plan synthesis (default: the deterministic linear plan). Always
+                # returns an EvidenceBundle (no legacy consumer to keep byte-identical, so this
+                # defaults straight to the wrapped shape — CONCEPT:evidence-bundle-envelope).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+                    HybridRetriever,
+                )
+                from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+                if not query.strip():
+                    return "Error: executable_rag needs a question in `query`."
+                use_planner = (target or "").strip().lower() == "planner"
+                retriever = HybridRetriever(engine)
+                rag_result = retriever.retrieve_executable(
+                    query, top_k=top_k, use_planner=use_planner
+                )
+                bundle = EvidenceBundle.from_rag_result(rag_result)
+                return _json.dumps(bundle.model_dump(), default=str)
             elif action == "cross_repo_usages":
                 # CONCEPT:AU-KG.retrieval.every-usage-published-symbol — every usage of a published symbol across the
                 # whole fleet in one query (name-anchored callers grouped by repo).

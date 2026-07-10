@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 944
+total_concepts: 945
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4795,14 +4795,14 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.evolution.mining-flywheel
-  name: → intake/acquire/resolve →
+  name: default ON via
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/tools/state_tools.py
-  doc: → intake/acquire/resolve →
+  doc: default ON via
   dotted: AU-KG.evolution.mining-flywheel
   aliases:
   - AU-KG.evolution.mining-flywheel
@@ -5769,6 +5769,20 @@ concepts:
   dotted: AU-KG.maintenance.canonical-ontology-library
   aliases:
   - AU-KG.maintenance.canonical-ontology-library
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.maintenance.confidence-propagation-belief-revision
+  name: AU-KG.maintenance.confidence-propagation-belief-revision
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/adaptation/belief_revision.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: AU-KG.maintenance.confidence-propagation-belief-revision
+  dotted: AU-KG.maintenance.confidence-propagation-belief-revision
+  aliases:
+  - AU-KG.maintenance.confidence-propagation-belief-revision
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.maintenance.only-no-file-cache
