@@ -256,6 +256,11 @@ class FleetReconciler:
             except Exception:  # noqa: BLE001
                 max_actions = 5
         self.max_actions = max(1, int(max_actions))
+        # C3/Phase 3b (D13): CDC-fired :AgentTask dependency firing when the
+        # engine's change-feed is reachable, falling back to the poll sweep
+        # otherwise — one watcher per reconciler instance so its CDC cursor
+        # persists across ticks (see ``AgentTaskDepWatcher``).
+        self._agent_task_watcher = AgentTaskDepWatcher(engine)
 
     # ── divergence detection ────────────────────────────────────────
 
@@ -416,6 +421,10 @@ class FleetReconciler:
         # Human-granted approvals get their own budget: a backlog of new
         # divergences must not starve actions an operator already sanctioned.
         approved = self._drain_approved(self.max_actions)
+        # C3/Phase 3b (D13): CDC-fired :AgentTask dependency firing when the
+        # engine's change-feed is reachable; poll sweep as the fallback (see
+        # ``AgentTaskDepWatcher``/``fire_ready_agent_tasks`` docstrings).
+        fired_agent_tasks = self._agent_task_watcher.fire()
 
         report = {
             "divergences": len(proposals),
@@ -423,6 +432,7 @@ class FleetReconciler:
             "deferred": [p.summary() for p in deferred],
             "actions": actions,
             "approved_drained": approved,
+            "fired_agent_tasks": fired_agent_tasks,
             "actuator": getattr(self.actuator, "name", "?"),
         }
         self._record(report)
@@ -452,3 +462,152 @@ class FleetReconciler:
 def reconcile_fleet(engine: Any) -> dict[str, Any]:
     """The leader-only maintenance-tick entry point (see ``engine_tasks``)."""
     return FleetReconciler(engine).reconcile()
+
+
+# ── C3/Phase 3a→3b: :AgentTask dependency firing — CDC-first, poll fallback ──
+#
+# CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects
+#
+# Phase 3a shipped a POLLING sweep only: every tick blindly re-scanned every
+# 'blocked' ``:AgentTask`` node, whether or not anything had actually completed
+# since the last tick. Phase 3b (D13) closes the gap with
+# :class:`AgentTaskDepWatcher`: it rides the SAME engine change-feed primitive
+# every other reactive consumer in this codebase uses
+# (:class:`agent_utilities.graph.reactive.engine_subscription.EngineSubscription`,
+# label="AgentTask") so a tick with NO completed dependency since the last one
+# does ZERO Cypher work instead of a full sweep. ``fire_ready_agent_tasks``
+# itself (the sweep body) is UNCHANGED and kept as the fallback — a non-engine
+# backend, or an engine build without the streaming feature, degrades the
+# watcher straight back to Phase 3a's always-sweep behavior. Wired into both
+# the leader-only ``FleetReconciler.reconcile()`` tick (fleet-wide) and the
+# per-scheduler ``RecoveryDaemon.stabilize()`` tick (local) — same watcher
+# class, two callers, no duplicated dependency logic.
+
+_AGENT_TASK_DEP_SWEEP_LIMIT = 200
+
+
+def _agent_task_dependencies_satisfied(
+    engine: Any, depends_on_task_ids: list[str]
+) -> bool:
+    """True iff every dependency id resolves to an ``:AgentTask`` with status 'completed'.
+
+    Conservative like the reconciler's ``diff()`` above: a missing/unknown
+    dependency counts as NOT satisfied (never fire on absent evidence).
+    """
+    if not depends_on_task_ids:
+        return True
+    rows = engine.query_cypher(
+        "MATCH (t:AgentTask) WHERE t.id IN $ids RETURN t.id AS id, t.status AS status",
+        {"ids": list(depends_on_task_ids)},
+    )
+    statuses = {r.get("id"): r.get("status") for r in (rows or [])}
+    return all(statuses.get(tid) == "completed" for tid in depends_on_task_ids)
+
+
+def fire_ready_agent_tasks(
+    engine: Any, limit: int = _AGENT_TASK_DEP_SWEEP_LIMIT
+) -> list[str]:
+    """Sweep 'blocked' ``:AgentTask`` nodes and fire the ones whose deps completed.
+
+    Returns the ids flipped to 'ready' this sweep (empty if the engine is
+    unavailable or the query fails — never load-bearing for the caller's
+    tick). See the module-level note above for the poll-vs-CDC rationale.
+    """
+    if engine is None:
+        return []
+    try:
+        rows = (
+            engine.query_cypher(
+                "MATCH (t:AgentTask {status: 'blocked'}) RETURN t.id AS id, "
+                "t.depends_on_task_ids AS depends_on_task_ids "
+                f"LIMIT {int(limit)}"
+            )
+            or []
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
+        return []
+
+    fired: list[str] = []
+    for row in rows:
+        task_id = row.get("id")
+        if not task_id:
+            continue
+        deps = list(row.get("depends_on_task_ids") or [])
+        if not _agent_task_dependencies_satisfied(engine, deps):
+            continue
+        try:
+            engine.add_node(task_id, "AgentTask", properties={"status": "ready"})
+            fired.append(task_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "fleet_reconciler: failed to fire agent task %s: %s", task_id, e
+            )
+    return fired
+
+
+class AgentTaskDepWatcher:
+    """CDC-first ``:AgentTask`` dependency firing, poll sweep as the fallback (D13).
+
+    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3b)
+
+    Wraps one :class:`~agent_utilities.graph.reactive.engine_subscription.
+    EngineSubscription` (``label="AgentTask"``) per instance so its CDC cursor
+    persists across ticks — construct ONCE per reconciler/daemon (not per
+    tick) and call :meth:`fire` on each tick.
+
+    * **engine change-feed reachable** (``subscription.available``) — a tick
+      polls the subscription (``block_ms=0``, non-blocking); when NO
+      ``:AgentTask`` changed since the last tick this is a single cheap
+      long-poll round-trip and :func:`fire_ready_agent_tasks` (the Cypher
+      sweep) is skipped entirely. When at least one ``:AgentTask`` changed,
+      the sweep runs once (still the same conservative
+      ``_agent_task_dependencies_satisfied`` check — the CDC signal only
+      gates WHETHER to look, never what "satisfied" means) to fire every task
+      now eligible, since one completion can unblock several depends_on
+      chains at once.
+    * **engine change-feed unavailable** (non-engine backend / an engine build
+      without ``streaming``) — ``subscription.available`` is ``False`` and
+      this degrades straight back to Phase 3a: an unconditional sweep every
+      tick, byte-identical to calling :func:`fire_ready_agent_tasks` directly.
+
+    Never raises: subscription construction/polling failures degrade to the
+    poll fallback, mirroring every other engine-surface consumer here.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        self.engine = engine
+        self._dirty = False
+        self._subscription = self._build_subscription(engine)
+
+    def _build_subscription(self, engine: Any) -> Any:
+        try:
+            from agent_utilities.graph.reactive.engine_subscription import subscribe
+        except Exception as e:  # noqa: BLE001 — subsystem unimportable ⇒ poll fallback
+            logger.debug("fleet_reconciler: engine_subscription unavailable: %s", e)
+            return None
+        try:
+            return subscribe(engine, "AgentTask", self._on_change)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("fleet_reconciler: AgentTask subscription failed: %s", e)
+            return None
+
+    def _on_change(self, event: dict[str, Any]) -> None:
+        self._dirty = True
+
+    def fire(self, limit: int = _AGENT_TASK_DEP_SWEEP_LIMIT) -> list[str]:
+        """One tick: CDC-gated sweep when the engine change-feed is reachable, else always-sweep."""
+        sub = self._subscription
+        if sub is None or not getattr(sub, "available", False):
+            return fire_ready_agent_tasks(self.engine, limit=limit)
+
+        try:
+            sub.poll(block_ms=0)
+        except Exception as e:  # noqa: BLE001 — a feed hiccup ⇒ fall back to the sweep
+            logger.debug("fleet_reconciler: AgentTask CDC poll failed: %s", e)
+            return fire_ready_agent_tasks(self.engine, limit=limit)
+
+        if not self._dirty:
+            return []  # nothing changed since the last tick — zero Cypher work
+        self._dirty = False
+        return fire_ready_agent_tasks(self.engine, limit=limit)
