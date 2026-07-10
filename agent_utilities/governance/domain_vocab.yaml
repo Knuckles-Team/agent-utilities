@@ -37,6 +37,9 @@ pillars:
     sharding:      [shard, sharding, resharding, topology, tenant, multi-raft, replication]
     domains:       [domain, vertical, subgraph, finance, quant, medical, legal, enterprise]
     mining:        [mining, frequent-itemset, association-rule, cluster, anomaly, pattern-mining, graph_mine]
+    etl:           [etl, transform, transform-primitives, result-contract, extract-load]
+    evolution:     [evolution, insight-engine, closed-loop, candidate-insight, flywheel, self-evolution]
+    graphlearn:    [graphlearn, graph-learning, link-predictor, edge-function, kan, graph_learn]
 
   # ─────────────────────────────────────────────────────────────────────────
   ORCH: # Graph Orchestration Engine — planning, routing, execution, the Loop.
