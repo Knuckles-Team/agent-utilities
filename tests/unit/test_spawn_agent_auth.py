@@ -4,7 +4,7 @@ CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — `execute_agent` res
 its remote (SSE/streamable-HTTP) toolset. Those toolsets must carry the same
 service-account bearer the multiplexer attaches to its children, or a
 jwt-protected `*.arpa` server rejects the call `401`. These tests pin that the
-bearer (minted via `client_credentials.bearer_header`) reaches the toolset's
+bearer (minted via `client_credentials.child_auth_header`) reaches the toolset's
 transport (pydantic-ai v2 carries auth headers on the MCP transport, which
 threads them into the lazily-built httpx client at connect time), and that the
 path is inert/safe when auth is disabled.
@@ -36,7 +36,7 @@ def test_spawn_auth_headers_returns_minted_bearer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_header",
+        "agent_utilities.mcp.client_credentials.child_auth_header",
         lambda _existing: {"Authorization": "Bearer TESTTOKEN"},
     )
     assert agent_runner._spawn_auth_headers() == {"Authorization": "Bearer TESTTOKEN"}
@@ -46,7 +46,7 @@ def test_spawn_auth_headers_inert_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_header", lambda _existing: {}
+        "agent_utilities.mcp.client_credentials.child_auth_header", lambda _existing: {}
     )
     assert agent_runner._spawn_auth_headers() == {}
 
@@ -57,7 +57,7 @@ def test_spawn_auth_headers_degrades_on_error(
     def _boom(_existing: Any) -> dict[str, str]:
         raise RuntimeError("mint failed")
 
-    monkeypatch.setattr("agent_utilities.mcp.client_credentials.bearer_header", _boom)
+    monkeypatch.setattr("agent_utilities.mcp.client_credentials.child_auth_header", _boom)
     assert agent_runner._spawn_auth_headers() == {}
 
 
@@ -74,7 +74,7 @@ def test_remote_toolset_carries_bearer_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_header",
+        "agent_utilities.mcp.client_credentials.child_auth_header",
         lambda _existing: {"Authorization": "Bearer TESTTOKEN"},
     )
 
@@ -91,7 +91,7 @@ def test_remote_toolset_no_bearer_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_header", lambda _existing: {}
+        "agent_utilities.mcp.client_credentials.child_auth_header", lambda _existing: {}
     )
 
     config = agent_runner._build_execution_config(

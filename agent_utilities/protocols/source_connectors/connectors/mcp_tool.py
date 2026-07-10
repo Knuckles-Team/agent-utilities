@@ -1431,9 +1431,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
 
         auth = None
         try:
-            from agent_utilities.mcp.client_credentials import bearer_auth
+            from agent_utilities.mcp.client_credentials import child_auth
 
-            auth = bearer_auth(None)
+            auth = child_auth(None)
         except Exception:  # noqa: BLE001 — auth is best-effort/opt-in
             auth = None
         if auth is None:

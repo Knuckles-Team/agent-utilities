@@ -54,11 +54,11 @@ its **remote `.arpa` URL**. Three things must all be true or the sync **silently
 returns 0 nodes** (it degrades to no-auth → the child 401s):
 
 1. **The graph-os host AND server carry the OIDC client-credentials env** so
-   `mcp/client_credentials.bearer_auth` mints a service bearer (CONCEPT:AU-OS.identity.so-jwt-protected-children):
+   `mcp/client_credentials.child_auth` mints a service bearer (CONCEPT:AU-OS.identity.so-jwt-protected-children):
    `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID=mcp-multiplexer`,
    `OIDC_CLIENT_SECRET=<from OpenBao>`, `OIDC_AUDIENCE=agent-services`,
    `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`.
-   Without these, `bearer_auth` returns `None` → unauthenticated connect → 401.
+   Without these, `child_auth` returns `None` → unauthenticated connect → 401.
 
 2. **Keycloak: the minting client (`mcp-multiplexer`) must inject `aud=agent-services`.**
    The fleet children validate `FASTMCP_SERVER_AUTH_JWT_AUDIENCE=agent-services`, but a

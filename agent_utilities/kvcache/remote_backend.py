@@ -64,8 +64,6 @@ from agent_utilities.kvcache.config import KvCacheConfig
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from agent_utilities.mcp.client_credentials import ClientCredentialsAuth
-
 logger = logging.getLogger(__name__)
 
 
@@ -150,14 +148,14 @@ class EpistemicGraphKVBackend:
         # layer to import this connector — if it's unavailable, degrade to the
         # static-token / anonymous path.
         try:
-            from agent_utilities.mcp.client_credentials import bearer_auth
+            from agent_utilities.mcp.client_credentials import child_auth
         except Exception:  # pragma: no cover - mcp layer optional on inference hosts
 
-            def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
+            def child_auth(existing: dict | None) -> httpx.Auth | None:
                 return None
 
         headers: dict[str, str] = {}
-        auth = bearer_auth(headers)  # ClientCredentialsAuth | None (None ⇒ OIDC off)
+        auth = child_auth(headers)  # httpx.Auth | None (None ⇒ MCP_CLIENT_AUTH off)
         if auth is None and self.config.token:
             headers["Authorization"] = f"Bearer {self.config.token}"
         return create_http_client(

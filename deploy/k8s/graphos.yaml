@@ -37,6 +37,16 @@ data:
   # KG-2.58 engine shards (headless StatefulSet DNS). HRW routes each tenant graph
   # to exactly one shard; add/remove endpoints to scale the engine tier.
   GRAPH_SERVICE_ENDPOINTS: "tcp://graphos-engine-0.graphos-engine:9090,tcp://graphos-engine-1.graphos-engine:9090,tcp://graphos-engine-2.graphos-engine:9090"
+  # ── Outbound fleet auth (CONCEPT:AU-OS.identity.so-jwt-protected-children) ──
+  # graph-os fronts the whole *-mcp fleet (it absorbed the multiplexer). The
+  # children enforce JWT (AUTH_TYPE=jwt); without a service credential every
+  # remote-child call is rejected 401. Non-secret half here, the secret half in
+  # the Secret below. Scheme: `oidc-client-credentials` (Keycloak bearer, default)
+  # or `basic` (static HTTP Basic — set MCP_BASIC_AUTH_* in the Secret instead).
+  MCP_CLIENT_AUTH: "oidc-client-credentials"
+  OIDC_CLIENT_ID: "mcp-multiplexer"
+  OIDC_AUDIENCE: "agent-services"
+  OIDC_TOKEN_URL: "https://keycloak.example.com/realms/agent-os/protocol/openid-connect/token"
 ---
 apiVersion: v1
 kind: Secret
@@ -49,6 +59,13 @@ stringData:
   # L3 pg-age store. Point both at the managed/HA Postgres.
   STATE_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_state"
   GRAPH_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_kg"
+  # Outbound fleet-auth secret (pairs with the ConfigMap above). Source from
+  # OpenBao `apps/mcp-multiplexer/oidc` via ESO, do NOT commit the real value.
+  #   oidc-client-credentials → OIDC_CLIENT_SECRET
+  #   basic                   → MCP_BASIC_AUTH_USERNAME + MCP_BASIC_AUTH_PASSWORD
+  OIDC_CLIENT_SECRET: "CHANGE_ME"
+  # MCP_BASIC_AUTH_USERNAME: "CHANGE_ME"
+  # MCP_BASIC_AUTH_PASSWORD: "CHANGE_ME"
 ---
 # ── FRONT TIER — stateless streamable-HTTP MCP surface ────────────────────────
 apiVersion: apps/v1

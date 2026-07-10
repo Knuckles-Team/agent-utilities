@@ -354,9 +354,9 @@ class MCPMultiplexer:
             # Use a per-request httpx.Auth (not a frozen header): the child's
             # pooled session is long-lived, so a baked-in short-lived token would
             # expire mid-session and wedge calls on a 401 (CONCEPT:AU-OS.identity.so-jwt-protected-children).
-            from agent_utilities.mcp.client_credentials import bearer_auth
+            from agent_utilities.mcp.client_credentials import child_auth
 
-            _svc_auth = bearer_auth(headers)
+            _svc_auth = child_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
                 if sse_client is None:

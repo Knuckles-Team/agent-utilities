@@ -262,9 +262,9 @@ class MCPDiscoveryMixin(_Base):
         # (opt-in MCP_CLIENT_AUTH=oidc-client-credentials); never overrides a
         # child's own Authorization header; a mint failure degrades to no header.
         try:
-            from agent_utilities.mcp.client_credentials import bearer_header
+            from agent_utilities.mcp.client_credentials import child_auth_header
 
-            _svc = bearer_header(hdrs)
+            _svc = child_auth_header(hdrs)
             if _svc:
                 hdrs = {**hdrs, **_svc}
         except Exception:  # noqa: BLE001 - auth is best-effort
