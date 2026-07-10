@@ -6,7 +6,7 @@ exceptions and authentication decorators used throughout the
 agent ecosystem.
 """
 
-__version__ = "1.13.0"
+__version__ = "1.14.0"
 
 __all__ = [
     "require_auth",
