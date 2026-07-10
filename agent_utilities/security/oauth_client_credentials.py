@@ -56,7 +56,7 @@ from typing import Any
 
 import httpx
 import requests
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ class OAuth2ClientCredentialsConfig(BaseModel):
         ),
     )
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("client_secret")
     @classmethod
