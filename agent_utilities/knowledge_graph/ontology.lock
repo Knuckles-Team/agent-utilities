@@ -1,0 +1,264 @@
+agents/ansible-tower-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 993ad9429e6ba971145ddeb6a3e6cd4189196179f21ebd2824a8fe4fee4a0369
+  triple_count: 100
+agents/archimate-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 5c23ea227bbd105fc4dd0e3ddaf7442fa5bd424ade712502f07688a56cfa8a5c
+  triple_count: 358
+agents/archivebox-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: de3bd6d300ce9ff60b3ff6a88cf82a85a0ed98600d3e7cb551fa4b42f65a2e61
+  triple_count: 47
+agents/aris-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 86b9ba7cc8d42e3495164680faabbb483440f96320cf9bf85a9064a0c51cad2d
+  triple_count: 74
+agents/arr-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 8b921c452bb35f134b2d8dad809afcb49ec7abd16d78f5ee79e704ae5acb7c75
+  triple_count: 89
+agents/atlassian-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
+  triple_count: 49
+agents/audio-transcriber/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 4094f9a4755bf89cf2bdffae8bb23967e4d50ed2ed468b59b5af97420844e659
+  triple_count: 43
+agents/audiobookshelf-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: aeaa27e0d6d0bf3d693970a8ada3facb29ec85e97d5e5194600634679bc9a84a
+  triple_count: 78
+agents/caddy-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 2fede50b5b1a12c8210541c70e943b3324a5baa52c67cedc3fd92e7f0194408b
+  triple_count: 59
+agents/camunda-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: c0c1ebacb6c9e2c3f881505b2d9c15f8ebf04f693da1076978bbab4311af5e84
+  triple_count: 83
+agents/ciso-assistant-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 633538d55a5f8dadbcd49173465b5996e4bf0691d5bd2e83fa979e1d708c319b
+  triple_count: 80
+agents/clarity-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: e2a2d2c5960061f54286e59762ecd99556c9914622e13bcfbc9781672bd3d59f
+  triple_count: 58
+agents/container-manager-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 97169902bf7ed616fa48999907841f6a9a38b68d8443513613fd700dcfec4da1
+  triple_count: 114
+agents/data-science-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: e7a43f814beb0ddb3a9def0f6b4f8ac475b6c81616cea2771c83dc08c88581f6
+  triple_count: 173
+agents/dockerhub-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 5b0f7e7fdb31562825502f89cf0067f4f748ba52433c2e663e3cfa5a8c24d1ea
+  triple_count: 75
+agents/documentdb-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: a1bfde343fa2d6d3712ede2d1aea31bdded7424c3268dbee32f12023ba81b8c9
+  triple_count: 41
+agents/egeria-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
+  triple_count: 33
+agents/emerald-exchange/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 1bfa6604d510eb85ab3176d1d5bf7039562c29c841ac283c4b2375863f54a112
+  triple_count: 1515
+agents/erpnext-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: e1db5bd3e80f09ed556b5ed40ec468baa01c855cd9f0f9e211c90298751a7929
+  triple_count: 66
+agents/fan-manager/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: b52f8af5e06a8d2a1016a9d3217383fdaf04c6147dc2ffc227e6c868021097b5
+  triple_count: 97
+agents/firefly-iii-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 4544fe4525eb6d7b23914e433de1326c8de7d492a7a4dc82c37cd63c2498abe9
+  triple_count: 100
+agents/freshrss-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: f618e3d6ef0e8d5ccbe32c90f34ec66521363b2a70408b859dd8880eb6a94369
+  triple_count: 39
+agents/genius-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 7d43dc4d1087094d06a21c65d7d47bcb6a8486450f016fa7e0ec90bb933f1a40
+  triple_count: 44
+agents/github-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 393f22cdb93783129e53ff109a826e28fe76d9a67a893f1c65fce74d38ea4cb3
+  triple_count: 86
+agents/gitlab-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 6d958020af7388f30d7b583e702642cf4d7c5a2ce6e7f50caf84690bbeb6da46
+  triple_count: 82
+agents/gramps-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 7897b6a649b5f9100cb32ffbde864e155c153d1e51a884fe714ddcd3a70f926d
+  triple_count: 67
+agents/home-assistant-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 31676ad6dbe7675fbd4c567e1a6bef267cd2af5f59c0b5dfe8fd3ea3a3611fec
+  triple_count: 69
+agents/jellyfin-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 73f0f22a416927d8d737963cbe9096ab2faef983182449275d38ca48f1f9a83e
+  triple_count: 117
+agents/jena-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: d031b6277e07536930ce3ebb4d5f8790afccd90aeabbe148ac2d8634e896adc2
+  triple_count: 79
+agents/kafka-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
+  triple_count: 86
+agents/keycloak-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: ff96e788037b12c513d7b84e451eddd5fcc520e6480d7872a8b4dea00efc4c2d
+  triple_count: 61
+agents/langfuse-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 5184df2ae408cd2a0a91d4937bbb727631a6e880a6c22cc9b88002a9b88b86e1
+  triple_count: 107
+agents/leanix-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 4ece7b7daed1c977a2f4a3eefc00f825fcc74a477a3da9a2dd72d6c241167354
+  triple_count: 66
+agents/legal-peripherals-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 8db712c22bfacd72061cf91cb7adc3e8e0966f85ebc7bbcc6e8a435884e02f1c
+  triple_count: 198
+agents/lgtm-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 665de7f07f2c74ef87ac27e3d6f6bc285b3f82e1c50bfd2eb0fe0bee4b407787
+  triple_count: 86
+agents/listmonk-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: fb2af6e860a9e9a46bcd7ff1c86186bc4a6872aecb6b4adba6542595fd029f02
+  triple_count: 56
+agents/mattermost-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 523e80a3a8db0f56473f667276fcfc58ce5858bd3ebffb31284d3f11a22cf117
+  triple_count: 39
+agents/mealie-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: f42b217bda1bbbde69bccb33efccc857a3afe29d1d9800d6d841acefd588ea2b
+  triple_count: 102
+agents/microsoft-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 9a378ca77ce78dae239fddda4f194db8dbe2b49a28dcaa36adfa8a04b477b245
+  triple_count: 113
+agents/nextcloud-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 7d6b41aea53880fa859ce0e4db64ee4f7ade1843acb95c5998a85b037d30d202
+  triple_count: 46
+agents/objectstore-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 291cff7e1b5c3b2b0a08e66089821e2633c489fb72896cf1cdadb7f7baf8f25f
+  triple_count: 52
+agents/okta-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: b6a7b3594c4788de68bc6f1b32793f0d59089a2cee9ed88f54908ee5387360d4
+  triple_count: 87
+agents/onetrust-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: a462ef0407cbc22d9c73e5052db5c194a2b29b78478492379370cfb8228c72b0
+  triple_count: 96
+agents/openbao-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 7fc083afb7920f12d29a561cd551a34f5204e425404676a0ddf534950bfae9dc
+  triple_count: 49
+agents/owncast-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 834dc5aec4ec9586065bc2cf653848a4f27d4cc3fd26e318db401a440da88f47
+  triple_count: 59
+agents/paperless-ngx-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: e8f96a567c010a56b1e91356a8ce821edff7ded6c7d910b0c8f4ba4868f4bc9f
+  triple_count: 38
+agents/plane-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 71d6341b5dac59b067677455503df358bc0ad6c692237c54e35110b2623cea61
+  triple_count: 68
+agents/portainer-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: dc15d71e746013ac8e7afc154cb5f707c33e542228ff9a25924716d12b423dab
+  triple_count: 76
+agents/postiz-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: a9b9fa547e80d681bc3b2177dde73d7442e4ee628bffa22df2ac8ef1dcd330eb
+  triple_count: 136
+agents/pulselink-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: fd2f3c38c4a0340e5e208029d253b399fb77d895d6acabe0ae06de65e30604a5
+  triple_count: 26
+agents/qbittorrent-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 86dfe97078095d9074ff8c09ba3f6af285dc3c3963f479b2f34bf35b10afba3e
+  triple_count: 49
+agents/repository-manager/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
+  triple_count: 71
+agents/rom-manager/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: ec4f5bb7fc6d6d1892e6cc96ea0e33abe57f606b893864f95c26df72b8b9ef29
+  triple_count: 67
+agents/salesforce-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 391c839a601d69d241efdce3ed5e6e1da188e304b4ae36e3892de465d57c5cc2
+  triple_count: 64
+agents/scholarx/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 9181a20a5c7a3450a2705316779216af83eac1ac5e5f9a31e31b31ed74774e57
+  triple_count: 52
+agents/searxng-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: d63d239f764120d792b8219c831075e8b85f99f874a01fe46e8a7494d27cf01e
+  triple_count: 49
+agents/servicenow-api/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 93c094a3c346daa1097a91e18ee6235942b814ee5b8947cbf4167731a6cfb099
+  triple_count: 34
+agents/sql-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
+  triple_count: 70
+agents/stirlingpdf-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 0cde8a6754bc51cb735d1ed992591373ab99aae826399a64bb361e2d5b7c279b
+  triple_count: 71
+agents/systems-manager/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: ebdc118caf9d9e0dc68d8b22cdd132037339c341db72fc3472a6703cfdd7bd77
+  triple_count: 82
+agents/technitium-dns-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 3de400c3920ce54a01196d43bfc71be922c56be78bf1c0d26210a133519d7c18
+  triple_count: 63
+agents/tunnel-manager/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 940e14de158b4cedef693e0e9672ac6c974441fbfa91ceb8e98d424e7340f4bc
+  triple_count: 71
+agents/twenty-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: f3c112283f5562c787dd1fdf36bad4bd6153550c385531013c9eeaebb56054f4
+  triple_count: 61
+agents/uptime-kuma-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 21db40e1afa26d5a16d77595825c4a03aa7ecd1d66a7cdab95b71a45581f0b0c
+  triple_count: 63
+agents/vector-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: a0d0d36bea83f1d0d6e255eed88018ca74cbf7f37c8e65807c9dd134f7b9c10a
+  triple_count: 83
+agents/wger-agent/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  hash: 0cefd2f7260450e7a338cb64409f6ee841f465c929b8232bdc65db574928fd46
+  triple_count: 178
