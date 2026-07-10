@@ -49,8 +49,10 @@ from typing import Any
 from agent_utilities.core.config import setting
 from agent_utilities.orchestration.agent_dispatch_worker import (
     CLAIM_TTL_S,
-    claim_agent_task as _claim_agent_task_kg,
     worker_token,
+)
+from agent_utilities.orchestration.agent_dispatch_worker import (
+    claim_agent_task as _claim_agent_task_kg,
 )
 
 logger = logging.getLogger(__name__)
