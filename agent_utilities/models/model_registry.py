@@ -171,6 +171,22 @@ class ModelDefinition(BaseModel):
             "agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig."
         ),
     )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Static HTTP headers sent on every request to this model's endpoint "
+            "(e.g. a gateway client-id header {'X-Client-Id': '...'}). Merged under any "
+            "per-call custom headers. Independent of the auth mode."
+        ),
+    )
+    ssl_verify: bool | str | None = Field(
+        default=None,
+        description=(
+            "Per-model TLS verification. Null inherits the caller/global setting; false "
+            "disables verification for THIS endpoint only (internal self-signed); a string "
+            "is a CA-bundle path used to verify this endpoint."
+        ),
+    )
     tier: ModelTier = Field(
         default="medium",
         description=(

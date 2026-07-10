@@ -150,7 +150,7 @@ def create_model(
     base_url: str | None = None,
     api_key: str | None = None,
     custom_headers: dict | None = None,
-    ssl_verify: bool = True,
+    ssl_verify: bool | str = True,
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
@@ -237,7 +237,7 @@ def _create_model_impl(
     base_url: str | None = None,
     api_key: str | None = None,
     custom_headers: dict | None = None,
-    ssl_verify: bool = True,
+    ssl_verify: bool | str = True,
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
@@ -269,6 +269,11 @@ def _create_model_impl(
 
         return TestModel()
 
+    # Per-model static headers + TLS accumulate here (registry ModelDefinition and/or
+    # config.chat_models), applied to the client below. Empty/None ⇒ inherit the caller.
+    _model_headers: dict[str, str] = {}
+    _model_ssl_verify: bool | str | None = None
+
     # CONCEPT:AU-ORCH.routing.functional-role-resolution — resolve a functional role (planner/generator/learner/judge)
     # to a concrete model when an explicit model_id was not supplied. Explicit args win.
     if role is not None and model_id is None:
@@ -278,8 +283,22 @@ def _create_model_impl(
             model_id = _resolved.model_id
             if base_url is None:
                 base_url = _resolved.base_url
+            if getattr(_resolved, "headers", None):
+                _model_headers = dict(_resolved.headers)
+            if getattr(_resolved, "ssl_verify", None) is not None:
+                _model_ssl_verify = _resolved.ssl_verify
 
-    _model_id = model_id or "qwen/qwen3.6-27b"
+    # CONCEPT:AU-ORCH.routing.functional-role-resolution — when NO explicit/role model was
+    # supplied, route to the operator's DEFINED default chat model (config.chat_models'
+    # intelligence_level='normal', else the first), NOT a hardcoded id. Its
+    # provider/base_url/api_key/oauth2/tls/headers are then applied by the model_info block
+    # below. Only if NO chat model is configured AT ALL do we fall to a last-resort literal.
+    _model_id = model_id
+    if _model_id is None:
+        _default_model = config.default_chat_model
+        if _default_model is not None:
+            _model_id = _default_model.id
+    _model_id = _model_id or "qwen/qwen3.6-27b"
     _provider = provider or "openai"
     # Default reasoning OFF (content-bearing, fast) for every OpenAI-compatible model built
     # here; opt back in per call with reasoning_effort=None / a level. See create_model docstring.
@@ -302,6 +321,22 @@ def _create_model_impl(
             api_key = model_info["api_key"]
         if oauth2 is None and model_info.get("oauth2"):
             oauth2 = model_info["oauth2"]
+        # Per-model static headers + TLS. config.chat_models is the source of truth for
+        # WHERE/HOW a model is served (mirroring base_url above), so its values win over a
+        # role-resolved ModelDefinition's; the caller's per-call custom_headers still win
+        # over both (merged below).
+        if model_info.get("headers"):
+            _model_headers = {**_model_headers, **model_info["headers"]}
+        if model_info.get("ssl_verify") is not None:
+            _model_ssl_verify = model_info["ssl_verify"]
+
+    # Apply the resolved per-model TLS + static headers. Per-model ssl_verify (when set)
+    # overrides the caller/global default for THIS endpoint only; per-model headers sit
+    # UNDER any explicit call-site custom_headers.
+    if _model_ssl_verify is not None:
+        ssl_verify = _model_ssl_verify
+    if _model_headers:
+        custom_headers = {**_model_headers, **(custom_headers or {})}
 
     # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — an OAuth2 client-credentials
     # bearer instead of a static api_key. Mutually exclusive at the call site (the config-layer
