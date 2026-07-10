@@ -416,6 +416,9 @@ class FleetReconciler:
         # Human-granted approvals get their own budget: a backlog of new
         # divergences must not starve actions an operator already sanctioned.
         approved = self._drain_approved(self.max_actions)
+        # C3/Phase 3a: poll-based :AgentTask dependency firing (interim — see
+        # ``fire_ready_agent_tasks`` docstring for the CDC-vs-poll rationale).
+        fired_agent_tasks = fire_ready_agent_tasks(self.engine)
 
         report = {
             "divergences": len(proposals),
@@ -423,6 +426,7 @@ class FleetReconciler:
             "deferred": [p.summary() for p in deferred],
             "actions": actions,
             "approved_drained": approved,
+            "fired_agent_tasks": fired_agent_tasks,
             "actuator": getattr(self.actuator, "name", "?"),
         }
         self._record(report)
@@ -452,3 +456,81 @@ class FleetReconciler:
 def reconcile_fleet(engine: Any) -> dict[str, Any]:
     """The leader-only maintenance-tick entry point (see ``engine_tasks``)."""
     return FleetReconciler(engine).reconcile()
+
+
+# ── C3/Phase 3a: poll-based :AgentTask dependency firing ───────────────────
+#
+# CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects
+#
+# INTERIM: this is a polling sweep, not change-data-capture. A CDC push (fire
+# the instant the last dependency completes) needs an engine-side hook that is
+# gated on the not-yet-built Phase 3b ClaimNext cutover — a separate, later
+# task. Until then, every tick that calls ``fire_ready_agent_tasks`` sweeps
+# 'blocked' ``:AgentTask`` nodes and flips any whose ``depends_on_task_ids``
+# are ALL 'completed' to 'ready', so ``agent_dispatch_worker.claim_agent_task``
+# can pick them up on its next poll. Wired into both the leader-only
+# ``FleetReconciler.reconcile()`` tick (fleet-wide) and the per-scheduler
+# ``RecoveryDaemon.stabilize()`` tick (local) — same function, two callers, no
+# duplicated dependency logic.
+
+_AGENT_TASK_DEP_SWEEP_LIMIT = 200
+
+
+def _agent_task_dependencies_satisfied(
+    engine: Any, depends_on_task_ids: list[str]
+) -> bool:
+    """True iff every dependency id resolves to an ``:AgentTask`` with status 'completed'.
+
+    Conservative like the reconciler's ``diff()`` above: a missing/unknown
+    dependency counts as NOT satisfied (never fire on absent evidence).
+    """
+    if not depends_on_task_ids:
+        return True
+    rows = engine.query_cypher(
+        "MATCH (t:AgentTask) WHERE t.id IN $ids RETURN t.id AS id, t.status AS status",
+        {"ids": list(depends_on_task_ids)},
+    )
+    statuses = {r.get("id"): r.get("status") for r in (rows or [])}
+    return all(statuses.get(tid) == "completed" for tid in depends_on_task_ids)
+
+
+def fire_ready_agent_tasks(
+    engine: Any, limit: int = _AGENT_TASK_DEP_SWEEP_LIMIT
+) -> list[str]:
+    """Sweep 'blocked' ``:AgentTask`` nodes and fire the ones whose deps completed.
+
+    Returns the ids flipped to 'ready' this sweep (empty if the engine is
+    unavailable or the query fails — never load-bearing for the caller's
+    tick). See the module-level note above for the poll-vs-CDC rationale.
+    """
+    if engine is None:
+        return []
+    try:
+        rows = (
+            engine.query_cypher(
+                "MATCH (t:AgentTask {status: 'blocked'}) RETURN t.id AS id, "
+                "t.depends_on_task_ids AS depends_on_task_ids "
+                f"LIMIT {int(limit)}"
+            )
+            or []
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
+        return []
+
+    fired: list[str] = []
+    for row in rows:
+        task_id = row.get("id")
+        if not task_id:
+            continue
+        deps = list(row.get("depends_on_task_ids") or [])
+        if not _agent_task_dependencies_satisfied(engine, deps):
+            continue
+        try:
+            engine.add_node(task_id, "AgentTask", properties={"status": "ready"})
+            fired.append(task_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "fleet_reconciler: failed to fire agent task %s: %s", task_id, e
+            )
+    return fired

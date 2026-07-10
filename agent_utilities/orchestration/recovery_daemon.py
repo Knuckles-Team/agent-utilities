@@ -104,4 +104,22 @@ class RecoveryDaemon:
                         recovered += 1
                         self.recovered_count += 1
 
+        # 3. C3/Phase 3a: poll-based :AgentTask dependency firing. INTERIM —
+        # a change-data-capture push is engine-gated and deferred to a
+        # separate, later Phase 3b ClaimNext cutover; until then this local
+        # tick (and the leader-only ``FleetReconciler`` tick) sweep 'blocked'
+        # tasks whose dependencies completed. Same shared function, no
+        # duplicated dependency logic (CONCEPT:AU-OS.state.cognitive-scheduler-preemption).
+        if self.scheduler.engine is not None:
+            try:
+                from agent_utilities.orchestration.fleet_reconciler import (
+                    fire_ready_agent_tasks,
+                )
+
+                fire_ready_agent_tasks(self.scheduler.engine)
+            except Exception as e:
+                logger.debug(
+                    "RecoveryDaemon: agent-task dependency sweep failed: %s", e
+                )
+
         return recovered
