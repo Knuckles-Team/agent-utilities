@@ -1138,6 +1138,15 @@ class AgentConfig(BaseSettings):
     # ``spec_promotion`` ActionPolicy gate (still approval_required by default, so it
     # only auto-develops where an operator has explicitly relaxed that tier).
     kg_loop_auto_develop: bool = Field(default=False, alias="KG_LOOP_AUTO_DEVELOP")
+    # Closed-loop agent mining, workstream C6 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mines Episode/OutcomeEvaluation/ToolCall provenance for repeated FAILURE
+    # tool-call sequences (``trace_pattern_miner``) and feeds each pattern through
+    # the SAME CandidateInsight→Claim→Validation→Action-gate pipeline C4 uses —
+    # default ON: the stage is itself propose-only (persisting a "proposal" Claim
+    # is safe) and the shipped ActionPolicy default for route_policy_update is
+    # approval_required, so leaving this on everywhere never auto-applies a
+    # routing/prompt/tool change or records an OutcomeRouter reward by itself.
+    kg_loop_trace_mining: bool = Field(default=True, alias="KG_LOOP_TRACE_MINING")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
