@@ -227,9 +227,9 @@ class WasmSandbox(Sandbox):
                 instance.define_wasi()
                 inst = instance.instantiate(store, module)
                 start = inst.exports(store)["_start"]
-                assert isinstance(start, wasmtime.Func), (
-                    f"expected the '_start' export to be a Func, got {type(start)!r}"
-                )
+                assert isinstance(
+                    start, wasmtime.Func
+                ), f"expected the '_start' export to be a Func, got {type(start)!r}"
                 try:
                     start(store)
                 except wasmtime.ExitTrap as e:

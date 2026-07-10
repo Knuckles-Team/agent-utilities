@@ -131,7 +131,8 @@ def run_etl(
     # returned ``EtlResult.counts`` is always populated from the one place, even
     # when ``record_lineage=False``.
     counts = {
-        "nodes": EtlResult.count_of(out["inbound"]) or EtlResult.count_of(out["outbound"]),
+        "nodes": EtlResult.count_of(out["inbound"])
+        or EtlResult.count_of(out["outbound"]),
         "edges": (out.get("outbound") or {}).get("edges", 0)
         if isinstance(out.get("outbound"), dict)
         else 0,

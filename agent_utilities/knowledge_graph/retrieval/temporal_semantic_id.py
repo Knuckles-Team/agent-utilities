@@ -123,9 +123,7 @@ class TemporalSemanticIdEncoder:
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    def _kmeans(
-        self, data: NDArray, rng: RandomGenerator, iters: int = 10
-    ) -> NDArray:
+    def _kmeans(self, data: NDArray, rng: RandomGenerator, iters: int = 10) -> NDArray:
         """Seeded k-means returning a ``(k, dim)`` centroid matrix.
 
         ``k`` is capped at the number of samples. Centroids are initialized by

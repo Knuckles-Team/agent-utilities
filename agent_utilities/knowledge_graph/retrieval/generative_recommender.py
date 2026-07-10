@@ -78,9 +78,7 @@ class Recommendation:
     score: float
 
 
-def _reconstruct(
-    encoder: TemporalSemanticIdEncoder, codes: Sequence[int]
-) -> NDArray:
+def _reconstruct(encoder: TemporalSemanticIdEncoder, codes: Sequence[int]) -> NDArray:
     """Map a content code tuple back to its continuous residual reconstruction.
 
     The reconstruction is the sum of the chosen centroid at each residual level
@@ -231,9 +229,7 @@ class ImplicitReasoningRecommender:
     # ------------------------------------------------------------------
     # Recommendation
     # ------------------------------------------------------------------
-    def _latent_refine(
-        self, target: NDArray, history_vectors: NDArray
-    ) -> NDArray:
+    def _latent_refine(self, target: NDArray, history_vectors: NDArray) -> NDArray:
         """Run ``pause_steps`` deterministic latent refinement steps.
 
         Each step is the inference analogue of one PauseRec ``<pause>`` token: it

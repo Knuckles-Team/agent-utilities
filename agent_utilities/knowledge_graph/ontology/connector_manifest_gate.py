@@ -78,7 +78,9 @@ def resolve_agents_root() -> Path:
     return Path(ws) / "agent-packages" / "agents"
 
 
-def resolve_connector_package(source: str, *, agents_root: Path | None = None) -> str | None:
+def resolve_connector_package(
+    source: str, *, agents_root: Path | None = None
+) -> str | None:
     """The ``agents/<pkg>`` directory name for a ``source_sync`` source key, or ``None``.
 
     Tries, in order: the curated :data:`SOURCE_TO_CONNECTOR_PACKAGE` alias, an exact
@@ -96,7 +98,9 @@ def resolve_connector_package(source: str, *, agents_root: Path | None = None) -
         return alias
 
     candidates = [norm, norm.replace("_", "-")]
-    candidates += [f"{c}{suf}" for c in (norm, norm.replace("_", "-")) for suf in _GUESS_SUFFIXES]
+    candidates += [
+        f"{c}{suf}" for c in (norm, norm.replace("_", "-")) for suf in _GUESS_SUFFIXES
+    ]
     for cand in candidates:
         if (root / cand).is_dir():
             return cand
@@ -135,7 +139,9 @@ def check_manifest_bytes(path: Path) -> list[str]:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         manifest = ConnectorManifest.model_validate(data)
     except Exception as exc:  # noqa: BLE001
-        return [f"[schema] {path}: does not parse/validate as a ConnectorManifest: {exc}"]
+        return [
+            f"[schema] {path}: does not parse/validate as a ConnectorManifest: {exc}"
+        ]
 
     try:
         spec = compile_manifest(manifest)

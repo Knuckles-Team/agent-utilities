@@ -332,7 +332,9 @@ def _validate_oauth2_block(oauth2: dict[str, Any], owner_label: str) -> dict[str
 
     try:
         return OAuth2ClientCredentialsConfig.model_validate(oauth2).model_dump()
-    except Exception as exc:  # re-raise with the owning model/id for a diagnosable error
+    except (
+        Exception
+    ) as exc:  # re-raise with the owning model/id for a diagnosable error
         raise ValueError(f"{owner_label}: invalid oauth2 block: {exc}") from exc
 
 
