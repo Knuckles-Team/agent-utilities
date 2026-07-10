@@ -63,7 +63,7 @@ The router supports three delegation modes via `graph_orchestrate`:
 | **Workflow** | `execute_workflow` | Pre-compiled multi-step workflows stored in KG |
 | **Compile + Execute** | `compile_workflow` → `execute_workflow` | Ad-hoc multi-step tasks from natural language |
 
-### In-band alternative: the dynamic multiplexer gateway (CONCEPT:ECO-4.36)
+### In-band alternative: the dynamic multiplexer gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
 
 This router delegates **out-of-band** — the KG runs the chosen agent server-side
 and returns a result. When the caller is itself an MCP client (e.g. Claude Code)

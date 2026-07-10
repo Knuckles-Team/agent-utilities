@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 945
+total_concepts: 951
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4794,15 +4794,32 @@ concepts:
   - AU-KG.etl.transform-primitives
   canonical_pillar: AU-KG
   needs_curation: false
-- id: AU-KG.evolution.mining-flywheel
-  name: default ON via
+- id: AU-KG.evolution.insight-engine-closed-loop
+  name: Mine → CandidateInsight →
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/knowledge_graph/research/trace_pattern_miner.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: Mine → CandidateInsight →
+  dotted: AU-KG.evolution.insight-engine-closed-loop
+  aliases:
+  - AU-KG.evolution.insight-engine-closed-loop
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.evolution.mining-flywheel
+  name: writes back typed, descriptive KG facts
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/tools/state_tools.py
-  doc: default ON via
+  doc: writes back typed, descriptive KG facts
   dotted: AU-KG.evolution.mining-flywheel
   aliases:
   - AU-KG.evolution.mining-flywheel
@@ -5313,6 +5330,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/ontology/connector_manifest.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
@@ -6350,6 +6368,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
   - agent_utilities/mcp/kg_server.py
   doc: capability-node aliases the lexical gate matches;
   dotted: AU-KG.ontology.capability-node-aliases-lexical
@@ -6390,6 +6409,43 @@ concepts:
   dotted: AU-KG.ontology.connector-agnostic-proposal
   aliases:
   - AU-KG.ontology.connector-agnostic-proposal
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.connector-manifest-compiler
+  name: without touching the existing
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/manifest_compiler.py
+  doc: without touching the existing
+  dotted: AU-KG.ontology.connector-manifest-compiler
+  aliases:
+  - AU-KG.ontology.connector-manifest-compiler
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.connector-manifest-gate
+  name: minus the signature-stub
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+  doc: minus the signature-stub
+  dotted: AU-KG.ontology.connector-manifest-gate
+  aliases:
+  - AU-KG.ontology.connector-manifest-gate
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.connector-manifest-schema
+  name: the LeanIX
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/connector_manifest.py
+  doc: the LeanIX
+  dotted: AU-KG.ontology.connector-manifest-schema
+  aliases:
+  - AU-KG.ontology.connector-manifest-schema
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.connector-skill-proposal-shapes
@@ -6992,6 +7048,19 @@ concepts:
   dotted: AU-KG.ontology.submission-criteria-gate
   aliases:
   - AU-KG.ontology.submission-criteria-gate
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.supply-chain-integrity
+  name: fleet-wide guarantee that a generated/
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/manifest_compiler.py
+  - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
+  doc: fleet-wide guarantee that a generated/
+  dotted: AU-KG.ontology.supply-chain-integrity
+  aliases:
+  - AU-KG.ontology.supply-chain-integrity
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.typed-ontology-links-binding
@@ -7982,6 +8051,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/executable_rag.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Memory-First Retrieval ──────────────────────────────────
   dotted: AU-KG.retrieval.memory-first-retrieval
   aliases:
@@ -11320,6 +11390,7 @@ concepts:
   - agent_utilities/security/browser_auth.py
   - agent_utilities/security/cli.py
   - agent_utilities/security/guardrails.py
+  - agent_utilities/security/oauth_client_credentials.py
   - agent_utilities/security/secrets_client.py
   - agent_utilities/security/xai_auth.py
   - agent_utilities/server/dependencies.py
@@ -12645,6 +12716,10 @@ concepts:
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/state.py
   - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
+  - agent_utilities/orchestration/engine_claim.py
+  - agent_utilities/orchestration/fleet_reconciler.py
+  - agent_utilities/orchestration/recovery_daemon.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/security/tool_guard.py
   - agent_utilities/tools/scheduler_tools.py
@@ -12802,6 +12877,23 @@ concepts:
   dotted: AU-OS.governance.concept-2
   aliases:
   - AU-OS.governance.concept-2
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.identity.oauth2-client-credentials-lifecycle
+  name: Mutually exclusive with a static
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/embedding_utilities.py
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/models/model_registry.py
+  - agent_utilities/security/oauth_client_credentials.py
+  - agent_utilities/server/dependencies.py
+  doc: Mutually exclusive with a static
+  dotted: AU-OS.identity.oauth2-client-credentials-lifecycle
+  aliases:
+  - AU-OS.identity.oauth2-client-credentials-lifecycle
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.scaling.safe-2
