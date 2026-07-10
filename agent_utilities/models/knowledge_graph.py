@@ -157,6 +157,14 @@ class RegistryNodeType(StrEnum):
     AGENT_LEASE = "agent_lease"
     AGENT_TASK = "agent_task"
     AGENT_MAILBOX = "agent_mailbox"
+    # Codex Gap-6 Agent-OS Objects — named objects over EXISTING C3/governance/
+    # observability mechanisms (the `AUTHORIZED_FOR` capability edge and
+    # `action_policy.decide()`'s `ActionDecision` audit, respectively); the
+    # reuse-audit found the third named object (AgentTrace) already fully
+    # covered by `TraceNode` (aliased below as `AgentTraceNode`, not a new
+    # type) — see tests/unit/knowledge_graph/test_agentos_gap6_objects.py.
+    AGENT_CAPABILITY_GRANT = "agent_capability_grant"
+    AGENT_POLICY_DECISION = "agent_policy_decision"
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
@@ -1439,6 +1447,28 @@ class TraceNode(RegistryNode):
     # Root input/output text (truncated) — what online-scoring/regression judges against.
     input: str = ""
     output: str = ""
+    # Codex Gap-6 — an "AgentTrace" (agent run trace: task_id/spans/tool_calls/
+    # outcome) IS this TraceNode; these three fields are the extension that
+    # closes the reuse-audit gap rather than introducing a second node type.
+    task_id: str | None = Field(
+        default=None,
+        description="AgentTaskNode id this run trace executed, if any (Codex Gap-6)",
+    )
+    tool_calls: int = Field(
+        default=0,
+        description="Count of child tool-kind spans (rolled up as spans are recorded, mirrors total_cost_usd/input_tokens/output_tokens)",
+    )
+    outcome: str | None = Field(
+        default=None,
+        description="Terminal outcome of the traced run: completed | failed | cancelled | blocked, if known",
+    )
+
+
+#: Codex Gap-6 named alias — the "AgentTrace" object over the existing TRACE/
+#: SPAN/GENERATION observability subgraph is this SAME ``TraceNode`` (same
+#: ``Trace`` graph label, same ``HAS_SPAN``/``HAS_GENERATION`` children); this
+#: is a documented alias, not a duplicate node type.
+AgentTraceNode = TraceNode
 
 
 class SpanNode(RegistryNode):
@@ -3791,6 +3821,126 @@ class AgentMailboxNode(RegistryNode):
         default=0,
         description="Number of messages not yet marked read",
     )
+
+
+class AgentCapabilityGrantNode(RegistryNode):
+    """A per-agent grant of one capability/tool/scope (Codex Gap-6).
+
+    Formalizes the ``AUTHORIZED_FOR`` edge target
+    ``orchestration/engine.py``'s team-synthesis query already expects
+    (``MATCH (a:Agent)-[:HAS_DELEGATED_AUTHORITY_FROM|AUTHORIZED_FOR]->
+    (auth {id: $delegated_authority})``) but that, until now, nothing in this
+    codebase actually wrote — ``AgentIdentityNode.capabilities`` is a flat,
+    un-audited list of granted identifiers with no per-grant issuer/expiry.
+    This is that missing write/read pair's node, NOT a second capability
+    concept: it does not replace ``AgentIdentityNode.capabilities`` (the
+    identity's live authorization list) or ``AgentCapabilityNode`` (a
+    capability TYPE definition like 'rlm'/'critic') — it is the audit-style
+    record of one grant of a capability/tool/scope to one agent, linked
+    ``Agent -[:AUTHORIZED_FOR]-> AgentCapabilityGrant`` (the exact edge
+    already queried). See
+    ``orchestration.agent_dispatch_worker.grant_capability``/
+    ``resolve_capability_grant`` for the write/read helpers.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_CAPABILITY_GRANT
+    agent_id: str = Field(
+        default="", description="Agent id the capability is granted to"
+    )
+    capability: str = Field(
+        default="",
+        description="Granted capability/tool/scope identifier (a tool name, an action_policy `kind`, or a capability_type)",
+    )
+    issuer: str = Field(
+        default="",
+        description="Identity that issued the grant ('system', an operator, or another agent id)",
+    )
+    granted_at: float = Field(
+        default=0.0, description="Unix timestamp the grant was issued"
+    )
+    expires_at: float | None = Field(
+        default=None,
+        description="Unix timestamp after which the grant is stale; None = no expiry",
+    )
+    revoked: bool = Field(
+        default=False, description="True once explicitly revoked before expiry"
+    )
+
+    def is_active(self, now: float | None = None) -> bool:
+        """True when not revoked and (no expiry or not yet expired)."""
+        if self.revoked:
+            return False
+        if self.expires_at is None:
+            return True
+        import time as _time
+
+        return self.expires_at > (now if now is not None else _time.time())
+
+
+class AgentPolicyDecisionNode(RegistryNode):
+    """Named, first-class object over the ``action_policy`` governance audit (Codex Gap-6).
+
+    Formalizes ``orchestration.action_policy.ActionPolicy.decide()``'s
+    ``ActionDecision`` audit — until now an ad-hoc
+    ``engine.add_node(audit_id, "ActionDecision", properties={...})`` write
+    (see ``ActionPolicy._audit``) with no typed KG schema entry anywhere in
+    this module. EXTENDS that existing object rather than duplicating it:
+    the persisted graph label stays ``ActionDecision`` — ``_audit``/
+    ``_recent_decisions`` and every existing caller
+    (``orchestration/fleet_autoscaler.py``,
+    ``knowledge_graph/research/spec_proposals.py``,
+    ``runtime/run_vcs/retained_output.py``, the full
+    ``tests/unit/test_action_policy.py`` suite) key off that exact label;
+    renaming it would be a wide, needless migration for a
+    formalization-only change. Construct via :meth:`from_action_decision` to
+    get a typed view of an already-persisted ``ActionDecision`` node without
+    a second write.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_POLICY_DECISION
+    kind: str = ""
+    target: str = ""
+    tier: str = ""
+    decision: str = ""
+    reason: str = ""
+    rule_origin: str = "default"
+    source: str = "manual"
+    agent_id: str = ""
+    approval_id: str | None = None
+    decided_at: str = ""
+    decided_unix: float = 0.0
+
+    @property
+    def allowed(self) -> bool:
+        return self.decision in ("allow", "allow_notify")
+
+    @classmethod
+    def from_action_decision(
+        cls, decision: Any, *, agent_id: str = ""
+    ) -> AgentPolicyDecisionNode:
+        """Wrap an already-decided ``action_policy.ActionDecision`` as this typed node.
+
+        Duck-typed on purpose (accepts the dataclass by attribute access, not
+        by import) so this schema module never depends on
+        ``orchestration.action_policy`` — the dependency runs the other way
+        (orchestration depends on models). Reuses ``decision.audit_id`` as
+        this node's id: SAME already-persisted graph node, no second write.
+        """
+        req = decision.request
+        return cls(
+            id=getattr(decision, "audit_id", None)
+            or f"action_decision:unaudited:{req.kind}:{req.target}",
+            name=f"PolicyDecision: {req.kind}({req.target})",
+            kind=req.kind,
+            target=req.target,
+            tier=decision.tier,
+            decision=decision.decision,
+            reason=decision.reason,
+            rule_origin=decision.rule_origin,
+            source=req.source,
+            agent_id=agent_id or req.actor_id,
+            approval_id=decision.approval_id,
+        )
 
 
 class HostNode(RegistryNode):
