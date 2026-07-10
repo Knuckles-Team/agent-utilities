@@ -155,6 +155,7 @@ class LoopController:
         focus_query: str = "",
         mine_discovery: bool | None = None,
         belief_revision: bool | None = None,
+        insight_validation: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -163,9 +164,13 @@ class LoopController:
         idempotent/content-addressed) → ``assimilate`` (dedup→gap→synergy→rank,
         idempotent via the state watermark) → ``reason`` → ``mine_discovery`` (env
         ``KG_LOOP_MINE_DISCOVERY``, default ON — the discovery-flywheel mining pass,
-        CONCEPT:AU-KG.evolution.mining-flywheel) → ``belief_revision`` (env
-        ``KG_LOOP_BELIEF_REVISION``, default ON — confidence propagation + light
-        TMS over ``Belief`` nodes (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision))
+        CONCEPT:AU-KG.evolution.mining-flywheel) → ``insight_validation`` (env
+        ``KG_LOOP_INSIGHT_VALIDATION``, default ON — workstream C4, the Insight
+        Engine closed loop: mined findings above a confidence floor become
+        reviewable ``ClaimNode``s, gated by ``action_policy.decide()``) →
+        ``belief_revision`` (env ``KG_LOOP_BELIEF_REVISION``, default ON —
+        confidence propagation + light TMS over ``Belief`` nodes
+        (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision))
         → intake/acquire/resolve → ``distill`` (env ``KG_LOOP_DISTILL``) →
         ``synthesize``. The report carries
         a ``metrics`` block (per-stage timings + error count) and is persisted as an
@@ -187,6 +192,8 @@ class LoopController:
             mine_discovery = config.kg_loop_mine_discovery
         if belief_revision is None:
             belief_revision = config.kg_loop_belief_revision
+        if insight_validation is None:
+            insight_validation = config.kg_loop_insight_validation
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -199,6 +206,7 @@ class LoopController:
             "assimilate": None,
             "reason": None,
             "mine_discovery": None,
+            "insight_validation": None,
             "belief_revision": None,
             "standardize": None,
             "skill_proposals": None,
@@ -296,6 +304,23 @@ class LoopController:
         if mine_discovery:
             report["mine_discovery"] = _stage(
                 "mine_discovery", self._run_mine_discovery
+            )
+
+        # 0a1.4 INSIGHT VALIDATION — the Insight Engine closed loop (workstream C4,
+        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): Mine → CandidateInsight →
+        # EvidenceBundle → Claim → Validation (REUSES promotion_governance +
+        # capability_ratchet as-is) → Action gate (REUSES action_policy.decide(),
+        # kind="promote_mined_claim", shipped default approval_required —
+        # SAFETY-CRITICAL, see ``_run_insight_validation``'s docstring). Only runs
+        # when mine_discovery actually produced a report this cycle (it consumes
+        # that report's mined findings — there's nothing to validate otherwise).
+        # Best-effort + gated (KG_LOOP_INSIGHT_VALIDATION, default ON — the stage
+        # is itself propose-only regardless of the flag; see the config field's
+        # docstring in ``core/config.py``).
+        if insight_validation and report.get("mine_discovery"):
+            report["insight_validation"] = _stage(
+                "insight_validation",
+                lambda: self._run_insight_validation(report["mine_discovery"]),
             )
 
         # 0a1.5 BELIEF REVISION — confidence propagation + light TMS (CONCEPT:AU-KG.
@@ -906,6 +931,225 @@ class LoopController:
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
         return {"count": len(predicted), "examples": predicted[:5]}
+
+    # -- Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C4) -- #
+    def _run_insight_validation(self, mine_result: dict[str, Any]) -> dict[str, Any]:
+        """Mine → CandidateInsight → EvidenceBundle → Claim → Validation → Action gate.
+
+        Workstream C4 — the Insight Engine closed loop. ``mine_discovery`` already
+        writes back typed, descriptive ``:AssociationRule``/``:Anomaly``/
+        ``:PredictedEdge`` nodes; nothing turns one into something the rest of the
+        epistemic substrate (C1 ``EvidenceBundle``, C2 belief-revision, the AHE-3.20
+        promotion-governance stack) can reason about. This stage closes that loop:
+
+        1. **CandidateInsight** (:mod:`.candidate_insight`) extracts each mined
+           finding's real confidence signal (never fabricated — see that module's
+           docstring) and drops anything below :data:`~.candidate_insight.
+           CONFIDENCE_FLOOR` — a below-floor finding is counted but NEVER
+           materialized as a ``ClaimNode``.
+        2. **EvidenceBundle** (C1) packages the raw finding as the claim's
+           evidence trail (audit-visible, nothing silently dropped).
+        3. **ClaimNode** — persisted as a KG ``Claim`` with ``status="proposal"``,
+           ``is_verified=False`` — ALWAYS, unconditionally, regardless of
+           ``KG_INSIGHT_AUTONOMY``. This is the propose-only floor every other
+           stage in this controller already guarantees.
+        4. **Validation** — REUSES :class:`~.promotion_governance.
+           PromotionGovernanceValidator` AS-IS (SHACL shapes, the recorded
+           capability-ratchet verdict, the recorded regression-gate verdict,
+           constitution/forbid rules, MergePolicy thresholds) — no reimplemented
+           governance logic.
+        5. **Action gate** — SAFETY-CRITICAL: every above-floor claim, autonomy on
+           or off, is run through ``action_policy.decide()`` under the reserved
+           ``kind="promote_mined_claim"`` BEFORE any promotion is even considered.
+           The shipped default tier for this kind is ``approval_required`` (see
+           ``deploy/action-policy.default.yml`` / ``action_policy.DEFAULT_POLICY``)
+           — a mined claim is NEVER promoted without this call on the path, and the
+           shipped default never allows it to happen automatically.
+
+        X3 — opt-in autonomy tier (``KG_INSIGHT_AUTONOMY``, default OFF): only
+        when explicitly enabled AND governance is valid AND the action-policy
+        decision above independently allows (``allow``/``allow_notify`` — which
+        requires an operator to have ALSO relaxed the shipped ``promote_mined_claim``
+        tier) does this reuse the EXISTING :class:`~.auto_merge.GovernedAutoMerger`
+        (which re-consults its OWN ``merge_promotion`` action-policy kind and the
+        SAME governance validator — belt-and-suspenders, not a bypass) to flip the
+        claim ``proposal → active`` via an injected claim-specific promoter (the
+        default TeamSpec/AgentSpec promoter doesn't apply to a bare Claim). The
+        cycle's own ``_finalize_metrics`` already records an ``ImprovementVelocity``
+        node every cycle (:mod:`.improvement_ledger`) over whatever
+        ``CapabilityRatchetResult``/``ProposalPublication`` nodes this stage (or
+        any other) wrote — so the audit trail is reused, not duplicated here.
+
+        Every sub-step is independently best-effort (mirroring the ``_mine_*``/
+        belief-revision sub-step tolerance) so one bad candidate never blocks the
+        rest. Best-effort + gated (``KG_LOOP_INSIGHT_VALIDATION``, default ON —
+        this stage is itself propose-only regardless of the flag).
+        """
+        from agent_utilities.core.config import config as _cfg
+        from agent_utilities.orchestration.action_policy import (
+            ActionRequest,
+            get_action_policy,
+        )
+
+        from .auto_merge import GovernedAutoMerger, MergePolicy
+        from .candidate_insight import candidates_from_mine_discovery
+        from .promotion_governance import PromotionGovernanceValidator
+
+        errors: list[str] = []
+        candidates = candidates_from_mine_discovery(mine_result)
+        below_floor = [c for c in candidates if not c.clears_floor]
+        eligible = [c for c in candidates if c.clears_floor]
+
+        validator = PromotionGovernanceValidator(self.engine)
+        action_policy = get_action_policy(self.engine)
+        autonomy_on = bool(_cfg.kg_insight_autonomy)
+
+        persisted = 0
+        promoted = 0
+        examples: list[dict[str, Any]] = []
+
+        for cand in eligible:
+            claim = cand.to_claim_node()
+            bundle = cand.to_evidence_bundle()
+            spec = {
+                "id": claim.id,
+                "name": claim.name,
+                "goal": claim.claim_text,
+                "description": claim.claim_text,
+                "quality_score": claim.confidence,
+                "type": "Claim",
+            }
+
+            # -- persist the proposal (ALWAYS; propose-only is the floor every
+            # other stage in this controller already guarantees). ``type`` is
+            # excluded from the dump: ClaimNode's own ``type`` field (the
+            # RegistryNodeType enum value, e.g. "claim") would otherwise collide
+            # with the ``"Claim"`` node-label positional arg once merged into
+            # ``properties``. --
+            try:
+                self.engine.add_node(
+                    claim.id,
+                    "Claim",
+                    properties={
+                        **claim.model_dump(mode="json", exclude={"type"}),
+                        "status": "proposal",
+                        "evidence_bundle_json": bundle.model_dump_json(),
+                    },
+                )
+                persisted += 1
+            except Exception as e:  # noqa: BLE001 — persistence is best-effort
+                errors.append(f"insight_validation:persist {claim.id}: {e}")
+                continue
+
+            # -- validation: REUSE promotion_governance (which itself reuses the
+            # capability ratchet's recorded verdict) as-is, never reimplemented. --
+            try:
+                verdict = validator.validate(spec)
+            except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
+                errors.append(f"insight_validation:validate {claim.id}: {e}")
+                continue
+
+            # -- action gate: SAFETY-CRITICAL, unconditional. A mined claim is
+            # NEVER promoted without this call, autonomy on or off (see docstring). --
+            try:
+                decision = action_policy.decide(
+                    ActionRequest(
+                        kind="promote_mined_claim",
+                        target=claim.id,
+                        params={
+                            "finding_type": cand.finding_type,
+                            "confidence": cand.confidence,
+                            "governance_valid": verdict.valid,
+                        },
+                        source="loop_engine",
+                        reason=(
+                            f"promote mined {cand.finding_type} finding to a "
+                            "verified claim"
+                        ),
+                    )
+                )
+            except Exception as e:  # noqa: BLE001 — fail closed, never crash
+                errors.append(f"insight_validation:action_policy {claim.id}: {e}")
+                continue
+
+            record: dict[str, Any] = {
+                "claim_id": claim.id,
+                "finding_type": cand.finding_type,
+                "confidence": round(cand.confidence, 4),
+                "governance_valid": verdict.valid,
+                "action_decision": decision.decision,
+                "promoted": False,
+            }
+
+            # -- X3: opt-in autonomy tier (KG_INSIGHT_AUTONOMY, default OFF). Both
+            # the action-policy gate above AND governance validity must
+            # independently allow before the EXISTING GovernedAutoMerger is even
+            # consulted; the merger applies its OWN merge_promotion action-policy
+            # check + the same governance validator on top (belt-and-suspenders). --
+            if autonomy_on and verdict.valid and decision.allowed:
+                # quality_threshold=0.0: this stage's own confidence floor
+                # (CandidateInsight.clears_floor) already gated eligibility above;
+                # the merger's quality check is redundant here — governance
+                # validity + the action-policy decision already gathered are what
+                # matter for this reused evaluate()/consider() call.
+                merger = GovernedAutoMerger(
+                    self.engine,
+                    policy=MergePolicy(enabled=True, quality_threshold=0.0),
+                    governance_validator=validator,
+                    promoter=self._claim_promoter(claim, bundle, errors),
+                )
+                try:
+                    evaluation = merger.consider(spec)
+                    record["promoted"] = bool(evaluation.merged)
+                    record["merge_reason"] = evaluation.reason
+                    if evaluation.merged:
+                        promoted += 1
+                except Exception as e:  # noqa: BLE001 — never crash the cycle
+                    errors.append(f"insight_validation:merge {claim.id}: {e}")
+
+            if len(examples) < 5:
+                examples.append(record)
+
+        return {
+            "candidates": len(candidates),
+            "below_floor": len(below_floor),
+            "eligible": len(eligible),
+            "persisted_claims": persisted,
+            "promoted": promoted,
+            "autonomy_enabled": autonomy_on,
+            "examples": examples,
+            "errors": errors,
+        }
+
+    def _claim_promoter(
+        self, claim: Any, bundle: Any, errors: list[str]
+    ) -> Callable[[Any], bool]:
+        """Build a ``GovernedAutoMerger`` promoter that flips a Claim proposal → active.
+
+        Injected instead of the merger's default ``persist_synthesis``-based
+        promoter (built for ``TeamSpec``/``AgentSpec``/``PromptSpec`` artifacts) —
+        a mined ``ClaimNode`` has its own simple proposal→active lifecycle
+        (``is_verified``) rather than a synthesized team/agent/prompt.
+        """
+
+        def _promote(_spec: Any) -> bool:
+            try:
+                self.engine.add_node(
+                    claim.id,
+                    "Claim",
+                    properties={
+                        **claim.model_dump(mode="json", exclude={"type"}),
+                        "status": "active",
+                        "is_verified": True,
+                        "evidence_bundle_json": bundle.model_dump_json(),
+                    },
+                )
+                return True
+            except Exception as e:  # noqa: BLE001 — promotion failure degrades, never raises
+                errors.append(f"insight_validation:promote {claim.id}: {e}")
+                return False
+
+        return _promote
 
     # -- belief revision / confidence propagation (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) -- #
     def _run_belief_revision(self) -> dict[str, Any]:
