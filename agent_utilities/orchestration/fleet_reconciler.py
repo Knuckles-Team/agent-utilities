@@ -577,18 +577,17 @@ class AgentTaskDepWatcher:
 
     def __init__(self, engine: Any) -> None:
         self.engine = engine
-        self._subscription = self._build_subscription(engine)
         self._dirty = False
+        self._subscription = self._build_subscription(engine)
 
-    @staticmethod
-    def _build_subscription(engine: Any) -> Any:
+    def _build_subscription(self, engine: Any) -> Any:
         try:
             from agent_utilities.graph.reactive.engine_subscription import subscribe
         except Exception as e:  # noqa: BLE001 — subsystem unimportable ⇒ poll fallback
             logger.debug("fleet_reconciler: engine_subscription unavailable: %s", e)
             return None
         try:
-            return subscribe(engine, "AgentTask", handler=None)
+            return subscribe(engine, "AgentTask", self._on_change)
         except Exception as e:  # noqa: BLE001
             logger.debug("fleet_reconciler: AgentTask subscription failed: %s", e)
             return None
@@ -602,10 +601,6 @@ class AgentTaskDepWatcher:
         if sub is None or not getattr(sub, "available", False):
             return fire_ready_agent_tasks(self.engine, limit=limit)
 
-        # Route delivered events through this instance's dirty flag (bound
-        # here rather than at construction so a monkeypatched/rebuilt
-        # subscription in tests still wires correctly).
-        sub.handler = self._on_change
         try:
             sub.poll(block_ms=0)
         except Exception as e:  # noqa: BLE001 — a feed hiccup ⇒ fall back to the sweep

@@ -453,7 +453,7 @@ class EvidenceBundle(BaseModel):
             rid = row.get("id")
             kind = row.get("kind")
             score = row.get("score")
-            confidence = row.get("confidence")
+            row_confidence = row.get("confidence")
             valid_time = row.get("valid_time")
             tx_time = row.get("tx_time")
             source_refs = list(row.get("source_refs") or [])
@@ -485,7 +485,7 @@ class EvidenceBundle(BaseModel):
                     "id": rid,
                     "kind": kind,
                     "score": score,
-                    "confidence": confidence,
+                    "confidence": row_confidence,
                     "valid_time": valid_time,
                     "tx_time": tx_time,
                     "source_refs": source_refs,

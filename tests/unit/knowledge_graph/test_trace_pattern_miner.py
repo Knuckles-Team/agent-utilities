@@ -310,7 +310,10 @@ def test_action_policy_consulted_with_route_policy_update_kind(monkeypatch):
 def test_route_policy_update_default_never_auto():
     """SAFETY: the shipped ActionPolicy default for route_policy_update must
     never be auto/auto_notify (mirrors test_promote_mined_claim_default_never_auto)."""
-    from agent_utilities.orchestration.action_policy import DEFAULT_POLICY, TIER_APPROVAL
+    from agent_utilities.orchestration.action_policy import (
+        DEFAULT_POLICY,
+        TIER_APPROVAL,
+    )
 
     rule = next(r for r in DEFAULT_POLICY["rules"] if r["kind"] == "route_policy_update")
     assert rule["tier"] == TIER_APPROVAL

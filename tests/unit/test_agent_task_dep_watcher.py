@@ -34,11 +34,18 @@ class _FakeSubscription:
 
 
 def _watcher(subscription) -> AgentTaskDepWatcher:
-    """Build a watcher bypassing the real ``subscribe()`` resolution."""
+    """Build a watcher bypassing the real ``subscribe()`` resolution.
+
+    Mirrors ``_build_subscription``'s real wiring: the handler is bound to
+    the subscription at "construction" time (never inside ``fire()``), so a
+    subscription double must have its handler set here too.
+    """
     watcher = AgentTaskDepWatcher.__new__(AgentTaskDepWatcher)
     watcher.engine = object()
-    watcher._subscription = subscription
     watcher._dirty = False
+    watcher._subscription = subscription
+    if subscription is not None:
+        subscription.handler = watcher._on_change
     return watcher
 
 
