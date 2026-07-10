@@ -56,6 +56,7 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (  # noq
     ResourceSpec,
     SchemaMapping,
     SyncSpec,
+    nearest_hub_class,
 )
 from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
     compile_manifest,
@@ -228,10 +229,35 @@ def _read_ontology(
             ),
             None,
         )
-        crosswalk = (
-            _local(str(parent_ref))
-            if parent_ref is not None
-            else DEFAULT_ARCHIMATE_CROSSWALK.get(name)
+        # D16 residue: three-tier crosswalk, tried in decreasing order of confidence —
+        # (1) the source ttl's OWN declared rdfs:subClassOf (not a heuristic at all),
+        # (2) DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate fact-sheet lookup by name),
+        # (3) HUB_NAME_HEURISTIC_CROSSWALK (nearest hub-ontology class by name — a
+        #     best-effort DRAFT, human sign-off required, never auto-enforced).
+        # Never invented beyond this conservative table: no hit anywhere -> left None.
+        subclass_crosswalk = _local(str(parent_ref)) if parent_ref is not None else None
+        archimate_crosswalk = (
+            DEFAULT_ARCHIMATE_CROSSWALK.get(name) if subclass_crosswalk is None else None
+        )
+        hub_name_crosswalk = (
+            nearest_hub_class(name)
+            if subclass_crosswalk is None and archimate_crosswalk is None
+            else None
+        )
+        crosswalk = subclass_crosswalk or archimate_crosswalk or hub_name_crosswalk
+        crosswalk_kind = (
+            "source ttl rdfs:subClassOf"
+            if subclass_crosswalk
+            else (
+                "DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate lookup by resource name)"
+                if archimate_crosswalk
+                else (
+                    "DRAFT — nearest hub-canonical-class-by-name heuristic "
+                    "(D16 residue; human sign-off required before use)"
+                    if hub_name_crosswalk
+                    else "UNRESOLVED — no crosswalk found by any heuristic"
+                )
+            )
         )
         resources.append(
             ResourceSpec(
@@ -247,9 +273,8 @@ def _read_ontology(
             ontology_class=crosswalk, fields=dict(sorted(fields.items()))
         )
         todos.append(
-            f"schema_mappings.{name}.ontology_class = {crosswalk!r} is a heuristic "
-            "identity crosswalk (subClassOf in the source ttl, else the default "
-            "ArchiMate lookup by resource name) — verify manually."
+            f"schema_mappings.{name}.ontology_class = {crosswalk!r} [{crosswalk_kind}] "
+            "— verify manually before relying on this crosswalk for reasoning/joins."
         )
 
     return resources, schema_mappings, todos, ontology_source
