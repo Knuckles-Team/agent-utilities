@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent_utilities.knowledge_graph.retrieval.code_context import CodeContextAnswer
 from agent_utilities.knowledge_graph.retrieval.executable_rag import (
     RagResult,
@@ -257,6 +259,107 @@ def test_from_engine_wire_degrades_cleanly_on_empty_dict():
     assert b.answer_candidate == ""
     assert b.confidence is None
     assert b.claims == []
+
+
+# ---------------------------------------------------------------------------
+# from_engine_wire — real E3 KnowledgeSet row mapping (D11)
+# ---------------------------------------------------------------------------
+
+
+def _knowledge_set_wire(**overrides) -> dict:
+    payload = {
+        "query": "what is run_agent's confidence?",
+        "rows": [
+            {
+                "id": "belief:run_agent_stable",
+                "kind": "Belief",
+                "score": 0.91,
+                "confidence": 0.8,
+                "valid_time": "2026-01-01T00:00:00Z",
+                "tx_time": "2026-01-02T00:00:00Z",
+                "source_refs": ["src:code_context"],
+                "evidence_refs": ["ev:a.py::run_agent"],
+                "policy_labels": ["internal"],
+                "text": "run_agent is stable",
+            },
+            {
+                "id": "belief:run_agent_flaky",
+                "kind": "Belief",
+                "score": 0.4,
+                "confidence": 0.3,
+                "valid_time": "2025-12-01T00:00:00Z",
+                "tx_time": "2025-12-02T00:00:00Z",
+                "source_refs": [],
+                "evidence_refs": ["ev:flaky_report"],
+                "policy_labels": ["internal", "pii"],
+                "text": "run_agent is flaky",
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_from_engine_wire_maps_knowledge_set_rows():
+    ws = _knowledge_set_wire()
+    b = EvidenceBundle.from_engine_wire(ws)
+
+    assert len(b.claims) == 2
+    assert {c["id"] for c in b.claims} == {
+        "belief:run_agent_stable",
+        "belief:run_agent_flaky",
+    }
+    assert any(c["text"] == "run_agent is stable" for c in b.claims)
+
+    # every source_ref/evidence_ref surfaces as its own evidence_span
+    refs = {(s["ref"], s["type"]) for s in b.evidence_spans}
+    assert ("src:code_context", "source_ref") in refs
+    assert ("ev:a.py::run_agent", "evidence_ref") in refs
+    assert ("ev:flaky_report", "evidence_ref") in refs
+
+    # confidence = the TOP-SCORED row's own confidence (score 0.91 > 0.4)
+    assert b.confidence == pytest.approx(0.8)
+
+    # policy_labels dedup across rows, order-preserving
+    assert b.policy_exclusions == ["internal", "pii"]
+
+    # bitemporal coverage signal
+    assert b.freshness["valid_time"] == {
+        "min": "2025-12-01T00:00:00Z",
+        "max": "2026-01-01T00:00:00Z",
+    }
+    assert b.freshness["tx_time"]["min"] == "2025-12-02T00:00:00Z"
+
+    # nothing dropped — every row's raw fields recoverable from the trace
+    row_steps = [t for t in b.reasoning_trace if t.get("step") == "knowledge_set_row"]
+    assert len(row_steps) == 2
+
+    # templated (never fabricated) answer_candidate when the wire has none
+    assert b.answer_candidate == "2 row(s) for: what is run_agent's confidence?"
+
+
+def test_from_engine_wire_knowledge_set_prefers_explicit_answer_and_confidence():
+    ws = _knowledge_set_wire(answer_candidate="engine-composed answer", confidence=0.55)
+    ws["rows"][0]["confidence"] = None
+    ws["rows"][1]["confidence"] = None
+    b = EvidenceBundle.from_engine_wire(ws)
+    assert b.answer_candidate == "engine-composed answer"
+    # no row carries a confidence — falls back to the wire-level one
+    assert b.confidence == pytest.approx(0.55)
+
+
+def test_from_engine_wire_knowledge_set_degrades_on_uncomparable_timestamps():
+    ws = _knowledge_set_wire()
+    ws["rows"][0]["valid_time"] = 123  # int, incomparable against the other row's str
+    b = EvidenceBundle.from_engine_wire(ws)
+    assert b.freshness == {}  # degrades cleanly rather than raising
+
+
+def test_from_engine_wire_knowledge_set_carries_unmapped_meta_fields():
+    ws = _knowledge_set_wire(dialect="cypher")
+    b = EvidenceBundle.from_engine_wire(ws)
+    dumped = json.dumps(b.model_dump(), default=str)
+    assert "cypher" in dumped  # nothing silently dropped
 
 
 # ---------------------------------------------------------------------------
