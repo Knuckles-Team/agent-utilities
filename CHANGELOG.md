@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-10 — MCP fleet-auth (Basic + OIDC) & connector defaults
+
+### Added
+- **HTTP Basic outbound child-auth.** `MCP_CLIENT_AUTH` now accepts
+  `oidc-client-credentials` | `basic` | `none` (unknown → `none`, fail-safe). `basic`
+  presents a static `Authorization: Basic <base64>` from `MCP_BASIC_AUTH_USERNAME` /
+  `MCP_BASIC_AUTH_PASSWORD`, for a child/proxy that authenticates with HTTP Basic rather
+  than a Keycloak JWT. The two entry points are renamed to `child_auth()` /
+  `child_auth_header()` (they now serve Bearer **or** Basic); `child_auth()` returns an
+  `httpx.Auth` (`ClientCredentialsAuth` for OIDC, `httpx.BasicAuth` for basic).
+- **graph-os outbound fleet-auth deploy env.** `deploy/k8s/graphos.yaml` and
+  `deploy/swarm/graphos.stack.yml` now carry the `MCP_CLIENT_AUTH` + `OIDC_*` /
+  `MCP_BASIC_AUTH_*` env on the front tier (sourced from OpenBao `apps/mcp-multiplexer/oidc`)
+  — the missing piece that left the absorbed-multiplexer fleet gateway 401ing every
+  `*-mcp` child.
+
+### Changed
+- **openai is the default LLM connector.** `[mcp]` now ships `pydantic-ai-slim[openai]`
+  (local LLMs speak the OpenAI API), so a bare `agent-utilities[mcp]` can drive the local
+  model. `[agent]` / `[agent-headless]` drop the hard-bundled `anthropic`; other providers
+  are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …); `[all]` unchanged.
+- **Engine pin → `epistemic-graph[full]`.** Base dep + `[engine]` extra bumped from
+  `[numeric]` to `epistemic-graph[full]>=2.15.0` (= `[owl,lmcache,numeric]` — pyoxigraph
+  SPARQL/RDF interop + httpx accel), published since v2.15.0. Not `[full-extras]` (engine
+  GPU/ROS2 cargo layer — external toolchain, not a pip extra).
+
 ## [1.12.0] - 2026-07-10 — Epistemic Substrate (control plane)
 
 Control-plane half of the coordinated `epistemic-graph 2.16.0` / `agent-utilities 1.12.0`
