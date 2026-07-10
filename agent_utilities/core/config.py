@@ -1108,6 +1108,29 @@ class AgentConfig(BaseSettings):
     # Default ON: degrades to a no-op ``skipped`` result with fewer than 2 Belief
     # nodes, so it's safe to leave on everywhere.
     kg_loop_belief_revision: bool = Field(default=True, alias="KG_LOOP_BELIEF_REVISION")
+    # Insight Engine closed loop, workstream C4 (CONCEPT:AU-KG.evolution.insight-engine-closed-loop):
+    # mined findings (:AssociationRule/:Anomaly/:PredictedEdge, from mine_discovery)
+    # above CandidateInsight's confidence floor become reviewable ClaimNodes,
+    # EvidenceBundle-packaged, run through the EXISTING promotion-governance +
+    # capability-ratchet stack, then gated by action_policy.decide(kind=
+    # "promote_mined_claim") — default ON: the stage is itself propose-only
+    # (persisting a "proposal" Claim is safe) and the shipped ActionPolicy default
+    # for promote_mined_claim is approval_required, so leaving this on everywhere
+    # never auto-promotes anything by itself.
+    kg_loop_insight_validation: bool = Field(
+        default=True, alias="KG_LOOP_INSIGHT_VALIDATION"
+    )
+    # X3 — opt-in autonomy tier for the Insight Engine (CONCEPT:AU-KG.evolution.insight-engine-closed-loop).
+    # OFF by default: even when this is True, a mined claim only auto-promotes
+    # if BOTH action_policy.decide(kind="promote_mined_claim") allows (shipped
+    # default: approval_required — never allows out of the box) AND the
+    # promotion-governance validator (SHACL + capability ratchet + regression
+    # gate + constitution rules) is valid. Turning this on wires the EXISTING
+    # GovernedAutoMerger + capability_ratchet monotonic-improvement guarantee
+    # onto claim promotion for an operator who has ALSO relaxed the
+    # promote_mined_claim policy tier — a deliberate two-key turn, not a
+    # single flag that silently starts auto-promoting mined claims.
+    kg_insight_autonomy: bool = Field(default=False, alias="KG_INSIGHT_AUTONOMY")
     # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop
