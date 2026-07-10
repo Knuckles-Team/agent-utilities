@@ -33,6 +33,8 @@ from .leanix_metamodel import DEFAULT_ARCHIMATE_CROSSWALK
 __all__ = [
     "XSD_TYPES",
     "DEFAULT_ARCHIMATE_CROSSWALK",
+    "HUB_NAME_HEURISTIC_CROSSWALK",
+    "nearest_hub_class",
     "PII_HEURISTIC_FIELD_NAMES",
     "OntologyClassSpec",
     "OntologyObjectPropertySpec",
@@ -51,6 +53,101 @@ __all__ = [
     "PolicySpec",
     "ConnectorManifest",
 ]
+
+# ── D16 residue fallback: nearest hub-canonical-class-by-name (DRAFT, never authoritative) ──
+# When a resource has neither an explicit ``rdfs:subClassOf`` (its OWN ontology's stated
+# parent) nor a hit in :data:`DEFAULT_ARCHIMATE_CROSSWALK` (LeanIX/ArchiMate fact-sheet
+# types only), this conservative keyword table gives a best-effort DRAFT crosswalk to the
+# canonical hub ``agent_utilities/knowledge_graph/ontology.ttl`` class of the same/nearest
+# *name* — e.g. a connector's ``Incident``/``Issue``/``Bug`` resource -> hub ``:Incident``.
+# Deliberately small and conservative: only common, low-ambiguity domain nouns get an
+# entry; anything else is left unresolved (``None``) rather than guessed. Every hit is
+# flagged in ``review_todos`` as a DRAFT requiring human sign-off — it is NEVER
+# auto-enforced (CONCEPT:AU-KG.ontology.connector-manifest-schema, task D16).
+HUB_NAME_HEURISTIC_CROSSWALK: dict[str, str] = {
+    "action": "Action",
+    "agent": "Agent",
+    "agreement": "Agreement",
+    "alert": "Incident",
+    "article": "Document",
+    "bug": "Incident",
+    "code": "Code",
+    "company": "Organization",
+    "concept": "Concept",
+    "contact": "Person",
+    "dataset": "Dataset",
+    "decision": "Decision",
+    "department": "Organization",
+    "doc": "Document",
+    "document": "Document",
+    "employee": "Person",
+    "event": "Event",
+    "evidence": "Evidence",
+    "file": "File",
+    "framework": "Framework",
+    "goal": "Goal",
+    "group": "Organization",
+    "host": "Server",
+    "incident": "Incident",
+    "insight": "Insight",
+    "issue": "Incident",
+    "job": "Action",
+    "location": "Place",
+    "log": "Event",
+    "member": "Person",
+    "memory": "Memory",
+    "module": "Module",
+    "note": "Document",
+    "objective": "Goal",
+    "org": "Organization",
+    "organization": "Organization",
+    "page": "Document",
+    "person": "Person",
+    "place": "Place",
+    "playbook": "Playbook",
+    "policy": "Policy",
+    "problem": "Incident",
+    "procedure": "Procedure",
+    "process": "Action",
+    "project": "SoftwareProject",
+    "repo": "SoftwareProject",
+    "repository": "SoftwareProject",
+    "role": "Role",
+    "rule": "GovernanceRule",
+    "server": "Server",
+    "service": "System",
+    "site": "Place",
+    "skill": "Skill",
+    "system": "System",
+    "task": "Action",
+    "team": "Team",
+    "ticket": "Incident",
+    "tool": "Tool",
+    "user": "Person",
+    "workflow": "Action",
+}
+
+
+def nearest_hub_class(name: str) -> str | None:
+    """Best-effort DRAFT crosswalk (D16 residue): try ``name`` whole, then each of its
+    camelCase words left-to-right, against :data:`HUB_NAME_HEURISTIC_CROSSWALK`.
+
+    Deterministic, offline, no LLM. Returns ``None`` (never a guess) when nothing in
+    the conservative table matches — callers must leave the field unresolved and flag
+    it in ``review_todos`` rather than invent a value.
+    """
+    import re
+
+    whole = HUB_NAME_HEURISTIC_CROSSWALK.get(name.lower())
+    if whole:
+        return whole
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).split()
+    for w in words:
+        hit = HUB_NAME_HEURISTIC_CROSSWALK.get(w.lower())
+        if hit:
+            return hit
+    return None
+
 
 # Field-name heuristic for PII detection (task-specified starter set). Purely a
 # default the generator applies to flag candidate PII fields — always left under
