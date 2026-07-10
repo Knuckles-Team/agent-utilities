@@ -343,6 +343,44 @@ def test_module_default_policy_is_conservative():
     assert set(mutating.values()) == {ap.TIER_APPROVAL}
 
 
+def test_promote_mined_claim_default_never_auto():
+    """SAFETY-CRITICAL (workstream C4, Insight Engine closed loop): a mined KG
+    finding (:AssociationRule/:Anomaly/:PredictedEdge) promoted to a verified
+    Claim goes through ``action_policy.decide(kind="promote_mined_claim")`` on
+    EVERY path (autonomy tier on or off — see ``loop_controller.
+    _run_insight_validation``). This test must FAIL THE BUILD the moment
+    someone (accidentally or otherwise) relaxes the shipped default for that
+    kind to ``auto``/``auto_notify`` — the only acceptable shipped default is
+    ``approval_required``, matching every other lifecycle-flipping kind
+    (``merge_promotion``, ``spec_promotion``) in this policy.
+    """
+    rules_by_kind = {r["kind"]: r["tier"] for r in DEFAULT_POLICY["rules"]}
+    assert "promote_mined_claim" in rules_by_kind, (
+        "promote_mined_claim rule missing from the shipped ActionPolicy — a mined "
+        "claim would fall through to the policy default tier instead of an "
+        "explicit, auditable rule"
+    )
+    assert rules_by_kind["promote_mined_claim"] == ap.TIER_APPROVAL
+    assert rules_by_kind["promote_mined_claim"] not in (
+        ap.TIER_AUTO,
+        ap.TIER_AUTO_NOTIFY,
+    )
+
+    # Behavioral form of the same guarantee: an actual decide() call, with no KG
+    # overrides present, must queue for approval rather than allow.
+    engine = FakeEngine()
+    decision = ActionPolicy(engine=engine).decide(
+        ActionRequest(
+            kind="promote_mined_claim",
+            target="claim:insight:deadbeef",
+            source="loop_engine",
+        )
+    )
+    assert decision.tier == ap.TIER_APPROVAL
+    assert decision.decision == "queue_approval"
+    assert not decision.allowed
+
+
 # ---------------------------------------------------------------------------
 # Assurance gate wiring (CONCEPT:AU-OS.governance.assurance-state-machine-verifier):
 # the deterministic verifier runs BEFORE the tier pipeline in decide()/classify(),
