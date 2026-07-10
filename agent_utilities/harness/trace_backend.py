@@ -841,6 +841,10 @@ class KGTraceBackend(TraceBackend):
                 error=error,
             )
             entry["spans"].append(node)
+            if kind == "tool":
+                # Codex Gap-6 — TraceNode.tool_calls rollup (mirrors the
+                # total_cost_usd/input_tokens/output_tokens rollups above).
+                trace.tool_calls += 1
             edge = RegistryEdgeType.HAS_SPAN
 
         if self.backend is not None and hasattr(self.backend, "add_node"):
@@ -902,6 +906,10 @@ class KGTraceBackend(TraceBackend):
         )
         trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
         trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
+        # Codex Gap-6 — same tool_calls rollup as the incremental record_event path.
+        trace.tool_calls = sum(
+            1 for s in spans if getattr(s, "span_kind", None) == "tool"
+        )
 
         self._traces[trace.id] = {
             "trace": trace,

@@ -42,6 +42,13 @@ rules:
   # to approval_required for a stricter posture.
   - {kind: bus.send, target: "*", tier: auto_notify}
   - {kind: bus.dispatch, target: "*", tier: auto_notify}
+  # Durable :AgentTask execution (Codex Gap-6 orchestration flow,
+  # execute_agent_task_turn): the task itself was already approved into its
+  # DAG at creation time (out of scope for this gate) — auto+notify so the
+  # claim->execute->outcome fleet loop runs unattended while every execution
+  # is audited via the AgentPolicyDecision this same gate writes. Tighten to
+  # approval_required for a stricter posture.
+  - {kind: agent_task.execute, target: "*", tier: auto_notify}
   - {kind: record_dry_run, target: "*", tier: auto}
   # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to auto:
   # the workspace container/process IS the containment boundary. Override any

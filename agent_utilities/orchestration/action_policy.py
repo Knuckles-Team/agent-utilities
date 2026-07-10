@@ -102,6 +102,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
         {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        # Durable :AgentTask execution (Codex Gap-6 orchestration flow,
+        # agent_dispatch_worker.execute_agent_task_turn): the task itself was
+        # already approved into its DAG at creation time (out of scope for
+        # this gate) — auto+notify so the claim->execute->outcome fleet loop
+        # runs unattended while every execution is audited via the
+        # AgentPolicyDecision this same gate writes. Tighten to
+        # approval_required for a stricter posture.
+        {"kind": "agent_task.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating) default to
         # auto: the workspace container/process IS the containment boundary.
