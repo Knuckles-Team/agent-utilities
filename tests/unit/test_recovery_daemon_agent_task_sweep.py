@@ -36,7 +36,7 @@ async def test_stabilize_sweeps_agent_task_dependencies_when_engine_present(
     calls: list[object] = []
     monkeypatch.setattr(
         "agent_utilities.orchestration.fleet_reconciler.fire_ready_agent_tasks",
-        lambda engine: calls.append(engine) or [],
+        lambda engine, **kw: calls.append(engine) or [],
     )
     engine = object()
     daemon = RecoveryDaemon(_scheduler(engine=engine))
@@ -50,7 +50,7 @@ async def test_stabilize_skips_sweep_without_an_engine(monkeypatch):
     calls: list[object] = []
     monkeypatch.setattr(
         "agent_utilities.orchestration.fleet_reconciler.fire_ready_agent_tasks",
-        lambda engine: calls.append(engine) or [],
+        lambda engine, **kw: calls.append(engine) or [],
     )
     daemon = RecoveryDaemon(_scheduler(engine=None))
     await daemon.stabilize()
@@ -61,7 +61,7 @@ async def test_stabilize_skips_sweep_without_an_engine(monkeypatch):
 async def test_stabilize_tolerates_sweep_failure(monkeypatch):
     """A broken sweep must not blow up the recovery tick (never load-bearing)."""
 
-    def _boom(engine):
+    def _boom(engine, **kw):
         raise RuntimeError("engine unreachable")
 
     monkeypatch.setattr(

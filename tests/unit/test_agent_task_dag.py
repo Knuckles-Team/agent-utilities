@@ -10,10 +10,11 @@ Covers the opt-in durable persistence companion to
 EXISTING ``WorkflowStore.save_workflow``/``load_workflow`` (no new
 persistence path) while ALSO writing one ``:AgentTask`` per step with
 ``depends_on_task_ids`` mirroring ``ExecutionStep.depends_on`` — and the
-poll-based dependency-firing sweep (``fleet_reconciler.fire_ready_agent_tasks``)
-that flips a 'blocked' task to 'ready' once every dependency completes
-(the CDC-vs-poll interim this phase documents; Phase 3b's ClaimNext cutover
-is a separate, later, engine-gated task).
+dependency-firing sweep (``fleet_reconciler.fire_ready_agent_tasks``) that
+flips a 'blocked' task to 'ready' once every dependency completes. This sweep
+is now CDC-gated by ``fleet_reconciler.AgentTaskDepWatcher`` (Phase 3b, D13) —
+see ``tests/unit/test_agent_task_dep_watcher.py`` for that layer; these tests
+cover the sweep body itself, called directly.
 
 @pytest.mark.concept("AU-OS.state.cognitive-scheduler-preemption")
 """
@@ -284,6 +285,6 @@ def test_fire_ready_agent_tasks_wired_into_fleet_reconciler_report(
         policy=ActionPolicy(engine=engine, policy_path=None),
     )
     monkeypatch.setattr(fr, "load_desired_state", lambda *a, **k: {})
-    monkeypatch.setattr(fr, "fire_ready_agent_tasks", lambda eng: ["orphan-task"])
+    monkeypatch.setattr(fr, "fire_ready_agent_tasks", lambda eng, **kw: ["orphan-task"])
     report = rec.reconcile()
     assert report["fired_agent_tasks"] == ["orphan-task"]
