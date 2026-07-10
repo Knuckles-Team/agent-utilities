@@ -127,6 +127,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "deploy_service", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "redeploy_stack", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "merge_promotion", "target": "*", "tier": TIER_APPROVAL},
+        # Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
+        # workstream C4): a mined finding (:AssociationRule/:Anomaly/:PredictedEdge)
+        # that cleared its confidence floor and the promotion-governance validator
+        # still requires a human before it is promoted from a proposal Claim to a
+        # verified one — SAFETY-CRITICAL, this tier must never silently become
+        # auto/auto_notify (see
+        # tests/unit/test_action_policy.py::test_promote_mined_claim_default_never_auto).
+        {"kind": "promote_mined_claim", "target": "*", "tier": TIER_APPROVAL},
         # Spec-level review/veto (CONCEPT:AU-OS.config.autonomous-spec-develop-off): a distilled :SpecProposal must
         # clear this gate before it becomes a develop Loop — the EARLY checkpoint
         # before any code is synthesized (merge_promotion is the LATE, publish-time
