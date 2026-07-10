@@ -145,14 +145,24 @@ mcp = [
     # Security floors: pulled transitively by mcp/fastmcp/fastapi.
     "pyjwt>=2.13.0",            # CVE-2026-48522..48526 (PyJWKClient SSRF/DoS/bypass)
     "starlette>=1.3.1",        # CVE-2026-54283 (form() limits ignored)
-    "python-multipart>=0.0.31" # CVE-2026-42561/53537-53540 (DoS / param smuggling)
+    "python-multipart>=0.0.31", # CVE-2026-42561/53537-53540 (DoS / param smuggling)
+    # Default LLM connector for graph-os: the OpenAI-compatible model client. Local
+    # LLMs (vLLM/llama.cpp/Ollama) all speak the OpenAI API, so `openai` is the ONE
+    # provider graph-os ships by default (`graph_orchestrate` drives the local model
+    # through it). Other providers are opt-in add-ons — `[agent-anthropic]`,
+    # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
+    # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
+    # torch) — dependency-discipline safe on the serving plane.
+    "pydantic-ai-slim[openai]>=2.0.0,<3.0.0"
 ]
 agent = [
     "agent-utilities[mcp,engine,ag-ui,terminal,sandbox]>=1.0.0",
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
-    "pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]>=2.0.0,<3.0.0",
+    # openai is the default bundled provider (local LLMs use the OpenAI API); other
+    # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
+    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]>=2.0.0,<3.0.0",
     "pydantic-graph>=2.0.0,<3.0.0",
     "fasta2a[pydantic-ai]>=0.6.1",
     "dspy-ai>=3.2.1"
@@ -169,7 +179,9 @@ agent-headless = [
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
-    "pydantic-ai-slim[mcp,openai,anthropic,web,cli]>=2.0.0,<3.0.0",
+    # openai is the default bundled provider (local LLMs use the OpenAI API); other
+    # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
+    "pydantic-ai-slim[mcp,openai,web,cli]>=2.0.0,<3.0.0",
     "pydantic-graph>=2.0.0,<3.0.0",
     "fasta2a[pydantic-ai]>=0.6.1",
     "dspy-ai>=3.2.1"
