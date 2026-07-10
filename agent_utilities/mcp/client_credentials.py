@@ -1,23 +1,32 @@
 #!/usr/bin/python
-"""OIDC client-credentials token provider for the MCP multiplexer (CONCEPT:AU-OS.identity.so-jwt-protected-children).
+"""Outbound child-auth provider for the MCP multiplexer (CONCEPT:AU-OS.identity.so-jwt-protected-children).
 
-The multiplexer aggregates many child MCP servers. When a child enforces JWT auth
-(``AUTH_TYPE=jwt``), the multiplexer must present a valid bearer token or its calls
-are rejected (401). Children are configured per-entry in ``mcp_config.json`` and
-historically carried no ``Authorization`` header, so flipping a child to jwt made
-it unreachable through the multiplexer.
+The multiplexer aggregates many child MCP servers. When a child enforces auth (JWT
+bearer, or a reverse proxy demanding HTTP Basic) the multiplexer must present a
+valid credential or its calls are rejected (401). Children are configured per-entry
+in ``mcp_config.json`` and historically carried no ``Authorization`` header, so
+flipping a child to enforce auth made it unreachable through the multiplexer.
 
-This module gives the multiplexer ONE service identity: it mints a Keycloak
-service-account token via the OAuth2 ``client_credentials`` grant (audience
-``agent-services`` — the same audience the children's ``JWTVerifier`` checks),
-caches it, refreshes it before expiry, and the multiplexer attaches it to every
-remote child that does not declare its own ``Authorization`` header.
+This module gives the multiplexer ONE service identity, in either of two schemes,
+selected by ``MCP_CLIENT_AUTH``:
 
-Opt-in via ``MCP_CLIENT_AUTH=oidc-client-credentials``; otherwise every helper is
-an inert no-op (returns ``None`` / ``{}``), so behaviour is unchanged when unset.
+  * ``oidc-client-credentials`` — mint a Keycloak service-account token via the
+    OAuth2 ``client_credentials`` grant (audience ``agent-services`` — the same
+    audience the children's ``JWTVerifier`` checks), cache it, refresh it before
+    expiry, and attach ``Authorization: Bearer <token>`` to every remote child that
+    does not declare its own header.
+  * ``basic`` — attach a static ``Authorization: Basic <base64(user:pass)>`` from
+    ``MCP_BASIC_AUTH_USERNAME`` / ``MCP_BASIC_AUTH_PASSWORD`` (for a child, or an
+    upstream proxy, that authenticates with HTTP Basic rather than a Keycloak JWT).
+
+Either way the credential is never applied over a child's explicit ``Authorization``
+header, and a failure degrades to no header (the child then 401s — visible in
+metrics/logs, not a crash). Unset (``MCP_CLIENT_AUTH=none``, the default) makes every
+helper an inert no-op (returns ``None`` / ``{}``), so behaviour is unchanged.
 
 Configuration (env):
-  MCP_CLIENT_AUTH        = oidc-client-credentials   # enable
+  MCP_CLIENT_AUTH        = oidc-client-credentials | basic | none   # scheme (default none)
+  # --- oidc-client-credentials ---
   OIDC_CLIENT_ID         = mcp-multiplexer
   OIDC_CLIENT_SECRET     = <secret>                  # injected from OpenBao at deploy
   OIDC_AUDIENCE          = agent-services            # default
@@ -25,10 +34,14 @@ Configuration (env):
                            # default derived from FASTMCP_SERVER_AUTH_JWT_ISSUER
   OIDC_SCOPE             = <space-separated>          # optional
   OIDC_TLS_VERIFY        = true|false                # default true
+  # --- basic ---
+  MCP_BASIC_AUTH_USERNAME = <user>                   # injected from OpenBao at deploy
+  MCP_BASIC_AUTH_PASSWORD = <secret>                 # injected from OpenBao at deploy
 """
 
 from __future__ import annotations
 
+import base64
 import functools
 import threading
 import time
@@ -42,6 +55,11 @@ from agent_utilities.core._env import setting
 
 logger = get_logger(name="MultiplexerClientAuth")
 
+# Recognized MCP_CLIENT_AUTH schemes.
+_MODE_OIDC = "oidc-client-credentials"
+_MODE_BASIC = "basic"
+_MODE_NONE = "none"
+
 # Refresh this many seconds before the token actually expires.
 _EXPIRY_SKEW_S = 30.0
 
@@ -54,10 +72,15 @@ _MIN_SESSION_MAX_AGE = 20.0
 _DEFAULT_TOKEN_TTL_S = 300.0
 
 
-def _enabled() -> bool:
-    return setting("MCP_CLIENT_AUTH", "none").strip().lower() == (
-        "oidc-client-credentials"
-    )
+def _auth_mode() -> str:
+    """The configured outbound child-auth scheme.
+
+    ``oidc-client-credentials`` | ``basic`` | ``none``. An unrecognized value is
+    treated as ``none`` (fail-safe: no credential rather than a wrong one)."""
+    mode = setting("MCP_CLIENT_AUTH", _MODE_NONE).strip().lower()
+    if mode in (_MODE_OIDC, _MODE_BASIC):
+        return mode
+    return _MODE_NONE
 
 
 def _derive_token_url() -> str | None:
@@ -162,7 +185,7 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
     creds are present. Only the successfully-built provider is memoized.
     """
     global _provider
-    if not _enabled():
+    if _auth_mode() != _MODE_OIDC:
         return None
     if _provider is not None:
         return _provider
@@ -196,15 +219,44 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
         return _provider
 
 
-def bearer_header(existing: dict | None) -> dict:
+def _basic_credentials() -> tuple[str, str] | None:
+    """The configured HTTP Basic ``(username, password)``, or ``None``.
+
+    Active only under ``MCP_CLIENT_AUTH=basic``; both vars must be present (a
+    missing pair logs and disables basic auth rather than sending a half credential).
+    """
+    if _auth_mode() != _MODE_BASIC:
+        return None
+    user = setting("MCP_BASIC_AUTH_USERNAME", None)
+    password = setting("MCP_BASIC_AUTH_PASSWORD", None)
+    if not (user and password):
+        logger.error(
+            "MCP_CLIENT_AUTH=basic but MCP_BASIC_AUTH_USERNAME or "
+            "MCP_BASIC_AUTH_PASSWORD is missing — children stay unauthenticated."
+        )
+        return None
+    return (user, password)
+
+
+def _basic_header_value(user: str, password: str) -> str:
+    token = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
+    return f"Basic {token}"
+
+
+def child_auth_header(existing: dict | None) -> dict:
     """Authorization header for a remote child, or ``{}`` if not applicable.
 
-    Never overrides an explicitly-configured ``Authorization`` header, and never
-    raises — a token-mint failure degrades to no header (the child then 401s,
-    which is visible in metrics/logs rather than crashing the multiplexer).
+    Returns the configured outbound credential — ``Bearer <token>`` under
+    ``oidc-client-credentials`` or ``Basic <base64>`` under ``basic``. Never
+    overrides an explicitly-configured ``Authorization`` header, and never raises —
+    a mint/config failure degrades to no header (the child then 401s, which is
+    visible in metrics/logs rather than crashing the multiplexer).
     """
     if existing and any(k.lower() == "authorization" for k in existing):
         return {}
+    basic = _basic_credentials()
+    if basic is not None:
+        return {"Authorization": _basic_header_value(*basic)}
     provider = get_provider()
     if provider is None:
         return {}
@@ -220,7 +272,7 @@ class ClientCredentialsAuth(httpx.Auth):
 
     The multiplexer holds ONE pooled streamable-http/SSE session per child for
     the child's whole life. Baking a static bearer into the session headers
-    (:func:`bearer_header`) freezes a short-lived Keycloak access token: once it
+    (:func:`child_auth_header`) freezes a short-lived Keycloak access token: once it
     expires the child returns 401, and because a streamable-http tool result is
     delivered asynchronously over the SSE stream, the in-flight call never
     receives its result — it hangs to the call-timeout instead of erroring,
@@ -276,25 +328,29 @@ class ClientCredentialsAuth(httpx.Auth):
             yield request
 
 
-def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
-    """An :class:`httpx.Auth` that authenticates a remote child per request.
+def child_auth(existing: dict | None) -> httpx.Auth | None:
+    """An :class:`httpx.Auth` that authenticates a remote child.
 
-    Preferred over :func:`bearer_header` for the multiplexer's long-lived child
-    transports: a per-request token never goes stale, so a pooled session keeps
-    working across token expiry instead of wedging on a 401. Never overrides a
-    child's explicit ``Authorization`` header; returns ``None`` when the service
-    identity is disabled/misconfigured (the child stays unauthenticated, exactly
-    as with ``bearer_header``)."""
+    Preferred over :func:`child_auth_header` for the multiplexer's long-lived child
+    transports. Under ``basic`` it returns a static :class:`httpx.BasicAuth`; under
+    ``oidc-client-credentials`` a :class:`ClientCredentialsAuth` that pulls a fresh
+    token per request (so a pooled session keeps working across token expiry instead
+    of wedging on a 401). Never overrides a child's explicit ``Authorization``
+    header; returns ``None`` when the service identity is disabled/misconfigured
+    (the child stays unauthenticated, exactly as with :func:`child_auth_header`)."""
     if existing and any(k.lower() == "authorization" for k in existing):
         return None
+    basic = _basic_credentials()
+    if basic is not None:
+        return httpx.BasicAuth(*basic)
     provider = get_provider()
     if provider is None:
         # Never silently leave a child unauthenticated: log WHY so a fleet-wide
-        # 401 is diagnosable (enabled=False → config; enabled=True → creds/discovery).
+        # 401 is diagnosable (mode=none → config; mode set → creds/discovery).
         logger.warning(
-            "[OS-5.32] no service bearer for child (MCP_CLIENT_AUTH enabled=%s) — "
-            "request goes unauthenticated; a jwt-protected child will 401.",
-            _enabled(),
+            "[OS-5.32] no service credential for child (MCP_CLIENT_AUTH=%s) — "
+            "request goes unauthenticated; an auth-protected child will 401.",
+            _auth_mode(),
         )
         return None
     return ClientCredentialsAuth(provider)
@@ -309,8 +365,10 @@ def service_session_max_age(existing: dict | None) -> float | None:
     service-authenticated child must reconnect (re-mint) before its token's
     lifetime elapses. Returns that safe lifetime (token TTL minus the refresh
     skew and a small buffer, floored), or ``None`` when the child carries its own
-    ``Authorization`` (we don't manage its token) or the service identity is
-    disabled. Primes the provider once so the IdP's real TTL is known."""
+    ``Authorization`` (we don't manage its token), the service identity is
+    disabled, or the scheme is ``basic`` (a static credential never expires, so no
+    recycle is needed — ``get_provider`` is ``None`` for basic). Primes the OIDC
+    provider once so the IdP's real TTL is known."""
     if existing and any(k.lower() == "authorization" for k in existing):
         return None
     provider = get_provider()

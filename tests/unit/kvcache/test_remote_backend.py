@@ -321,7 +321,7 @@ def test_static_token_used_when_oidc_absent(monkeypatch):
     """OIDC not configured ⇒ the connector falls back to the static
     EPISTEMIC_GRAPH_KVCACHE_TOKEN bearer (the documented OpenBao-sourced option)."""
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_auth", lambda existing: None
+        "agent_utilities.mcp.client_credentials.child_auth", lambda existing: None
     )
     b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE, token="static-tok"))
     assert b._client.headers.get("Authorization") == "Bearer static-tok"
@@ -340,7 +340,7 @@ def test_oidc_auth_takes_precedence_over_static_token(monkeypatch):
 
     fake = _FakeAuth()
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.bearer_auth", lambda existing: fake
+        "agent_utilities.mcp.client_credentials.child_auth", lambda existing: fake
     )
     b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE, token="static-tok"))
     assert not _has_auth_header(b._client)  # no frozen static header

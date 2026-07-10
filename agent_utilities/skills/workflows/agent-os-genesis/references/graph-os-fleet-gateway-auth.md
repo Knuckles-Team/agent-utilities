@@ -46,7 +46,7 @@ client ──▶ graph-os (graph-os.arpa, streamable-http :8000)   ← inbound J
 
 ```bash
 # From inside the graph-os container: mint a token and hit a protected child — 200/400 (NOT 401)
-python3 -c 'from agent_utilities.mcp.client_credentials import bearer_header; print(bool(bearer_header({}).get("Authorization")))'
+python3 -c 'from agent_utilities.mcp.client_credentials import child_auth_header; print(bool(child_auth_header({}).get("Authorization")))'
 # Session/client side: the fleet is visible and github loads
 list_catalog            # → ~58 servers incl github-mcp
 load_tools(servers=["github-mcp"])   # → mounted, callable

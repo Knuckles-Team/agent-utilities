@@ -896,14 +896,15 @@ def _spawn_auth_headers() -> dict[str, str]:
     fleet server (``*.arpa``) over SSE/streamable-HTTP must carry the same
     service-account bearer the multiplexer attaches to its children, or the
     call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
-    one minting path (``client_credentials.bearer_header``): opt-in via
-    ``MCP_CLIENT_AUTH=oidc-client-credentials``, an inert ``{}`` otherwise, and
-    a mint failure degrades to no header (unchanged behaviour when disabled).
+    one minting path (``client_credentials.child_auth_header``): opt-in via
+    ``MCP_CLIENT_AUTH=oidc-client-credentials`` (Bearer) or ``basic`` (Basic), an
+    inert ``{}`` otherwise, and a failure degrades to no header (unchanged
+    behaviour when disabled).
     """
     try:
-        from agent_utilities.mcp.client_credentials import bearer_header
+        from agent_utilities.mcp.client_credentials import child_auth_header
 
-        return bearer_header(None)
+        return child_auth_header(None)
     except Exception:  # noqa: BLE001 — auth is best-effort; never block a spawn
         return {}
 

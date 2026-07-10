@@ -57,10 +57,12 @@ INHERITED_ENV: dict[str, tuple[str, str]] = {
     "OTEL_EXPORTER_OTLP_ENDPOINT": ("", "OTLP collector endpoint"),
     "MCP_CLIENT_AUTH": (
         "",
-        "Outbound MCP auth (`oidc-client-credentials` for fleet calls)",
+        "Outbound MCP child auth: `oidc-client-credentials` | `basic` | `none`",
     ),
     "OIDC_CLIENT_ID": ("", "OIDC client id (service-account auth)"),
     "OIDC_CLIENT_SECRET": ("", "OIDC client secret (service-account auth)"),
+    "MCP_BASIC_AUTH_USERNAME": ("", "HTTP Basic username (`MCP_CLIENT_AUTH=basic`)"),
+    "MCP_BASIC_AUTH_PASSWORD": ("", "HTTP Basic password (`MCP_CLIENT_AUTH=basic`)"),
     "DEBUG": ("False", "Verbose logging"),
     "PYTHONUNBUFFERED": ("1", "Unbuffered stdout (recommended in containers)"),
     # agent CLI — the full `[agent]` runtime only

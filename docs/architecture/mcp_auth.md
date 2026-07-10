@@ -44,17 +44,23 @@ are auth-on by default and `compose.dev.yml` inherits them via `make_editable`.
    child flipped to jwt became unreachable (401) through the aggregator. (Local
    *stdio* children like `graph-os` are exempt — stdio has no HTTP auth.)
 
-## Multiplexer outbound auth (client-credentials)
+## Multiplexer outbound auth (`MCP_CLIENT_AUTH`)
 
-`agent_utilities/mcp/client_credentials.py` gives the multiplexer one service
-identity. When `MCP_CLIENT_AUTH=oidc-client-credentials`, it mints a Keycloak
-service-account token (OAuth2 `client_credentials`, audience `agent-services` —
-the same audience children verify), caches and refreshes it, and the multiplexer
-attaches `Authorization: Bearer <token>` to every **remote** child that doesn't
-declare its own header. It never overrides an explicit header, and a mint failure
-degrades to no header (the child then 401s — visible in metrics/logs, not a crash).
+`agent_utilities/mcp/client_credentials.py` gives the multiplexer (now **graph-os**,
+which absorbed the multiplexer's fleet loader) one service identity for its outbound
+calls to remote children. `MCP_CLIENT_AUTH` selects the scheme; either way the
+credential is never applied over a child's explicit `Authorization` header, and a
+failure degrades to no header (the child then 401s — visible in metrics/logs, not a
+crash). The two consumers are `child_auth()` (a per-request `httpx.Auth`, preferred
+for the long-lived pooled child sessions) and `child_auth_header()` (a one-shot
+header, used for spawned-agent toolsets).
 
-Configuration (multiplexer service):
+**`oidc-client-credentials` (default for the JWT fleet).** Mints a Keycloak
+service-account token (OAuth2 `client_credentials`, audience `agent-services` — the
+same audience children verify), caches and refreshes it, and attaches
+`Authorization: Bearer <token>` to every remote child. Because a pooled child session
+outlives a short access token, the token is pulled fresh per request and re-minted
+once on a 401.
 
 | Env | Value |
 |-----|-------|
@@ -63,6 +69,21 @@ Configuration (multiplexer service):
 | `OIDC_CLIENT_SECRET` | injected from OpenBao at deploy |
 | `OIDC_AUDIENCE` | `agent-services` (default) |
 | `OIDC_TOKEN_URL` | derived from the JWT issuer if unset |
+
+**`basic` (HTTP Basic).** For a child — or an upstream reverse proxy — that
+authenticates with HTTP Basic rather than a Keycloak JWT. Attaches a static
+`Authorization: Basic <base64(user:pass)>`. The credential is static (no token
+endpoint, no refresh, no session recycling — `service_session_max_age` returns
+`None`).
+
+| Env | Value |
+|-----|-------|
+| `MCP_CLIENT_AUTH` | `basic` |
+| `MCP_BASIC_AUTH_USERNAME` | injected from OpenBao at deploy |
+| `MCP_BASIC_AUTH_PASSWORD` | injected from OpenBao at deploy |
+
+An unset or unrecognized `MCP_CLIENT_AUTH` is treated as `none` (no credential —
+fail-safe rather than sending a wrong one).
 
 ## /metrics and /health are unauthenticated
 

@@ -92,7 +92,7 @@ operational adds:
 
 The multiplexer mints a Keycloak client-credentials bearer (`mcp-multiplexer`, audience
 `agent-services`) and attaches it to every jwt-protected child (CONCEPT:AU-OS.identity.so-jwt-protected-children,
-`mcp/client_credentials.py` `bearer_auth` → `ClientCredentialsAuth`). If the mint fails it
+`mcp/client_credentials.py` `child_auth` → `ClientCredentialsAuth`). If the mint fails it
 **degrades to no auth** and the child returns **401** — so a single bad mint config looks like a
 fleet-wide child outage.
 
@@ -114,7 +114,7 @@ Two ways the local mux's mint silently breaks → `invalid_client` → no bearer
 
 **Diagnosis (don't chase the deployed mux):** prove the swarm mux is healthy first — inside its
 container, `get_provider().get_token()` mints and a `streamablehttp_client(<child>.arpa/mcp,
-auth=bearer_auth({}))` `initialize()` returns 200. If that works but `load_tools(<child>)` from
+auth=child_auth({}))` `initialize()` returns 200. If that works but `load_tools(<child>)` from
 your session 401s, the fault is the **local** mux. Confirm by minting with `~/.claude.json`'s exact
 `OIDC_TOKEN_URL` + `OIDC_CLIENT_SECRET` — an `invalid_client` pinpoints realm-or-secret.
 **Fix:** set `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`

@@ -39,12 +39,12 @@ def test_disabled_returns_none(monkeypatch):
 
     importlib.reload(module)
     assert module.get_provider() is None
-    assert module.bearer_header(None) == {}
+    assert module.child_auth_header(None) == {}
 
 
 def test_mints_and_attaches_bearer(cc):
     with patch.object(cc.requests, "post", return_value=_resp("tok-abc")) as post:
-        header = cc.bearer_header(None)
+        header = cc.child_auth_header(None)
     assert header == {"Authorization": "Bearer tok-abc"}
     post.assert_called_once()
     # client_credentials grant + audience sent
@@ -56,20 +56,20 @@ def test_mints_and_attaches_bearer(cc):
 
 def test_token_is_cached(cc):
     with patch.object(cc.requests, "post", return_value=_resp("tok-1")) as post:
-        cc.bearer_header(None)
-        cc.bearer_header(None)
+        cc.child_auth_header(None)
+        cc.child_auth_header(None)
     post.assert_called_once()  # second call served from cache
 
 
 def test_does_not_override_explicit_authorization(cc):
     with patch.object(cc.requests, "post", return_value=_resp("tok")) as post:
-        assert cc.bearer_header({"Authorization": "Bearer child-own"}) == {}
+        assert cc.child_auth_header({"Authorization": "Bearer child-own"}) == {}
     post.assert_not_called()
 
 
 def test_mint_failure_degrades_to_no_header(cc):
     with patch.object(cc.requests, "post", side_effect=RuntimeError("keycloak down")):
-        assert cc.bearer_header(None) == {}
+        assert cc.child_auth_header(None) == {}
 
 
 def test_missing_secret_disables(monkeypatch):
@@ -99,7 +99,7 @@ def test_get_token_force_bypasses_cache(cc):
 
 def test_bearer_auth_returns_auth_when_enabled(cc):
     with patch.object(cc.requests, "post", return_value=_resp("tok")):
-        auth = cc.bearer_auth(None)
+        auth = cc.child_auth(None)
     assert isinstance(auth, cc.ClientCredentialsAuth)
 
 
@@ -108,12 +108,12 @@ def test_bearer_auth_none_when_disabled(monkeypatch):
     import agent_utilities.mcp.client_credentials as module
 
     importlib.reload(module)
-    assert module.bearer_auth(None) is None
+    assert module.child_auth(None) is None
 
 
 def test_bearer_auth_respects_explicit_authorization(cc):
     with patch.object(cc.requests, "post", return_value=_resp("tok")) as post:
-        assert cc.bearer_auth({"Authorization": "Bearer child-own"}) is None
+        assert cc.child_auth({"Authorization": "Bearer child-own"}) is None
     post.assert_not_called()
 
 
@@ -124,7 +124,7 @@ def test_auth_flow_injects_bearer_and_remints_on_401(cc):
     with patch.object(
         cc.requests, "post", side_effect=[_resp("tok-1"), _resp("tok-2")]
     ):
-        auth = cc.bearer_auth(None)
+        auth = cc.child_auth(None)
         request = httpx.Request("POST", "http://child.arpa/mcp")
         flow = auth.auth_flow(request)
         first = next(flow)
@@ -138,7 +138,7 @@ def test_auth_flow_injects_bearer_and_remints_on_401(cc):
 
 def test_auth_flow_no_retry_on_success(cc):
     with patch.object(cc.requests, "post", side_effect=[_resp("tok-1")]) as post:
-        auth = cc.bearer_auth(None)
+        auth = cc.child_auth(None)
         request = httpx.Request("POST", "http://child.arpa/mcp")
         flow = auth.auth_flow(request)
         sent = next(flow)
@@ -176,3 +176,70 @@ def test_service_session_max_age_none_when_disabled(monkeypatch):
 
     importlib.reload(module)
     assert module.service_session_max_age(None) is None
+
+
+# ── HTTP Basic scheme (MCP_CLIENT_AUTH=basic) ──────────────────────────────
+
+
+@pytest.fixture
+def basic(monkeypatch):
+    """Fresh module configured for the static HTTP Basic scheme."""
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "basic")
+    monkeypatch.setenv("MCP_BASIC_AUTH_USERNAME", "svc")
+    monkeypatch.setenv("MCP_BASIC_AUTH_PASSWORD", "p@ss")
+    import agent_utilities.mcp.client_credentials as module
+
+    importlib.reload(module)
+    return module
+
+
+def test_basic_header_is_base64_of_user_pass(basic):
+    import base64
+
+    header = basic.child_auth_header(None)
+    expected = base64.b64encode(b"svc:p@ss").decode()
+    assert header == {"Authorization": f"Basic {expected}"}
+
+
+def test_basic_mints_no_oidc_token(basic):
+    # Basic is static: no token endpoint is ever called, and no OIDC provider exists.
+    with patch.object(basic.requests, "post") as post:
+        basic.child_auth_header(None)
+    post.assert_not_called()
+    assert basic.get_provider() is None
+
+
+def test_basic_child_auth_is_httpx_basic_auth(basic):
+    auth = basic.child_auth(None)
+    assert isinstance(auth, httpx.BasicAuth)
+
+
+def test_basic_does_not_override_explicit_authorization(basic):
+    assert basic.child_auth_header({"Authorization": "Basic child-own"}) == {}
+    assert basic.child_auth({"Authorization": "Basic child-own"}) is None
+
+
+def test_basic_missing_credentials_degrades(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "basic")
+    monkeypatch.setenv("MCP_BASIC_AUTH_USERNAME", "svc")
+    monkeypatch.delenv("MCP_BASIC_AUTH_PASSWORD", raising=False)
+    import agent_utilities.mcp.client_credentials as module
+
+    importlib.reload(module)
+    assert module.child_auth_header(None) == {}
+    assert module.child_auth(None) is None
+
+
+def test_basic_session_max_age_is_none_static_credential(basic):
+    # A static Basic credential never expires — no forced session recycle.
+    assert basic.service_session_max_age(None) is None
+
+
+def test_unknown_mode_is_treated_as_none(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "totally-bogus")
+    import agent_utilities.mcp.client_credentials as module
+
+    importlib.reload(module)
+    assert module._auth_mode() == "none"
+    assert module.child_auth_header(None) == {}
+    assert module.child_auth(None) is None
