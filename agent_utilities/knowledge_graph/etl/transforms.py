@@ -21,7 +21,9 @@ there stays exactly one dig implementation in the codebase.
 import hashlib
 from typing import Any
 
-from agent_utilities.protocols.source_connectors.connectors.rest import _dig as _rest_dig
+from agent_utilities.protocols.source_connectors.connectors.rest import (
+    _dig as _rest_dig,
+)
 
 __all__ = ["dig", "coalesce", "stable_id", "cast", "rename", "flatten"]
 

@@ -572,7 +572,9 @@ def _finalize_agent_task(
             dag_id=claim.get("dag_id", ""),
         )
         engine.add_node(
-            outcome_id, "OutcomeEvaluation", properties=outcome.model_dump(exclude={"id", "type"})
+            outcome_id,
+            "OutcomeEvaluation",
+            properties=outcome.model_dump(exclude={"id", "type"}),
         )
         engine.add_node(task_id, "AgentTask", properties={"status": status})
     except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort

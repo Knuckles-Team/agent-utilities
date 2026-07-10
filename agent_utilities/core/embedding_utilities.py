@@ -164,7 +164,9 @@ def create_embedding_model(
     # construction time even when oauth2 is configured — it is a harmless placeholder in
     # that case, immediately overwritten on every request by the oauth2 httpx.Auth below.
     if provider_str == "openai" and not api_key_str:
-        api_key_str = "oauth2-managed" if oauth2_val else (config.openai_api_key or "Test-1234")
+        api_key_str = (
+            "oauth2-managed" if oauth2_val else (config.openai_api_key or "Test-1234")
+        )
 
     # CONCEPT:AU-KG.compute.config-keyed-embedder-client — return the cached client for this exact resolved config
     # instead of constructing a new one on every call. Key on every input that

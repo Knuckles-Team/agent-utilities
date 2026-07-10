@@ -103,7 +103,9 @@ class OAuth2ClientCredentialsConfig(BaseModel):
     :class:`ChatModelConfig`/:class:`EmbeddingModelConfig`/:class:`ModelDefinition`).
     """
 
-    token_url: str = Field(description="OIDC/OAuth2 token endpoint (e.g. Azure AD /oauth2/v2.0/token).")
+    token_url: str = Field(
+        description="OIDC/OAuth2 token endpoint (e.g. Azure AD /oauth2/v2.0/token)."
+    )
     client_id: str = Field(
         description=(
             "Client id. A literal value, or a secret-reference URI "
@@ -131,8 +133,12 @@ class OAuth2ClientCredentialsConfig(BaseModel):
             "(e.g. Azure AD v1 'resource')."
         ),
     )
-    verify: bool = Field(default=True, description="TLS verification for the token request.")
-    timeout: float = Field(default=15.0, description="Token request timeout, in seconds.")
+    verify: bool = Field(
+        default=True, description="TLS verification for the token request."
+    )
+    timeout: float = Field(
+        default=15.0, description="Token request timeout, in seconds."
+    )
     refresh_skew_seconds: float | None = Field(
         default=None,
         description=(
@@ -174,7 +180,9 @@ def resolve_effective_skew(ttl_seconds: float, explicit_skew: float | None) -> f
     """
     if explicit_skew is not None:
         return max(0.0, explicit_skew)
-    return max(DEFAULT_REFRESH_SKEW_SECONDS, ttl_seconds * DEFAULT_REFRESH_SKEW_FRACTION)
+    return max(
+        DEFAULT_REFRESH_SKEW_SECONDS, ttl_seconds * DEFAULT_REFRESH_SKEW_FRACTION
+    )
 
 
 class OAuthClientCredentialsProvider:
@@ -235,7 +243,11 @@ class OAuthClientCredentialsProvider:
         """
         with self._lock:
             now = self._clock()
-            if not force and self._token and now < self._expires_at - self._effective_skew():
+            if (
+                not force
+                and self._token
+                and now < self._expires_at - self._effective_skew()
+            ):
                 return self._token
             self._mint(now)
             assert self._token is not None  # noqa: S101 - _mint always sets it or raises
@@ -435,7 +447,9 @@ def build_provider_from_config(
         else cfg.client_id
     )
     if not client_id:
-        raise ValueError(f"oauth2.client_id ref {cfg.client_id!r} did not resolve to a value.")
+        raise ValueError(
+            f"oauth2.client_id ref {cfg.client_id!r} did not resolve to a value."
+        )
 
     return get_client_credentials_provider(
         cfg.token_url,

@@ -86,7 +86,7 @@ def resolve_claim_backend(explicit: str | None = None) -> str:
     Unrecognized values fall back to the safe default (``kg``) rather than
     raising — a typo'd env var must never silently disable claiming.
     """
-    backend = (explicit or setting("AGENT_CLAIM_BACKEND", default=AGENT_CLAIM_BACKEND_KG))
+    backend = explicit or setting("AGENT_CLAIM_BACKEND", default=AGENT_CLAIM_BACKEND_KG)
     backend = str(backend or AGENT_CLAIM_BACKEND_KG).strip().lower()
     if backend not in _BACKENDS:
         logger.warning(

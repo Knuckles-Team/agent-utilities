@@ -44,12 +44,14 @@ from agent_utilities.mcp.child_resilience import (
 
 streamablehttp_client: Any = None
 try:  # remote transports — present on modern mcp SDKs
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import (  # type: ignore[no-redef]
+        streamablehttp_client,
+    )
 except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
     pass
 sse_client: Any = None
 try:
-    from mcp.client.sse import sse_client
+    from mcp.client.sse import sse_client  # type: ignore[no-redef]
 except ImportError:  # pragma: no cover - older mcp SDK without sse
     pass
 

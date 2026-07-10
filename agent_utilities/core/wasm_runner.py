@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 WASMTIME_AVAILABLE = False
 wasmtime: Any = None
 try:
-    import wasmtime
+    import wasmtime  # type: ignore[no-redef]
 
     WASMTIME_AVAILABLE = True
 except ImportError:

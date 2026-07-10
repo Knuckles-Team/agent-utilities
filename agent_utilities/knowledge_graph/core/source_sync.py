@@ -1500,8 +1500,8 @@ def _sync_dockerhub(
     """
     if not _server_configured(("dockerhub-mcp", "dockerhub-api")):
         return {"status": "skipped", "reason": "dockerhub-mcp not in mcp_config"}
-    from ..etl.transforms import coalesce, stable_id
     from ...core.config import setting
+    from ..etl.transforms import coalesce, stable_id
 
     namespaces = [
         n.strip()
@@ -3261,7 +3261,9 @@ def sync_source(
             gate = precheck_source(norm_source)
         except Exception:  # noqa: BLE001 — the gate itself must never break sync
             logger.debug(
-                "connector-manifest precheck unavailable for %s", norm_source, exc_info=True
+                "connector-manifest precheck unavailable for %s",
+                norm_source,
+                exc_info=True,
             )
             gate = {"checked": False}
         if gate.get("checked") and not gate.get("ok"):

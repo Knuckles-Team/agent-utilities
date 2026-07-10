@@ -66,7 +66,7 @@ import anyio
 
 McpError: Any = ()
 try:  # MCP protocol error (e.g. a terminated streamable-http session)
-    from mcp.shared.exceptions import McpError
+    from mcp.shared.exceptions import McpError  # type: ignore[no-redef]
 except ImportError:  # pragma: no cover - mcp always present for the multiplexer
     pass
 
