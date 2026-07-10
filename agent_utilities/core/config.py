@@ -1099,6 +1099,15 @@ class AgentConfig(BaseSettings):
     # independently best-effort and degrades to an empty/no-op result on a
     # no-mining engine build, so it's safe to leave on everywhere.
     kg_loop_mine_discovery: bool = Field(default=True, alias="KG_LOOP_MINE_DISCOVERY")
+    # Confidence propagation + light TMS over Belief nodes, workstream C2
+    # (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) —
+    # recomputes every ``Belief`` node's confidence from fresh
+    # ``ContradictionDetector`` friction plus its already-recorded
+    # support/contradiction edges, persisting each outcome as a
+    # ``:BeliefRevisionProposal`` (propose-only; never mutates the live belief).
+    # Default ON: degrades to a no-op ``skipped`` result with fewer than 2 Belief
+    # nodes, so it's safe to leave on everywhere.
+    kg_loop_belief_revision: bool = Field(default=True, alias="KG_LOOP_BELIEF_REVISION")
     # CONCEPT:AU-OS.config.autonomous-spec-develop-off — autonomous spec→develop. OFF by default = review-first: a
     # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
     # for Claude/human approval (graph_loops action=review) before any develop Loop
