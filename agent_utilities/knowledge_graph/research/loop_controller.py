@@ -156,6 +156,7 @@ class LoopController:
         mine_discovery: bool | None = None,
         belief_revision: bool | None = None,
         insight_validation: bool | None = None,
+        trace_mining: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -164,7 +165,12 @@ class LoopController:
         idempotent/content-addressed) → ``assimilate`` (dedup→gap→synergy→rank,
         idempotent via the state watermark) → ``reason`` → ``mine_discovery`` (env
         ``KG_LOOP_MINE_DISCOVERY``, default ON — the discovery-flywheel mining pass,
-        CONCEPT:AU-KG.evolution.mining-flywheel) → ``insight_validation`` (env
+        CONCEPT:AU-KG.evolution.mining-flywheel) → ``trace_mining`` (env
+        ``KG_LOOP_TRACE_MINING``, default ON — workstream C6, closed-loop agent
+        mining: mines Episode/OutcomeEvaluation/ToolCall provenance for repeated
+        FAILURE tool-call sequences and runs each through the SAME C4
+        CandidateInsight→Claim→Validation→Action-gate pipeline; SAFETY-CRITICAL,
+        see ``_run_trace_mining``'s docstring) → ``insight_validation`` (env
         ``KG_LOOP_INSIGHT_VALIDATION``, default ON — workstream C4, the Insight
         Engine closed loop: mined findings above a confidence floor become
         reviewable ``ClaimNode``s, gated by ``action_policy.decide()``) →
@@ -194,6 +200,8 @@ class LoopController:
             belief_revision = config.kg_loop_belief_revision
         if insight_validation is None:
             insight_validation = config.kg_loop_insight_validation
+        if trace_mining is None:
+            trace_mining = config.kg_loop_trace_mining
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -207,6 +215,7 @@ class LoopController:
             "reason": None,
             "mine_discovery": None,
             "insight_validation": None,
+            "trace_mining": None,
             "belief_revision": None,
             "standardize": None,
             "skill_proposals": None,
@@ -322,6 +331,22 @@ class LoopController:
                 "insight_validation",
                 lambda: self._run_insight_validation(report["mine_discovery"]),
             )
+
+        # 0a1.45 TRACE MINING — closed-loop agent mining (workstream C6,
+        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): mines Episode/
+        # OutcomeEvaluation/ToolCall provenance for repeated FAILURE tool-call
+        # sequences (``trace_pattern_miner``) and runs each mined pattern through
+        # the SAME C4 CandidateInsight→Claim→Validation→Action-gate pipeline —
+        # REUSES ``action_policy.decide(kind="route_policy_update")``, shipped
+        # default approval_required. SAFETY-CRITICAL: see ``_run_trace_mining``'s
+        # docstring — ``OutcomeRouter.record()`` is NEVER called before that
+        # ``decide()`` call on any path (tests/unit/knowledge_graph/
+        # test_trace_pattern_miner.py::test_gate_runs_before_any_outcome_record).
+        # Best-effort + gated (KG_LOOP_TRACE_MINING, default ON — the stage is
+        # itself propose-only regardless of the flag; see the config field's
+        # docstring in ``core/config.py``).
+        if trace_mining:
+            report["trace_mining"] = _stage("trace_mining", self._run_trace_mining)
 
         # 0a1.5 BELIEF REVISION — confidence propagation + light TMS (CONCEPT:AU-KG.
         # adaptation.confidence-propagation-belief-revision, workstream C2): recomputes
@@ -1150,6 +1175,212 @@ class LoopController:
                 return False
 
         return _promote
+
+    # -- closed-loop agent mining (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C6) -- #
+    def _run_trace_mining(self) -> dict[str, Any]:
+        """Mine repeated FAILURE tool-call sequences; route each through the C4 pipeline.
+
+        Workstream C6 — closed-loop agent mining. Mines Episode/
+        OutcomeEvaluation/ToolCall provenance (:mod:`.trace_pattern_miner`) for
+        repeated FAILURE tool-call sequences and runs each mined pattern
+        through the SAME CandidateInsight→Claim→Validation→Action-gate
+        pipeline ``_run_insight_validation`` (workstream C4) uses — no
+        reimplemented governance logic, no second confidence-floor policy:
+
+        1. **CandidateInsight** (:func:`~.candidate_insight.
+           candidates_from_sequential_patterns`) extracts each mined
+           pattern's real ``support`` signal as its confidence (never
+           fabricated); a below-floor pattern is counted but NEVER
+           materialized as a ``ClaimNode``.
+        2. **EvidenceBundle** (C1) packages the raw pattern as the claim's
+           evidence trail.
+        3. **ClaimNode** — persisted as a KG ``Claim`` with
+           ``status="proposal"``, ``is_verified=False`` — ALWAYS,
+           unconditionally (the propose-only floor every other stage in this
+           controller already guarantees).
+        4. **Validation** — REUSES :class:`~.promotion_governance.
+           PromotionGovernanceValidator` AS-IS.
+        5. **Action gate** — SAFETY-CRITICAL: every above-floor pattern is run
+           through ``action_policy.decide()`` under the reserved
+           ``kind="route_policy_update"`` (shipped default
+           ``approval_required``) BEFORE anything else happens to it.
+        6. **Governed routing/prompt/tool change + OutcomeRouter.record()** —
+           ONLY when the decision above ``allowed`` (auto/auto_notify —
+           requires an operator to have relaxed the shipped
+           ``route_policy_update`` tier) AND governance is valid does this
+           apply the change AND record the pattern's outcome via the EXISTING
+           :class:`~agent_utilities.orchestration.outcome_router.
+           OutcomeRouter`: a repeated failure sequence is a ``reward=0.0``
+           data point for the ``(task_class, choice)`` its leading tool call
+           represents, steering future ``OutcomeRouter.select()`` calls away
+           from it.
+
+        SAFETY INVARIANT — ``OutcomeRouter.record()`` MUST NEVER execute
+        before the ``action_policy.decide()`` call above, on ANY path,
+        for ANY candidate. This method has exactly one call to each, in that
+        textual order, inside the same per-candidate loop iteration, with the
+        ``record()`` call gated on the ``decision`` variable ``decide()``
+        assigns — there is no branch that reaches ``router.record()`` without
+        first having executed ``action_policy.decide()`` for that same
+        candidate. See ``tests/unit/knowledge_graph/test_trace_pattern_miner.py::
+        test_gate_runs_before_any_outcome_record`` for the enforced ordering
+        (a mock ``action_policy``/``router`` pair that fails the test if
+        ``record()`` is ever observed before ``decide()``) and
+        ``test_route_policy_update_default_never_auto`` for the shipped
+        policy's fail-closed default.
+
+        Every sub-step is independently best-effort (mirroring the
+        ``_run_insight_validation``/``_mine_*`` sub-step tolerance) so one bad
+        candidate never blocks the rest. Best-effort + gated
+        (``KG_LOOP_TRACE_MINING``, default ON — this stage is itself
+        propose-only regardless of the flag).
+        """
+        from agent_utilities.orchestration.action_policy import (
+            ActionRequest,
+            get_action_policy,
+        )
+        from agent_utilities.orchestration.outcome_router import (
+            OutcomeRouter,
+            outcome_reward,
+        )
+
+        from .candidate_insight import candidates_from_sequential_patterns
+        from .promotion_governance import PromotionGovernanceValidator
+        from .trace_pattern_miner import mine_trace_patterns
+
+        errors: list[str] = []
+        mine_result = mine_trace_patterns(self.engine)
+        errors.extend(mine_result.get("errors") or [])
+        candidates = candidates_from_sequential_patterns(mine_result.get("patterns"))
+        below_floor = [c for c in candidates if not c.clears_floor]
+        eligible = [c for c in candidates if c.clears_floor]
+
+        validator = PromotionGovernanceValidator(self.engine)
+        action_policy = get_action_policy(self.engine)
+        router = OutcomeRouter(namespace="trace_pattern_miner")
+
+        persisted = 0
+        routed = 0
+        examples: list[dict[str, Any]] = []
+
+        for cand in eligible:
+            claim = cand.to_claim_node()
+            bundle = cand.to_evidence_bundle()
+            spec = {
+                "id": claim.id,
+                "name": claim.name,
+                "goal": claim.claim_text,
+                "description": claim.claim_text,
+                "quality_score": claim.confidence,
+                "type": "Claim",
+            }
+
+            # -- persist the proposal (ALWAYS; propose-only is the floor every
+            # other stage in this controller already guarantees). --
+            try:
+                self.engine.add_node(
+                    claim.id,
+                    "Claim",
+                    properties={
+                        **claim.model_dump(mode="json", exclude={"type"}),
+                        "status": "proposal",
+                        "evidence_bundle_json": bundle.model_dump_json(),
+                    },
+                )
+                persisted += 1
+            except Exception as e:  # noqa: BLE001 — persistence is best-effort
+                errors.append(f"trace_mining:persist {claim.id}: {e}")
+                continue
+
+            # -- validation: REUSE promotion_governance as-is, never reimplemented. --
+            try:
+                verdict = validator.validate(spec)
+            except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
+                errors.append(f"trace_mining:validate {claim.id}: {e}")
+                continue
+
+            task_class, choice = self._trace_pattern_route(cand)
+
+            # ── SAFETY: action_policy.decide() MUST run — and complete —
+            # before ANY OutcomeRouter.record() call for this candidate. See
+            # the docstring above; do not reorder. ──
+            try:
+                decision = action_policy.decide(
+                    ActionRequest(
+                        kind="route_policy_update",
+                        target=claim.id,
+                        params={
+                            "finding_type": cand.finding_type,
+                            "confidence": cand.confidence,
+                            "governance_valid": verdict.valid,
+                            "task_class": task_class,
+                            "choice": choice,
+                        },
+                        source="loop_engine",
+                        reason=(
+                            "apply a routing/prompt/tool change from a mined "
+                            "repeated-failure tool-call pattern"
+                        ),
+                    )
+                )
+            except Exception as e:  # noqa: BLE001 — fail closed, never crash
+                errors.append(f"trace_mining:action_policy {claim.id}: {e}")
+                continue
+
+            record: dict[str, Any] = {
+                "claim_id": claim.id,
+                "finding_type": cand.finding_type,
+                "confidence": round(cand.confidence, 4),
+                "governance_valid": verdict.valid,
+                "action_decision": decision.decision,
+                "routed": False,
+            }
+
+            # -- ONLY reachable after action_policy.decide() (above) returned.
+            # Gated on verdict.valid + decision.allowed (auto/auto_notify),
+            # mirroring the X3 autonomy-tier gate ``_run_insight_validation``
+            # uses. The shipped route_policy_update tier is
+            # approval_required, so this branch never fires out of the box. --
+            if verdict.valid and decision.allowed and task_class and choice:
+                try:
+                    router.record(
+                        task_class,
+                        choice,
+                        outcome_reward(success=False, latency_s=0.0),
+                    )
+                    record["routed"] = True
+                    routed += 1
+                except Exception as e:  # noqa: BLE001 — learning must never break the cycle
+                    errors.append(f"trace_mining:route {claim.id}: {e}")
+
+            if len(examples) < 5:
+                examples.append(record)
+
+        return {
+            "candidates": len(candidates),
+            "below_floor": len(below_floor),
+            "eligible": len(eligible),
+            "persisted_claims": persisted,
+            "routed": routed,
+            "failure_episodes": mine_result.get("failure_episodes", 0),
+            "sequences_mined": mine_result.get("sequences_mined", 0),
+            "examples": examples,
+            "errors": errors,
+        }
+
+    @staticmethod
+    def _trace_pattern_route(cand: Any) -> tuple[str, str]:
+        """Derive an ``OutcomeRouter`` ``(task_class, choice)`` pair from a mined pattern.
+
+        ``task_class`` is a fixed namespace for all trace-mined patterns (the
+        router's own ``namespace`` already scopes these apart from every other
+        ``OutcomeRouter`` consumer); ``choice`` is the pattern's LEADING tool
+        call — the first decision point the failure sequence hinges on. Empty
+        (never guessed) when the pattern carries no source ids.
+        """
+        if not cand.source_ids:
+            return "", ""
+        return "failure_tool_sequence", str(cand.source_ids[0])
 
     # -- belief revision / confidence propagation (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) -- #
     def _run_belief_revision(self) -> dict[str, Any]:
