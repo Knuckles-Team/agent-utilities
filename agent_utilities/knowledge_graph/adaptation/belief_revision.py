@@ -288,20 +288,23 @@ def _invoke_engine_propagate(
     supporting_beliefs: Sequence[BeliefNode],
     contradicting_beliefs: Sequence[BeliefNode],
 ) -> tuple[float, list[dict[str, Any]]] | None:
-    """Delegate confidence recomputation to the engine's propagation surface.
+    """Delegate confidence recomputation to the engine's belief-propagation surface.
 
-    TODO(C2-engine-delegation): mirrors ``loop_controller._mine_association_
-    rules``'s call boundary — the SAME ``_invoke`` helper the ``graph_mine``/
-    ``graph_learn`` MCP tools use
-    (:func:`agent_utilities.mcp.tools.engine_surface_tools._invoke`) — so this
-    degrades exactly like those tools do on an engine build that doesn't ship
-    an ``epistemic``/``propagate`` surface yet: ``_invoke`` returns a
-    ``degraded``/``error`` JSON payload as data (never raises), and this
-    function returns ``None`` so the caller falls back to the local
-    :func:`recompute_confidence` + :func:`explain_revision` formula. No such
-    engine surface exists today — this is inert scaffolding for when the
-    engine-side TMS/propagation effort ships one; the Python formula above is
-    the real implementation until then.
+    Control-plane closeout D12: wires the (E2) ``ConfidenceOp``/
+    ``propagate_confidence`` engine surface via the SAME ``_invoke`` helper the
+    ``graph_mine``/``graph_learn`` MCP tools use
+    (:func:`agent_utilities.mcp.tools.engine_surface_tools._invoke`), so this
+    degrades EXACTLY like those tools (``_mine_association_rules`` et al.) on
+    an engine build that doesn't ship the surface under any of the probed
+    names yet: ``_invoke`` returns a ``degraded``/``error`` JSON payload as
+    data (never raises), and this function returns ``None`` so the caller
+    falls back to the local :func:`recompute_confidence` + :func:`explain_revision`
+    formula — the graceful, feature-detected degrade this module has always
+    promised. The candidate ``(sub_client_attr, method_attr)`` pairs below are
+    probed in order (first callable wins), covering the plausible namings an
+    engine build may expose E2's confidence-propagation op under; when the
+    connected engine build has none of them, ``_invoke`` degrades cleanly and
+    the Python formula remains the real implementation for that build.
     """
     import json as _json
 
@@ -316,7 +319,12 @@ def _invoke_engine_propagate(
             surface="epistemic",
             action="propagate",
             graph="",
-            candidates=(("epistemic", "propagate"),),
+            candidates=(
+                ("epistemic", "propagate"),
+                ("epistemic", "propagate_confidence"),
+                ("confidence", "propagate"),
+                ("belief", "propagate_confidence"),
+            ),
             params={
                 "belief_id": belief.id,
                 "prior_confidence": belief.confidence,
