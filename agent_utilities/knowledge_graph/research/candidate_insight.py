@@ -52,6 +52,7 @@ __all__ = [
     "candidates_from_association_rules",
     "candidates_from_anomalies",
     "candidates_from_predicted_edges",
+    "candidates_from_sequential_patterns",
     "candidates_from_mine_discovery",
 ]
 
@@ -63,7 +64,11 @@ __all__ = [
 #: assertion, not a promoted artifact) than a golden-loop TeamSpec merge.
 CONFIDENCE_FLOOR = 0.6
 
-_FINDING_TYPES = {"AssociationRule", "Anomaly", "PredictedEdge"}
+#: "SequentialPattern" (workstream C6, ``trace_pattern_miner``) is the
+#: ``graph_mine action="sequence"`` mining surface's finding kind — a repeated
+#: FAILURE tool-call sequence mined from ``AgentTask``/outcome provenance,
+#: fed through this SAME CandidateInsight→Claim pipeline as the other three.
+_FINDING_TYPES = {"AssociationRule", "Anomaly", "PredictedEdge", "SequentialPattern"}
 
 
 def _stable_id(prefix: str, *parts: Any) -> str:
@@ -267,6 +272,45 @@ def candidates_from_predicted_edges(
                 confidence=confidence,
                 payload=dict(ex),
                 source_ids=[str(x) for x in (src, dst) if x],
+            )
+        )
+    return out
+
+
+def candidates_from_sequential_patterns(
+    result: dict[str, Any] | None,
+) -> list[CandidateInsight]:
+    """``{"patterns": [{"items", "support", "count"}, ...]}`` → insights (workstream C6).
+
+    Mirrors the ``graph_mine action="sequence"`` mining surface's own result
+    shape (frequent ORDERED subsequences — see ``engine_surface_tools.
+    graph_mine``'s docstring): ``items`` is the ordered tool-name sequence,
+    ``support`` is already a ``[0, 1]`` frequency fraction (the same
+    ``min_support`` units the mining call itself gates on) so it maps
+    straight through as the finding's confidence — no transform needed,
+    exactly like an association rule's mined ``confidence``. Used by
+    :mod:`.trace_pattern_miner` to turn repeated FAILURE tool-call sequences
+    into reviewable claims through this SAME pipeline.
+    """
+    out: list[CandidateInsight] = []
+    for ex in (result or {}).get("patterns") or []:
+        if not isinstance(ex, dict):
+            continue
+        items = ex.get("items") or []
+        if not items:
+            continue
+        statement = (
+            f"Repeated failure tool-call sequence: {' → '.join(str(i) for i in items)} "
+            f"(support={ex.get('support')}, count={ex.get('count')})"
+        )
+        out.append(
+            CandidateInsight(
+                finding_type="SequentialPattern",
+                finding_id=_stable_id("trace_pattern", items),
+                statement=statement,
+                confidence=_clamp01(ex.get("support")),
+                payload=dict(ex),
+                source_ids=[str(i) for i in items],
             )
         )
     return out
