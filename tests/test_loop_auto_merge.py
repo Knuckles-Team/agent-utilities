@@ -118,6 +118,56 @@ class TestGovernedMerge:
         assert ev.merged is False
         assert "governance/SHACL invalid" in ev.failures
 
+    def test_bare_claim_skips_governed_publish(self, monkeypatch):
+        """D14: a bare Claim (C4's mined-finding artifact) is not git-publishable —
+        ``_publish`` must skip ``governed_publish`` cleanly, never call it."""
+        called: list[bool] = []
+        monkeypatch.setattr(
+            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
+            lambda *a, **k: called.append(True) or {"status": "published"},
+        )
+        merger = GovernedAutoMerger(
+            engine=None,
+            policy=MergePolicy(
+                enabled=True, require_governance_valid=False, quality_threshold=0.0
+            ),
+            promoter=lambda spec: True,
+        )
+        spec = {
+            "id": "claim:insight:abc123",
+            "name": "a mined finding",
+            "goal": "x implies y",
+            "type": "Claim",
+            "quality_score": 0.9,
+        }
+        ev = merger.consider(spec)
+        assert ev.merged is True
+        assert called == []  # governed_publish was NEVER invoked for a Claim
+        assert ev.publication == {
+            "status": "skipped",
+            "reason": (
+                "a bare Claim is not a git-publishable artifact — "
+                "governed_publish is skipped (D14)"
+            ),
+        }
+
+    def test_non_claim_spec_still_calls_governed_publish(self, monkeypatch):
+        """Control: a normal TeamSpec-shaped merge still goes through governed_publish."""
+        called: list[bool] = []
+        monkeypatch.setattr(
+            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
+            lambda *a, **k: called.append(True) or {"status": "published"},
+        )
+        merger = GovernedAutoMerger(
+            engine=None,
+            policy=MergePolicy(enabled=True, require_governance_valid=False),
+            promoter=lambda spec: True,
+        )
+        ev = merger.consider(_strong_team())
+        assert ev.merged is True
+        assert called == [True]
+        assert ev.publication == {"status": "published"}
+
     def test_regression_blocks_merge(self):
         merger = GovernedAutoMerger(
             engine=None,

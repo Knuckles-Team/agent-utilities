@@ -48,6 +48,22 @@ AUDIT_AUTO_MERGE = "loop_engine.auto_merge"
 DEFAULT_QUALITY_THRESHOLD = 0.85
 
 
+def _is_bare_claim(spec: Any) -> bool:
+    """True when ``spec`` is a bare ``Claim`` (C4's mined-finding artifact), D14.
+
+    ``loop_controller._run_insight_validation`` builds its ``spec`` dict with
+    ``"type": "Claim"`` (see ``ClaimNode``/``RegistryNodeType.CLAIM``, whose
+    enum value is the lowercase ``"claim"``) — checked case-insensitively so
+    either spelling (the dict literal or the enum value) matches. A Claim is
+    a reviewable assertion, never a git-publishable artifact.
+    """
+    t = getattr(spec, "type", None)
+    if t is None and isinstance(spec, dict):
+        t = spec.get("type")
+    t = getattr(t, "value", t)  # unwrap a RegistryNodeType/StrEnum member
+    return str(t or "").strip().lower() == "claim"
+
+
 def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
     """Build the default production governance validator (CONCEPT:AU-AHE.harness.promotion-governance-validator).
 
@@ -414,7 +430,26 @@ class GovernedAutoMerger:
         Best-effort: a publication failure never undoes the lifecycle merge or
         crashes the loop — the report (or the error) is carried on the
         evaluation and audited.
+
+        Control-plane closeout D14: a bare ``Claim`` (the C4 Insight Engine's
+        mined-finding artifact — see ``loop_controller._run_insight_validation``'s
+        ``spec = {..., "type": "Claim"}``) is not a git-publishable artifact —
+        there is no source file / SKILL.md / prompt to branch-and-commit for a
+        promoted assertion. ``governed_publish`` expects a synthesizable
+        TeamSpec/AgentSpec/PromptSpec-shaped proposal, so calling it for a
+        Claim would either no-op unpredictably or fail deep inside the
+        publisher. Special-cased here (the ONE ``_publish`` call site every
+        ``consider()`` caller shares) so a Claim promotion always skips
+        cleanly with an explicit, auditable reason instead.
         """
+        if _is_bare_claim(spec):
+            return {
+                "status": "skipped",
+                "reason": (
+                    "a bare Claim is not a git-publishable artifact — "
+                    "governed_publish is skipped (D14)"
+                ),
+            }
         try:
             from .change_publisher import governed_publish
 
