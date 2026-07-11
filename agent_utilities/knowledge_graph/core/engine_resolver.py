@@ -34,8 +34,11 @@ per-entrypoint code — how the process reaches its engine:
 The resolver REUSES the existing building blocks — it invents no new locking,
 probing, auth, or topology logic:
 
-* :func:`~.shard_topology.resolve_endpoints` / :func:`~.shard_topology.shard_endpoint_for`
-  — endpoint list + HRW shard placement.
+* :func:`~.placement_catalog.resolve_placement` — engine placement-catalog
+  lookup (epoch-cached, redirect-aware), falling back to
+  :func:`~.shard_topology.resolve_endpoints` / :func:`~.shard_topology.shard_endpoint_for`
+  — endpoint list + the static HRW shard ring — only when no catalog is
+  reachable/advertised.
 * :func:`~.shard_topology.is_local_endpoint` / :func:`~.shard_topology.probe_endpoint`
   — local-vs-remote classification + the cheap connect probe.
 * :func:`~.graph_compute.resolve_engine_auth` — the HMAC secret / insecure flag.
@@ -51,11 +54,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .placement_catalog import resolve_placement
 from .shard_topology import (
     is_local_endpoint,
     probe_endpoint,
     resolve_endpoints,
-    shard_endpoint_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,7 +163,10 @@ def resolve_engine(
     if endpoint_override:
         endpoint = str(endpoint_override)
     else:
-        endpoint = shard_endpoint_for(graph_name, endpoints)
+        # Engine placement catalog first (DIST-P2-2b, CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw);
+        # the static HRW ring is only the bootstrap/fallback when no catalog
+        # is reachable/advertised — see ``placement_catalog`` module docstring.
+        endpoint = resolve_placement(graph_name, endpoints, config).endpoint
 
     mode_setting = (getattr(config, "engine_mode", "auto") or "auto").strip().lower()
     local = is_local_endpoint(endpoint)
