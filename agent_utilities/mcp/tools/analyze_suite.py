@@ -153,7 +153,10 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'entity:health') — or a bare intent with the domain inferred, or target='domains' "
             "to list providers. action='context' returns a synthesized context bundle. "
             "Domains: code, ops (live task-queue), deploy (is my change live — KG-2.138), "
-            "entity/tickets/deploys/process (KG-2.139)."
+            "entity/tickets/deploys/process (KG-2.139), capability (Capability Power "
+            "Descriptor for a graph-os tool by id, e.g. 'capability:graph_query', or "
+            "'capability:list' for the browsable index — Seam 8 Phase 1, "
+            "CONCEPT:AU-KG.retrieval.capability-power-descriptor)."
         ),
         tags=["graph-os", "explain"],
     )
