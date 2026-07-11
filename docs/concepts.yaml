@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 963
+total_concepts: 965
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -9291,6 +9291,18 @@ concepts:
   - AU-ORCH.execution.degraded-no-data-outcome
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.execution.delegation-wall-clock
+  name: bound the direct tool loop with a wall-clock
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: bound the direct tool loop with a wall-clock
+  dotted: AU-ORCH.execution.delegation-wall-clock
+  aliases:
+  - AU-ORCH.execution.delegation-wall-clock
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.execution.developer-workspace-runtime
   name: the developer-workspace runtime
   pillar: AU-ORCH
@@ -9898,6 +9910,18 @@ concepts:
   dotted: AU-ORCH.execution.skill-bound-server-tools
   aliases:
   - AU-ORCH.execution.skill-bound-server-tools
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.execution.skill-utilization-provenance
+  name: capture whether a package SKILL drove
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: capture whether a package SKILL drove
+  dotted: AU-ORCH.execution.skill-utilization-provenance
+  aliases:
+  - AU-ORCH.execution.skill-utilization-provenance
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.skill-workflow-compilation
