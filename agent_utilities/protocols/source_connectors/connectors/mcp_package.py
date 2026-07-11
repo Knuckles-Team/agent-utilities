@@ -36,10 +36,10 @@ from agent_utilities.core.config import setting
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
 from ..registry import register_source
 
@@ -278,7 +278,11 @@ class MCPPackageConnector(LoadConnector, PollConnector):
             text=text,
             doc_type=self.doc_type,
             metadata={"package": self.package, "tool": self.tool, "raw": record},
-            external_access=ExternalAccess.public(),
+            # No ACL surface on this connector's record shape (CONCEPT:AU-P0-4):
+            # fail-closed default (quarantined), not silently public. Set
+            # CONNECTOR_DEFAULT_PUBLIC=true to opt a dev/local deployment back
+            # into the legacy public-by-default behavior.
+            external_access=default_external_access(),
             updated_at=str(updated) if updated is not None else None,
         )
 

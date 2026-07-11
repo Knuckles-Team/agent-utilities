@@ -177,6 +177,73 @@ def test_generic_reconcile_unsupported():
     assert "reconcile not supported" in out["reason"]
 
 
+# ── AU-P0-4: authoritatively-empty vs fetch-failure reconcile ────────────────
+
+
+def test_reconcile_authoritatively_empty_skips_by_default(monkeypatch):
+    """A genuinely-empty live-id set does NOT tombstone unless explicitly opted in."""
+    from agent_utilities.knowledge_graph.core.source_sync import _reconcile
+
+    monkeypatch.delenv("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", raising=False)
+    backend = FakeBackend(leanix_nodes=[{"id": "app:a1", "guid": "a1"}])
+    engine = FakeEngine(backend)
+
+    out = _reconcile(engine, "leanix", set(), fetch_ok=True)
+    assert out["status"] == "skipped"
+    assert backend.archived == []
+
+
+def test_reconcile_authoritatively_empty_tombstones_when_opted_in(monkeypatch):
+    """With SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE naming the source, an empty (but
+    successfully-fetched) live-id set tombstones everything previously known."""
+    from agent_utilities.knowledge_graph.core.source_sync import _reconcile
+
+    monkeypatch.setenv("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", "leanix")
+    backend = FakeBackend(
+        leanix_nodes=[
+            {"id": "app:a1", "guid": "a1"},
+            {"id": "app:a2", "guid": "a2"},
+        ]
+    )
+    engine = FakeEngine(backend)
+
+    out = _reconcile(engine, "leanix", set(), fetch_ok=True)
+    assert out["status"] == "completed"
+    assert out["tombstoned"] == 2
+    assert set(backend.archived) == {"app:a1", "app:a2"}
+
+
+def test_reconcile_fetch_failure_never_tombstones_even_when_opted_in(monkeypatch):
+    """fetch_ok=False (the live-id fetch itself errored) ALWAYS skips — even when
+    the source is opted into empty-tombstone — a transient failure must never be
+    mistaken for an authoritatively-empty snapshot."""
+    from agent_utilities.knowledge_graph.core.source_sync import _reconcile
+
+    monkeypatch.setenv("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", "leanix")
+    backend = FakeBackend(leanix_nodes=[{"id": "app:a1", "guid": "a1"}])
+    engine = FakeEngine(backend)
+
+    out = _reconcile(engine, "leanix", set(), fetch_ok=False)
+    assert out["status"] == "skipped"
+    assert backend.archived == []
+
+
+def test_leanix_reconcile_client_error_never_tombstones(monkeypatch):
+    """A raising ``fact_sheet_ids`` (transient client/network failure) must not
+    wipe previously-known LeanIX nodes, even under the empty-tombstone opt-in."""
+    monkeypatch.setenv("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", "leanix")
+    backend = FakeBackend(leanix_nodes=[{"id": "app:a1", "guid": "a1"}])
+    engine = FakeEngine(backend)
+
+    class BrokenClient:
+        def fact_sheet_ids(self):
+            raise RuntimeError("upstream timeout")
+
+    out = sync_source(engine, "leanix", mode="reconcile", client=BrokenClient())
+    assert out["status"] == "skipped"
+    assert backend.archived == []
+
+
 def test_materialize_source_routes_through_shared_core(monkeypatch):
     """camunda/aris/egeria route through the shared materialize core, not hydration."""
     import agent_utilities.knowledge_graph.enrichment.materialize as mat
