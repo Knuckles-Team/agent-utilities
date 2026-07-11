@@ -429,8 +429,9 @@ class GraphComputeEngine:
                 record_shard_connect(endpoint, False)
                 raise ConnectionError(
                     f"Configured engine shard {endpoint!r} (owner of graph "
-                    f"{graph_name!r} by HRW over GRAPH_SERVICE_ENDPOINTS) is "
-                    f"unreachable: {initial_e}. Start that shard's "
+                    f"{graph_name!r} per the engine placement catalog, or by "
+                    "HRW over GRAPH_SERVICE_ENDPOINTS when no catalog is "
+                    f"reachable) is unreachable: {initial_e}. Start that shard's "
                     "epistemic-graph-server (or remove it from "
                     "GRAPH_SERVICE_ENDPOINTS — moving a graph between shards "
                     "requires a manual snapshot export/import). Autostart "
