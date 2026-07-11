@@ -219,8 +219,8 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
 
         return _fn
     except Exception as e:
-        # Zero-Stub compliance (AGENTS.md): NEVER return a degenerate stub that
-        # silently yields 1-dim ``[0.0]`` vectors. That stub previously masked a
+        # Zero-fabrication compliance (AGENTS.md): NEVER return a degenerate fallback
+        # that silently yields 1-dim ``[0.0]`` vectors. That fallback previously masked a
         # missing-embedder deployment (the serving plane shipped bare ``embeddings``
         # without ``embeddings-openai`` → ``No module named 'llama_index.embeddings'``):
         # enrichment "succeeded" while writing garbage vectors into a 1024-dim store,

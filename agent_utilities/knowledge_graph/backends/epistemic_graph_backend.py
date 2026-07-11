@@ -90,14 +90,14 @@ def _cypher_literal(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if value is None:
-        raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+        raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
             "the native Cypher engine has no NULL literal (only IS [NOT] NULL "
             "predicates); cannot inline a None value as an equality/SET literal "
             "— rewrite the query to use IS NULL / IS NOT NULL instead"
         )
     if isinstance(value, int | float):
         if value < 0:
-            raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+            raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
                 "the native Cypher engine's literal grammar has no negative "
                 f"number literal (value={value!r}); rewrite the query so the "
                 "comparison/assignment does not need a negative literal"
@@ -108,7 +108,7 @@ def _cypher_literal(value: Any) -> str:
         return f"'{escaped}'"
     if isinstance(value, list | tuple):
         return "[" + ", ".join(_cypher_literal(v) for v in value) + "]"
-    raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+    raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
         f"cannot inline a {type(value).__name__} value as a native Cypher "
         f"literal (value={value!r}); the engine's grammar only accepts "
         "string/number/bool literals and lists of them"
@@ -351,14 +351,14 @@ class EpistemicGraphBackend(GraphBackend):
         m_ret = re.search(r"\bRETURN\b", query, re.I)
         if not m_ret:
             if re.search(r"\b\w+\.id\b", query):
-                raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+                raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
                     "this backend cannot route a '.id' property accessor to "
                     "the native Cypher engine outside its id-anchored fast "
                     f"path: {query!r}"
                 )
             return query
         if re.search(r"\b\w+\.id\b", query[: m_ret.start()]):
-            raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+            raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
                 "this backend cannot route a '.id' property accessor to the "
                 f"native Cypher engine outside its id-anchored fast path: {query!r}"
             )
@@ -379,7 +379,7 @@ class EpistemicGraphBackend(GraphBackend):
             m = re.match(r"^(\w+)\.id\s*(?:AS\s+(\w+))?$", stripped, re.I)
             if not m:
                 if re.search(r"\b\w+\.id\b", stripped):
-                    raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, not a stub (AU-P0-2 contract)
+                    raise NotImplementedError(  # ABSTRACT-OK: intentional unsupported-native-Cypher-shape raise, contractually unimplemented (AU-P0-2 contract)
                         "this backend cannot route a '.id' accessor embedded "
                         "in a compound RETURN expression to the native Cypher "
                         f"engine: {stripped!r} in {query!r}"

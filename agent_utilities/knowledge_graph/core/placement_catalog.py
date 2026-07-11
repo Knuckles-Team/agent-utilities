@@ -78,7 +78,7 @@ __all__ = [
 ]
 
 #: Default cache TTL when ``AgentConfig.placement_catalog_ttl_s`` is absent
-#: (e.g. a bare ``_config`` stub in a caller's tests) — short by design, per
+#: (e.g. a bare ``_config`` fake in a caller's tests) — short by design, per
 #: the task's guardrail: a moved partition must be discovered again quickly.
 _DEFAULT_TTL_S = 5.0
 

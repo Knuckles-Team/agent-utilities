@@ -254,7 +254,7 @@ class SchemaMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ontology_class: str | None = None  # ArchiMate/base crosswalk parent — TODO(review)
+    ontology_class: str | None = None  # ArchiMate/base crosswalk parent (consumed by manifest_compiler + ops_causal_crosswalk)
     fields: dict[str, str] = Field(default_factory=dict)  # field name -> xsd:* curie
 
 
