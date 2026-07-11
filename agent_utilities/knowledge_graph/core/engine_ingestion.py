@@ -41,7 +41,7 @@ class IngestionMixin(_Base):
     def ingest_episode(
         self, content: str, source: str = "chat", timestamp: str | None = None
     ) -> str:
-        """Ingest a new episode into the graph with automatic layer distribution."""
+        """Ingest a new episode into the graph, embedding it when a model is available."""
         ep_id = f"ep:{uuid.uuid4().hex[:8]}"
         ts = timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = EpisodeNode(
