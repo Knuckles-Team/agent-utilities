@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 983
+total_concepts: 988
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -2116,6 +2116,35 @@ concepts:
   - AU-ECO.mcp.harness-exposure
   canonical_pillar: AU-ECO
   needs_curation: false
+- id: AU-ECO.mcp.intent-surface-condensed-collapse
+  name: can best-effort widen its search to the
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/skill_coverage.py
+  - agent_utilities/mcp/tools/intent_tools.py
+  - agent_utilities/mcp/verbose_tools.py
+  doc: can best-effort widen its search to the
+  dotted: AU-ECO.mcp.intent-surface-condensed-collapse
+  aliases:
+  - AU-ECO.mcp.intent-surface-condensed-collapse
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-tool-lifecycle
+  name: standalone so both the meta-tool itself and the
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: standalone so both the meta-tool itself and the
+  dotted: AU-ECO.mcp.intent-surface-tool-lifecycle
+  aliases:
+  - AU-ECO.mcp.intent-surface-tool-lifecycle
+  canonical_pillar: AU-ECO
+  needs_curation: false
 - id: AU-ECO.mcp.kg-skill-verb-coverage
   name: kg-* skill ↔ graph-os verb coverage doctor
   pillar: AU-ECO
@@ -2203,6 +2232,18 @@ concepts:
   dotted: AU-ECO.mcp.tool-mode-standardization
   aliases:
   - AU-ECO.mcp.tool-mode-standardization
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.two-surfaces-mcp-rest
+  name: the generic
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: the generic
+  dotted: AU-ECO.mcp.two-surfaces-mcp-rest
+  aliases:
+  - AU-ECO.mcp.two-surfaces-mcp-rest
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.mcp.usage-cost-observability-surface
@@ -5322,6 +5363,7 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/observability/health_ingest.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/tools/db_tools.py
   doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
@@ -7407,6 +7449,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/nl_planner.py
   - agent_utilities/knowledge_graph/orchestration/data_analyst.py
+  - agent_utilities/mcp/tools/intent_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   doc: ask the Knowledge Graph in plain English, planned by
   dotted: AU-KG.query.ask-gateway-rest-twin
@@ -12764,6 +12807,18 @@ concepts:
   dotted: AU-OS.observability.telemetry-observability
   aliases:
   - AU-OS.observability.telemetry-observability
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.observability.unified-health-kernels
+  name: AU-OS.observability.unified-health-kernels
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/health.py
+  doc: AU-OS.observability.unified-health-kernels
+  dotted: AU-OS.observability.unified-health-kernels
+  aliases:
+  - AU-OS.observability.unified-health-kernels
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.observability.usage-analytics-store
