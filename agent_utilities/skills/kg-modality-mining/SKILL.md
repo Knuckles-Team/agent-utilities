@@ -4,16 +4,19 @@ skill_type: skill
 description: >-
   Run data-mining over the epistemic-graph engine — association-rule mining
   (Apriori/FP-Growth/Eclat), clustering (DBSCAN/hierarchical/GMM/k-medoids), and
-  anomaly detection (z-score/isolation-forest/LOF/one-class-SVM), compute-near-data.
-  Use for "find frequent itemsets", "mine association rules", "cluster these nodes/
-  vectors", "detect anomalies/outliers in this series or graph".
+  anomaly detection (z-score/isolation-forest/LOF/one-class-SVM), compute-near-data,
+  plus the deep-learning family (LSTM forecast, MLP classify, autoencoder anomaly,
+  gradient-boosting, neural embedding) delegated to data-science-mcp. Use for
+  "find frequent itemsets", "mine association rules", "cluster these nodes/
+  vectors", "detect anomalies/outliers in this series or graph", "forecast this
+  series with a neural model", "deep-classify these rows".
 license: MIT
-tags: [graph-os, engine, modality, mining, clustering, anomaly, data-mining]
+tags: [graph-os, engine, modality, mining, clustering, anomaly, data-mining, deep-learning]
 tier: modality
-wraps: [engine_mining, graph_mine]
+wraps: [engine_mining, graph_mine, graph_mine_deep]
 metadata:
   author: Genius
-  version: '0.1.0'
+  version: '0.2.0'
 ---
 
 # KG Modality — Mining
@@ -44,14 +47,29 @@ Two surfaces over the same engine `MiningClient`:
 Degrades cleanly on a no-mining engine build (returns a structured error, never
 a crash).
 
+- **`graph_mine_deep`** (CONCEPT:AU-KG.mining.dsm-forecast-delegation) — the
+  heavy-Python / deep-learning family the pure-Rust engine deliberately does
+  NOT implement (no torch/GPU in-engine): dispatches to `agents/data-science-mcp`
+  over MCP and folds the result back into the KG as typed nodes.
+  Actions: `deep_forecast` (LSTM sequence forecaster), `deep_classify` (MLP
+  classifier), `autoencoder_anomaly` (reconstruction-error outlier detection),
+  `xgboost` (gradient-boosting classifier), `embed` (neural embedding of
+  numeric feature rows). Every action accepts raw rows OR a graph-derived
+  `source` selector; `writeback: true` materializes typed result nodes
+  (`:Forecast`/`:Classification`/`:Anomaly`/`:Embedding`) linked back to their
+  source. Degrades cleanly (`{available:false, error:...}`) when
+  data-science-mcp is unreachable or its `[training]` extra isn't installed.
+
 ## How to reach it
 
 **Via the multiplexer:** `load_tools(tools=["graph_mine"])` (or `engine_mining`
-for the raw action router), then call; `unload_tools(...)` when done.
+for the raw action router, or `graph_mine_deep` for the deep-learning
+delegation), then call; `unload_tools(...)` when done.
 
-**REST twins:** `POST /engine/mining` (raw) and `POST /api/mining/{associate,
+**REST twins:** `POST /engine/mining` (raw), `POST /api/mining/{associate,
 cluster,anomaly}` (natural per-action body, same `_execute_tool` core as
-`graph_mine`).
+`graph_mine`), and `POST /api/mining/deep/{deep_forecast,deep_classify,
+autoencoder_anomaly,xgboost,embed}` (same core as `graph_mine_deep`).
 
 ## Example
 
