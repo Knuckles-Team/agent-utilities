@@ -104,6 +104,7 @@ nav:
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
       - North-Star Architecture (the whole program): architecture/north-star-architecture.md
+      - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
       - C4 Architecture: pillars/architecture_c4.md
       - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
