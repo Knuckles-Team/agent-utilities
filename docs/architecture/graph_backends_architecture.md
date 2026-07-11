@@ -499,7 +499,7 @@ flowchart TB
     BR -->|"per-label fetch, O(#type) not O(graph)"| LABEL
     BR -. "AVOIDS unbounded nodes(data=True)<br/>166K x 1024-dim, 1GB frame, ConnectionReset" .-> GUARD
     GUARD --> CAP
-    GUARD -->|"count > cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
+    GUARD -->|"count exceeds cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
     BRK -->|"ConnectionReset/BrokenPipe = transient"| RETRY["retry x2, 0.25s backoff<br/>rides client._reconnect, breaker NOT tripped"]
     COAL --> LOCK
 ```
