@@ -53,7 +53,21 @@ __all__ = [
     "PermSyncConnector",
     "ConnectorCheckpoint",
     "CheckpointedBatch",
+    "CONNECTOR_UNCONFIGURED_MARKING",
+    "default_external_access",
 ]
+
+# Mandatory-control marking applied to a document whose connector could not
+# report a real ACL (CONCEPT:AU-P0-4 fail-closed connector permissions). No
+# actor holds ``marking:connector-unconfigured-acl`` by default, so
+# ``permission_sync.sync_access`` restricts the document to nobody until an
+# operator explicitly reviews it and grants the marking — the fail-closed
+# counterpart to the old ``ExternalAccess.public()`` default. A quarantined
+# document with ``is_public=False`` and empty ``group_ids``/``user_emails``
+# would otherwise register NO discretionary ACL at all (``sync_access`` only
+# builds one when ``roles`` is non-empty) and silently fall through to the
+# default-allow read gate — the marking is what actually closes that gap.
+CONNECTOR_UNCONFIGURED_MARKING = "connector-unconfigured-acl"
 
 
 class ExternalAccess(BaseModel):
@@ -80,6 +94,34 @@ class ExternalAccess(BaseModel):
     def public(cls) -> ExternalAccess:
         """A world-readable access descriptor."""
         return cls(is_public=True)
+
+    @classmethod
+    def quarantined(cls) -> ExternalAccess:
+        """The most-restrictive access descriptor (CONCEPT:AU-P0-4).
+
+        Not public, no principals granted, and carries
+        :data:`CONNECTOR_UNCONFIGURED_MARKING` so the document is actually
+        denied by the KG-2.46 read gate (see the constant's docstring) rather
+        than silently defaulting open. This is the fail-closed default for an
+        unproven/unconfigured connector — the opposite of :meth:`public`.
+        """
+        return cls(is_public=False, markings=[CONNECTOR_UNCONFIGURED_MARKING])
+
+
+def default_external_access() -> ExternalAccess:
+    """The connector default when a source reports no ACL at all (CONCEPT:AU-P0-4).
+
+    Fail-closed: "unknown" must never silently mean "public". Returns
+    :meth:`ExternalAccess.quarantined` unless the deployment has explicitly
+    opted into the legacy public-by-default behavior via
+    ``CONNECTOR_DEFAULT_PUBLIC=true`` (a dev/local convenience toggle — default
+    ``False`` so enterprise/unknown deployments fail closed).
+    """
+    from agent_utilities.core.config import setting
+
+    if setting("CONNECTOR_DEFAULT_PUBLIC", default=False):
+        return ExternalAccess.public()
+    return ExternalAccess.quarantined()
 
 
 class SourceDocument(BaseModel):

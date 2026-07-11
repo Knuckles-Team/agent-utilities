@@ -47,9 +47,10 @@ you loop over). The whole thing is built to need only this repo URL.
    `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh`.
 4. **Run the right skill to finish wiring.** `single-node-prod`/`tiny` →
    **`agent-utilities-deployment`** (self-setup: full config → secrets → databases →
-   launch). `enterprise` → **`agent-os-genesis`** (bare-host swarm → Vault/DNS/SSO/
-   ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the `servers`
-   and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
+   launch). `enterprise` → **`agent-os-genesis`** (bare-host Kubernetes/RKE2 — or
+   Swarm, if that `orchestrator` is chosen — → Vault-protocol(OpenBao)/DNS/Keycloak-
+   SSO/ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the
+   `servers` and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
 5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
@@ -66,7 +67,7 @@ you loop over). The whole thing is built to need only this repo URL.
 |---|---|---|---|---|
 | `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
 | `single-node-prod` | Postgres/pg-age mirror (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
-| `enterprise` | Swarm · Vault · SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
+| `enterprise` | Kubernetes(RKE2)/Swarm · Vault(OpenBao) · Keycloak SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
 
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
@@ -197,8 +198,34 @@ case itself next time. The goal is orchestrating completely off the harness.
   to optional durable **mirrors** under `backends/` (Postgres/pg-age primary;
   neo4j/falkordb/ladybug under `backends/contrib/`) for interop/BI/DR — there is
   **no L0/L1/L2/L3 tier vocabulary**. `retrieval/capability_index.py`
-  (`CapabilityIndex`, HNSW) powers `designate()` and reward write-back
-  (`record_outcome`).
+  (`CapabilityIndex`, HNSW; in-process, not yet distributed) powers `designate()`
+  and reward write-back (`record_outcome`). General Cypher (label/property MATCH
+  + a real WHERE predicate + aggregates/`DISTINCT`) is executed by the **engine's
+  own native Cypher** (`GraphComputeEngine.query_cypher`, its `eg-query`
+  parser/executor) rather than a client-side regex interpreter (AU-P0-2,
+  `backends/epistemic_graph_backend.py`); a rejected/unsupported shape now raises
+  (`CypherEngineError`/`NotImplementedError`) instead of silently returning `[]`.
+  Two AU-specific shapes stay on typed engine methods because native routing
+  would give silently-wrong results: the virtual `id` node-identity accessor and
+  relationship-type traversal/merge (edges are keyed by `rel_type`, not the
+  engine's `relationship`/`type`).
+- **Session currency (emerging).** `knowledge_graph/core/session.py`
+  (`GraphSession`, AU-P0-1) wraps — does not replace — three today-ambient
+  authorities (`ActorContext`, the correlation traceparent, per-call policy) into
+  one explicit dataclass (`actor`/`tenant`/`scopes`/`graph`/`endpoint`/
+  `catalog_epoch`/`txn`/`policy_version`/`trace_context`). `from_ambient()`
+  bridges today's ambient state so existing callers are unaffected;
+  `use_session()`/`current_session()` mirror `use_actor()`/`current_actor()`;
+  `require_scope()` raises `ScopeError`. Threaded as a defaulted
+  `session: GraphSession | None = None` param through `facade.query`/
+  `designate`, `engine.add_node`/`add_edge`/`link_nodes`,
+  `engine_query.query_cypher`, and `media_store.store_media` — **not** every
+  internal writer yet (~40 remain unthreaded) and **not yet** consumed by a
+  policy/routing authority (AU-P0-5/AU-P0-6, still open). This is not end-to-end
+  tenant enforcement: the derived-property cache still omits tenant, secured
+  reads are still a Python post-filter, engine placement is still client-side
+  HRW (no server-side placement authority), and dispatch's `WorkItem`/lease
+  plumbing doesn't consume it.
 - **Routing.** `graph/routing/` is a strategy package (`Router`/`RoutingStrategy`)
   stranglering the monolith `graph/_router_impl.py`; strategies under
   `routing/strategies/` (fast_path, workflow_context, policy). `graph/planning/`
@@ -219,6 +246,18 @@ case itself next time. The goal is orchestrating completely off the harness.
   in the module docstring and name from purpose, not the vendor; surface new capability over the
   `ontology_*` MCP tools (`mcp/kg_server.py`) and the agent-webui `/api/enhanced/ontology/*`
   routes (ObjectExplorer/Object/Vertex views).
+- **Connector ACL defaults are fail-closed (AU-P0-4).** An unknown/unconfigured
+  connector ACL now defaults to `ExternalAccess.quarantined()` (deny-by-default,
+  `protocols/source_connectors/base.py`), never `.public()` — flip a deployment
+  back to the legacy public-by-default with `CONNECTOR_DEFAULT_PUBLIC=true`
+  (default `false`). `connector_manifest_gate.precheck_source` still silently
+  passes a source with no `connector_manifest.yml` UNLESS it's named in
+  `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` (opt-in allowlist, empty by default),
+  in which case a missing manifest fails closed. `source_sync._reconcile` never
+  tombstones on a failed/skipped live-id fetch, and only tombstones a genuinely
+  empty snapshot for a source named in `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`
+  (empty by default) — see [`configuration.md`](docs/architecture/configuration.md)
+  and [`kg_connectors_and_ingestion.md`](docs/architecture/kg_connectors_and_ingestion.md).
 - **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
   Identity: every gateway request is scoped to a server-minted JWT
   `ActorContext` with fail-closed permissioning and HMAC engine auth
@@ -1052,7 +1091,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── rlm-comparative-analysis-2026-06-14.md
 │   │   └── rlm-gepa-comparative-analysis.md
 │   └── specs/ (46 entries)
-├── agent_utilities/ (60 entries)
+├── agent_utilities/ (58 entries)
 ├── deploy/
 │   ├── k8s/
 │   │   └── graphos.yaml
@@ -1184,13 +1223,11 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │       └── README.md
 ├── reports/
 │   └── w4-concept-hierarchy-dryrun.md
-├── scripts/ (90 entries)
-├── tests/ (226 entries)
-├── workspace/
+├── scripts/ (94 entries)
+├── tests/ (227 entries)
 ├── .bumpversion.cfg
 ├── .codespellignore
 ├── .dockerignore
-├── .env
 ├── .env.example
 ├── .gitattributes
 ├── .gitignore
@@ -1233,17 +1270,17 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 935 concepts across 8 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 961 concepts across 8 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
 | **AU-AHE** | 110 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
 | **AU-ECO** | 110 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 385 | backend, compute, coordination, domains, enrichment, ingest, maintenance, memory, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 186 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session |
-| **AU-OS** | 119 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-KG** | 403 | backend, compute, coordination, domains, enrichment, etl, evolution, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
+| **AU-ORCH** | 189 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session |
+| **AU-OS** | 123 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
-| **EG-KG** | 23 | backend, compute, domains, enrichment, ingest, memory, mining, query, sharding, storage, txn |
+| **EG-KG** | 24 | backend, compute, domains, enrichment, graphlearn, ingest, memory, mining, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |
 
 _Full id list + code paths: `docs/concepts.yaml`._

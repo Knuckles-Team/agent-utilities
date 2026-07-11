@@ -70,11 +70,66 @@ def _write_watermark(backend: Any, source: str, watermark: str | None) -> None:
         logger.debug("%s watermark write failed", source, exc_info=True)
 
 
-def _reconcile(engine: Any, source: str, live_ids: set[str]) -> dict[str, Any]:
-    """Tombstone ``domain=<source>`` KG nodes whose external id is no longer live."""
+def _reconcile_allowed_empty_sources() -> set[str]:
+    """Source keys allowed to tombstone on an authoritatively-empty snapshot (CONCEPT:AU-P0-4).
+
+    ``SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`` is a comma-separated allowlist of
+    ``sync_source`` source keys (e.g. ``"leanix,twenty"``) an operator has
+    explicitly confirmed CAN legitimately report a fully-empty authoritative
+    snapshot (a real "everything was deleted upstream" event). Empty by
+    default: no source tombstones on an empty live-id set unless named here,
+    so a transient upstream/client hiccup that happens to yield zero ids can
+    never wipe previously-known data.
+    """
+    from ...core.config import setting
+
+    raw = setting("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", default="") or ""
+    return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
+
+
+def _reconcile(
+    engine: Any,
+    source: str,
+    live_ids: set[str],
+    *,
+    fetch_ok: bool = True,
+) -> dict[str, Any]:
+    """Tombstone ``domain=<source>`` KG nodes whose external id is no longer live.
+
+    CONCEPT:AU-P0-4 fail-closed reconcile — an EMPTY ``live_ids`` is
+    ambiguous: it can mean the upstream authoritatively has zero live objects
+    (a genuine "everything was deleted" event that SHOULD tombstone every
+    previously-known node for this source), or that the live-id fetch itself
+    failed/was skipped (a transient error that must NEVER be allowed to wipe
+    data). Callers report which one happened via ``fetch_ok`` — ``False``
+    means the fetch errored/was skipped, and reconcile always no-ops in that
+    case regardless of policy. A *successful* empty fetch (``fetch_ok=True``)
+    only tombstones when ``source`` is named in
+    :func:`_reconcile_allowed_empty_sources` (``SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE``)
+    — an explicit per-source opt-in. Default is conservative: skip.
+    """
     backend = getattr(engine, "backend", None)
     if not live_ids:
-        return {"status": "skipped", "reason": "no live ids returned"}
+        if not fetch_ok:
+            return {
+                "status": "skipped",
+                "reason": (
+                    "live-id fetch failed — refusing to tombstone on an "
+                    "unverified empty snapshot"
+                ),
+            }
+        if (source or "").strip().lower() not in _reconcile_allowed_empty_sources():
+            return {
+                "status": "skipped",
+                "reason": (
+                    "no live ids returned (set SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE to "
+                    f"include {source!r} if an authoritatively-empty snapshot should "
+                    "tombstone everything for this source)"
+                ),
+            }
+        # Authoritatively empty AND explicitly opted in: fall through — every
+        # previously-known-live node for this source is tombstoned below
+        # (``guid not in live_ids`` is true for every guid when the set is empty).
     tombstoned = 0
     if backend is not None:
         try:
@@ -413,13 +468,20 @@ def _sync_leanix(
 
     if mode == "reconcile":
         live: set[str] = set()
+        # CONCEPT:AU-P0-4: track whether the live-id fetch actually succeeded —
+        # an exception here must NOT be silently indistinguishable from a
+        # legitimate authoritatively-empty snapshot (both used to collapse to
+        # ``live = set()``, and an empty set used to always tombstone).
+        fetch_ok = False
         getter = getattr(client, "fact_sheet_ids", None)
         if callable(getter):
             try:
                 live = getter() or set()
+                fetch_ok = True
             except Exception:  # noqa: BLE001
                 live = set()
-        return _reconcile(engine, "leanix", live)
+                fetch_ok = False
+        return _reconcile(engine, "leanix", live, fetch_ok=fetch_ok)
 
     backend = getattr(engine, "backend", None)
     since = None if mode == "full" else _read_watermark(backend, "leanix")
@@ -1136,7 +1198,7 @@ def _sync_jira(
     Deployment note (CONCEPT:AU-KG.compute.jira-first-class-delta): wire ``atlassian-mcp`` in the source
     ``mcp_config`` over streamable-http (``transport``/``url`` →
     ``http://atlassian-mcp.arpa/mcp``), mirroring freshrss-mcp / plane-mcp — never a
-    local ``command`` venv binary, which would (mis)spawn a stdio server on the host.
+    local ``command`` venv binary, which would incorrectly spawn a stdio server on the host.
     """
     backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(

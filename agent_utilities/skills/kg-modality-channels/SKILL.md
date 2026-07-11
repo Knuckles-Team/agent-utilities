@@ -2,44 +2,53 @@
 name: kg-modality-channels
 skill_type: skill
 description: >-
-  Create and use dynamic pub/sub communication channels in the epistemic-graph
-  engine — publish, subscribe, and route messages between agents at the engine
-  layer. Use when you need low-level pub/sub or agent messaging fabric ("open a
-  channel", "publish/subscribe", "route a message between agents at the engine").
+  Create and use dynamic pub/sub communication channels AND the native
+  message-broker (exchanges/queues/streams) in the epistemic-graph engine —
+  publish, subscribe, route messages between agents, and declare/bind/consume
+  broker exchanges and queues at the engine layer. Use when you need low-level
+  pub/sub or agent messaging fabric ("open a channel", "publish/subscribe",
+  "route a message between agents at the engine", "declare a queue", "publish
+  to an exchange").
 license: MIT
-tags: [graph-os, engine, modality, channels, pubsub, messaging]
+tags: [graph-os, engine, modality, channels, pubsub, messaging, broker]
 tier: modality
-wraps: [engine_channels]
+wraps: [engine_channels, engine_broker]
 metadata:
   author: Genius
-  version: '0.1.0'
+  version: '0.2.0'
 ---
 
-# KG Modality — Channels (dynamic pub/sub)
+# KG Modality — Channels & Broker (dynamic pub/sub + message broker)
 
-Fronts the epistemic-graph engine's **`channels`** domain: dynamic
-agent-communication channels — create channels, publish messages, and
-subscribe/consume — at the engine layer. This is the raw pub/sub fabric beneath
-higher-level messaging, useful when you want engine-native fan-out between
-producers and consumers on the same substrate as the graph.
+Fronts two epistemic-graph engine communication domains:
 
-This is the **modality** tier — a thin wrapper over the low-level engine surface
-(`engine_channels`), action-routed 1:1 over the `epistemic_graph` client's
-`ChannelsClient`. The action set is discovered from the client (create,
-publish, subscribe, list, …); call with an empty `action` to list the live set.
+- **`channels`** — dynamic agent-communication channels: create channels,
+  publish messages, and subscribe/consume, at the engine layer. This is the
+  raw pub/sub fabric beneath higher-level messaging, useful when you want
+  engine-native fan-out between producers and consumers on the same substrate
+  as the graph.
+- **`broker`** (AU-P0-6) — the engine's native RabbitMQ/Kafka-class message
+  broker: exchange/queue/stream admin, routed publish (incl. confirmed/
+  idempotent variants), and consumer-group ack/nack.
+
+This is the **modality** tier — thin wrappers over the low-level engine surface
+(`engine_channels` / `engine_broker`), each action-routed 1:1 over the
+`epistemic_graph` client's `ChannelsClient` / `BrokerClient`. The action set is
+discovered from the client (create, publish, subscribe, list, declare_queue, …);
+call with an empty `action` to list the live set.
 
 ## How to reach it
 
 **Via the multiplexer:**
-1. `load_tools(tools=["engine_channels"])`.
+1. `load_tools(tools=["engine_channels", "engine_broker"])`.
 2. `engine_channels(action="", params_json="{}")` — list actions.
 3. `engine_channels(action="publish", params_json="{...}", graph="")` — invoke.
 4. `unload_tools(...)` when done.
 
-**Direct MCP on graph-os:** `engine_channels` is a registered tool; per-method
-verbose tools appear under `MCP_TOOL_MODE=verbose|both`.
+**Direct MCP on graph-os:** `engine_channels` / `engine_broker` are registered
+tools; per-method verbose tools appear under `MCP_TOOL_MODE=verbose|both`.
 
-**REST twin:** `POST /engine/channels` with body
+**REST twins:** `POST /engine/channels` and `POST /engine/broker` with body
 `{"action": "<method>", "params_json": "{...}", "graph": ""}`.
 
 ## Example

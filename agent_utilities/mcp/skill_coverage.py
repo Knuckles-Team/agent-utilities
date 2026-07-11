@@ -47,6 +47,19 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         # ``quant`` is the emerald-exchange finance domain tool, not part of the
         # generic graph-os surface; it carries a pre-existing surface-parity waiver.
         "quant",
+        # AU-P0-6: ``engine_rbac``/``engine_admin`` are the two newly-exposed
+        # ADMIN-family low-level namespaces (RBAC policy administration; ops
+        # backup/restore) — gated behind ``kg:admin`` (see
+        # ``engine_tools.ADMIN_DOMAINS``/``_enforce_admin_scope``) BEFORE being
+        # newly exposed, per the audit's explicit ordering. Their natural
+        # wrapper is ``kg-modality-consensus`` (already wraps the sibling ADMIN
+        # domains ``engine_consensus``/``engine_resharding``/``engine_tenants``),
+        # which ships from the ``epistemic-graph`` package/repo — out of this
+        # worktree's scope to edit. Waived here rather than left silently
+        # uncovered; follow-up: extend that skill's `wraps:` (or add a
+        # dedicated one) in the epistemic-graph repo.
+        "engine_rbac",
+        "engine_admin",
     }
 )
 

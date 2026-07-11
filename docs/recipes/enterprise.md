@@ -1,4 +1,4 @@
-# Recipe — Enterprise (swarm)
+# Recipe — Enterprise (Kubernetes/RKE2)
 
 > Ladder position: this recipe combines **rung (d) — Scaled multi-host** and
 > **rung (e) — Autonomous operations** of the
@@ -7,9 +7,15 @@
 > rungs and their verification steps. Note both rungs are marked
 > **not exercised in CI** there — validate in staging.
 
-Multi-node Docker Swarm with the full integration set and the complete `*-mcp`
-connector fleet. This is the "run the enterprise" tier. It is driven by the
-**`agent-os-genesis` (alias `day0`)** skill-workflow rather than by hand.
+Multi-node **Kubernetes (RKE2)** with the full integration set and the complete
+`*-mcp` connector fleet. This is the "run the enterprise" tier. It is driven by
+the **`agent-os-genesis` (alias `day0`)** skill-workflow rather than by hand.
+`docker-swarm` remains a selectable `orchestrator` for operators who haven't
+migrated; the reference homelab deployment itself has largely completed a
+Swarm→RKE2 cutover — see `inventory/k8s-migration/` (`ROADMAP.md`,
+`MIGRATION-PLAN.md`, `HANDOFF.md`, `STAGE1-FINDINGS.md`, `cutover/CUTOVER-LOG.md`)
+for that migration's authoritative, live state — this recipe points at those
+artifacts rather than duplicating them.
 
 ## What runs
 
@@ -30,7 +36,9 @@ The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
 1. `ssh-bootstrap` → full-mesh SSH across inventory hosts.
 2. `network-topology-sweep` + `hardware-profile-sweep` → discovery.
 3. `deployment-planner` → tiered placement manifest.
-4. `swarm-mesh-provisioner` → swarm + overlay networks.
+4. `kubernetes-mesh-provisioner` → RKE2 control plane + Cilium (kube-proxy-free,
+   L2 VIP); `swarm-mesh-provisioner` is the equivalent step when
+   `orchestrator: docker-swarm` is chosen instead.
 5. core-edge deploy → registry → DNS → Caddy → Portainer.
 6. `secret-vault-manager` → OpenBao + Keycloak.
 7. `gitlab-repository-seeder` + `portainer-gitops-bind` → stacks bound to Git.
@@ -87,9 +95,10 @@ aliases and applied only where the env var is unset — environment always wins.
 
 ## Scale note
 
-The connector fleet is stateless and scales horizontally on the swarm. The KG
-host daemon is a singleton per host per the `KG_DAEMON_ROLE=host` flock; running
-the agent swarm at very large scale (the 100k+ target) additionally needs
+The connector fleet is stateless and scales horizontally on the cluster
+(Kubernetes Deployments/replicas, or Swarm services if that `orchestrator` is
+chosen). The KG host daemon is a singleton per host per the `KG_DAEMON_ROLE=host`
+flock; running the agent fleet at very large scale (the 100k+ target) additionally needs
 multiple gateway workers (`GATEWAY_WORKERS`) + a durable queue (Kafka, above) +
 shared pg-age/state-store Postgres — see the
 [capacity model](../scaling/capacity_model.md). Durable execution (idempotency

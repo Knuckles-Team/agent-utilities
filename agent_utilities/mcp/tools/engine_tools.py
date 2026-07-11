@@ -12,7 +12,8 @@ protocol.rs``) as a method on one of its sub-clients (``.nodes``, ``.edges``,
 ``.graph``, ``.analytics``, ``.lifecycle``, ``.reasoning``, ``.ledger``,
 ``.channels``, ``.tenants``, ``.resharding``, ``.consensus``, ``.finance``,
 ``.datascience``, ``.query``, ``.txn``, ``.timeseries``, ``.rdf``, ``.streaming``,
-``.blob``). That client is the source of truth for "what the engine can do".
+``.blob``, ``.broker``, ``.rbac``, ``.admin``, ``.graphlearn``). That client is
+the source of truth for "what the engine can do".
 
 Design (anti-sprawl, anti-drift):
 
@@ -30,6 +31,17 @@ Design (anti-sprawl, anti-drift):
   method, opt-in via ``MCP_TOOL_MODE=verbose``/``both``) is generated from
   :data:`ENGINE_DOMAINS` by the graph-os verbose builder + the action manifest
   generator (``scripts/gen_graphos_manifest.py``).
+- Per-action scope/policy (AU-P0-6): every domain is classified ADMIN or
+  normal (see :data:`ADMIN_DOMAINS`); ADMIN actions (tenant lifecycle, cluster
+  resharding, zero-trust consensus/identity, RBAC policy administration,
+  ops backup/restore) are denied to an acting identity that lacks the
+  ``kg:admin`` scope/role, fail-closed. Reads and normal writes stay open to
+  any actor exactly as before — see :func:`_enforce_admin_scope`.
+- Bounded connection pool (AU-P0-6): the per-graph engine client is kept warm
+  in an LRU-bounded pool (``KG_ENGINE_TOOL_POOL_SIZE``, default 16 — see
+  :func:`_client_for`) instead of an unbounded forever-cache, so
+  connection/thread count does not grow without limit as graph cardinality
+  grows.
 
 CONCEPT:AU-ECO.mcp.full-api-mcp-surface — Full engine API + MCP surface (REST + MCP in lockstep)
 CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (client-introspection source of truth)
@@ -71,6 +83,17 @@ _DOMAIN_CLASSES: dict[str, str] = {
     "rdf": "RdfClient",
     "streaming": "StreamingClient",
     "blob": "BlobClient",
+    # AU-P0-6: previously-missing namespaces (audited gap #3). Domain name ==
+    # the attribute on ``SyncEpistemicGraphClient`` (checked against the
+    # installed ``epistemic_graph.client`` module — NOT a guess): the graph-
+    # learning sub-client is exposed as ``.graphlearn`` (no underscore), so
+    # the domain/tool/REST-path name below is ``graphlearn`` to match it.
+    # rbac/admin are ADMIN_DOMAINS (see below) — gated BEFORE being newly
+    # exposed, per the audit's explicit ordering.
+    "broker": "BrokerClient",
+    "rbac": "RbacClient",
+    "admin": "AdminClient",
+    "graphlearn": "GraphLearnClient",
 }
 
 _DOMAIN_BLURB: dict[str, str] = {
@@ -94,6 +117,10 @@ _DOMAIN_BLURB: dict[str, str] = {
     "rdf": "RDF triples + SPARQL + OWL reasoning",
     "streaming": "CDC / continuous queries / watch / triggers",
     "blob": "streamed content-addressed media blobs",
+    "broker": "native message broker: exchange/queue/stream admin + routed publish/consume",
+    "rbac": "RBAC policy administration: roles + resource/action grants (ADMIN)",
+    "admin": "ops/maintenance: online backup + restore (ADMIN)",
+    "graphlearn": "KAN graph-learning: fit/predict a learned per-feature edge-function link predictor",
 }
 
 
@@ -130,34 +157,95 @@ def _discover_domains() -> dict[str, list[str]]:
 ENGINE_DOMAINS: dict[str, list[str]] = _discover_domains()
 
 
-# ── Engine client resolution (cached per target graph) ───────────────────────
-_CLIENT_LOCK = threading.Lock()
-_CLIENTS: dict[str, Any] = {}
+# ── Engine client resolution (bounded LRU pool, AU-P0-6) ─────────────────────
+# Was: one synchronous client cached PER GRAPH forever in a plain ``dict`` —
+# connection/thread/socket count grew without bound as graph cardinality grew
+# (audited gap #2). Now: an LRU-bounded warm pool (reusing the same primitive
+# ``TenantEnginePool`` already used for the L1 compute-engine pool — one
+# tested bounded-pool implementation, not a second one) sized from
+# ``KG_ENGINE_TOOL_POOL_SIZE`` (default 16); the least-recently-used
+# connection is evicted (and closed) once the pool is at capacity, so the
+# resident connection count is capped regardless of how many distinct graphs
+# are ever touched.
+_DEFAULT_GRAPH_POOL_KEY = "__default__"
+
+
+def _client_factory(pool_key: str) -> Any:
+    """Connect a fresh ``SyncEpistemicGraphClient`` for one pool key.
+
+    ``pool_key`` is the opaque cache key used by :func:`_client_for` (never
+    empty — see :data:`_DEFAULT_GRAPH_POOL_KEY`); it is translated back to the
+    real ``graph`` argument (``None`` for the deployment default) before
+    calling the centralized resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision
+    ``client_connect_kwargs``) so a remote/sharded/insecure deployment is
+    honoured. Connect-only — never autostarts an engine; if the engine is
+    down, ``connect`` raises and the caller surfaces a clean error.
+    """
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    from agent_utilities.knowledge_graph.core.engine_resolver import (
+        client_connect_kwargs,
+    )
+
+    graph = None if pool_key == _DEFAULT_GRAPH_POOL_KEY else pool_key
+    kwargs = client_connect_kwargs(None, graph)
+    return SyncEpistemicGraphClient.connect(**kwargs)
+
+
+def _client_evict(pool_key: str, client: Any) -> None:
+    """Best-effort close of an evicted/discarded wire client."""
+    close = getattr(client, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001 — eviction must never raise
+            pass
+
+
+def _client_pool_capacity() -> int:
+    try:
+        from agent_utilities.core.config import config
+
+        return int(getattr(config, "kg_engine_tool_pool_size", 16) or 0)
+    except Exception:  # noqa: BLE001 — default to a small bounded pool
+        return 16
+
+
+_CLIENT_POOL_LOCK = threading.Lock()
+_CLIENT_POOL: Any = None  # lazily-built ``TenantEnginePool``, module-private
+
+
+def _get_client_pool() -> Any:
+    global _CLIENT_POOL
+    if _CLIENT_POOL is None:
+        with _CLIENT_POOL_LOCK:
+            if _CLIENT_POOL is None:
+                from agent_utilities.knowledge_graph.core.tenant_engine_pool import (
+                    TenantEnginePool,
+                )
+
+                _CLIENT_POOL = TenantEnginePool(
+                    capacity=_client_pool_capacity(),
+                    factory=_client_factory,
+                    on_evict=_client_evict,
+                )
+    return _CLIENT_POOL
+
+
+def reset_client_pool() -> None:
+    """Drop the pool singleton, closing every warm client first (test helper)."""
+    global _CLIENT_POOL
+    with _CLIENT_POOL_LOCK:
+        if _CLIENT_POOL is not None:
+            _CLIENT_POOL.clear()
+        _CLIENT_POOL = None
 
 
 def _client_for(graph: str) -> Any:
-    """Return a cached ``SyncEpistemicGraphClient`` bound to ``graph``.
-
-    Connects via the centralized resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision ``client_connect_kwargs``)
-    so a remote/sharded/insecure deployment is honoured. Connect-only — never
-    autostarts an engine; if the engine is down, ``connect`` raises and the caller
-    surfaces a clean error.
-    """
-    key = graph or ""
-    with _CLIENT_LOCK:
-        existing = _CLIENTS.get(key)
-        if existing is not None:
-            return existing
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
-        )
-
-        kwargs = client_connect_kwargs(None, graph or None)
-        client = SyncEpistemicGraphClient.connect(**kwargs)
-        _CLIENTS[key] = client
-        return client
+    """Return a warm ``SyncEpistemicGraphClient`` bound to ``graph`` from the
+    bounded LRU pool (AU-P0-6 — see :func:`_get_client_pool`). Thread-safe."""
+    pool = _get_client_pool()
+    return pool.acquire(graph_name=graph or _DEFAULT_GRAPH_POOL_KEY)
 
 
 def _json_default(obj: Any) -> Any:
@@ -166,12 +254,199 @@ def _json_default(obj: Any) -> Any:
     return str(obj)
 
 
+# ── Per-action scope/policy (AU-P0-6) ─────────────────────────────────────────
+# Domains whose ENTIRE action surface is privileged/administrative — mirrors
+# the engine's own separation of tenant/cluster/identity/governance ops from
+# ordinary graph reads+writes, rather than inventing a parallel classification
+# (CONCEPT:AU-KG.compute.engine-surface-manifest). Every method under one of
+# these domains requires :data:`ENGINE_ADMIN_SCOPE`, with NO per-method
+# carve-out: even a read here (``tenants.list``, ``resharding.catalog_list``,
+# ``rbac.list``) discloses cluster/tenant/identity topology a normal actor
+# should not see.
+#
+# No machine-readable per-method capability/role metadata ships from the
+# engine client (checked: ``BrokerClient``/``RbacClient``/``AdminClient``/
+# ``MultiTenantClient``/``ReshardingClient``/``ConsensusClient`` carry doc
+# comments only, no ``requires_role``/``is_admin``/capability descriptor), so
+# this is an explicit, hand-maintained map — called out here as such per
+# AU-P0-6's guidance.
+ADMIN_DOMAINS: frozenset[str] = frozenset(
+    {"tenants", "resharding", "consensus", "rbac", "admin"}
+)
+
+# The remaining known domains are ordinary graph reads+writes, open to any
+# actor exactly as before this workstream — AU-P0-6 closes the ADMIN gap, it
+# does not newly restrict reads/writes.
+_NORMAL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "nodes",
+        "edges",
+        "graph",
+        "analytics",
+        "lifecycle",
+        "reasoning",
+        "ledger",
+        "channels",
+        "finance",
+        "datascience",
+        "mining",
+        "query",
+        "txn",
+        "timeseries",
+        "rdf",
+        "streaming",
+        "blob",
+        "broker",
+        "graphlearn",
+    }
+)
+
+#: Scope an acting identity must carry (as an ``admin`` role on its
+#: :class:`~agent_utilities.security.brain_context.ActorContext`, or this
+#: literal scope string in an active
+#: :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`) to
+#: invoke an ADMIN-domain action.
+ENGINE_ADMIN_SCOPE = "kg:admin"
+
+# Best-effort read-verb prefixes for the (unenforced, introspection-only)
+# read/mutate label — see :func:`action_policy`. Reads and normal writes are
+# BOTH open to non-admin actors, so getting one of these wrong never opens or
+# closes an enforcement gate; it only affects the descriptive ``mutate``/
+# ``scope`` fields surfaced when an action is listed.
+_READ_VERB_PREFIXES: tuple[str, ...] = (
+    "get",
+    "has",
+    "list",
+    "read",
+    "query",
+    "search",
+    "sql",
+    "sparql",
+    "range",
+    "sort",
+    "pagerank",
+    "centrality",
+    "topological",
+    "compute_stats",
+    "var",
+    "metrics",
+    "reason",
+    "estimate",
+    "describe",
+    "export",
+    "fetch",
+    "find",
+    "lookup",
+    "resolve",
+    "peek",
+    "watch",
+    "subscribe",
+    "sample",
+    "validate",
+    "check",
+    "diff",
+    "preview",
+    "count",
+    "stats",
+    "predict",
+)
+
+
+def _is_admin_domain(domain: str) -> bool:
+    """Whether every action under ``domain`` requires :data:`ENGINE_ADMIN_SCOPE`.
+
+    Fail-closed (AU-P0-6 guardrail): a domain this map has not explicitly
+    classified as normal — e.g. a future engine namespace added to
+    ``_DOMAIN_CLASSES`` before this map is updated — is treated as ADMIN by
+    default rather than silently open.
+    """
+    if domain in ADMIN_DOMAINS:
+        return True
+    return domain not in _NORMAL_DOMAINS
+
+
+def _is_read_action(action: str) -> bool:
+    """Best-effort read/mutate label for policy introspection — NOT itself an
+    enforcement gate (see :data:`_READ_VERB_PREFIXES`)."""
+    name = action.lower()
+    return name.startswith(_READ_VERB_PREFIXES)
+
+
+def action_policy(domain: str, action: str) -> dict[str, Any]:
+    """The scope/policy classification for one ``engine_<domain>`` action.
+
+    Returns a dict with ``admin`` (the only ENFORCED bit — see
+    :func:`_enforce_admin_scope`), the best-effort ``mutate`` read/write
+    label, and the ``scope`` string this action is documented under
+    (``kg:admin`` / ``kg:write`` / ``kg:read``).
+    """
+    admin = _is_admin_domain(domain)
+    mutate = not _is_read_action(action)
+    scope = ENGINE_ADMIN_SCOPE if admin else ("kg:write" if mutate else "kg:read")
+    return {
+        "domain": domain,
+        "action": action,
+        "admin": admin,
+        "mutate": mutate,
+        "scope": scope,
+    }
+
+
+def _enforce_admin_scope(domain: str, action: str) -> None:
+    """Deny an ADMIN-domain action unless the acting identity carries the
+    admin role/scope (AU-P0-6). No-op for normal domains. Fail-closed — see
+    :func:`_is_admin_domain`.
+
+    Checked against BOTH the ambient
+    :class:`~agent_utilities.security.brain_context.ActorContext`
+    (``current_actor()`` — set by ``kg_server._execute_tool``'s ``use_actor``
+    for the REST/token-authenticated path, or the privileged ``SYSTEM_ACTOR``
+    default when nothing has scoped the request) and, when one is active, the
+    explicit :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+    scopes — either one satisfying the gate is enough, mirroring
+    ``GraphSession.require_scope``'s own admin-role bypass.
+    """
+    if not _is_admin_domain(domain):
+        return
+
+    from agent_utilities.security.brain_context import current_actor
+
+    actor = current_actor()
+    if "admin" in (actor.roles or ()):
+        return
+
+    session = None
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session()
+    except Exception:  # noqa: BLE001 — session module optional in minimal installs
+        session = None
+    if session is not None and (
+        "admin" in (session.actor.roles or ()) or ENGINE_ADMIN_SCOPE in session.scopes
+    ):
+        return
+
+    raise PermissionError(
+        f"engine_{domain}.{action} is an ADMIN-only action (tenants/resharding/"
+        f"consensus/rbac/admin family, CONCEPT:AU-P0-6) — requires the "
+        f"{ENGINE_ADMIN_SCOPE!r} scope or an 'admin' role on the acting "
+        f"identity (actor={actor.actor_id!r}, roles={sorted(actor.roles)!r})."
+    )
+
+
 def _dispatch(
     domain: str, methods: set[str], action: str, params_json: str, graph: str
 ) -> str:
     """Generic dispatch into one engine sub-client method. The ONE engine core."""
     if not action:
-        return json.dumps({"domain": domain, "actions": sorted(methods)})
+        return json.dumps(
+            {
+                "domain": domain,
+                "actions": sorted(methods),
+                "admin_domain": _is_admin_domain(domain),
+            }
+        )
     if action not in methods:
         return json.dumps(
             {
@@ -179,6 +454,10 @@ def _dispatch(
                 "actions": sorted(methods),
             }
         )
+    # AU-P0-6: fail-closed ADMIN gate — raises PermissionError (not returned as
+    # JSON error data) so a denial is unambiguous and cannot be masked by a
+    # caller pattern-matching on ``{"error": ...}`` engine-degrade payloads.
+    _enforce_admin_scope(domain, action)
     try:
         params = json.loads(params_json) if params_json else {}
     except (TypeError, ValueError) as exc:
@@ -237,15 +516,24 @@ def register_engine_tools(mcp) -> None:
         fn = _make_domain_tool(domain, methods)
         fn.__name__ = tool_name
         blurb = _DOMAIN_BLURB.get(domain, "")
+        admin_note = (
+            f" ADMIN domain — every action requires the {ENGINE_ADMIN_SCOPE!r} "
+            "scope/role (AU-P0-6); denied otherwise."
+            if _is_admin_domain(domain)
+            else ""
+        )
         description = (
             f"Low-level epistemic-graph engine surface for the '{domain}' domain"
             + (f" ({blurb})" if blurb else "")
             + ". Action-routed 1:1 over the epistemic_graph client: set 'action' to "
             f"the method name and 'params_json' to its JSON kwargs. Actions: "
-            f"{', '.join(sorted(methods))}. (CONCEPT:AU-ECO.mcp.full-api-mcp-surface)"
+            f"{', '.join(sorted(methods))}."
+            + admin_note
+            + " (CONCEPT:AU-ECO.mcp.full-api-mcp-surface)"
         )
-        mcp.tool(
-            name=tool_name, description=description, tags=["graph-os", "engine", domain]
-        )(fn)
+        tags = ["graph-os", "engine", domain]
+        if _is_admin_domain(domain):
+            tags.append("admin")
+        mcp.tool(name=tool_name, description=description, tags=tags)(fn)
         kg_server.REGISTERED_TOOLS[tool_name] = fn
         kg_server.ACTION_TOOL_ROUTES[tool_name] = f"/engine/{domain}"

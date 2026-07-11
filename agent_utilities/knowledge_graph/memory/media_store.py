@@ -29,7 +29,10 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..core.session import GraphSession
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +102,7 @@ class MediaStore:
         name: str = "",
         embedding: list[float] | None = None,
         extra: dict[str, Any] | None = None,
+        session: GraphSession | None = None,
     ) -> StoredMedia | None:
         """Store ``data`` durably and create a ``:MediaAsset`` linked to its blob.
 
@@ -112,10 +116,23 @@ class MediaStore:
         4. When ``message_id`` is given, add the ``:attachedToMessage`` edge so the
            media is reachable from the conversation memory.
 
+        Args:
+            session: Optional explicit
+                :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+                (CONCEPT:AU-P0-1). When supplied and ``session.graph`` is set, the media
+                lands in that named graph instead of the bound engine's default
+                (lets a multi-tenant caller route a single ``MediaStore`` to the
+                right tenant graph without constructing a second store). When
+                ``source`` is not given, defaults to ``session.actor.actor_id``
+                so the asset carries who persisted it.
+
         Returns a :class:`StoredMedia` (or ``None`` on failure — never raises).
         """
         if not data:
             return None
+        if session is not None:
+            if not source and session.actor is not None:
+                source = session.actor.actor_id
         client = self._client
         try:
             digest = client.blob.store(data)
@@ -145,8 +162,11 @@ class MediaStore:
         if extra:
             asset_props.update(extra)
 
+        effective_graph = (
+            session.graph if session is not None and session.graph else self._graph
+        )
         try:
-            txn = client.txn.begin(graph=self._graph)
+            txn = client.txn.begin(graph=effective_graph)
             if blob_is_new:
                 client.txn.add_node(
                     txn,

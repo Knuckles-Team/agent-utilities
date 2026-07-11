@@ -81,6 +81,9 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `CONNECTOR_DEFAULT_PUBLIC`\* | `false` | Fail-closed connector ACL default (AU-P0-4): an unknown/unconfigured connector document (`mcp_package`/`mcp_tool` with no `acl_*` fields) defaults to `ExternalAccess.quarantined()` (deny-by-default). `true` is the explicit dev/local opt-in back to the legacy `ExternalAccess.public()` default. Read via `default_external_access()`, `protocols/source_connectors/base.py` |
+| `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`\* | `""` (empty) | Comma-separated allowlist of `sync_source` source keys (e.g. `"servicenow,twenty"`) opted into fail-closed manifest enforcement: `connector_manifest_gate.precheck_source` normally silently passes a source with no `connector_manifest.yml` (most of the ~40 fleet sources aren't onboarded yet); a source named here fails closed (`checked=True, ok=False`) instead. Empty = unchanged pass-through for every source (AU-P0-4) |
+| `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`\* | `""` (empty) | Comma-separated allowlist of source keys (e.g. `"leanix,twenty"`) that MAY tombstone every previously-known node when a reconcile pass returns a genuinely empty live-id set. Empty by default: a transient fetch failure/skip (`fetch_ok=False`) never tombstones regardless of this list; an empty-but-successful fetch only tombstones for a source named here. Read in `knowledge_graph/core/source_sync._reconcile` (AU-P0-4) |
 | `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over AU-KG.sharding.tenant-partitioned-sharding-hrw routing); `0` = per-use construction (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when a durable mirror holds the data** (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
 | `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:AU-OS.observability.no-op-without-metrics) |
@@ -112,6 +115,12 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `FLEET_AUTOSCALER` | `false` | Opt-in leader-only reactive replica autoscaler tick — load signal → registry-declared min/max bounds → policy-gated `scale_service` + deploy watch (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
 | `FLEET_AUTOSCALER_INTERVAL` | `60` | Seconds between autoscaler ticks (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
 | `SCALING_PROMETHEUS_URL` | unset | Prometheus base URL for autoscaling signals (instant `/api/v1/query` GETs); unset → zero-infra in-process gauges; injected provider via `set_scaling_signal_provider()` wins (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
+
+\* Read via `config.setting(...)` at the call site (`source_connectors/base.py`,
+`ontology/connector_manifest_gate.py`, `core/source_sync.py`) rather than a typed
+`AgentConfig` field yet — still the sanctioned dynamic-read path (not a bare
+`os.environ` read), just not yet folded into `AgentConfig.model_fields` like
+`KG_ACL_DEFAULT_ALLOW`/`KG_SERVED_PROFILE` above.
 
 These genuinely vary per host and aren't derivable. **Action:** ensure each is a typed
 `AgentConfig` field; remove duplicate bare reads (`GRAPH_DB_URI` is read in 4 places,
