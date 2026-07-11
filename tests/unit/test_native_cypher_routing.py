@@ -174,6 +174,49 @@ def test_missing_param_raises_value_error_not_empty_list() -> None:
     graph.query_cypher.assert_not_called()
 
 
+# --- 2b. un-handled relationship reads fall through to native, never [] ------
+
+
+def test_unanchored_typed_traversal_routes_to_native_not_empty() -> None:
+    """An un-anchored typed label→label traversal (the delegation router's
+    ``(:Server)-[:PROVIDES]->(:CallableResource)`` discovery shape, grouped
+    ``count()`` + ``ORDER BY``) that no client-side interpreter handles must be
+    routed to the native engine — which now matches the ``rel_type``-keyed edges —
+    instead of the old silent ``[]``."""
+    graph = MagicMock()
+    graph.query_cypher.return_value = [{"server": "arr-mcp", "tools": 1130}]
+    b = _backend(graph)
+
+    rows = b.execute(
+        "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
+        "RETURN s.name AS server, count(r) AS tools ORDER BY tools DESC LIMIT 50"
+    )
+
+    graph.query_cypher.assert_called_once_with(
+        "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
+        "RETURN s.name AS server, count(r) AS tools ORDER BY tools DESC LIMIT 50"
+    )
+    assert rows == [{"server": "arr-mcp", "tools": 1130}]
+
+
+def test_labeled_unanchored_count_defers_to_native_not_global_count() -> None:
+    """``(s:Server)-[r]->() RETURN count(r)`` carries a source LABEL the O(1)
+    global ``edge_count()`` shortcut cannot honor — it must defer to the native
+    engine (which applies the label), NOT return the whole-graph edge count."""
+    graph = MagicMock()
+    graph.edge_count.return_value = 459032  # the wrong, unlabeled global count
+    graph.query_cypher.return_value = [{"n": 1130}]
+    b = _backend(graph)
+
+    rows = b.execute("MATCH (s:Server)-[r]->(b) RETURN count(r) AS n")
+
+    graph.query_cypher.assert_called_once_with(
+        "MATCH (s:Server)-[r]->(b) RETURN count(r) AS n"
+    )
+    # The unlabeled global edge_count() must NOT have produced the result.
+    assert rows == [{"n": 1130}]
+
+
 # --- 3. literal-inlining helper -----------------------------------------------
 
 
