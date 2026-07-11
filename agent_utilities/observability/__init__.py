@@ -6,11 +6,27 @@ Provides a single entry point for all observability concerns:
 - Token usage tracking (OS-5.5 via ``TokenTracker``)
 - Audit logging (OS-5.6 via ``AuditLogger``)
 - Deterministic replay (OS-5.6 via ``DistributedReplayEngine``)
-- OpenTelemetry setup (OS-5.8 placeholder)
+- Real OpenTelemetry TracerProvider/MeterProvider export (OBS-P1-2 — see
+  :meth:`TelemetryEngine._setup_otel`)
 
 This facade wires the previously unwired AuditLogger and TokenTracker
 into the main graph execution pipeline via ``on_graph_start()``,
 ``on_graph_end()``, and ``on_response()`` hooks.
+
+OBS-P1-1 wired the self-ingest LOG pipeline (:mod:`.self_ingest`) into the
+engine's own OTLP collector. OBS-P1-2 (this module) closes the remaining
+gap the OS-5.8 comment used to flag: ``TelemetryEngine`` now configures a
+REAL ``opentelemetry.sdk.trace.TracerProvider`` + ``opentelemetry.sdk.
+metrics.MeterProvider``, each wired with a real OTLP/HTTP exporter (the same
+``OTLPSpanExporter`` construction :func:`.custom_observability.
+_create_otlp_span_processor` already uses for the Langfuse pipeline, plus
+its metric counterpart) pointed at the ENGINE's own collector — reusing
+OBS-P1-1's ``EPISTEMIC_GRAPH_OBS_ADDR`` endpoint config, falling back to the
+generic ``OTEL_EXPORTER_OTLP_ENDPOINT``/``_HEADERS``/``_PROTOCOL`` settings
+used elsewhere in this package. Opt-in and non-fatal: with no endpoint
+configured (or the OTel SDK missing), setup is a clean no-op — but once
+BOTH are present, ``on_graph_start``/``on_response``/``on_graph_end`` drive
+REAL spans and metric instruments, never a placeholder/no-op facade.
 """
 
 from __future__ import annotations
@@ -18,7 +34,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
+
+#: Env vars carrying the OTLP collector endpoint, checked in priority order.
+#: ``EPISTEMIC_GRAPH_OBS_ADDR`` is OBS-P1-1's self-ingest endpoint config (the
+#: engine's own collector — the primary target for this engine-native OTel
+#: pipeline); ``OTEL_EXPORTER_OTLP_ENDPOINT`` is the generic OTel endpoint
+#: :func:`.custom_observability.setup_otel` already uses for Langfuse, kept
+#: as a fallback so a deployment with only the generic var set still works.
+_OTEL_ENDPOINT_SETTINGS = ("EPISTEMIC_GRAPH_OBS_ADDR", "OTEL_EXPORTER_OTLP_ENDPOINT")
+
+
+def _resolve_otel_endpoint() -> str:
+    """Resolve the OTLP collector base endpoint from config, or ``""`` if unset."""
+    for key in _OTEL_ENDPOINT_SETTINGS:
+        value = str(setting(key, "") or "").strip()
+        if value:
+            return value
+    return ""
 
 
 class TelemetryEngine:
@@ -38,14 +73,36 @@ class TelemetryEngine:
 
         # At graph end
         telemetry.on_graph_end(run_id="run-1", status="success")
+
+        # On process shutdown (flush the OTel exporters, if configured)
+        telemetry.shutdown()
     """
 
-    def __init__(self, enable_audit: bool = True, enable_tokens: bool = True) -> None:
+    def __init__(
+        self,
+        enable_audit: bool = True,
+        enable_tokens: bool = True,
+        enable_otel: bool = True,
+    ) -> None:
         self._audit_logger: Any = None
         self._token_tracker: Any = None
         self._enable_audit = enable_audit
         self._enable_tokens = enable_tokens
+        self._enable_otel = enable_otel
         self._initialized = False
+
+        # Real OTel state (populated by :meth:`_setup_otel` — ``None`` until
+        # ``_lazy_init`` runs, and stays ``None`` forever if opted out or no
+        # collector endpoint resolves; never a placeholder object).
+        self._tracer_provider: Any = None
+        self._meter_provider: Any = None
+        self._tracer: Any = None
+        self._meter: Any = None
+        self._token_counter: Any = None
+        self._graph_run_counter: Any = None
+        self._otel_configured = False
+        self._active_spans: dict[str, Any] = {}
+        self._span_tokens: dict[str, Any] = {}
 
     def _lazy_init(self) -> None:
         """Lazily initialize sub-engines to avoid import-time overhead."""
@@ -69,6 +126,132 @@ class TelemetryEngine:
             except Exception:
                 logger.debug("TokenTracker not available, skipping token tracking")
 
+        if self._enable_otel:
+            self._setup_otel()
+
+    def _setup_otel(self) -> bool:
+        """Configure a REAL OTel ``TracerProvider``/``MeterProvider`` exporting via OTLP.
+
+        CONCEPT:AU-OS.observability.telemetry-observability — replaces the old
+        OS-5.8 placeholder. Opt-in: returns ``False`` (clean no-op, no
+        provider objects created) unless a collector endpoint resolves via
+        :func:`_resolve_otel_endpoint` (OBS-P1-1's ``EPISTEMIC_GRAPH_OBS_ADDR``,
+        falling back to the generic ``OTEL_EXPORTER_OTLP_ENDPOINT``) AND the
+        ``opentelemetry`` SDK is importable. When both hold, this method
+        builds real ``opentelemetry.sdk.trace.TracerProvider`` /
+        ``opentelemetry.sdk.metrics.MeterProvider`` instances — each wired
+        with a real OTLP/HTTP exporter — never a stub/no-op object.
+        """
+        endpoint = _resolve_otel_endpoint()
+        if not endpoint:
+            logger.debug(
+                "TelemetryEngine: no OTLP collector endpoint configured "
+                "(EPISTEMIC_GRAPH_OBS_ADDR / OTEL_EXPORTER_OTLP_ENDPOINT) — "
+                "OTel export left disabled."
+            )
+            return False
+
+        try:
+            from opentelemetry import metrics as otel_metrics
+            from opentelemetry import trace as otel_trace
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+                OTLPMetricExporter,
+            )
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            from opentelemetry.sdk.metrics import MeterProvider
+            from opentelemetry.sdk.metrics.export import (
+                PeriodicExportingMetricReader,
+            )
+            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        except ImportError as e:
+            logger.warning(
+                "TelemetryEngine: OpenTelemetry SDK unavailable — OTel export "
+                "disabled (%s). Install with: pip install agent-utilities[logfire]",
+                e,
+            )
+            return False
+
+        from agent_utilities.base_utilities import retrieve_package_name
+        from agent_utilities.observability.custom_observability import (
+            parse_otlp_headers,
+        )
+
+        headers = parse_otlp_headers(
+            str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
+        )
+        service_name = str(
+            setting("OTEL_SERVICE_NAME", "")
+            or retrieve_package_name()
+            or "agent-utilities"
+        )
+        base = endpoint.rstrip("/")
+        traces_endpoint = base if base.endswith("/v1/traces") else f"{base}/v1/traces"
+        metrics_endpoint = (
+            base if base.endswith("/v1/metrics") else f"{base}/v1/metrics"
+        )
+
+        try:
+            resource = Resource.create({"service.name": service_name})
+
+            tracer_provider = TracerProvider(resource=resource)
+            tracer_provider.add_span_processor(
+                BatchSpanProcessor(
+                    OTLPSpanExporter(endpoint=traces_endpoint, headers=headers)
+                )
+            )
+
+            metric_reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(endpoint=metrics_endpoint, headers=headers)
+            )
+            meter_provider = MeterProvider(
+                resource=resource, metric_readers=[metric_reader]
+            )
+        except Exception as e:  # noqa: BLE001 — OTel setup must never crash the caller
+            logger.warning("TelemetryEngine: OTel provider setup failed: %s", e)
+            return False
+
+        self._tracer_provider = tracer_provider
+        self._meter_provider = meter_provider
+        self._tracer = tracer_provider.get_tracer(service_name)
+        self._meter = meter_provider.get_meter(service_name)
+        self._token_counter = self._meter.create_counter(
+            "agent_utilities.llm.tokens",
+            unit="token",
+            description="LLM tokens observed per TelemetryEngine.on_response call.",
+        )
+        self._graph_run_counter = self._meter.create_counter(
+            "agent_utilities.graph.runs",
+            unit="run",
+            description="Graph executions observed per TelemetryEngine.on_graph_end call.",
+        )
+
+        # Register globally too (best-effort) so library instrumentation that
+        # reads the ambient global provider (e.g. auto-instrumented HTTP
+        # clients) picks this up — never load-bearing: this engine always
+        # uses its OWN local provider/tracer/meter references above, so a
+        # losing race against another global registrant (e.g. Logfire's own
+        # ``configure()``) never breaks this engine's own export.
+        try:
+            otel_trace.set_tracer_provider(tracer_provider)
+            otel_metrics.set_meter_provider(meter_provider)
+        except Exception as e:  # noqa: BLE001 — best-effort global registration
+            logger.debug(
+                "TelemetryEngine: global OTel provider registration skipped: %s", e
+            )
+
+        self._otel_configured = True
+        logger.info(
+            "TelemetryEngine: real OTel pipeline configured — service=%s traces=%s metrics=%s",
+            service_name,
+            traces_endpoint,
+            metrics_endpoint,
+        )
+        return True
+
     def on_graph_start(
         self,
         run_id: str,
@@ -86,6 +269,21 @@ class TelemetryEngine:
                 resource_id=run_id,
                 details={"query_length": len(query), **metadata},
             )
+        if self._tracer is not None:
+            try:
+                span_cm = self._tracer.start_as_current_span(
+                    "graph.run",
+                    attributes={
+                        "run_id": run_id,
+                        "agent_id": agent_id or "",
+                        "query_length": len(query),
+                    },
+                )
+                span = span_cm.__enter__()
+                self._active_spans[run_id] = span
+                self._span_tokens[run_id] = span_cm
+            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug("TelemetryEngine: span start failed for %s: %s", run_id, e)
 
     def on_response(
         self,
@@ -111,6 +309,15 @@ class TelemetryEngine:
                 self._token_tracker.record(record)
             except Exception as e:
                 logger.debug("Token recording failed: %s", e)
+        if self._token_counter is not None and usage:
+            try:
+                attrs = {"run_id": run_id, "model": model}
+                for kind in ("prompt", "response", "thoughts", "tool_use"):
+                    count = usage.get(kind, 0)
+                    if count:
+                        self._token_counter.add(count, {**attrs, "kind": kind})
+            except Exception as e:  # noqa: BLE001 — metric export must never break the caller
+                logger.debug("TelemetryEngine: token metric recording failed: %s", e)
 
     def on_graph_end(
         self,
@@ -133,6 +340,47 @@ class TelemetryEngine:
                     **(metadata or {}),
                 },
             )
+        if self._graph_run_counter is not None:
+            try:
+                self._graph_run_counter.add(1, {"status": status})
+            except Exception as e:  # noqa: BLE001 — metric export must never break the caller
+                logger.debug(
+                    "TelemetryEngine: graph-run metric recording failed: %s", e
+                )
+        span = self._active_spans.pop(run_id, None)
+        span_cm = self._span_tokens.pop(run_id, None)
+        if span is not None:
+            try:
+                span.set_attribute("status", status)
+                span.set_attribute("duration_ms", duration_ms)
+            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug(
+                    "TelemetryEngine: span attribute set failed for %s: %s", run_id, e
+                )
+        if span_cm is not None:
+            try:
+                span_cm.__exit__(None, None, None)
+            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug("TelemetryEngine: span close failed for %s: %s", run_id, e)
+
+    def is_otel_configured(self) -> bool:
+        """Whether :meth:`_setup_otel` configured a REAL TracerProvider/MeterProvider.
+
+        Triggers lazy init first, so this reflects the effective state even
+        before any ``on_graph_*``/``on_response`` call.
+        """
+        self._lazy_init()
+        return self._otel_configured
+
+    def shutdown(self) -> None:
+        """Flush and shut down the OTel providers, if configured. Never raises."""
+        for provider in (self._tracer_provider, self._meter_provider):
+            if provider is None:
+                continue
+            try:
+                provider.shutdown()
+            except Exception as e:  # noqa: BLE001 — shutdown must never raise
+                logger.debug("TelemetryEngine: OTel provider shutdown failed: %s", e)
 
     def get_token_summary(self, run_id: str | None = None) -> dict[str, Any]:
         """Get token usage summary, optionally filtered by run_id."""
