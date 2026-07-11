@@ -2,6 +2,13 @@
 
 Covers the offline, dependency-free handler: frontmatter parsing, ``[[link]]`` →
 RELATED_TO edges, MEMORY.md index skipping, ``ids`` narrowing, and the empty-dir skip.
+
+AU-P1-5: the handler is now envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction)
+— each topic file is ONE ``ChangeEnvelope`` routed through ``ingest_envelope``, which
+still writes via ``engine.ingest_external_batch`` per file (rather than one combined
+batch for every file), so ``engine.calls`` now holds one entry per memory file instead
+of a single all-files batch. The assertions below aggregate across ``engine.calls``
+accordingly; the underlying intent (typed nodes + RELATED_TO links) is unchanged.
 """
 
 from __future__ import annotations
@@ -14,10 +21,20 @@ from agent_utilities.knowledge_graph.core.source_sync import (
 )
 
 
-class _FakeEngine:
-    backend = object()
+class _NoOpBackend:
+    """A minimal real backend stand-in: every query is a harmless no-op, so the
 
+    envelope-native lineage/checkpoint/watermark bookkeeping in ``ingest_envelope``
+    completes cleanly instead of raising against a bare ``object()``.
+    """
+
+    def execute(self, query: str, params: dict[str, Any] | None = None) -> list:
+        return []
+
+
+class _FakeEngine:
     def __init__(self) -> None:
+        self.backend = _NoOpBackend()
         self.calls: list[tuple[str, list[dict], list[dict]]] = []
 
     def ingest_external_batch(
@@ -65,8 +82,11 @@ def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch)
 
     assert res["status"] == "ok"
     assert res["memories_seen"] == 2  # foo + bar, indexes skipped
-    domain, entities, rels = engine.calls[0]
-    assert domain == "claude_memory"
+    assert res["failed"] == 0
+    # One ingest_external_batch call per envelope/file (AU-P1-5) — aggregate.
+    assert all(domain == "claude_memory" for domain, _, _ in engine.calls)
+    entities = [e for _, es, _ in engine.calls for e in es]
+    rels = [r for _, _, rs in engine.calls for r in rs]
     assert {e["id"] for e in entities} == {"claude_memory:foo", "claude_memory:bar"}
     assert all(e["type"] == "AgentMemory" for e in entities)
     foo = next(e for e in entities if e["id"] == "claude_memory:foo")
@@ -82,7 +102,7 @@ def test_ids_narrows_to_slugs(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_MEMORY_DIR", str(tmp_path))
     engine = _FakeEngine()
     _sync_claude_memory(engine, mode="delta", ids=["foo"], client=None)
-    _, entities, _ = engine.calls[0]
+    entities = [e for _, es, _ in engine.calls for e in es]
     assert [e["id"] for e in entities] == ["claude_memory:foo"]
 
 
