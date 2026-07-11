@@ -712,6 +712,74 @@ def _hydrate_skill_runnable(
             logger.debug("[ORCH-1.96] skill→runnable bind failed for %s: %s", name, exc)
 
 
+def _bind_skill_to_owning_server(
+    engine: IntelligenceGraphEngine,
+    meta: dict[str, Any],
+    skill_code_path: str,
+    agent_name: str,
+) -> None:
+    """Upgrade a package-bundled skill to a single-server agent bound to its server.
+
+    CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a skill whose code path is under
+    ``.../agents/<pkg>/.../skills/...`` is authored to drive the ``<pkg>`` MCP server's
+    tools. Resolved as a bare skill it runs prompt-only (no tools) and can only describe
+    a task. This finds the owning ``Server`` node (trying ``<pkg>`` and ``<pkg>-mcp`` —
+    the package dir and the deployed server name can differ, e.g. tunnel-manager →
+    tunnel-manager-mcp), then sets ``type="server"`` + ``url`` + the server's ``tools``
+    so the run routes single-server (F1 task-aware selection applies) while KEEPING the
+    skill's instructions as the system prompt. Best-effort: a miss leaves the skill
+    prompt-only (unchanged behaviour).
+    """
+    import re
+
+    m = re.search(r"/agents/([^/]+)/", str(skill_code_path or ""))
+    if not m or not getattr(engine, "backend", None):
+        return
+    pkg = m.group(1)
+    candidates = [pkg] if pkg.endswith("-mcp") else [f"{pkg}-mcp", pkg]
+    for name in candidates:
+        try:
+            rows = engine.backend.execute(
+                "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
+                "RETURN s.id AS sid, s.name AS name, s.url AS url, s.env AS env",
+                {"name": name, "sid": f"srv:{name}"},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ORCH-skill-bind] server lookup failed for '%s': %s", name, e)
+            continue
+        if not rows or not rows[0].get("url"):
+            continue
+        srv = rows[0]
+        skill_prompt = meta.get("system_prompt", "")
+        meta["type"] = "server"
+        meta["server_id"] = srv.get("sid", "")
+        meta["url"] = srv.get("url", "")
+        meta["env"] = srv.get("env", "")
+        meta["skill_of_server"] = srv.get("name", "")
+        try:
+            trows = engine.backend.execute(
+                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
+                "RETURN r.name AS name, r.description AS description",
+                {"sid": meta["server_id"]},
+            )
+            meta["tools"] = [
+                {"name": r.get("name", ""), "description": r.get("description", "")}
+                for r in (trows or [])
+            ]
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ORCH-skill-bind] tool fetch failed: %s", e)
+        # The skill's SOP drives the run; the server's tools execute it.
+        if skill_prompt:
+            meta["system_prompt"] = skill_prompt
+        logger.info(
+            "[ORCH-skill-bind] skill '%s' bound to server '%s' (%d tools)",
+            agent_name,
+            srv.get("name", ""),
+            len(meta.get("tools", [])),
+        )
+        return
+
+
 def _resolve_agent_from_kg(
     engine: IntelligenceGraphEngine,
     agent_name: str,
@@ -808,6 +876,15 @@ def _resolve_agent_from_kg(
                     description=row.get("description", "") or "",
                     system_prompt=row.get("system_prompt", "") or "",
                     skill_code_path=row.get("skill_path", "") or "",
+                )
+                # CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a PACKAGE-BUNDLED skill exists to
+                # DRIVE its MCP server's tools; resolved as a bare skill it runs prompt-only
+                # and can only DESCRIBE a task, never execute it. If the skill's code path
+                # identifies an owning server, upgrade it to a single-server agent — bind
+                # that server's toolset (task-selected via F1) and run the skill's
+                # instructions AS the system prompt against real tools.
+                _bind_skill_to_owning_server(
+                    engine, meta, row.get("skill_path", "") or "", agent_name
                 )
             else:
                 meta["type"] = "resource"
@@ -1915,22 +1992,62 @@ _DELEGATION_DEGRADED_SENTINELS = (
 )
 
 
+# Markers of a tool RESULT that is actually an error report (the MCP tool returned an
+# error string as normal content rather than raising) — used to score :ToolCall status
+# and the all-tools-errored degradation signal (CONCEPT:AU-ORCH.execution.all-tool-calls-errored).
+_TOOL_ERROR_MARKERS = (
+    "error executing",
+    "traceback (most recent",
+    "has no attribute",
+    "exception:",
+    "failed:",
+    "is not defined",
+)
+
+
+def _result_looks_like_error(text: str) -> bool:
+    """True when a tool result string is an error report, not real data."""
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return low.startswith("error") or any(m in low for m in _TOOL_ERROR_MARKERS)
+
+
+def _tool_call_errored(tc: Any) -> bool:
+    """True when a captured tool call failed (explicit error, or error-shaped result)."""
+    if not isinstance(tc, dict):
+        return False
+    if tc.get("error"):
+        return True
+    return _result_looks_like_error(str(tc.get("result") or ""))
+
+
 def _delegation_degraded(result: Any) -> bool:
-    """True when a delegation produced a non-answer (no data / empty / sentinel).
+    """True when a delegation produced a non-answer (no data / empty / sentinel / all tools errored).
 
     CONCEPT:AU-ORCH.execution.degraded-no-data-outcome — the trust-critical signal: a run that
     routed through the graph and gathered zero results returns a plausible-but-empty
     "…unable to find specific data…" sentinel that was previously recorded as
     ``status="completed"``. Reads the structured ``degraded`` flag the graph
-    synthesizer stamps into ``GraphResponse.metadata``; falls back to an output-text
-    sentinel / empty-output check so the single-server and focused-tools paths (which
-    don't build a GraphResponse) are covered too. Never raises.
+    synthesizer stamps into ``GraphResponse.metadata``; also flags a run that DID call
+    tools but every call errored (CONCEPT:AU-ORCH.execution.all-tool-calls-errored — no tool-grounded
+    result); falls back to an output-text sentinel / empty-output check so the
+    single-server and focused-tools paths are covered too. Never raises.
     """
     try:
         output = ""
         if isinstance(result, dict):
             meta = result.get("metadata")
             if isinstance(meta, dict) and meta.get("degraded"):
+                return True
+            # A run that called tools but every call errored produced no grounded
+            # result (e.g. 13 k8s calls all 'has no attribute') — degraded, not success.
+            tcs = result.get("tool_calls")
+            if (
+                isinstance(tcs, list)
+                and tcs
+                and all(_tool_call_errored(tc) for tc in tcs)
+            ):
                 return True
             res = result.get("results")
             if isinstance(res, dict):
@@ -2031,7 +2148,10 @@ def _persist_tool_calls(
         feedback = None
     for i, tc in enumerate(tool_calls):
         tc_id = f"toolcall:{run_id.split(':', 1)[-1]}:{i}"
-        ok = not tc.get("error")
+        # A tool that returned an error STRING as normal content (the MCP tool caught its
+        # own exception) has no explicit ``error`` but is still a failure — score it as
+        # such so provenance queries can filter real failures (AU-ORCH.execution.all-tool-calls-errored).
+        ok = not _tool_call_errored(tc)
         props: dict[str, Any] = {
             "run_id": run_id,
             "agent_name": agent_name,

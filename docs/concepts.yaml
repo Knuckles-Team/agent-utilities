@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 961
+total_concepts: 963
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -9162,6 +9162,18 @@ concepts:
   - AU-ORCH.execution.active-subagent-lifecycle
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.execution.all-tool-calls-errored
+  name: no tool-grounded
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: no tool-grounded
+  dotted: AU-ORCH.execution.all-tool-calls-errored
+  aliases:
+  - AU-ORCH.execution.all-tool-calls-errored
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.execution.autonomous-department-orchestration
   name: Autonomous Department Orchestration
   pillar: AU-ORCH
@@ -9874,6 +9886,18 @@ concepts:
   dotted: AU-ORCH.execution.shared-workboard
   aliases:
   - AU-ORCH.execution.shared-workboard
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.execution.skill-bound-server-tools
+  name: a PACKAGE-BUNDLED skill exists to
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: a PACKAGE-BUNDLED skill exists to
+  dotted: AU-ORCH.execution.skill-bound-server-tools
+  aliases:
+  - AU-ORCH.execution.skill-bound-server-tools
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.skill-workflow-compilation
