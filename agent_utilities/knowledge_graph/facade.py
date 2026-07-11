@@ -35,6 +35,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .core.session import GraphSession
     from .retrieval.capability_index import CapabilityIndex, Designation
 
 logger = logging.getLogger(__name__)
@@ -301,6 +302,8 @@ class KnowledgeGraph:
         prompt_embedding: Any,
         required_caps: Any = None,
         k: int = 5,
+        *,
+        session: GraphSession | None = None,
     ) -> list[Designation]:
         """Designate the top-``k`` entities for a task.
 
@@ -312,10 +315,19 @@ class KnowledgeGraph:
             prompt_embedding: The task/query embedding vector.
             required_caps: Optional iterable of required capabilities.
             k: Maximum number of designations to return.
+            session: Explicit :class:`~.core.session.GraphSession` this read
+                runs under (CONCEPT:AU-P0-1 — the one currency). When omitted, one is
+                derived from today's ambient actor/trace via
+                ``GraphSession.from_ambient()`` so existing callers are unaffected.
 
         Returns:
             A list of :class:`Designation` objects, ranked by similarity.
         """
+        from .core.session import GraphSession
+
+        if session is None:
+            session = GraphSession.from_ambient()
+
         results = self.retrieval.designate(
             prompt_embedding, required_caps=required_caps, k=k
         )
@@ -325,9 +337,9 @@ class KnowledgeGraph:
             i for d in results if isinstance((i := getattr(d, "id", None)), str)
         ]
         if ids:
-            allowed = set(permit(ids))
+            allowed = set(permit(ids, session.actor))
             results = [d for d in results if getattr(d, "id", None) in allowed]
-            audit_read(ids, summary="designate")
+            audit_read(ids, summary="designate", actor=session.actor)
         # Apply learned/asserted governance rules so corrections-turned-rules
         # change behaviour (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Best-effort; never blocks retrieval.
         try:
@@ -357,21 +369,40 @@ class KnowledgeGraph:
             task = ReasoningTask(goal=str(task))
         return get_reasoner_router().reason(task)
 
-    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+    def query(
+        self,
+        cypher: str,
+        params: Any = None,
+        *,
+        session: GraphSession | None = None,
+    ) -> list[dict[str, Any]]:
         """Run a tenant-scoped, permission-filtered, audited Cypher read.
 
         The guarded counterpart to ``store.execute``: applies tenant scoping to
         the query, filters ACL-denied rows, and records a read audit — all
         no-ops unless ``KG_BRAIN_ENFORCE`` is on. Internal/unscoped callers may
         still use ``store.execute`` directly.
+
+        Args:
+            cypher: The read query.
+            params: Optional query parameters.
+            session: Explicit :class:`~.core.session.GraphSession` this read
+                runs under (CONCEPT:AU-P0-1 — the one currency: identity + policy +
+                trace in one object). When omitted, one is derived from today's
+                ambient actor via ``GraphSession.from_ambient()`` — existing
+                callers that never heard of ``GraphSession`` are unaffected.
         """
         store = self.store
         if store is None:
             return []
         from .core.secured_reads import audit_read, filter_rows, scope, visible
+        from .core.session import GraphSession
 
-        rows = store.execute(scope(cypher), params or {}) or []
-        rows = visible(filter_rows(rows))
+        if session is None:
+            session = GraphSession.from_ambient()
+
+        rows = store.execute(scope(cypher, session.actor), params or {}) or []
+        rows = visible(filter_rows(rows, session.actor), session.actor)
         # Fine-grained, default-ON object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): row-drop
         # marked/ACL-denied rows + column-redact, allow-by-default for unmarked
         # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the
@@ -383,13 +414,13 @@ class KnowledgeGraph:
         if brain_enforcement_enabled():
             # Fail CLOSED (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): with enforcement on, an
             # enforcement error must never widen into an allow — propagate.
-            rows = enforce_fine_grained(rows)
+            rows = enforce_fine_grained(rows, session.actor)
         else:
             try:
-                rows = enforce_fine_grained(rows)
+                rows = enforce_fine_grained(rows, session.actor)
             except Exception as exc:  # pragma: no cover - never block a legacy read
                 logger.debug("fine-grained enforce skipped: %s", exc)
-        audit_read([], summary="query")
+        audit_read([], summary="query", actor=session.actor)
         return rows
 
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
