@@ -26,6 +26,8 @@ __all__ = [
     "find_connector_manifest",
     "check_manifest_bytes",
     "precheck_source",
+    "manifest_required",
+    "enterprise_required_sources",
 ]
 
 # Curated aliases for the (common) cases where a ``_DELTA_HANDLERS``/``PACKAGE_PRESETS``
@@ -164,19 +166,66 @@ def check_manifest_bytes(path: Path) -> list[str]:
     return violations
 
 
+def enterprise_required_sources() -> set[str]:
+    """Source keys whose sync MUST refuse without a compiled+verified manifest.
+
+    Populated from ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` — a comma-separated
+    list of ``sync_source`` source keys (e.g. ``"servicenow,twenty,egeria"``),
+    lower-cased and stripped. This is an explicit, per-deployment **opt-in**
+    (CONCEPT:AU-P0-4 fail-closed connector permissions): an operator activating
+    a connector for enterprise use names it here so its sync provably refuses
+    without manifest coverage, WITHOUT retroactively blocking the ~40 fleet
+    sources that have no ``connector_manifest.yml`` yet and were never meant to
+    require one for dev/local use. Empty by default — unchanged pass-through
+    behavior for every source until an operator opts one in.
+    """
+    from ...core.config import setting
+
+    raw = setting("CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE", default="") or ""
+    return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
+
+
+def manifest_required(source: str) -> bool:
+    """True when ``source`` was opted into the enterprise require-manifest policy."""
+    return (source or "").strip().lower() in enterprise_required_sources()
+
+
 def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str, Any]:
     """The ``sync_source`` compile-before-sync gate (D17).
 
     Returns ``{"checked": False, ...}`` when the source has no discoverable
-    ``connector_manifest.yml`` yet (a silent pass-through — most sources aren't
-    onboarded to C5 yet, and this must never regress an existing sync). When a
-    manifest IS found, returns ``{"checked": True, "ok": bool, "connector": str,
-    "manifest_path": str, "violations": [...]}`` — fail-closed: ``ok=False`` means
-    the caller MUST refuse to sync rather than pull data through a manifest that
-    doesn't match what was actually reviewed/signed.
+    ``connector_manifest.yml`` yet AND was not opted into the enterprise
+    require-manifest policy (:func:`manifest_required`) — a silent pass-through
+    (most sources aren't onboarded to C5 yet, and this must never regress an
+    existing dev/local sync). When a manifest IS found, returns
+    ``{"checked": True, "ok": bool, "connector": str, "manifest_path": str,
+    "violations": [...]}`` — fail-closed: ``ok=False`` means the caller MUST
+    refuse to sync rather than pull data through a manifest that doesn't match
+    what was actually reviewed/signed.
+
+    CONCEPT:AU-P0-4 fail-closed connector permissions — when a source IS opted
+    into :func:`manifest_required` (an explicit enterprise-activation allowlist,
+    ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE``) but no manifest is found on disk,
+    this ALSO returns a fail-closed ``{"checked": True, "ok": False, ...}`` so
+    ``sync_source`` refuses the sync the exact same way it refuses a
+    tampered/hand-edited manifest — "unknown" never silently means "allowed" for
+    a source an operator has explicitly designated as enterprise-gated.
     """
     path = find_connector_manifest(source, agents_root=agents_root)
     if path is None:
+        if manifest_required(source):
+            return {
+                "checked": True,
+                "ok": False,
+                "connector": resolve_connector_package(source, agents_root=agents_root),
+                "manifest_path": None,
+                "violations": [
+                    f"[missing] no connector_manifest.yml found for enterprise-gated "
+                    f"source {source!r} (CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE) — "
+                    "generate one via scripts/generate_connector_manifests.py before "
+                    "activating this source."
+                ],
+            }
         return {"checked": False, "reason": "no connector_manifest.yml for this source"}
 
     violations = check_manifest_bytes(path)
