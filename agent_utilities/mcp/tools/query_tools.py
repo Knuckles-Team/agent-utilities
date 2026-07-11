@@ -993,7 +993,7 @@ def register_query_tools(mcp):
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:AU-KG.retrieval.self-correcting-second-pass).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'AU-KG.query.vendor-agnostic-traversal', 'AU-ORCH.execution.inject-signal-board-observations').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:AU-KG.query.adore-concept-expansion/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:AU-KG.retrieval.self-correcting-second-pass).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'AU-KG.query.vendor-agnostic-traversal', 'AU-ORCH.execution.inject-signal-board-observations').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:AU-KG.query.adore-concept-expansion/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).\n- 'compiled': Policy-aware ``ContextCompiler`` bundle (CONCEPT:AU-KG.retrieval.context-compiler) — MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations + a proof graph, instead of the plain relevance-sorted text the other modes return.",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
         self_correct: bool = Field(
@@ -1010,6 +1010,13 @@ def register_query_tools(mcp):
                 "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to search (default = primary). "
                 "Use a registered connection name, or 'all' (or a comma-separated list) to "
                 "fan out and get per-connection labeled results."
+            ),
+        ),
+        token_budget: int = Field(
+            default=0,
+            description=(
+                "mode='compiled' only: token budget the assembled bundle must fit "
+                "inside (CONCEPT:AU-KG.retrieval.context-compiler). 0 uses the compiler's default budget."
             ),
         ),
     ) -> str:
@@ -1115,12 +1122,39 @@ def register_query_tools(mcp):
                     except Exception:  # noqa: BLE001
                         qemb = []
                 results = HybridSearchScorer().score_documents(query, qemb, docs)
+            elif mode == "compiled":
+                # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
+                # SAME engine ANN/hybrid retriever the other modes call, but
+                # additionally MMR-diversifies, scores evidence-quality/freshness
+                # from the epistemic columns (EPI-P3-1), fits a token budget, and
+                # runs every candidate through the live permissioning gate before
+                # returning citations + a proof graph — replacing the plain
+                # relevance-sorted concat the branch below performs for every
+                # other mode.
+                from agent_utilities.knowledge_graph.core.session import (
+                    GraphSession,
+                )
+                from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
+                    ContextCompiler,
+                )
+
+                session = GraphSession.from_ambient()
+                compiler = ContextCompiler(engine)
+                kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
+                if token_budget:
+                    kwargs["token_budget"] = token_budget
+                bundle = compiler.compile(query, session=session, **kwargs)
+                return bundle.as_text()
             else:
                 return f"Error: Unknown search mode '{mode}'"
 
             if not results:
                 return f"No results found for query: '{query}'"
 
+            # Legacy relevance-only formatter (pre-CONCEPT:AU-KG.retrieval.context-compiler). Every mode
+            # above lands here and gets a flat, score-sorted text block with no
+            # diversity/evidence/freshness/policy/budget shaping — prefer
+            # mode='compiled' for a citation- and proof-graph-bearing bundle.
             formatted_results = []
             for res in results:
                 score = res.get("score", 0)
