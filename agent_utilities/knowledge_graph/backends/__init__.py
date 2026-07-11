@@ -548,6 +548,15 @@ def create_backend(
         target_names = _parse_mirror_targets(
             setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
         )
+        # Continuous Stardog mirroring is the ONE explicit switch (CONCEPT:AU-KG.backend.continuous-stardog-mirror):
+        # when opted in, add ``stardog`` to the fanout mirror set so every write is mirrored
+        # into the SPARQL store (partitioned into urn:source:<system> graphs). OFF by default,
+        # so Stardog stays an explicit push/pull target, never a silent live mirror.
+        if (
+            getattr(_cfg, "continuous_stardog_mirror", False)
+            and "stardog" not in target_names
+        ):
+            target_names.append("stardog")
         mirrors: dict[str, GraphBackend] = {}
         for name in target_names:
             if name == authority_name:
