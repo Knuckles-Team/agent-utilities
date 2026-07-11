@@ -128,13 +128,22 @@ class Marking:
         return f"Marking({self.name!r})"
 
 
-# Process-wide CACHE of node_id -> set of marking names, durably backed by
-# ``mandatory_marking`` graph nodes (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) so separate processes
-# agree on mandatory controls: hydrated from the store on first use,
+# Process-wide CACHE of (tenant, node_id) -> set of marking names, durably
+# backed by ``mandatory_marking`` graph nodes (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) so separate
+# processes agree on mandatory controls: hydrated from the store on first use,
 # written through on every registration. Markings live here (not on the ACL)
 # because they are mandatory controls applied across the graph;
 # DataLevelPermissions keeps the per-object discretionary ACL/classification.
-MARKING_REGISTRY: dict[str, set[str]] = {}
+#
+# Keyed by ``(tenant, node_id)`` rather than bare ``node_id`` (AU-P0-5): two
+# tenants can mint the same node id (e.g. a generic "config" or a connector's
+# own numbering scheme is not guaranteed globally unique), so a bare
+# ``node_id`` key would let tenant A's marking silently apply to — or a cache
+# hit leak onto — tenant B's unrelated node of the same id. The tenant
+# component defaults to ``""`` (see :func:`_ambient_tenant`), so a caller that
+# never scopes a tenant (today's behaviour) keeps hitting the exact same
+# single ``("", node_id)`` bucket as before this fix — nothing to migrate.
+MARKING_REGISTRY: dict[tuple[str, str], set[str]] = {}
 
 # Durable node type for persisted markings (one node per marked graph node).
 MARKING_NODE_TYPE = "mandatory_marking"
@@ -176,6 +185,34 @@ def set_marking_store(store: Any) -> None:
     _markings_hydrated = False
 
 
+def _ambient_tenant() -> str:
+    """The tenant a marking write/read defaults to when not passed explicitly.
+
+    Prefers the ambient :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+    (AU-P0-5's one currency), falling back to the ambient actor's
+    ``tenant_id``. Returns ``""`` (the unscoped/system bucket) when neither is
+    set — the exact behaviour every caller saw before markings were
+    tenant-keyed.
+    """
+    try:
+        from ..core.session import current_session
+
+        session = current_session()
+        if session is not None and session.tenant:
+            return session.tenant
+    except Exception:  # noqa: BLE001 — session currency is best-effort here
+        pass
+    try:
+        return current_actor().tenant_id or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _mkey(node_id: str, tenant: str | None) -> tuple[str, str]:
+    """Build the ``(tenant, node_id)`` :data:`MARKING_REGISTRY` key."""
+    return (tenant if tenant is not None else _ambient_tenant()) or "", node_id
+
+
 def _hydrate_markings() -> None:
     """Load persisted markings into the cache (once per process, best-effort)."""
     global _markings_hydrated  # noqa: PLW0603
@@ -189,56 +226,79 @@ def _hydrate_markings() -> None:
         rows = (
             store.execute(
                 "MATCH (m) WHERE m.type = $t "
-                "RETURN m.node_id AS node_id, m.markings AS markings",
+                "RETURN m.node_id AS node_id, m.tenant_id AS tenant_id, "
+                "m.markings AS markings",
                 {"t": MARKING_NODE_TYPE},
             )
             or []
         )
         for row in rows:
             nid = row.get("node_id")
+            tenant = row.get("tenant_id") or ""
             raw = row.get("markings")
             names = json.loads(raw) if isinstance(raw, str) else (raw or [])
             if isinstance(nid, str) and nid:
-                MARKING_REGISTRY.setdefault(nid, set()).update(
+                key = (str(tenant), nid)
+                MARKING_REGISTRY.setdefault(key, set()).update(
                     str(n) for n in names if n
                 )
     except Exception as exc:  # noqa: BLE001 — cache stays authoritative
         logger.debug("marking hydration skipped: %s", exc)
 
 
-def _persist_markings(node_id: str) -> None:
-    """Write-through ``node_id``'s markings as a durable graph node."""
+def _persist_markings(key: tuple[str, str]) -> None:
+    """Write-through ``key``'s (tenant, node_id) markings as a durable graph node."""
     store = _resolve_marking_store()
     if store is None:
         return
+    tenant, node_id = key
+    # Back-compat storage id for the unscoped ("") bucket keeps the exact
+    # pre-P0-5 node id shape; a tenant-scoped marking gets its own namespaced
+    # id so two tenants' markings for the "same" node_id never collide.
+    storage_id = f"marking::{node_id}" if not tenant else f"marking::{tenant}::{node_id}"
     try:
         store.execute(
-            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, m.markings = $marks",
+            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, "
+            "m.tenant_id = $tenant, m.markings = $marks",
             {
-                "id": f"marking::{node_id}",
+                "id": storage_id,
                 "t": MARKING_NODE_TYPE,
                 "n": node_id,
-                "marks": json.dumps(sorted(MARKING_REGISTRY.get(node_id, set()))),
+                "tenant": tenant,
+                "marks": json.dumps(sorted(MARKING_REGISTRY.get(key, set()))),
             },
         )
     except Exception as exc:  # noqa: BLE001 — cache stays authoritative
-        logger.debug("marking persist failed for %s: %s", node_id, exc)
+        logger.debug("marking persist failed for %s: %s", key, exc)
 
 
-def apply_marking(node_id: str, marking: Marking | str) -> None:
-    """Attach a marking to a node (idempotent; written through to the graph)."""
+def apply_marking(
+    node_id: str, marking: Marking | str, *, tenant: str | None = None
+) -> None:
+    """Attach a marking to a node (idempotent; written through to the graph).
+
+    ``tenant`` (AU-P0-5) scopes the marking to one tenant's node namespace;
+    omitted, it defaults to the ambient :class:`GraphSession`/actor tenant
+    (:func:`_ambient_tenant`) — an unscoped caller keeps writing to the same
+    ``""`` bucket as before markings were tenant-keyed.
+    """
     name = marking.name if isinstance(marking, Marking) else str(marking)
     if not name:
         return
     _hydrate_markings()
-    MARKING_REGISTRY.setdefault(node_id, set()).add(name)
-    _persist_markings(node_id)
+    key = _mkey(node_id, tenant)
+    MARKING_REGISTRY.setdefault(key, set()).add(name)
+    _persist_markings(key)
 
 
-def markings_for(node_id: str) -> set[str]:
-    """Return the set of marking names carried by ``node_id``."""
+def markings_for(node_id: str, *, tenant: str | None = None) -> set[str]:
+    """Return the set of marking names carried by ``node_id`` under ``tenant``.
+
+    ``tenant`` defaults to the ambient session/actor tenant (AU-P0-5), same
+    fallback as :func:`apply_marking` — see :func:`_ambient_tenant`.
+    """
     _hydrate_markings()
-    return set(MARKING_REGISTRY.get(node_id, ()))
+    return set(MARKING_REGISTRY.get(_mkey(node_id, tenant), ()))
 
 
 def clear_markings() -> None:
@@ -386,6 +446,7 @@ def propagate_markings(
     target_id: str,
     *,
     propagate_classification: bool = True,
+    tenant: str | None = None,
 ) -> set[str]:
     """Propagate ``source_id``'s mandatory controls onto ``target_id``.
 
@@ -395,13 +456,22 @@ def propagate_markings(
     a derived/linked object must not be readable by anyone who could not read
     its source. Returns the target's marking set after propagation.
 
+    ``tenant`` (AU-P0-5) scopes both endpoints to the same tenant's node
+    namespace (defaults to the ambient session/actor tenant, matching
+    :func:`apply_marking`) so propagation never crosses tenant boundaries via a
+    same-named node in a different tenant's graph.
+
     Unlike the legacy helper this is **not** gated on ``KG_BRAIN_ENFORCE`` —
     mandatory controls must always propagate so default-on enforcement is safe.
     """
-    src_marks = markings_for(source_id)
+    resolved_tenant = tenant if tenant is not None else _ambient_tenant()
+    src_key = _mkey(source_id, resolved_tenant)
+    tgt_key = _mkey(target_id, resolved_tenant)
+    _hydrate_markings()
+    src_marks = set(MARKING_REGISTRY.get(src_key, ()))
     if src_marks:
-        MARKING_REGISTRY.setdefault(target_id, set()).update(src_marks)
-        _persist_markings(target_id)
+        MARKING_REGISTRY.setdefault(tgt_key, set()).update(src_marks)
+        _persist_markings(tgt_key)
 
     if propagate_classification:
         try:
@@ -426,19 +496,26 @@ def propagate_markings(
                 exc,
             )
 
-    return markings_for(target_id)
+    return set(MARKING_REGISTRY.get(tgt_key, ()))
 
 
-def propagate_over_edges(edges: list[tuple[str, str]]) -> dict[str, set[str]]:
+def propagate_over_edges(
+    edges: list[tuple[str, str]], *, tenant: str | None = None
+) -> dict[str, set[str]]:
     """Propagate markings along a list of ``(source, target)`` edges.
 
     A single forward pass over the provided edges (callers ordered topologically
     for transitive closure get full inheritance). Returns the resulting
-    node_id -> markings map for the touched targets.
+    node_id -> markings map for the touched targets. ``tenant`` (AU-P0-5) is
+    forwarded to :func:`propagate_markings` for every edge — all edges in one
+    call share the same tenant scope (defaults to the ambient session/actor).
     """
+    resolved_tenant = tenant if tenant is not None else _ambient_tenant()
     touched: dict[str, set[str]] = {}
     for source_id, target_id in edges:
-        touched[target_id] = propagate_markings(source_id, target_id)
+        touched[target_id] = propagate_markings(
+            source_id, target_id, tenant=resolved_tenant
+        )
     return touched
 
 
@@ -448,8 +525,12 @@ def propagate_over_edges(edges: list[tuple[str, str]]) -> dict[str, set[str]]:
 
 
 def _marking_permits(node_id: str, actor: ActorContext) -> bool:
-    """Whether ``actor`` clears every marking carried by ``node_id``."""
-    marks = markings_for(node_id)
+    """Whether ``actor`` clears every marking carried by ``node_id``.
+
+    Markings are looked up under ``actor.tenant_id`` (AU-P0-5) — the read
+    path always has an actor in hand, so this is exact rather than ambient.
+    """
+    marks = markings_for(node_id, tenant=actor.tenant_id or "")
     if not marks:
         return True
     if _is_privileged(actor):

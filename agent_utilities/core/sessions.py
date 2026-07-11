@@ -62,6 +62,38 @@ def _owner_token() -> str:
     return f"{_HOSTNAME}:{os.getpid()}"
 
 
+def _ambient_session_tenant() -> str:
+    """The tenant a durable session/goal row is stamped with (AU-P0-5).
+
+    Delegates to the state-store's one ambient-tenant resolver (GraphSession
+    first, then the ambient actor) so the sessions store agrees with every
+    other Postgres-backed store sharing this pool. ``""`` (unrestricted /
+    commons) when nothing is scoped — unchanged from today's behaviour.
+    """
+    try:
+        from agent_utilities.core.state_store import ambient_state_tenant
+
+        return ambient_state_tenant()
+    except Exception:  # noqa: BLE001 — tenant stamping must never break intake
+        return ""
+
+
+def _sessions_tenant_predicate() -> tuple[str, tuple]:
+    """A ``sessions``-row WHERE fragment + params scoping to the ambient tenant.
+
+    Pushes the tenant check DOWN into the query (AU-P0-5) instead of fetching
+    every row and post-filtering in Python: an unscoped/system caller (ambient
+    tenant ``""``) gets the fragment ``""`` (unrestricted — today's exact
+    behaviour); a tenant-scoped caller gets rows for its own tenant PLUS
+    "commons" rows (``tenant_id`` unset/empty), mirroring the RLS convention
+    ``PostgreSQLBackend``/the state-store GUC already use.
+    """
+    tenant = _ambient_session_tenant()
+    if not tenant:
+        return "", ()
+    return " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')", (tenant,)
+
+
 def _identity_metadata() -> dict:
     """Ambient ``{tenant_id, actor_id}`` for stamping into session metadata.
 
@@ -107,7 +139,8 @@ _SQLITE_DDL = """
         needs_input INTEGER DEFAULT 0,
         last_response_preview TEXT DEFAULT '',
         goal_id TEXT DEFAULT '',
-        metadata_json TEXT DEFAULT '{}'
+        metadata_json TEXT DEFAULT '{}',
+        tenant_id TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS turns (
@@ -156,7 +189,8 @@ _PG_DDL = """
         needs_input INTEGER DEFAULT 0,
         last_response_preview TEXT DEFAULT '',
         goal_id TEXT DEFAULT '',
-        metadata_json TEXT DEFAULT '{}'
+        metadata_json TEXT DEFAULT '{}',
+        tenant_id TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS turns (
         id TEXT PRIMARY KEY,
@@ -178,8 +212,14 @@ _PG_DDL = """
         started_at DOUBLE PRECISION NOT NULL,
         last_heartbeat DOUBLE PRECISION NOT NULL
     );
+    -- AU-P0-5: idempotent upgrade path for a store created before tenant_id
+    -- existed on ``sessions`` — Postgres supports IF NOT EXISTS on ADD COLUMN
+    -- so this is a no-op once the column is there (including on brand-new
+    -- deployments where CREATE TABLE above already declared it).
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions (tenant_id);
     CREATE INDEX IF NOT EXISTS idx_turns_session ON turns (session_id, turn_number);
     CREATE INDEX IF NOT EXISTS idx_dispatch_workers_hb
         ON dispatch_workers (last_heartbeat DESC);
@@ -200,6 +240,13 @@ def _get_db_path() -> Path:
     try:
         conn = sqlite3.connect(str(db_path))
         conn.executescript(_SQLITE_DDL)
+        # AU-P0-5: upgrade path for a store created before tenant_id existed on
+        # ``sessions`` — SQLite's ADD COLUMN has no IF NOT EXISTS, so a
+        # duplicate-column error (already-upgraded store) is simply swallowed.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN tenant_id TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.commit()
         conn.close()
     except Exception as e:
@@ -459,7 +506,12 @@ def _desired_session_action(session_id: str) -> str | None:
 
 
 async def get_all_sessions(request: Request) -> JSONResponse:
-    """Retrieve durable agent sessions (newest first, paginated)."""
+    """Retrieve durable agent sessions (newest first, paginated).
+
+    Tenant-scoped at the query level (AU-P0-5, :func:`_sessions_tenant_predicate`)
+    rather than fetched-then-filtered: an ambient-tenant caller only ever gets
+    its own + commons rows back from the SQL engine itself.
+    """
     try:
         params = getattr(request, "query_params", {}) or {}
         limit = max(1, min(int(params.get("limit", 500)), 2000))
@@ -469,9 +521,11 @@ async def get_all_sessions(request: Request) -> JSONResponse:
     try:
         conn = _connect_db()
         cursor = conn.cursor()
+        tenant_clause, tenant_params = _sessions_tenant_predicate()
         cursor.execute(
-            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT * FROM sessions WHERE 1=1{tenant_clause} "
+            "ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            (*tenant_params, limit, offset),
         )
         rows = cursor.fetchall()
         res = []
@@ -897,7 +951,7 @@ async def create_goal(request: Request) -> JSONResponse:
         cursor = conn.cursor()
 
         cursor.execute(
-            "INSERT INTO sessions (id, title, created_at, updated_at, model, mode, workspace, turn_count, status, background, needs_input, last_response_preview, goal_id, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, title, created_at, updated_at, model, mode, workspace, turn_count, status, background, needs_input, last_response_preview, goal_id, metadata_json, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 f"Goal: {spec.objective}",
@@ -915,6 +969,10 @@ async def create_goal(request: Request) -> JSONResponse:
                 else "Goal loop initialized...",
                 goal_id,
                 session_metadata,
+                # AU-P0-5: a queryable tenant column (not just metadata_json) so
+                # the row can be RLS-enforced on Postgres and predicate-filtered
+                # on any backend — see _sessions_tenant_predicate().
+                _ambient_session_tenant(),
             ),
         )
 
