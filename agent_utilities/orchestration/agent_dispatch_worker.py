@@ -632,6 +632,18 @@ def _finalize_agent_task(
     ``fire_ready_agent_tasks``/the fleet reconciler already polls to wake
     ``TASK_DEPENDS_ON`` dependents (D23/C3) — untouched here, just triggered
     by this write like every other ``:AgentTask`` status transition.
+
+    AU-P1-1: when ``claim`` carries a ``_work_item_id`` (the
+    ``AGENT_CLAIM_BACKEND=workitem`` path — see
+    ``orchestration.work_item.claim_agent_task_via_work_item``), this ALSO
+    commits the outcome through :func:`~agent_utilities.orchestration.
+    work_item.commit_agent_task_work_item` so the unified state machine's
+    atomic dependency release / DLQ / idempotent-commit mechanics fire. The
+    legacy ``:AgentTask`` write above still happens unconditionally — it is
+    what unmigrated readers (``fire_ready_agent_tasks``, dashboards) still
+    consult, so WorkItem's dependency release and this legacy poll-sweep are
+    each other's belt-and-suspenders during the opt-in rollout, not a
+    replacement for one another yet.
     """
     if engine is None:
         return
@@ -655,6 +667,14 @@ def _finalize_agent_task(
         engine.add_node(task_id, "AgentTask", properties={"status": status})
     except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
         logger.warning("agent_task finalize failed for %s: %s", task_id, e)
+
+    work_item_id = claim.get("_work_item_id")
+    if work_item_id:
+        from agent_utilities.orchestration.work_item import (
+            commit_agent_task_work_item,
+        )
+
+        commit_agent_task_work_item(engine, work_item_id, claim, status=status)
 
 
 def execute_agent_task_turn(

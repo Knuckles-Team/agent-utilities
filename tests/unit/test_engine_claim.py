@@ -39,9 +39,20 @@ def test_explicit_backend_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
 
-def test_unknown_backend_value_fails_safe_to_kg(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unknown_backend_value_fails_safe_to_kg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("AGENT_CLAIM_BACKEND", "bogus")
     assert engine_claim.resolve_claim_backend() == engine_claim.AGENT_CLAIM_BACKEND_KG
+
+
+def test_workitem_backend_resolves_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AU-P1-1: the unified WorkItem state machine is a third, opt-in backend."""
+    monkeypatch.setenv("AGENT_CLAIM_BACKEND", "workitem")
+    assert (
+        engine_claim.resolve_claim_backend()
+        == engine_claim.AGENT_CLAIM_BACKEND_WORKITEM
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +67,9 @@ def test_kg_backend_delegates_to_kg_claim_and_never_probes_the_engine(
     monkeypatch.setattr(
         engine_claim,
         "_claim_agent_task_kg",
-        lambda engine, task_id, **kw: kg_calls.append(task_id)
-        or {"task_id": task_id, "lease_id": "lease:kg:1"},
+        lambda engine, task_id, **kw: (
+            kg_calls.append(task_id) or {"task_id": task_id, "lease_id": "lease:kg:1"}
+        ),
     )
 
     def _fail_if_engine_invoked(*a, **k):  # pragma: no cover - must never run
@@ -138,8 +150,10 @@ def test_engine_backend_falls_back_to_kg_when_engine_degraded(
     monkeypatch.setattr(
         engine_claim,
         "_claim_agent_task_kg",
-        lambda engine, task_id, **kw: kg_calls.append(task_id)
-        or {"task_id": task_id, "lease_id": "lease:kg:fallback"},
+        lambda engine, task_id, **kw: (
+            kg_calls.append(task_id)
+            or {"task_id": task_id, "lease_id": "lease:kg:fallback"}
+        ),
     )
 
     result = engine_claim.claim_agent_task(
@@ -176,6 +190,41 @@ def test_engine_backend_falls_back_to_kg_when_engine_says_not_claimed(
     )
     assert result is None
     assert kg_calls == ["task-1"]
+
+
+def test_workitem_backend_delegates_to_work_item_bridge_and_never_touches_kg_or_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.orchestration import work_item
+
+    bridge_calls: list[str] = []
+    monkeypatch.setattr(
+        work_item,
+        "claim_agent_task_via_work_item",
+        lambda engine, task_id, **kw: (
+            bridge_calls.append(task_id)
+            or {"task_id": task_id, "lease_id": "lease:workitem:1", "fence_token": 1}
+        ),
+    )
+
+    def _fail_if_kg_invoked(*a, **k):  # pragma: no cover - must never run
+        raise AssertionError(
+            "kg claim must never be attempted for the workitem backend"
+        )
+
+    def _fail_if_engine_invoked(*a, **k):  # pragma: no cover - must never run
+        raise AssertionError(
+            "raw engine-native probe must never be attempted for the workitem backend"
+        )
+
+    monkeypatch.setattr(engine_claim, "_claim_agent_task_kg", _fail_if_kg_invoked)
+    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fail_if_engine_invoked)
+
+    result = engine_claim.claim_agent_task(
+        object(), "task-1", backend=engine_claim.AGENT_CLAIM_BACKEND_WORKITEM
+    )
+    assert result["lease_id"] == "lease:workitem:1"
+    assert bridge_calls == ["task-1"]
 
 
 def test_never_run_both_backends_on_one_task(monkeypatch: pytest.MonkeyPatch) -> None:
