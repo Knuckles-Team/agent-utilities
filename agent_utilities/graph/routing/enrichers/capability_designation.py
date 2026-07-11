@@ -262,9 +262,7 @@ class CapabilityIndexWatcher:
         try:
             _add_fields(self._index, fields)
         except Exception as e:  # noqa: BLE001 — a bad event never wedges the cache
-            logger.debug(
-                "CapabilityIndexWatcher: upsert failed for %r: %s", node_id, e
-            )
+            logger.debug("CapabilityIndexWatcher: upsert failed for %r: %s", node_id, e)
 
     def refresh(self, *, force_full: bool = False) -> Any | None:
         """Deliver pending CDC changes (or, without CDC, a full rebuild).
@@ -288,7 +286,9 @@ class CapabilityIndexWatcher:
             return self._index
 
         try:
-            sub.poll(block_ms=0)  # delivers only changed events -> _on_change upserts in place
+            sub.poll(
+                block_ms=0
+            )  # delivers only changed events -> _on_change upserts in place
         except Exception as e:  # noqa: BLE001 — a feed hiccup keeps the last-known cache
             logger.debug("CapabilityIndexWatcher: poll failed: %s", e)
         return self._index
@@ -325,7 +325,9 @@ def get_designation_index(engine: Any, *, refresh: bool = False) -> Any | None:
 
     index = watcher.refresh(force_full=refresh)
     try:
-        engine._designation_index = index  # back-compat: callers/tests read this attribute
+        engine._designation_index = (
+            index  # back-compat: callers/tests read this attribute
+        )
     except Exception:
         pass
     return index

@@ -82,9 +82,7 @@ def persist_capability_reward(
     """
     if reward is None:
         if success is None:
-            raise ValueError(
-                "persist_capability_reward requires success or reward"
-            )
+            raise ValueError("persist_capability_reward requires success or reward")
         reward = 1.0 if success else 0.0
     reward = min(1.0, max(0.0, float(reward)))
 
