@@ -139,7 +139,7 @@ class PostgreSQLBackend(GraphBackend):
 
     @contextmanager
     def _conn(self):
-        """Get a connection from the pool."""
+        """Get a connection from the pool, tenant-scoped before use (AU-P0-5)."""
         pool = self._ensure_pool()
         if isinstance(pool, _SingleConnPool):
             # A failed statement leaves the SHARED single connection in an aborted
@@ -149,6 +149,7 @@ class PostgreSQLBackend(GraphBackend):
             # aborted and EVERY subsequent write (incl. the auto-DDL self-heal's
             # CREATE TABLE + its retry) cascaded "current transaction is aborted".
             try:
+                self._scope_tenant(pool.conn)
                 yield pool.conn
                 pool.conn.commit()
             except Exception:
@@ -163,7 +164,39 @@ class PostgreSQLBackend(GraphBackend):
             # policy retries with bounded backoff (see ``execute``), so the tail
             # is the pool-timeout ceiling, not an unbounded queue wait.
             with pool.connection(timeout=self._pool_timeout) as conn:
+                self._scope_tenant(conn)
                 yield conn
+
+    def _scope_tenant(self, conn: Any) -> None:
+        """Set the RLS tenant GUC on a freshly-acquired connection (AU-P0-5).
+
+        ``set_request_tenant`` (the RLS GUC setter, below) existed but nothing
+        ever called it — every pooled connection ran with NO ``app.tenant_id``
+        set at all, which the RLS policy in :func:`rls_statements` treats the
+        same as an *unrestricted* scope (``current_setting(..., true) IS
+        NULL``). This closes that gap: every checkout resolves the ambient
+        tenant from the AU-P0-1 :class:`GraphSession` currency (falling back to
+        the ambient actor) and scopes the connection to it BEFORE the caller's
+        statements run. An unscoped/system caller resolves to ``""`` — the same
+        unrestricted behaviour as before this fix, so nothing regresses.
+        """
+        tenant: str | None = None
+        try:
+            from ..core.session import current_session
+
+            session = current_session()
+            if session is not None:
+                tenant = session.tenant
+        except Exception:  # noqa: BLE001 — tenant scoping must never break a checkout
+            tenant = None
+        if not tenant:
+            try:
+                from agent_utilities.security.brain_context import current_actor
+
+                tenant = current_actor().tenant_id or ""
+            except Exception:  # noqa: BLE001
+                tenant = ""
+        self.set_request_tenant(conn, tenant)
 
     # ── Extension Detection ──────────────────────────────────────────
 
@@ -474,12 +507,33 @@ class PostgreSQLBackend(GraphBackend):
         return secured
 
     def set_request_tenant(self, conn: Any, tenant_id: str | None) -> None:
-        """Scope a connection/transaction to ``tenant_id`` via the RLS GUC."""
+        """Scope a connection/transaction to ``tenant_id`` via the RLS GUC.
+
+        Fail-CLOSED for a real tenant (AU-P0-5): pooled connections are reused,
+        so if a ``SET app.tenant_id`` for a NON-EMPTY tenant fails and we
+        swallowed it, ``_conn()`` would hand the caller a connection still
+        carrying the PREVIOUS checkout's GUC — a silent cross-tenant leak. So
+        a failed SET for a non-empty tenant RAISES (aborting the checkout)
+        rather than serving a stale/wrong tenant context.
+
+        Fail-open only for the empty/``None`` baseline (``""`` = the documented
+        unrestricted/system path): there is no tenant to leak *into*, and this
+        preserves the historical best-effort behaviour for unscoped callers.
+        """
         try:
             with conn.cursor() as cur:
                 cur.execute(self.tenant_guc_sql(tenant_id))
-        except Exception as e:  # noqa: BLE001 — scoping must not crash the query
-            logger.debug("set_request_tenant failed: %s", e)
+        except Exception as e:
+            if tenant_id:
+                logger.warning(
+                    "set_request_tenant failed for tenant %r — aborting checkout "
+                    "to avoid serving a stale tenant context: %s",
+                    tenant_id,
+                    e,
+                )
+                raise
+            # Empty/system baseline only: no tenant to leak into, stay best-effort.
+            logger.debug("set_request_tenant (unscoped) failed: %s", e)
 
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
