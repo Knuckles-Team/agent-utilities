@@ -242,24 +242,38 @@ captured at `bao operator init`** (held by the operator, never stored in the clu
 on the restricted service tokens even fails). The one-time genesis sequence, run with `BAO_ROOT_TOKEN`
 exported (operator supplies it via `! bao login` or the init output):
 
+**Where the root token lives:** genesis `operator init` captures it into **`services/openbao/.env`**
+as `BAO_ROOT_TOKEN` (+ the unseal keys) — the homelab `.env` convention, NOT the cluster. That is
+the ONLY copy; there is no root/unseal secret in k8s (by design). Run the mint against the openbao
+pod (it has the `bao` CLI but **no `jq`/`python`** — use `-field=token`, not `-format=json | jq`):
+
 ```bash
-export BAO_ADDR=http://openbao.platform.svc:8200          # or openbao.arpa
-export VAULT_TOKEN=$BAO_ROOT_TOKEN                          # from `bao operator init` (operator-held)
-# 1. policy: read+write+list on the apps/ KV-v2 mount only (least privilege, fail-closed elsewhere)
-bao policy write agent-apps-rw - <<'POL'
+ROOT=$(grep '^BAO_ROOT_TOKEN=' services/openbao/.env | cut -d= -f2- | tr -d '"')
+POD=$(kubectl get pod -n platform -l app=openbao -o jsonpath='{.items[0].metadata.name}')
+# feed the root token on STDIN (never a CLI arg); run all steps in-pod:
+printf '%s\n' "$ROOT" | kubectl exec -i -n platform "$POD" -- sh -s <<'IN'
+read RT; export BAO_ADDR=http://127.0.0.1:8200
+# 1. policy: rw on the apps/ KV-v2 mount only (least privilege)
+BAO_TOKEN="$RT" bao policy write agent-apps-rw - <<'POL'
 path "apps/data/*"     { capabilities = ["create","read","update","delete"] }
 path "apps/metadata/*" { capabilities = ["list","read","delete"] }
 POL
-# 2. a PERIODIC, RENEWABLE token (finite-TTL tokens silently expire → broke connector writes once)
-bao token create -policy=agent-apps-rw -period=768h -renewable=true -display-name=agent-apps-rw -format=json \
-  | jq -r .auth.client_token
-# 3. store the minted token where the fleet + ESO read it (so it survives), e.g. apps/openbao/AGENT_APPS_RW_TOKEN
-bao kv put apps/openbao AGENT_APPS_RW_TOKEN=<token>
+# 2. PERIODIC (auto-renewing), renewable token — finite-TTL tokens silently expire (broke writes once)
+NEW=$(BAO_TOKEN="$RT" bao token create -policy=agent-apps-rw -period=768h -renewable=true -field=token)
+# 3. store it for the fleet + as openbao-mcp's OWN token (so it becomes write-capable)
+BAO_TOKEN="$RT" bao kv put   apps/openbao     AGENT_APPS_RW_TOKEN="$NEW" >/dev/null
+BAO_TOKEN="$RT" bao kv patch apps/openbao-mcp OPENBAO_TOKEN="$NEW"       >/dev/null
+BAO_TOKEN="$NEW" bao kv put apps/_probe t=ok >/dev/null && echo "rw VERIFY: OK" || echo "rw VERIFY: FAILED"
+IN
+# 4. make ESO deliver the new token + restart the consumer
+kubectl annotate externalsecret openbao-mcp-secrets -n apps force-sync=now --overwrite
+kubectl rollout restart deploy/openbao-mcp -n apps
 ```
 
-Each `*-mcp` / service stack then gets that token as its `OPENBAO_TOKEN` (the `agent-apps-rw` policy),
-so it can `bao kv put apps/<service> …` on bring-up. **Genesis automates steps 1-3 right after
-`operator init` + unseal**, before deploying the fleet. Verify a write actually succeeds
-(`curl -s -X POST -H "X-Vault-Token: $TOK" --data '{"data":{"k":"v"}}' $BAO_ADDR/v1/apps/data/_probe`)
-— a `403 permission denied` means the token is read-only, not rw. Raw HTTP works too: KV-v2 write is
-`POST $BAO_ADDR/v1/apps/data/<service>` with body `{"data":{…}}`.
+Each `*-mcp` / service stack gets that token as its `OPENBAO_TOKEN` (the `agent-apps-rw` policy) so it
+can `bao kv put apps/<service> …` on bring-up. **Genesis automates all of this right after
+`operator init` + unseal**, before deploying the fleet. Verify with a real write — a
+`403 permission denied` means read-only, not rw (this is exactly how the fleet's read-only ESO +
+openbao-mcp tokens present, and why they can't self-mint). Raw HTTP KV-v2 write:
+`POST $BAO_ADDR/v1/apps/data/<service>` body `{"data":{…}}` (the openbao pod has no `curl` — use the
+`bao` CLI in-pod, or `urllib` from a python-having pod).
