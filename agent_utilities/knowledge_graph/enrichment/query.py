@@ -120,6 +120,15 @@ def enrichment_coverage(backend: Any, graph_name: str | None = None) -> dict[str
     ]
     code_total = len(code)
     code_with_cards = sum(1 for c in code if (c.get("summary") or "").strip())
+    # A node is RESOLVED when it has a real summary OR was attempted and marked done
+    # ('skip' = trivial accessor / genuinely un-summarizable). Only genuinely un-attempted
+    # nodes are pending, so coverage can reach 1.0 and a stalled backfill is visible as a
+    # real pending count (not permanently pinned by trivial symbols). (CONCEPT:AU-KG.enrichment.card-attempt-status)
+    code_resolved = sum(
+        1
+        for c in code
+        if (c.get("summary") or "").strip() or c.get("card_status") in ("ok", "skip")
+    )
     tests = [_node(r) for r in _rows("MATCH (n:Test) RETURN n")]
     tests_needing_work = sum(
         1 for t in tests if t.get("needs_work") in (True, "true", "True")
@@ -127,10 +136,10 @@ def enrichment_coverage(backend: Any, graph_name: str | None = None) -> dict[str
     out["codebase"] = {
         "code_total": code_total,
         "code_with_cards": code_with_cards,
-        "cards_pending": code_total - code_with_cards,
+        "cards_pending": code_total - code_resolved,
         "tests_total": len(tests),
         "tests_needing_work": tests_needing_work,
-        "coverage": round(code_with_cards / code_total, 4) if code_total else 0.0,
+        "coverage": round(code_resolved / code_total, 4) if code_total else 0.0,
     }
 
     # Documents: concept-extraction presence (proxy without edge traversal).

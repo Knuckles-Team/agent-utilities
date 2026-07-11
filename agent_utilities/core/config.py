@@ -1125,6 +1125,17 @@ class AgentConfig(BaseSettings):
     graph_mirror_targets: list[str] | None = Field(
         default=None, alias="GRAPH_MIRROR_TARGETS"
     )
+    # Continuous Stardog mirroring (CONCEPT:AU-KG.backend.continuous-stardog-mirror). OFF by default:
+    # Stardog is used for EXPLICIT, on-demand per-source push/pull (``stardog_sync``), NOT a
+    # live write mirror. Set this to opt IN to continuous mirroring — the engine authority
+    # then fans every write out to Stardog (as a first-class fanout mirror, via the same
+    # durable outbox + replay machinery), partitioned into ``urn:source:<system>`` named
+    # graphs. Requires ``GRAPH_BACKEND=fanout``; a Stardog connection must be configured
+    # (``kg_connections`` ``stardog`` entry / ``STARDOG_*`` env). This is the ONE switch —
+    # no need to also list ``stardog`` in ``GRAPH_MIRROR_TARGETS``.
+    continuous_stardog_mirror: bool = Field(
+        default=False, alias="CONTINUOUS_STARDOG_MIRROR"
+    )
     # Ingest task-queue selection (CONCEPT:AU-KG.backend.selectable-queue-backend): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the
