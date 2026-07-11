@@ -186,13 +186,27 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_interface",
-        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:AU-KG.ontology.conformance-check). Set registry='enterprise' to operate on the enterprise-standard contracts (CONCEPT:AU-KG.ontology.populated-at-import-real-3).",
+        description=(
+            "Ontology interfaces: resolve implementers (targeting), check conformance, or emit "
+            "OWL (CONCEPT:AU-KG.ontology.conformance-check). Set registry='enterprise' to "
+            "operate on the enterprise-standard contracts "
+            "(CONCEPT:AU-KG.ontology.populated-at-import-real-3). "
+            "'explain_routing_eligibility' (CONCEPT:AU-P1-3, X-4) answers WHY a "
+            "candidate tool/agent (entity_id) is — or would be — eligible for a required "
+            "ontology capability type: ontology SUBSUMPTION path, tenant/policy match, and the "
+            "calibrated bandit reward, computed engine-native-first over "
+            "`graph.routing.enrichers.capability_routing.explain_routing_eligibility`."
+        ),
         tags=["graph-os", "ontology"],
     )
     def ontology_interface(
         action: str = Field(
             default="list",
-            description="'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), or 'owl'.",
+            description=(
+                "'list' interfaces, 'implementers' (resolve an interface/type to concrete "
+                "types), 'conforms' (check an object), 'owl', or 'explain_routing_eligibility' "
+                "(X-4 WHY-eligible routing explanation)."
+            ),
         ),
         name: str = Field(default="", description="Interface or concrete type name."),
         object_json: str = Field(
@@ -202,8 +216,31 @@ def register_ontology_tools(mcp):
             default="structural",
             description="Which interface registry: 'structural' (built-in shapes) or 'enterprise' (enterprise-standard contracts, CONCEPT:AU-KG.ontology.populated-at-import-real-3).",
         ),
+        entity_id: str = Field(
+            default="",
+            description="Candidate tool/agent node id (action='explain_routing_eligibility').",
+        ),
+        required_capability_type: str = Field(
+            default="",
+            description=(
+                "Required ontology capability type, e.g. 'TransportCapability' "
+                "(action='explain_routing_eligibility')."
+            ),
+        ),
+        tenant: str = Field(
+            default="",
+            description="Required tenant scope, if any (action='explain_routing_eligibility').",
+        ),
+        policy_tags: str = Field(
+            default="",
+            description=(
+                "Comma-separated required policy tags, if any "
+                "(action='explain_routing_eligibility')."
+            ),
+        ),
     ) -> str:
-        """Resolve interface targeting, check conformance, or emit interface OWL/SHACL."""
+        """Resolve interface targeting, check conformance, emit interface OWL/SHACL, or explain
+        WHY a candidate is routing-eligible (X-4)."""
         from agent_utilities.knowledge_graph.ontology.interfaces import (
             DEFAULT_INTERFACE_REGISTRY,
             target_object_types,
@@ -239,6 +276,40 @@ def register_ontology_tools(mcp):
                 )
             if action == "owl":
                 return json.dumps({"owl": reg.to_owl()})
+            if action == "explain_routing_eligibility":
+                from agent_utilities.graph.routing.enrichers.capability_routing import (
+                    explain_routing_eligibility,
+                )
+
+                if not entity_id or not required_capability_type:
+                    return json.dumps(
+                        {
+                            "error": "explain_routing_eligibility requires entity_id and "
+                            "required_capability_type"
+                        }
+                    )
+                engine = kg_server._get_engine()
+                tags = (
+                    [t.strip() for t in policy_tags.split(",") if t.strip()]
+                    if policy_tags
+                    else None
+                )
+                report = explain_routing_eligibility(
+                    engine,
+                    entity_id,
+                    required_capability_type=required_capability_type,
+                    tenant=tenant or None,
+                    policy_tags=tags,
+                )
+                return json.dumps(
+                    {
+                        "action": "explain_routing_eligibility",
+                        "entity_id": entity_id,
+                        "required_capability_type": required_capability_type,
+                        **report,
+                    },
+                    default=str,
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
