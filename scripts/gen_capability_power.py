@@ -91,18 +91,27 @@ def locate_eg_ledger(explicit: str | None) -> Path | None:
     return None
 
 
-def load_ledger(explicit: str | None) -> tuple[dict[str, LedgerRow], str | None, bool]:
+def load_ledger(
+    explicit: str | None, *, refresh_cache: bool = True
+) -> tuple[dict[str, LedgerRow], str | None, bool]:
     """Return ``(ledger, path_used, was_live)``.
 
     Prefers a live EG checkout; refreshes the vendored cache from it when
-    found. Falls back to the last-committed cache when no live checkout is
-    reachable — never fabricates ledger rows.
+    found AND ``refresh_cache`` (the generator's ``--write`` path — a real
+    content change). ``refresh_cache=False`` (read-only verification, e.g.
+    ``scripts/check_cpd.py``) reads the SAME live ledger content for the
+    comparison but never rewrites the cache file just for having been asked —
+    otherwise a read-only gate would dirty ``_vendor_eg_capability_ledger.json``
+    on every run (a fresh ``cached_at``) even with no actual row change. Falls
+    back to the last-committed cache when no live checkout is reachable —
+    never fabricates ledger rows.
     """
     live_path = locate_eg_ledger(explicit)
     if live_path is not None:
         text = live_path.read_text(encoding="utf-8")
         ledger = parse_eg_ledger_markdown(text)
-        _write_cache(ledger, str(live_path))
+        if refresh_cache:
+            _write_cache(ledger, str(live_path))
         return ledger, str(live_path), True
 
     if CACHE_PATH.exists():
@@ -403,7 +412,9 @@ async def _list_tools(mcp: Any) -> list[Any]:
     return await mcp.list_tools()
 
 
-def generate(eg_ledger_arg: str | None) -> tuple[list[CapabilityPowerDescriptor], str]:
+def generate(
+    eg_ledger_arg: str | None, *, refresh_cache: bool = True
+) -> tuple[list[CapabilityPowerDescriptor], str]:
     from agent_utilities.mcp import kg_server
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
@@ -418,7 +429,9 @@ def generate(eg_ledger_arg: str | None) -> tuple[list[CapabilityPowerDescriptor]
     graphlearn_actions = getattr(kg_server, "GRAPHLEARN_ACTIONS", ())
     deep_mining_actions = getattr(kg_server, "DEEP_MINING_ACTIONS", ())
 
-    ledger, ledger_path, ledger_live = load_ledger(eg_ledger_arg)
+    ledger, ledger_path, ledger_live = load_ledger(
+        eg_ledger_arg, refresh_cache=refresh_cache
+    )
 
     tools = asyncio.run(_list_tools(mcp))
     cpds = [
@@ -458,7 +471,7 @@ def main() -> int:
     if not args.write and not args.check:
         args.check = True  # default: safe, side-effect-free
 
-    cpds, generated_at = generate(args.eg_ledger)
+    cpds, generated_at = generate(args.eg_ledger, refresh_cache=args.write)
     md = render_markdown(cpds, generated_at=generated_at)
     js = render_json(cpds, generated_at=generated_at)
 
