@@ -197,9 +197,16 @@ case itself next time. The goal is orchestrating completely off the harness.
   `core/owl_bridge.py` (+ SHACL gate) is the semantic layer over it. Writes fan out
   to optional durable **mirrors** under `backends/` (Postgres/pg-age primary;
   neo4j/falkordb/ladybug under `backends/contrib/`) for interop/BI/DR — there is
-  **no L0/L1/L2/L3 tier vocabulary**. `retrieval/capability_index.py`
-  (`CapabilityIndex`, HNSW; in-process, not yet distributed) powers `designate()`
-  and reward write-back (`record_outcome`). General Cypher (label/property MATCH
+  **no L0/L1/L2/L3 tier vocabulary**. Capability-aware `designate()` is now
+  **engine-native** (AU-P1-3): `retrieval/engine_capability_search.py` composes
+  capability/tenant/policy filters with the vector `Rank` leg in one
+  `query_unified` plan against the engine, falling back to native
+  `semantic_search` ANN + a bounded post-filter when the engine has no `query`
+  feature. `retrieval/capability_index.py` (`CapabilityIndex`, HNSW/numpy;
+  in-process) is now a **bounded, non-authoritative cache** kept fresh by CDC
+  deltas (`graph/reactive/engine_subscription.py`) rather than the source of
+  truth, used only as a dev/lean-engine fallback and for reward write-back
+  (`record_outcome`). General Cypher (label/property MATCH
   + a real WHERE predicate + aggregates/`DISTINCT`) is executed by the **engine's
   own native Cypher** (`GraphComputeEngine.query_cypher`, its `eg-query`
   parser/executor) rather than a client-side regex interpreter (AU-P0-2,
@@ -220,12 +227,25 @@ case itself next time. The goal is orchestrating completely off the harness.
   `session: GraphSession | None = None` param through `facade.query`/
   `designate`, `engine.add_node`/`add_edge`/`link_nodes`,
   `engine_query.query_cypher`, and `media_store.store_media` — **not** every
-  internal writer yet (~40 remain unthreaded) and **not yet** consumed by a
-  policy/routing authority (AU-P0-5/AU-P0-6, still open). This is not end-to-end
-  tenant enforcement: the derived-property cache still omits tenant, secured
-  reads are still a Python post-filter, engine placement is still client-side
-  HRW (no server-side placement authority), and dispatch's `WorkItem`/lease
-  plumbing doesn't consume it.
+  internal writer yet (~40 remain unthreaded). It IS now consumed by both the
+  admin-scope gate on low-level engine tools (AU-P0-6, `_enforce_admin_scope`
+  checks `ActorContext` **and** `GraphSession` scopes, fail-closed) and
+  tenant-scoped authorization caches (AU-P0-5: `DerivedPropertyEngine`'s
+  read-through cache and the marking registry key on
+  tenant/actor/policy-version/schema/graph, defaulting to the ambient
+  `GraphSession`/actor so unscoped callers are unaffected). Tenant isolation is
+  now end-to-end for the caches above and for pooled Postgres/state-store
+  connections (`set_request_tenant` GUC wired into checkout, fail-closed on a
+  failed `SET`). Two things remain true: secured reads are still a Python
+  post-filter (`ontology/permissioning.enforce`, not pushed into SQL/Cypher),
+  and dispatch's `WorkItem`/lease plumbing doesn't consume `GraphSession`
+  directly (it uses its own CAS/fencing primitive). Engine placement is no
+  longer client-side-HRW-only: `knowledge_graph/core/placement_catalog.py`
+  (DIST-P2-2b) asks the engine's authoritative `PlacementCatalog` for a
+  graph/tenant's owning endpoint first, falling back to the static HRW ring
+  only when the catalog is disabled, unreachable, or the engine doesn't
+  advertise the route RPC — so today's deployments are unaffected but HRW is
+  now a fallback, not the authority.
 - **Routing.** `graph/routing/` is a strategy package (`Router`/`RoutingStrategy`)
   stranglering the monolith `graph/_router_impl.py`; strategies under
   `routing/strategies/` (fast_path, workflow_context, policy). `graph/planning/`
@@ -258,6 +278,60 @@ case itself next time. The goal is orchestrating completely off the harness.
   empty snapshot for a source named in `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`
   (empty by default) — see [`configuration.md`](docs/architecture/configuration.md)
   and [`kg_connectors_and_ingestion.md`](docs/architecture/kg_connectors_and_ingestion.md).
+  A baked-in `MANDATORY_NAMED_CONNECTOR_SOURCES` (AU-P1-6, no env var, 12
+  identifiers — jira/confluence, gitlab, servicenow, leanix, langfuse,
+  tunnel_manager, microsoft-agent, container-manager-mcp, documentdb-mcp,
+  repository-manager, systems-manager, vector-mcp) is **unconditionally**
+  required to pass the manifest gate; every connector emits (or is bridged
+  into, via `ChangeEnvelope.from_connector_record`) the one canonical
+  `ChangeEnvelope` unit-of-change (`knowledge_graph/ingestion/change_envelope.py`,
+  AU-P1-5/6: identity/idempotency-key, provenance/lineage, bitemporal
+  timestamps, typed payload, ACL/classification/retention), consumed by one
+  atomic `ingest_envelope()` transaction (validate → resolve identity → write
+  → lineage+checkpoint → CDC → watermark, crash-resume safe).
+- **One engine-native `WorkItem` state machine (AU-P1-1).** `orchestration/work_item.py`
+  unifies the four independent status vocabularies (`:Task` ingestion queue,
+  `:AgentTask` dispatch, Loop/Goal, the dispatch envelope) onto one versioned
+  lifecycle (`submitted → ready → leased(fencing_token) → running(heartbeat,
+  attempt) → succeeded|failed|cancelled|dead_letter`), reusing the AU-P0-3
+  engine-native CAS/fencing primitive rather than a second claim mechanism.
+  The `:AgentTask`/agent-dispatch claim path can opt in via
+  `AGENT_CLAIM_BACKEND=workitem`; other subsystems get read-only
+  `WorkItemStatus` projections (shims, write paths unchanged) pending a full
+  migration.
+- **Distinct `AssetOccurrence` identity over deduped `Blob` (AU-P1-4).**
+  `memory/media_store.py` now keeps the identity chain
+  `Blob(digest) ← Rendition ← AssetOccurrence ← Message/Document`: only
+  immutable bytes dedup (`:Blob`), while every `store_media()` call mints a
+  distinct uuid-keyed `:AssetOccurrence` owning its own
+  source/tenant/owner/acl/event_time/retention/provenance — fixing the prior
+  bug where two different messages/tenants with identical bytes collapsed
+  onto one node and silently overwrote each other's provenance.
+- **Universal epistemic columns + policy-aware context compiler (Codex X-7,
+  CONCEPT:EPI-P3-1).** Retrieval results can now carry one common
+  `KnowledgeBatch`-shaped column set — `confidence`/`source_refs`/
+  `evidence_refs`/`proof_ids`/`contradiction_ids`/`policy_labels` (the
+  `"epistemic:contested"` label flags a disputed claim) — read by
+  `retrieval/context_compiler.py`'s `ContextCompiler`, which replaces the
+  ad-hoc "flatten hits into a text block" pattern with one selection/assembly
+  layer scoring relevance + MMR diversity + evidence quality + bi-temporal
+  freshness + token budget, then runs every candidate through the SAME
+  fine-grained permissioning gate the live read path uses
+  (`ontology/permissioning.enforce` — row-level drop, column-level
+  redaction) before returning a `ContextBundle`: citations, a `proof_graph` of
+  supports/contradicts/alternative-to edges, and a `decisions` log recording
+  every selection/rejection with its scores. A result missing the epistemic
+  columns degrades to a neutral prior — this is additive, not a breaking
+  schema change.
+- **Enterprise operations causal graph (Codex X-2, `graph_ops_causal` MCP
+  tool).** `knowledge_graph/enrichment/ops_causal_graph.py` joins
+  Langfuse trace → agent/tool/model → service → deploy → commit/MR →
+  incident/change → LeanIX capability → policy/control/evidence into one
+  causal graph; the `graph_ops_causal` tool (`mcp/tools/ops_causal_tools.py`)
+  routes `join`/`root_cause`/`blast_radius`/`change_risk`/`control_evidence`
+  actions over it, reusing the existing causal-reasoning engine
+  (`core/formal_reasoning_core.py`) rather than a new inference stack. See the
+  `kg-ops-causal` skill.
 - **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
   Identity: every gateway request is scoped to a server-minted JWT
   `ActorContext` with fail-closed permissioning and HMAC engine auth

@@ -60,6 +60,22 @@ explicit schemes.
   multi-host deployments — the auto-generated per-install secret only covers
   one host.
 
+## Placement catalog (DIST-P2-2b) — HRW is now the fallback, not the only authority
+
+`knowledge_graph/core/placement_catalog.resolve_placement` asks the engine's
+own authoritative `PlacementCatalog` (epistemic-graph `raft/placement.rs`)
+for a graph/tenant's owning endpoint before falling back to the static HRW
+ring above, caching the `(endpoint, epoch)` answer for a short TTL
+(`PLACEMENT_CATALOG_TTL_S`, default 5s) and re-resolving on a stale-epoch
+redirect. It is wired into the one engine resolver
+(`engine_resolver.resolve_engine`), so every entrypoint gets it for free when
+`PLACEMENT_CATALOG_ENABLED` (default on) is set. **Honest caveat:** the engine
+does not yet expose a wire RPC for `PlacementRoute` (it is presently consumed
+only inside the engine's own MultiRaft dispatch), so today every deployment
+still falls back to the HRW ring above byte-for-byte — this section documents
+the AU-side consumer half of a two-sided contract whose engine-side wire RPC
+is a follow-up.
+
 ## Rebalancing (out of scope — the honest caveat)
 
 HRW keeps key movement minimal when a shard is added or removed (~1/N of
