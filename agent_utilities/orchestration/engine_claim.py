@@ -149,12 +149,26 @@ def _try_engine_claim(
     lease_id = result.get("lease_id")
     if not lease_id:
         return None
+    # Fencing token (AU-P0-3): use the engine's own if it already returns one
+    # (``fence_token``/``lease_epoch`` — whichever name a future build ships);
+    # otherwise synthesize a minimal MONOTONIC token from the claim time.
+    # ``now`` is the caller-supplied claim timestamp, which only ever
+    # increases across successive real claims, so it is a valid (if coarse)
+    # fencing token until the engine surfaces a true lease-epoch/attempt
+    # counter — a real CAS token from the engine should replace this the
+    # moment the surface exposes one.
+    fence_token = result.get("fence_token")
+    if fence_token is None:
+        fence_token = result.get("lease_epoch")
+    if fence_token is None:
+        fence_token = now
     return {
         "task_id": task_id,
         "lease_id": str(lease_id),
         "dag_id": result.get("dag_id") or "",
         "checkpoint_id": result.get("checkpoint_id"),
         "depends_on_task_ids": list(result.get("depends_on_task_ids") or []),
+        "fence_token": fence_token,
     }
 
 

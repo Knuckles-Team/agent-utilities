@@ -54,6 +54,59 @@ def test_mcp_connector_requires_tool_without_preset():
         build_connector("mcp", {"package": "unknown-pkg"})
 
 
+@pytest.mark.concept("AU-P0-4")
+def test_mcp_package_connector_defaults_to_quarantined_not_public(monkeypatch):
+    """This connector has no ACL surface at all -> fail-closed default (CONCEPT:AU-P0-4).
+
+    Unknown/unconfigured access must never silently default to world-public.
+    """
+    monkeypatch.delenv("CONNECTOR_DEFAULT_PUBLIC", raising=False)
+
+    def fake_call(tool, args):
+        return {"items": [{"id": "p1", "title": "T", "text": "body"}]}
+
+    conn = build_connector(
+        "mcp",
+        {
+            "server": "x-mcp",
+            "tool": "list",
+            "records_field": "items",
+            "call_tool": fake_call,
+        },
+    )
+    docs = list(conn.load())
+    assert len(docs) == 1
+    access = docs[0].external_access
+    assert access is not None
+    assert access.is_public is False
+    from agent_utilities.protocols.source_connectors.base import (
+        CONNECTOR_UNCONFIGURED_MARKING,
+    )
+
+    assert CONNECTOR_UNCONFIGURED_MARKING in access.markings
+
+
+@pytest.mark.concept("AU-P0-4")
+def test_mcp_package_connector_default_public_opt_in(monkeypatch):
+    """``CONNECTOR_DEFAULT_PUBLIC=true`` restores the legacy public-by-default behavior."""
+    monkeypatch.setenv("CONNECTOR_DEFAULT_PUBLIC", "true")
+
+    def fake_call(tool, args):
+        return {"items": [{"id": "p1", "title": "T", "text": "body"}]}
+
+    conn = build_connector(
+        "mcp",
+        {
+            "server": "x-mcp",
+            "tool": "list",
+            "records_field": "items",
+            "call_tool": fake_call,
+        },
+    )
+    docs = list(conn.load())
+    assert docs[0].external_access.is_public is True
+
+
 @pytest.mark.concept("AU-ECO.connector.mcp-package-adapter")
 def test_mcp_connector_poll_dedup_cursorless():
     def fake_call(tool, args):

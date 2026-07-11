@@ -870,6 +870,22 @@ class GraphComputeEngine:
             or []
         )
 
+    def query_cypher(self, query: str) -> list[dict[str, Any]]:
+        """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).
+
+        This is the engine's OWN Cypher executor (``eg-query::cypher``, compiled
+        to the label index / VF2 / BFS — no Python-side regex interpretation),
+        reached via ``client.query.cypher``. It requires an engine built with the
+        ``cypher`` feature; on a build without it, or on a query the parser
+        rejects, the call raises a clear engine error naming the problem — there
+        is NO client-side fallback that silently narrows or drops the query.
+
+        The wire protocol carries only the literal query text (no separate params
+        map): callers must inline every ``$param`` as a Cypher literal before
+        calling this method (see ``EpistemicGraphBackend._inline_cypher_params``).
+        """
+        return self._client.query.cypher(query) or []
+
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 

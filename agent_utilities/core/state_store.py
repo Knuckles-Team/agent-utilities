@@ -139,6 +139,78 @@ def ensure_state_schema(store: str, ddl: str, pool: Any | None = None) -> None:
         logger.debug("state-store schema ensured for %r", store)
 
 
+# ── Tenant scoping (AU-P0-5) ───────────────────────────────────────────────
+#
+# The state-store pool is a SEPARATE Postgres connection pool from the KG
+# backend's own (:class:`~agent_utilities.knowledge_graph.backends.postgresql_backend.PostgreSQLBackend`),
+# so it needs its own RLS-GUC seam even though the convention is identical:
+# a per-session/transaction GUC (``app.tenant_id``) that ``deploy/postgres/tenant_rls.sql``
+# (or an equivalent per-store RLS policy) checks — empty/unset means
+# unrestricted (the historical/system path), a non-empty tenant means "this
+# tenant's rows + commons only". Every ``sessions``/``turns``/``usage`` etc.
+# table sharing this pool gets tenant isolation the moment it adds a
+# ``tenant_id`` column + RLS policy, because the connection ALREADY carries
+# the GUC by the time the caller's SQL runs.
+STATE_RLS_GUC = "app.tenant_id"
+
+
+def state_tenant_guc_sql(tenant_id: str | None) -> str:
+    """The ``SET LOCAL app.tenant_id`` statement for a state connection's tenant."""
+    safe = (tenant_id or "").replace("'", "''")
+    return f"SET LOCAL {STATE_RLS_GUC} = '{safe}'"
+
+
+def ambient_state_tenant() -> str:
+    """Resolve the tenant a freshly-checked-out state connection should carry.
+
+    Prefers the ambient :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+    (AU-P0-1's one currency), falling back to the ambient actor's
+    ``tenant_id``; ``""`` (unrestricted/commons) when neither is scoped — the
+    same fallback the KG Postgres backend uses, so a bare/system caller sees
+    identical (unrestricted) behaviour to before this GUC existed.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session()
+        if session is not None and session.tenant:
+            return session.tenant
+    except Exception:  # noqa: BLE001 — tenant resolution must never break a checkout
+        pass
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        return current_actor().tenant_id or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def set_state_tenant(conn: Any, tenant_id: str | None) -> None:
+    """Scope a pooled state connection to ``tenant_id`` via the RLS GUC (AU-P0-5).
+
+    Fail-CLOSED for a real tenant, same rationale as
+    :meth:`PostgreSQLBackend.set_request_tenant`: the state pool is reused, so a
+    swallowed ``SET app.tenant_id`` for a NON-EMPTY tenant would leave the
+    connection carrying the previous checkout's tenant — a silent cross-tenant
+    leak. A failed SET for a non-empty tenant RAISES so
+    :func:`open_state_connection` aborts the checkout rather than proceeding
+    unscoped. Fail-open only for the empty/``None`` baseline (unrestricted /
+    system path), preserving historical best-effort behaviour.
+    """
+    try:
+        conn.execute(state_tenant_guc_sql(tenant_id))
+    except Exception as e:
+        if tenant_id:
+            logger.warning(
+                "set_state_tenant failed for tenant %r — aborting checkout to "
+                "avoid serving a stale tenant context: %s",
+                tenant_id,
+                e,
+            )
+            raise
+        logger.debug("set_state_tenant (unscoped) failed: %s", e)
+
+
 def advisory_key(name: str) -> int:
     """Stable signed 64-bit advisory-lock key for ``name`` (same on every host)."""
     digest = hashlib.sha256(f"agent-utilities:{name}".encode()).digest()
@@ -303,13 +375,24 @@ def open_state_connection(
       tests can monkeypatch it), ``sqlite3.Row`` rows.
     * Postgres (``state_db_uri`` set): borrows from the shared pool after
       ensuring ``postgres_ddl`` once per process; ``close()`` returns the
-      connection to the pool.
+      connection to the pool. Every checkout is scoped to the ambient tenant
+      via ``SET LOCAL app.tenant_id`` (AU-P0-5, :func:`set_state_tenant`)
+      BEFORE the caller's SQL runs, so any store sharing this pool gets tenant
+      isolation for free once it adds a ``tenant_id`` column + RLS policy.
     """
     if postgres_state_enabled():
         pool = state_pool()
         if postgres_ddl:
             ensure_state_schema(store, postgres_ddl, pool=pool)
         raw = pool.getconn()
+        try:
+            # Fail-closed tenant scoping (AU-P0-5): a non-empty tenant that
+            # can't be set RAISES — return the borrowed connection to the pool
+            # and abort the checkout rather than proceed unscoped.
+            set_state_tenant(raw, ambient_state_tenant())
+        except Exception:
+            pool.putconn(raw)
+            raise
         return StateConnection(raw, "postgres", on_close=lambda: pool.putconn(raw))
     path = sqlite_path() if callable(sqlite_path) else sqlite_path
     raw = sqlite3.connect(str(path))

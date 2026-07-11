@@ -41,7 +41,7 @@ profiles:
     secrets: openbao-or-engine-encrypted
     servers: core
     skill: agent-utilities-deployment
-    orchestrator: docker-swarm
+    orchestrator: docker-compose
     install_mode: deploy-container
     idp: keycloak
     ontology_host: local
@@ -50,7 +50,8 @@ profiles:
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
   enterprise:
-    summary: multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)
+    summary: multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak
+      SSO/DNS/ingress/observability + all connectors)
     recipe: docs/recipes/enterprise.md
     docker: true
     secrets: openbao
@@ -59,7 +60,7 @@ profiles:
     orchestrator: kubernetes
     install_mode: deploy-container
     idp: keycloak
-    ontology_host: stardog
+    ontology_host: local
     engine: remote
     engine_tier: cluster
     engine_lifecycle: refcounted

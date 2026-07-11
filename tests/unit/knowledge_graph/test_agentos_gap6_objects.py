@@ -246,6 +246,7 @@ class _Gap6Engine:
                 {
                     "owner_token": top.get("owner_token"),
                     "lease_expires_at": top.get("lease_expires_at"),
+                    "lease_epoch": top.get("lease_epoch"),
                 }
             ]
         if "governance_rule" in q:
@@ -417,11 +418,154 @@ def test_execute_agent_task_turn_skips_terminal_task() -> None:
 
 
 def test_execute_agent_task_turn_default_executor_never_fabricates() -> None:
+    """AU-P0-3 fail-closed: no bound executor must NEVER be recorded as a
+    successful completion — the task is unroutable, not done."""
     engine = _Gap6Engine()
     engine.add_node("task-6", "AgentTask", properties={"status": "pending"})
     outcome = worker.execute_agent_task_turn(engine, "task-6", agent_id="")
-    assert outcome == "completed"
+    assert outcome == "unroutable"
+    assert engine.nodes["task-6"]["status"] == "unroutable"
+    assert outcome in worker._AGENT_TASK_TERMINAL
+
     actions = engine.by_type("Action")
-    assert "acknowledged (no executor bound)" in actions[0]["result"]
+    assert "no executor bound" in actions[0]["result"]
+    assert actions[0]["status"] == "unroutable"
+
+    outcomes = engine.by_type("OutcomeEvaluation")
+    assert len(outcomes) == 1
+    assert outcomes[0]["reward"] == 0.0
+    assert outcomes[0]["reward"] != 1.0
+
     # No agent_id ⇒ no capability grant issued (nothing to authorize).
     assert engine.by_type("AgentCapabilityGrant") == []
+
+
+def test_execute_agent_task_turn_routes_claim_through_engine_claim_backend_switch(
+    monkeypatch,
+) -> None:
+    """AU-P0-3 wiring: the live worker's claim step must resolve through
+    ``engine_claim.claim_agent_task`` (the backend switch), not call this
+    module's KG-only ``claim_agent_task`` directly — otherwise
+    ``AGENT_CLAIM_BACKEND=engine`` is inert for real dispatch (the audited
+    gap: engine_claim.py existed but only its own unit tests imported it).
+    With the backend set to ``engine`` and a live engine claim available, the
+    KG claim primitive must never be invoked."""
+    from agent_utilities.orchestration import engine_claim
+
+    monkeypatch.setenv("AGENT_CLAIM_BACKEND", "engine")
+
+    kg_claim_calls: list[str] = []
+    monkeypatch.setattr(
+        engine_claim,
+        "_claim_agent_task_kg",
+        lambda engine, task_id, **kw: (kg_claim_calls.append(task_id) or None),
+    )
+
+    engine_claim_calls: list[str] = []
+
+    def _fake_try_engine_claim(task_id, *, token, now, claim_ttl_s):
+        engine_claim_calls.append(task_id)
+        return {
+            "task_id": task_id,
+            "lease_id": "lease:engine:live",
+            "dag_id": "",
+            "checkpoint_id": None,
+            "depends_on_task_ids": [],
+            "fence_token": 1,
+        }
+
+    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fake_try_engine_claim)
+
+    engine = _Gap6Engine()
+    engine.add_node("task-9", "AgentTask", properties={"status": "pending"})
+
+    outcome = worker.execute_agent_task_turn(
+        engine,
+        "task-9",
+        agent_id="agent-1",
+        executor=lambda claim: "ran via the engine-native claim",
+    )
+
+    assert outcome == "completed"
+    assert engine_claim_calls == ["task-9"]
+    assert kg_claim_calls == []  # the live engine claim was used EXCLUSIVELY
+    assert engine.nodes["task-9"]["status"] == "completed"
+
+
+def test_execute_agent_task_turn_concurrent_claimants_only_one_wins_cas() -> None:
+    """AU-P0-3: while A is still executing (task status='running', A's lease
+    fresh), a second claimant B racing the same ``:AgentTask`` is turned away
+    by the fresh-lease CAS check in ``claim_agent_task`` and never executes —
+    exactly the concurrency the queue's at-least-once delivery can trigger."""
+    engine = _Gap6Engine()
+    engine.add_node("task-7", "AgentTask", properties={"status": "pending"})
+
+    b_claim_attempts: list[dict | None] = []
+
+    def _executor(claim: dict) -> str:
+        # Simulate B racing in WHILE A is still executing: A's lease is fresh
+        # at this instant, so B's concurrent claim attempt must be rejected.
+        b_claim_attempts.append(
+            worker.claim_agent_task(
+                engine, "task-7", token="hostB:2:agent-dispatch", now=1000.5
+            )
+        )
+        return "did work for A"
+
+    outcome_a = worker.execute_agent_task_turn(
+        engine,
+        "task-7",
+        agent_id="agent-1",
+        executor=_executor,
+        token="hostA:1:agent-dispatch",
+        now=1000.0,
+    )
+
+    assert outcome_a == "completed"
+    # B's concurrent claim attempt lost the CAS — it got None, so B's own
+    # executor (if any) is never invoked; only A's lease exists.
+    assert b_claim_attempts == [None]
+    leases = engine.by_type("AgentLease")
+    assert len(leases) == 1
+    assert leases[0]["owner_token"] == "hostA:1:agent-dispatch"
+
+
+def test_execute_agent_task_turn_stale_lease_fenced_out_at_commit() -> None:
+    """AU-P0-3 fencing: A's lease goes stale mid-execution and is re-claimed
+    by B (crash-recovery re-claim); when A's belated execution finally tries
+    to commit, the fencing-token CAS gate at finalize time REJECTS it — A's
+    stale result must never overwrite B's (the newer holder's) state."""
+    engine = _Gap6Engine()
+    engine.add_node("task-8", "AgentTask", properties={"status": "pending"})
+
+    def _slow_executor(claim: dict) -> str:
+        # While A is "still running" its long executor, A's lease expires and
+        # B re-claims the now-stale task — B is the new authoritative holder.
+        reclaim = worker.claim_agent_task(
+            engine,
+            "task-8",
+            token="hostB:2:agent-dispatch",
+            now=1000.0 + worker.CLAIM_TTL_S + 10.0,
+        )
+        assert reclaim is not None  # B's reclaim succeeds — A's lease is stale
+        return "did work for A (stale, should be rejected)"
+
+    outcome_a = worker.execute_agent_task_turn(
+        engine,
+        "task-8",
+        agent_id="agent-1",
+        executor=_slow_executor,
+        token="hostA:1:agent-dispatch",
+        now=1000.0,
+    )
+
+    assert outcome_a == "fenced"
+    # A's stale commit never landed: the task is left in B's reclaimed state
+    # ("running", owned by B), never flipped to A's "completed".
+    assert engine.nodes["task-8"]["status"] == "running"
+    assert engine.by_type("OutcomeEvaluation") == []
+    assert engine.by_type("Observation") == []
+    leases = engine.by_type("AgentLease")
+    assert len(leases) == 2  # A's original + B's reclaim
+    assert leases[-1]["owner_token"] == "hostB:2:agent-dispatch"
+    assert leases[-1]["lease_epoch"] == 2

@@ -67,9 +67,11 @@ CLAIM_TTL_S = 3600.0
 _GOAL_TERMINAL = ("completed", "failed", "cancelled", "paused")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
 #: Terminal statuses for a durable ``:AgentTask`` (C3/Phase 3a) — same three
-#: outcomes as ``_TASK_TERMINAL``; kept as its own tuple because the two node
+#: outcomes as ``_TASK_TERMINAL`` plus ``unroutable`` (AU-P0-3: a task with no
+#: bound executor — terminal because redelivery would just hit the identical
+#: unroutable outcome again); kept as its own tuple because the two node
 #: kinds are independent schemas that may diverge later.
-_AGENT_TASK_TERMINAL = ("completed", "failed", "cancelled")
+_AGENT_TASK_TERMINAL = ("completed", "failed", "cancelled", "unroutable")
 
 
 def worker_token() -> str:
@@ -290,11 +292,14 @@ def claim_agent_task(
 
     lease_rows = engine.query_cypher(
         "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
-        "l.lease_expires_at AS lease_expires_at ORDER BY l.acquired_at DESC LIMIT 1",
+        "l.lease_expires_at AS lease_expires_at, l.lease_epoch AS lease_epoch "
+        "ORDER BY l.acquired_at DESC LIMIT 1",
         {"rid": task_id},
     )
+    prior_epoch = 0
     if lease_rows:
         lease = lease_rows[0]
+        prior_epoch = int(lease.get("lease_epoch") or 0)
         expires_at = float(lease.get("lease_expires_at") or 0.0)
         if expires_at > now:
             logger.debug(
@@ -310,6 +315,13 @@ def claim_agent_task(
             now - expires_at,
         )
 
+    # Monotonic fencing token (AU-P0-3): every (re)claim strictly increments
+    # the epoch. A holder whose lease later expires and gets re-claimed by
+    # someone else is left carrying a STALE (lower) epoch; the finalize-time
+    # CAS check (`_fence_still_valid`) rejects any commit from that stale
+    # holder even if its execution eventually finishes — the fencing-token
+    # guarantee this module's docstring calls out as missing.
+    fence_token = prior_epoch + 1
     lease_id = f"lease:{task_id}:{uuid.uuid4().hex[:8]}"
     try:
         engine.add_node(
@@ -321,6 +333,7 @@ def claim_agent_task(
                 "resource_id": task_id,
                 "acquired_at": now,
                 "lease_expires_at": now + claim_ttl_s,
+                "lease_epoch": fence_token,
             },
         )
         engine.add_node(task_id, "AgentTask", properties={"status": "running"})
@@ -333,7 +346,52 @@ def claim_agent_task(
         "dag_id": row.get("dag_id") or "",
         "checkpoint_id": row.get("checkpoint_id"),
         "depends_on_task_ids": list(row.get("depends_on_task_ids") or []),
+        "fence_token": fence_token,
     }
+
+
+def _fence_still_valid(
+    engine: Any, task_id: str, claim: dict[str, Any], *, token: str
+) -> bool:
+    """CAS gate at commit time: reject a stale holder whose lease was reclaimed.
+
+    Re-reads the LIVE ``:AgentLease`` for ``task_id`` and compares its
+    ``lease_epoch`` against the epoch this ``claim`` was issued under
+    (``claim["fence_token"]``). A live epoch strictly greater than the
+    claimed one means a newer claim now holds the resource (the original
+    holder's lease expired and was re-claimed while it kept executing) — that
+    stale holder's commit must be rejected, never allowed to overwrite the
+    newer holder's work.
+
+    Fails OPEN (returns ``True``) when there is nothing to fence against: no
+    engine, no ``fence_token`` on the claim (e.g. an engine-native claim that
+    hasn't threaded one through yet), no live lease row, or a lease row that
+    predates this fencing scheme (no ``lease_epoch`` recorded) — same
+    best-effort posture as :func:`resolve_capability_grant` (an audit-read
+    hiccup must never block a legitimate commit).
+    """
+    if engine is None:
+        return True
+    claimed_epoch = claim.get("fence_token")
+    if claimed_epoch is None:
+        return True
+    try:
+        rows = engine.query_cypher(
+            "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
+            "l.lease_epoch AS lease_epoch ORDER BY l.acquired_at DESC LIMIT 1",
+            {"rid": task_id},
+        )
+    except Exception as e:  # noqa: BLE001 — fence check is audit-best-effort
+        logger.debug("Fence check query failed for %s: %s", task_id, e)
+        return True
+    if not rows:
+        return True
+    live_epoch = rows[0].get("lease_epoch")
+    if live_epoch is None:
+        return True
+    if int(live_epoch) > int(claimed_epoch):
+        return False
+    return True
 
 
 # ── capability grants (Codex Gap-6) ─────────────────────────────────────────
@@ -432,17 +490,35 @@ def grant_capability(
     return grant_id
 
 
+class NoExecutorBoundError(RuntimeError):
+    """Raised by :func:`_default_agent_task_executor`: no concrete executor was
+    bound for this ``:AgentTask``, so nothing actually ran.
+
+    Distinguishes an UNROUTABLE task (this) from a real executor failure (any
+    other exception raised by a bound executor) while guaranteeing both are
+    recorded as unsuccessful — AU-P0-3: unrun work must never be marked
+    ``completed`` with ``reward=1.0``.
+    """
+
+
 def _default_agent_task_executor(claim: dict[str, Any]) -> str:
-    """Structural default executor: acknowledges the claim, fabricates no result.
+    """Structural default executor: FAILS CLOSED — no executor bound means no
+    work ran, so this must never be recorded as a successful completion.
 
     Concrete ``:AgentTask`` producers (e.g. ``TeamComposition.to_durable_task_dag()``
     callers) should pass a real ``executor=`` callable to
-    :func:`execute_agent_task_turn`; this default exists purely so the
-    generalized DAG task type has a safe, honest fallback instead of raising —
-    the same no-fabrication discipline :class:`~agent_utilities.models.
-    evidence_bundle.EvidenceBundle` documents for the identical reason.
+    :func:`execute_agent_task_turn`. Previously this default returned an
+    "acknowledged" string and the caller unconditionally set
+    ``status="completed"; reward=1.0`` — unrun work was rewarded as if it had
+    succeeded. Raising :class:`NoExecutorBoundError` instead routes the task
+    through :func:`execute_agent_task_turn`'s failure path (``status=
+    "unroutable"``, ``reward=0.0``), the same no-fabrication discipline
+    :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle` documents
+    for the identical reason.
     """
-    return f"acknowledged (no executor bound) for task {claim.get('task_id')}"
+    raise NoExecutorBoundError(
+        f"no executor bound for task {claim.get('task_id')} — task is unroutable"
+    )
 
 
 def _write_agent_task_provenance(
@@ -613,15 +689,28 @@ def execute_agent_task_turn(
     :func:`claim_agent_task`), ``"blocked"`` (action_policy queued the action
     for human approval — the task is left non-terminal so a fresh claim after
     approval retries it), ``"denied"`` (action_policy forbade the action
-    outright — terminal), ``"completed"`` | ``"failed"`` (the executor ran;
-    writeback recorded). Never raises — an executor exception is caught and
-    recorded as a failed outcome, mirroring
+    outright — terminal), ``"unroutable"`` (no executor was bound — terminal,
+    ``reward=0.0``, AU-P0-3 fail-closed), ``"fenced"`` (this holder's lease
+    was reclaimed by a newer holder before it could commit — the commit is
+    rejected, no writeback happens, AU-P0-3 fencing), ``"completed"`` |
+    ``"failed"`` (the executor ran; writeback recorded). Never raises — an
+    executor exception is caught and recorded as a failed outcome, mirroring
     :func:`_execute_orchestrator_turn`'s durable failure path.
+
+    The claim itself is routed through :func:`~agent_utilities.orchestration.
+    engine_claim.claim_agent_task` (AU-P0-3), which is the KG path here
+    (this module's :func:`claim_agent_task`) by default and switches to the
+    engine-native ``ClaimNext``/lease/CAS primitive when
+    ``AGENT_CLAIM_BACKEND=engine`` resolves live — imported lazily to avoid
+    the import cycle (``engine_claim`` imports this module's
+    :func:`claim_agent_task` as ITS kg fallback).
     """
     token = token or worker_token()
     now = now if now is not None else time.time()
 
-    claim = claim_agent_task(
+    from agent_utilities.orchestration import engine_claim
+
+    claim = engine_claim.claim_agent_task(
         engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
     )
     if claim is None:
@@ -664,6 +753,13 @@ def execute_agent_task_turn(
             f"policy {policy_decision.decision} ({policy_decision.tier}): "
             f"{policy_decision.reason}"
         )
+        if not _fence_still_valid(engine, task_id, claim, token=token):
+            logger.warning(
+                "Agent task %s: fencing token stale (lease reclaimed by a "
+                "newer holder) — policy-decision commit rejected.",
+                task_id,
+            )
+            return "fenced"
         _write_agent_task_provenance(
             engine,
             task_id=task_id,
@@ -703,18 +799,31 @@ def execute_agent_task_turn(
                 now=now,
             )
 
-    # Execute — pluggable body; the default fabricates no result (mirrors
-    # EvidenceBundle's no-fabrication contract). Concrete task kinds plug
-    # their own executor in, same shape as _execute_goal_turn/
-    # _execute_orchestrator_turn.
+    # Execute — pluggable body; the default FAILS CLOSED (no fabricated
+    # success — AU-P0-3). Concrete task kinds plug their own executor in,
+    # same shape as _execute_goal_turn/_execute_orchestrator_turn.
     try:
         result = (executor or _default_agent_task_executor)(claim)
         status = "completed"
         reward = 1.0
+    except NoExecutorBoundError as e:
+        # No executor bound ⇒ nothing ran. Never "completed"/reward=1.0.
+        result = str(e)
+        status = "unroutable"
+        reward = 0.0
     except Exception as e:  # noqa: BLE001 — durably record, never raise
         result = str(e)
         status = "failed"
         reward = 0.0
+
+    if not _fence_still_valid(engine, task_id, claim, token=token):
+        logger.warning(
+            "Agent task %s: fencing token stale (lease reclaimed by a newer "
+            "holder) — execution commit rejected (result discarded: %s).",
+            task_id,
+            status,
+        )
+        return "fenced"
 
     _write_agent_task_provenance(
         engine,

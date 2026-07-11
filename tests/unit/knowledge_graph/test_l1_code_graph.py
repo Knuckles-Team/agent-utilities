@@ -7,6 +7,8 @@ shapes — WHERE-anchored single-hop (find_references) and bounded var-length
 (trace_call_graph / impact_of_change) — resolve the anchor by scan and walk.
 """
 
+import re
+
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
@@ -75,6 +77,47 @@ class MutableFakeGraph:
             ):
                 out.append((n, dict(p)))
         return out[:limit] if limit else out
+
+    def query_cypher(self, query):
+        """Minimal stand-in for the native engine's Cypher executor, covering
+        exactly the plain ``MATCH (v:Label) WHERE v.prop = 'literal' RETURN
+        ...`` shape ``build_code_nav_query('find_definition', ...)`` emits
+        (CONCEPT:AU-P0-2). Real callers hit the real engine; this fake exists
+        so the test doesn't need a live one."""
+        m = re.match(
+            r"MATCH\s*\((\w+):(\w+)\)\s*WHERE\s*(\w+)\.(\w+)\s*=\s*'([^']*)'\s*"
+            r"RETURN\s+(.+?)(?:\s+LIMIT\s+(\d+))?$",
+            query,
+            re.I,
+        )
+        if not m:
+            raise NotImplementedError(
+                f"MutableFakeGraph.query_cypher: unsupported test shape: {query!r}"
+            )
+        _var, label, _wvar, wprop, wval, ret, limit = m.groups()
+        rows = [
+            (nid, props)
+            for nid, props in self.get_nodes_by_label(label, 0)
+            if props.get(wprop) == wval
+        ]
+        if limit:
+            rows = rows[: int(limit)]
+        out = []
+        for nid, props in rows:
+            row = {}
+            for item in ret.split(","):
+                item = item.strip()
+                mi = re.match(r"(\w+)\.(\w+)\s+AS\s+(\w+)", item, re.I)
+                if mi:
+                    _, prop, alias = mi.groups()
+                    row[alias] = props.get(prop)
+                    continue
+                mi = re.match(r"(\w+)\s+AS\s+(\w+)", item, re.I)
+                if mi:
+                    _, alias = mi.groups()
+                    row[alias] = nid
+            out.append(row)
+        return out
 
 
 def _backend():

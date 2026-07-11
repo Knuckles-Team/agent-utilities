@@ -32,9 +32,12 @@ import json
 import logging
 import math
 from enum import Enum, StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from agent_utilities.core.config import setting
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
 from ..backends import create_backend, get_active_backend
@@ -513,6 +516,8 @@ class IntelligenceGraphEngine(
         rel_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ):
         """Create a relationship between two nodes in the graph.
 
@@ -520,7 +525,19 @@ class IntelligenceGraphEngine(
         This prevents sync drift — the persistent layer is always the
         canonical state. The compute scratchpad is updated afterward
         as a real-time cache.
+
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1). See :meth:`add_node` for the ambient-actor
+                scoping this enables downstream.
         """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import GraphSession
+
+        if session is None:
+            session = GraphSession.from_ambient()
+
         if rel_type:
             # Flag edge types outside an EXCLUSIVE pack before normalising case
             # (observe-only; no-op under the default core pack) (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
@@ -540,12 +557,15 @@ class IntelligenceGraphEngine(
 
         stamp_bitemporal(props, event_time=props.get("event_time"))
 
-        if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST (backend-only).
-            self._upsert_edge(source_id, target_id, rel_type, props)
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                # Tier 1: Backend is source of truth — write here FIRST (backend-only).
+                self._upsert_edge(source_id, target_id, rel_type, props)
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
+            # Tier 2: Update graph_compute cache after backend succeeds
+            self.graph_compute.add_edge(
+                source_id, target_id, {"type": rel_type, **props}
+            )
 
     def _upsert_edge(
         self,
@@ -716,6 +736,8 @@ class IntelligenceGraphEngine(
         node_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ):
         """Add a generic node to the graph.
 
@@ -723,20 +745,39 @@ class IntelligenceGraphEngine(
         Pydantic model (e.g. council verdicts, ad-hoc decision nodes).
 
         Write ordering: backend-first, then graph_compute.
+
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1 — the one currency). When omitted, one is derived
+                from today's ambient actor via ``GraphSession.from_ambient()``.
+                The write executes with that session's actor scoped ambiently
+                (``use_actor``) for its duration, so any provenance/ownership
+                stamping downstream that still reads the ambient actor
+                (e.g. the write-path Company Brain guard) attributes correctly
+                — existing callers that never pass ``session`` see identical
+                behaviour.
         """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import GraphSession
+
+        if session is None:
+            session = GraphSession.from_ambient()
+
         node_type = self._normalize_label(node_type)
         props = properties or {}
         props["type"] = node_type
         # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
 
-        if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST
-            data = {"id": node_id, **props}
-            self._upsert_node(node_type, node_id, data)
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                # Tier 1: Backend is source of truth — write here FIRST
+                data = {"id": node_id, **props}
+                self._upsert_node(node_type, node_id, data)
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        self.graph_compute.add_node(node_id, props)
+            # Tier 2: Update graph_compute cache after backend succeeds
+            self.graph_compute.add_node(node_id, props)
 
     def add_edge(
         self,
@@ -744,6 +785,8 @@ class IntelligenceGraphEngine(
         target: str,
         rel_type: str = "",
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
         **properties: Any,
     ) -> None:
         """Add a generic edge between two nodes (backend-first, then graph_compute).
@@ -751,16 +794,29 @@ class IntelligenceGraphEngine(
         Convenience for ad-hoc relationships (e.g. provenance links like
         ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:AU-ORCH.session.invoker-agent-handoff) where there is no typed
         model. Best-effort: a missing backend/compute method is tolerated.
+
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1). See :meth:`add_node` for the ambient-actor
+                scoping this enables downstream.
         """
-        if self.backend and not ephemeral:
-            _be = getattr(self.backend, "add_edge", None)
-            if callable(_be):
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import GraphSession
+
+        if session is None:
+            session = GraphSession.from_ambient()
+
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                _be = getattr(self.backend, "add_edge", None)
+                if callable(_be):
+                    with contextlib.suppress(Exception):
+                        _be(source, target, rel_type, **properties)
+            _ge = getattr(self.graph_compute, "add_edge", None)
+            if callable(_ge):
                 with contextlib.suppress(Exception):
-                    _be(source, target, rel_type, **properties)
-        _ge = getattr(self.graph_compute, "add_edge", None)
-        if callable(_ge):
-            with contextlib.suppress(Exception):
-                _ge(source, target, {"rel_type": rel_type, **properties})
+                    _ge(source, target, {"rel_type": rel_type, **properties})
 
     def get_blast_radius(self, node_id: str, depth: int) -> list[dict[str, Any]]:
         """Retrieve the blast radius (dependencies) from a starting node.

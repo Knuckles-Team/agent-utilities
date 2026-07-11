@@ -170,6 +170,22 @@ def test_envelope_round_trip():
     assert restored.job_id.startswith("dispatch-")
 
 
+def test_envelope_job_id_is_full_width_uuid_not_truncated_hex8():
+    """AU-P0-3: the prior ``dispatch-{uuid4().hex[:8]}`` kept only 32 bits of
+    entropy (~50% collision odds by ~77k ids); job_id must now carry the FULL
+    128-bit uuid4 hex — 32 hex chars after the ``dispatch-`` prefix, not 8."""
+    seen: set[str] = set()
+    for _ in range(200):
+        env = AgentTurnEnvelope(session_id="sess-1")
+        assert env.job_id.startswith("dispatch-")
+        suffix = env.job_id[len("dispatch-") :]
+        assert len(suffix) == 32, f"expected a full 32-hex-char uuid4, got {suffix!r}"
+        int(suffix, 16)  # must be valid hex
+        seen.add(env.job_id)
+    # 200 independently generated full-width ids must all be distinct.
+    assert len(seen) == 200
+
+
 def test_envelope_carries_references_not_bodies():
     env = AgentTurnEnvelope(session_id="s", payload_ref="goal-9")
     assert "objective" not in env.to_item()
@@ -835,6 +851,7 @@ class _AgentTaskEngine(_FakeOrchEngine):
                 {
                     "owner_token": top.get("owner_token"),
                     "lease_expires_at": top.get("lease_expires_at"),
+                    "lease_epoch": top.get("lease_epoch"),
                 }
             ]
         return []
@@ -877,6 +894,7 @@ def test_claim_agent_task_claims_and_writes_lease():
         "dag_id": "dag-1",
         "checkpoint_id": None,
         "depends_on_task_ids": ["dag-1:task:a"],
+        "fence_token": 1,
     }
     assert claim["lease_id"].startswith("lease:task-1:")
     assert engine.graph.nodes["task-1"]["status"] == "running"
@@ -887,6 +905,7 @@ def test_claim_agent_task_claims_and_writes_lease():
     assert lease["resource_id"] == "task-1"
     assert lease["acquired_at"] == 1000.0
     assert lease["lease_expires_at"] == 1000.0 + worker.CLAIM_TTL_S
+    assert lease["lease_epoch"] == 1
 
 
 def test_claim_agent_task_skips_task_with_fresh_live_lease():

@@ -21,8 +21,8 @@ from .base import GraphBackend
 logger = logging.getLogger(__name__)
 
 # A variable-length relationship pattern ``-[*lo..hi]-`` / ``-[*]->`` etc. These
-# are bounded multi-hop traversals the L1 engine resolves via a BFS over its
-# native neighbour ops. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
+# are bounded multi-hop traversals this backend resolves via a BFS over the
+# engine's native neighbour ops. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — native engine traversal.)
 _VAR_LEN_RE = re.compile(r"\[\s*[A-Za-z_]*\s*:?\s*\w*\s*\*")
 
 # Write-DDL keyword detection as *whole words*. A substring scan misroutes a READ
@@ -38,6 +38,81 @@ _WRITE_KW_RE = {
 def _has_kw(qu: str, kw: str) -> bool:
     """True if ``kw`` appears as a whole Cypher clause keyword in ``qu`` (upper)."""
     return bool(_WRITE_KW_RE[kw].search(qu))
+
+
+class CypherEngineError(RuntimeError):
+    """The native Cypher engine rejected or failed a query.
+
+    Raised instead of silently returning ``[]`` when a query handed to the
+    native engine (``GraphComputeEngine.query_cypher``) is unsupported,
+    malformed, or fails server-side — e.g. a construct outside the engine's
+    Cypher-subset grammar (``eg-query``: no comma-separated disjoint MATCH
+    patterns, no arbitrary function calls). Carries the original query, the
+    literal-inlined query actually sent, and the underlying engine error so the
+    caller can see exactly what failed and why — never a fabricated empty result.
+    """
+
+    def __init__(self, query: str, inlined: str, cause: BaseException) -> None:
+        self.query = query
+        self.inlined = inlined
+        self.cause = cause
+        super().__init__(
+            f"native Cypher engine rejected query: {cause} "
+            f"(query: {query[:300]!r}, inlined: {inlined[:300]!r})"
+        )
+
+
+# ``$name`` parameter placeholders and the ``current_timestamp()`` pseudo-literal
+# get inlined into the query text before it reaches the native engine — its wire
+# method (``CypherQuery``) carries only the literal query string, no params map
+# (CONCEPT:AU-KG.query.object-graph-mapper).
+_PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
+_CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
+
+
+def _now_iso() -> str:
+    """Current UTC time as an ISO-8601 string (the ``current_timestamp()`` value)."""
+    import datetime
+
+    return datetime.datetime.now(datetime.UTC).isoformat()
+
+
+def _cypher_literal(value: Any) -> str:
+    """Render ``value`` as a literal the native Cypher engine's grammar accepts.
+
+    The engine's hand-written parser (``eg-query/src/cypher/parser.rs``) only
+    implements ``literal := string | number | true | false`` — there is no
+    ``null`` literal (only ``IS [NOT] NULL`` predicates) and no negative-number
+    literal (``-`` never fuses with a following digit in its tokenizer). A value
+    this grammar cannot express raises ``NotImplementedError`` naming the exact
+    gap rather than silently mis-inlining it or dropping the predicate.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        raise NotImplementedError(
+            "the native Cypher engine has no NULL literal (only IS [NOT] NULL "
+            "predicates); cannot inline a None value as an equality/SET literal "
+            "— rewrite the query to use IS NULL / IS NOT NULL instead"
+        )
+    if isinstance(value, int | float):
+        if value < 0:
+            raise NotImplementedError(
+                "the native Cypher engine's literal grammar has no negative "
+                f"number literal (value={value!r}); rewrite the query so the "
+                "comparison/assignment does not need a negative literal"
+            )
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(_cypher_literal(v) for v in value) + "]"
+    raise NotImplementedError(
+        f"cannot inline a {type(value).__name__} value as a native Cypher "
+        f"literal (value={value!r}); the engine's grammar only accepts "
+        "string/number/bool literals and lists of them"
+    )
 
 
 class EpistemicGraphBackend(GraphBackend):
@@ -57,8 +132,11 @@ class EpistemicGraphBackend(GraphBackend):
 
     @property
     def cypher_support(self) -> str:
-        """No Cypher engine: only the bounded operational subset the orchestration
-        engine emits is interpreted directly (CONCEPT:AU-KG.backend.multi-connection-registry)."""
+        """A general (non-full-Cypher) query is routed to the engine's OWN native
+        Cypher executor (CONCEPT:AU-KG.backend.multi-connection-registry); only a
+        small set of AU-specific shapes with no native equivalent (the virtual
+        ``id`` node-identity accessor, relationship-type traversal/merge) still go
+        through typed engine methods. See :meth:`execute`."""
         return "subset"
 
     def __init__(self, graph_name: str | None = None) -> None:
@@ -104,23 +182,42 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the in-memory graph.
 
-        This backend has no Cypher engine, so it interprets the *operational
-        subset* the orchestration engine relies on directly over the
-        ``GraphComputeEngine`` node store. Supported for single-node
-        ``MATCH`` patterns (no relationships):
+        The **native Cypher engine** (``GraphComputeEngine.query_cypher`` →
+        ``eg-query``'s own parser/executor, compiled to the label index / VF2 /
+        BFS server-side) is the authority for general Cypher matching, WHERE
+        filtering, aggregation (``count``/``sum``/``avg``/``min``/``max``),
+        ``DISTINCT``, and property mutation (``SET``/``DETACH DELETE``) over
+        single-node patterns. ``params`` are inlined as Cypher literals before
+        the query is sent (see ``_inline_cypher_params``) — the engine's wire
+        method carries only the literal query text.
 
-          - label filter ``(v:Label ...)`` (matched against ``node_type``,
-            ``label``, or ``labels``)
-          - inline ``{prop: $param | 'literal'}`` and ``WHERE`` equality,
-            ``IN [...]``, ``CONTAINS``, ``IS [NOT] NULL`` filters
-          - ``SET v.prop = $param | 'literal'`` property mutation (upsert
-            merge — critical for Task status transitions)
-          - ``DETACH DELETE v``
-          - ``RETURN`` projection: bare ``v`` (full node), ``v.prop AS alias``,
-            and ``count(v) AS alias``; honours ``LIMIT``
+        A small set of AU-specific shapes have **no native-Cypher equivalent**
+        and stay on typed engine methods instead:
 
-        Anything outside this subset (relationship traversal, MERGE/CREATE,
-        unrecognised shapes) falls back to the legacy id/label/all behaviour.
+          - the virtual ``id`` node-identity accessor (``{id: ...}`` / a bare
+            ``id`` WHERE equality): this backend does not guarantee every node
+            carries its identifier as a real stored ``id`` property, so the
+            engine's ``id``-as-property WHERE match cannot be trusted to
+            resolve it. Handled by ``_exec_node_match``'s O(1) id fast path and
+            ``_exec_merge_node``. A ``RETURN var.id`` projection on a query that
+            otherwise routes natively is rewritten to a bare ``var`` first (see
+            ``_rewrite_virtual_id_accessors``) — a bare var's projected value
+            already IS the real node id in the native engine's own model.
+          - relationship traversal/merge (``-[:REL]->`` etc.): this backend
+            stores an edge's relationship name under the ``rel_type`` property
+            key, while the native engine's rel-type match reads
+            ``relationship``/``type`` — routing a typed relationship pattern
+            there would silently match zero edges. Handled by
+            ``_exec_rel_match``/``_exec_rel_aggregate``/
+            ``_exec_where_anchored_traversal``/``_exec_var_length_match``/
+            ``_exec_rel_merge`` over the typed successor/predecessor engine ops.
+
+        A query the native engine rejects (unsupported syntax, or a literal its
+        grammar can't express — ``None``/negative numbers) raises
+        :class:`CypherEngineError` / ``NotImplementedError`` naming the problem;
+        it never silently degrades to ``[]``. A query that is neither a MATCH
+        nor a MERGE/relationship shape falls to ``_legacy_execute`` — a plain
+        params-keyed (``id``/``label``) lookup convenience, not Cypher parsing.
         """
         params = params or {}
         q = (query or "").strip()
@@ -136,20 +233,25 @@ class EpistemicGraphBackend(GraphBackend):
 
         # Relationship upsert: ``MATCH (a),(b) WHERE a.id=$x AND b.id=$y
         # MERGE (a)-[:REL]->(b)``. Resolve both endpoints by id (O(1)) and add
-        # the edge directly — otherwise this falls to the full-scan legacy reader
-        # AND never creates the L1 edge. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
+        # the edge directly via the typed ``add_edge`` engine method — the native
+        # Cypher ``MERGE`` clause binds only a single ``NodePat`` (no relationship
+        # patterns), so an edge upsert has no native-Cypher equivalent to route to.
+        # (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
         if "->" in q and _has_kw(qu, "MERGE") and qu.startswith("MATCH"):
             handled, result = self._exec_rel_merge(q, params)
             if handled:
                 return result
 
         # Relationship-pattern READ — single-hop outbound ``->``, inbound ``<-``,
-        # or bounded variable-length ``-[*lo..hi]-``. The L1 engine resolves these
-        # natively over its neighbour/BFS ops, so they no longer have to fall back
-        # to L3. Critically, if no traversal interpreter matches we return ``[]``
-        # — NOT the whole graph — so a tiered caller can defer to L3 instead of
-        # silently receiving every node (the old legacy full-scan footgun).
-        # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
+        # or bounded variable-length ``-[*lo..hi]-``. This is walked via the typed
+        # successor/predecessor engine methods rather than the native Cypher engine:
+        # this backend stores an edge's relationship name under the ``rel_type``
+        # property key, while the native engine's rel-type match reads
+        # ``relationship``/``type`` — a stored-key mismatch that would make a typed
+        # relationship pattern (``-[:REL]->``) silently match zero edges if routed
+        # there. If no traversal interpreter matches we return ``[]`` — NOT the
+        # whole graph — rather than a full-graph scan (the old legacy footgun).
+        # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — native engine traversal.)
         if (
             qu.startswith("MATCH")
             and ("->" in q or "<-" in q or _VAR_LEN_RE.search(q))
@@ -165,7 +267,7 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
             # Edge existence/count/property reads (count(r), r.prop, r) anchored by
-            # WHERE or inline ids — makes written edges readable from L1.
+            # WHERE or inline ids — makes written edges readable from this backend.
             handled, result = self._exec_rel_aggregate(q, params)
             if handled:
                 return result
@@ -177,19 +279,18 @@ class EpistemicGraphBackend(GraphBackend):
             # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): an *aggregate* (``count(...)``)
             # over a relationship pattern whose WHERE filter no interpreter could
             # honor must NOT silently return ``[]`` — a caller reads an empty
-            # aggregate as 0, which is a confidently wrong number. Fail loud so the
-            # query is fixed/anchored or routed to a backend (L3) that can transpile
-            # it, rather than returning a fabricated count. Non-aggregate unhandled
-            # reads keep the deliberate ``return []`` deferral (lets a tiered caller
-            # fall through to L3 without a full-graph scan).
+            # aggregate as 0, which is a confidently wrong number. Fail loud instead
+            # of returning a fabricated count, so the caller fixes/anchors the
+            # query. Non-aggregate unhandled reads keep the deliberate ``return []``
+            # deferral rather than a full-graph scan.
             if re.search(
                 r"RETURN\s+count\s*\(", q, re.I
             ) and self._where_has_unhonored_filter(q):
                 raise ValueError(
-                    "epistemic_graph (L1) cannot honor this aggregate query's "
+                    "epistemic_graph backend cannot honor this aggregate query's "
                     "WHERE filter; refusing to return an unfiltered global count "
-                    "(route to an L3 cypher→SQL backend or anchor the query): "
-                    f"{q[:200]}"
+                    "(anchor the query by id, or restrict it to a shape this "
+                    f"backend can filter): {q[:200]}"
                 )
             logger.debug(
                 "epistemic_graph backend: unhandled relationship read; "
@@ -198,8 +299,12 @@ class EpistemicGraphBackend(GraphBackend):
             )
             return []
 
-        # Single-node MATCH patterns are interpreted directly; relationship
-        # traversals and other write-DDL fall through to the legacy reader.
+        # Single-node MATCH: the O(1) ``id``-anchored fast path and the
+        # no-predicate label/enumeration scan stay on typed engine methods
+        # (``_exec_node_match``, see its docstring); anything carrying a real
+        # WHERE/inline-property predicate defers (``handled=False``) so it falls
+        # through to the native Cypher engine below — the authority for general
+        # Cypher matching/filtering/aggregation in this backend.
         if (
             qu.startswith("MATCH")
             and "->" not in q
@@ -211,7 +316,107 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
 
+            rewritten = self._rewrite_virtual_id_accessors(q)
+            inlined = self._inline_cypher_params(rewritten, params)
+            try:
+                return self._graph.query_cypher(inlined)
+            except NotImplementedError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — re-raised as a named, typed error
+                raise CypherEngineError(query=q, inlined=inlined, cause=exc) from exc
+
         return self._legacy_execute(params)
+
+    @staticmethod
+    def _rewrite_virtual_id_accessors(query: str) -> str:
+        """Rewrite RETURN-clause ``var.id`` accessors to a bare ``var`` before a
+        query reaches the native Cypher engine (CONCEPT:AU-KG.query.object-graph-mapper).
+
+        This backend does not guarantee every node carries its identifier as a
+        real stored ``id`` property (see the ``execute`` docstring's virtual-id
+        note), so the native engine's ``.id`` property read cannot be trusted —
+        it silently returns ``None`` for a node whose id was never also written
+        as a property (confirmed against a live engine: this is the common
+        case). A bare ``var`` in a RETURN item, however, always resolves to the
+        real node id in the native engine's own model, so ``var.id [AS alias]``
+        rewrites losslessly to ``var AS alias`` (default alias ``id``).
+
+        Any OTHER ``.id`` reference in the query (a WHERE/SET use the
+        id-anchored fast path in ``_exec_node_match``/``_exec_merge_node`` did
+        not already intercept — e.g. ``id`` inside an OR disjunction, or
+        embedded in a compound RETURN expression like ``count(t.id)``) has no
+        safe native mapping and raises ``NotImplementedError`` naming the exact
+        construct, rather than silently filtering/counting the wrong thing.
+        """
+        m_ret = re.search(r"\bRETURN\b", query, re.I)
+        if not m_ret:
+            if re.search(r"\b\w+\.id\b", query):
+                raise NotImplementedError(
+                    "this backend cannot route a '.id' property accessor to "
+                    "the native Cypher engine outside its id-anchored fast "
+                    f"path: {query!r}"
+                )
+            return query
+        if re.search(r"\b\w+\.id\b", query[: m_ret.start()]):
+            raise NotImplementedError(
+                "this backend cannot route a '.id' property accessor to the "
+                f"native Cypher engine outside its id-anchored fast path: {query!r}"
+            )
+
+        head, ret_body = query[: m_ret.end()], query[m_ret.end() :]
+        tail_m = re.search(r"\b(ORDER\s+BY|SKIP|LIMIT)\b", ret_body, re.I)
+        items_part = ret_body[: tail_m.start()] if tail_m else ret_body
+        suffix = ret_body[tail_m.start() :] if tail_m else ""
+
+        distinct_m = re.match(r"\s*DISTINCT\b", items_part, re.I)
+        prefix = ""
+        if distinct_m:
+            prefix = "DISTINCT "
+            items_part = items_part[distinct_m.end() :]
+
+        def _rewrite_item(item: str) -> str:
+            stripped = item.strip()
+            m = re.match(r"^(\w+)\.id\s*(?:AS\s+(\w+))?$", stripped, re.I)
+            if not m:
+                if re.search(r"\b\w+\.id\b", stripped):
+                    raise NotImplementedError(
+                        "this backend cannot route a '.id' accessor embedded "
+                        "in a compound RETURN expression to the native Cypher "
+                        f"engine: {stripped!r} in {query!r}"
+                    )
+                return stripped
+            var, alias = m.group(1), m.group(2)
+            return f"{var} AS {alias}" if alias else f"{var} AS id"
+
+        items = [
+            _rewrite_item(it)
+            for it in EpistemicGraphBackend._split_top_level(items_part)
+        ]
+        return f"{head} {prefix}{', '.join(items)} {suffix}".rstrip()
+
+    @staticmethod
+    def _inline_cypher_params(query: str, params: dict[str, Any]) -> str:
+        """Bake every ``$param`` and ``current_timestamp()`` into ``query`` as a
+        native-Cypher-grammar literal (CONCEPT:AU-KG.query.object-graph-mapper).
+
+        The native engine's ``CypherQuery`` wire method carries only the literal
+        query text — there is no separate params map — so every value this
+        backend's callers pass via ``params`` must be baked into the text before
+        the query is sent. A referenced-but-missing param raises ``ValueError``
+        (never silently resolves to ``None``); a value the grammar can't express
+        raises ``NotImplementedError`` (see ``_cypher_literal``).
+        """
+        query = _CURRENT_TIMESTAMP_RE.sub(lambda _m: _cypher_literal(_now_iso()), query)
+
+        def _sub(m: re.Match[str]) -> str:
+            name = m.group(1)
+            if name not in params:
+                raise ValueError(
+                    f"missing parameter '${name}' for native Cypher query: {query!r}"
+                )
+            return _cypher_literal(params[name])
+
+        return _PARAM_TOKEN_RE.sub(_sub, query)
 
     def _exec_rel_match(
         self, q: str, params: dict[str, Any]
@@ -224,7 +429,7 @@ class EpistemicGraphBackend(GraphBackend):
         Resolves the anchor ``a`` by id, walks ``REL`` neighbours in the matched
         direction, filters targets ``b`` by label, and projects on ``b``. Returns
         ``(False, [])`` for any shape outside this subset so the caller can fall
-        back. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
+        back. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — native engine traversal.)
         """
         anchor_re = (
             r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*"
@@ -354,7 +559,7 @@ class EpistemicGraphBackend(GraphBackend):
 
         Resolves endpoints by id, matches the edge (and ``rel_type`` if given), and
         projects a count, an edge property, or the full edge-property map. This is
-        what makes edges *readable* from the L1 backend (they were write-only before
+        what makes edges *readable* from this backend (they were write-only before
         — present in the compute graph but not returned by ``backend.execute``).
         """
         pat = re.search(
@@ -416,9 +621,9 @@ class EpistemicGraphBackend(GraphBackend):
             # rel-type-filtered count or an ``r``/``r.prop`` projection enumerates
             # the engine's native triple export. An unanchored *node* projection
             # (e.g. ``RETURN b``) still defers (``return False``) rather than
-            # scanning every node — the deliberate L1 guard. This is what makes
-            # ``MATCH ()-[r]->() RETURN count(r)`` readable from the L1 backend.
-            # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
+            # scanning every node — the deliberate guard. This is what makes
+            # ``MATCH ()-[r]->() RETURN count(r)`` readable from this backend.
+            # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — native engine traversal.)
             #
             # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): a WHERE clause carrying a
             # node-property predicate this aggregate cannot honor (e.g.
@@ -429,8 +634,7 @@ class EpistemicGraphBackend(GraphBackend):
             # equalities already consumed into ``idmap`` (which would have anchored
             # the lookup above). If any other predicate remains, defer (``return
             # False, []``) so the dispatcher tries the label+WHERE traversal and,
-            # failing that, returns ``[]`` (or the tiered backend routes to L3's
-            # cypher→SQL transpiler) — never a silent global count.
+            # failing that, returns ``[]`` — never a silent global count.
             if self._where_has_unhonored_filter(q):
                 logger.debug(
                     "epistemic_graph backend: unanchored relationship aggregate "
@@ -609,7 +813,7 @@ class EpistemicGraphBackend(GraphBackend):
         left) and directed ``->`` / ``<-`` variants. Resolves the anchor by id,
         runs a bounded BFS over the engine's native neighbour ops to ``hi`` hops,
         filters the free node by label, and projects on it. Returns ``(False, [])``
-        for shapes outside this subset. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
+        for shapes outside this subset. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — native engine traversal.)
         """
         if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b", q, re.I):
             return False, []
@@ -683,7 +887,7 @@ class EpistemicGraphBackend(GraphBackend):
 
         ``direction``: 'out' (successors), 'in' (predecessors), 'both' (neighbours).
         Each frontier expansion is one engine round-trip per node; bounded by
-        ``hi`` so an L1 traversal stays a small, fast working set.
+        ``hi`` so a traversal stays a small, fast working set.
         """
         if direction == "out":
             step = self._graph.get_successors
@@ -744,7 +948,7 @@ class EpistemicGraphBackend(GraphBackend):
 
         # Persist edge properties (confidence, source, bitemporal stamps, …) from
         # the SET clause and inline relationship props — not just rel_type — so the
-        # durable L1 edge carries the same data as the compute edge (KG-2.7 parity).
+        # durable edge carries the same data as the compute edge (KG-2.7 parity).
         edge_props: dict[str, Any] = {"rel_type": rel}
         if rel_var:
             for sm in re.finditer(
@@ -984,8 +1188,27 @@ class EpistemicGraphBackend(GraphBackend):
                     id_val, data, where_groups
                 ):
                     matched.append((id_val, data))
+        elif any(where_groups) and not self._where_groups_reference_id(where_groups):
+            # A real property/WHERE predicate beyond the trivial ``id`` equality
+            # above (an ``=``/``IN``/``CONTAINS``/``IS [NOT] NULL`` test, or an
+            # ``OR`` disjunction) needs a genuine WHERE evaluator. The native
+            # Cypher engine implements exactly this grammar server-side, in one
+            # round trip over its own label index — defer so ``execute()`` routes
+            # the whole query there instead of re-implementing WHERE semantics
+            # with a client-side per-node scan (the audited correctness risk:
+            # a subtly-wrong regex evaluator silently mis-filtering rows).
+            #
+            # EXCEPTION: if ANY predicate (in ANY OR-branch) tests the virtual
+            # ``id`` accessor, native routing is unsafe (see the ``execute``
+            # docstring) and there is no O(1) fast path for it either (that
+            # requires a *single* AND-group), so this case falls through to the
+            # scan-and-``_eval_groups`` branch below, which already special-cases
+            # ``id`` against the real node identifier via ``_node_value``.
+            return False, []
         else:
-            # Engine-side labeled fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation): a label-scoped MATCH
+            # No real predicate — a label-scoped or bare enumeration/projection
+            # with nothing to filter. Engine-side labeled fetch
+            # (CONCEPT:EG-KG.txn.per-graph-write-isolation): a label-scoped MATCH
             # fetches only that label's nodes — never the whole graph — and pushes
             # the LIMIT down for a pure read (no WHERE/SET/DELETE could drop a
             # match and under-return). A bare (label-less) MATCH still does the
@@ -1163,6 +1386,21 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> bool:
         """DNF evaluation: the row matches if ANY AND-group matches."""
         return any(self._eval_conds(nid, data, g) for g in groups)
+
+    @staticmethod
+    def _where_groups_reference_id(
+        groups: list[list[tuple[str, str, Any]]],
+    ) -> bool:
+        """True if the virtual ``id`` accessor appears in ANY predicate, in ANY
+        OR-branch (CONCEPT:AU-KG.query.object-graph-mapper). The O(1) fast path above only
+        resolves a *single* AND-group's bare ``id = value`` equality; ``id``
+        mixed into an OR (``t.id = $a OR t.id = $b``) or combined with another
+        predicate reaches here instead, and — since this backend does not
+        guarantee ``id`` is a real stored property — must keep using the
+        scan-and-``_eval_groups`` path (which special-cases ``id`` against the
+        real node identifier via ``_node_value``) rather than the native engine.
+        """
+        return any(prop == "id" for group in groups for (prop, _op, _val) in group)
 
     def _eval_conds(
         self, nid: str, data: dict[str, Any], conds: list[tuple[str, str, Any]]
