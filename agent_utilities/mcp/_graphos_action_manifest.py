@@ -1545,6 +1545,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_ontology", "action": "load", "name": "graph_ontology_load"},
     {
         "tool": "graph_ontology",
+        "action": "publish_stardog",
+        "name": "graph_ontology_publish_stardog",
+    },
+    {
+        "tool": "graph_ontology",
+        "action": "import_stardog",
+        "name": "graph_ontology_import_stardog",
+    },
+    {
+        "tool": "graph_ontology",
         "action": "sync_packages",
         "name": "graph_ontology_sync_packages",
     },
