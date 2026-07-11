@@ -391,8 +391,7 @@ async def run_agent(
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
-            # into a multi-step plan + expert fan-out. A failure (e.g. a server unreachable)
-            # falls through to the full graph rather than erroring the turn.
+            # into a multi-step plan + expert fan-out.
             try:
                 result = await _execute_focused_tools(
                     task=task,
@@ -402,31 +401,32 @@ async def run_agent(
                     max_steps=max_steps,
                 )
             except Exception as e:  # noqa: BLE001
+                # CONCEPT:AU-ORCH.execution.focused-tools-fail-closed — this branch is entered ONLY
+                # because ``shape.tool_servers`` (the live-KG-ontology lexical match against the
+                # TASK, resolved in ``plan_execution_shape`` independently of ``agent_name``) named
+                # concrete fleet server(s) — that is the branch guard itself, so it is ALWAYS a
+                # server-name delegation, regardless of whether the top-level ``agent_name``
+                # happens to also resolve as a KG ``:Server`` (it usually does NOT: ``agent_name``
+                # is frequently a generic/passthrough identity like the messaging assistant, while
+                # the REAL delegation target is ``shape.tool_servers``). The previous fail-closed
+                # gate tested ``agent_meta.get("type") == "server"`` — the WRONG variable — so a
+                # genuine named-server delegation whose real tools could not be reached (server
+                # never registered / 0 :Server nodes, unreachable, auth failure, ...) silently fell
+                # through to the toolless multi-agent graph and could fabricate a plausible-looking
+                # answer stamped "completed" — exactly the confident-hallucination failure
+                # AU-ORCH.execution.no-silent-hallucination exists to catch. There is no legitimate
+                # fallthrough once a concrete server target is named, so always fail closed here.
                 err = _flatten_exception_group(e)
-                if agent_meta.get("type") == "server":
-                    # CONCEPT:AU-ORCH.execution.no-silent-hallucination — a delegation that named a SPECIFIC
-                    # fleet server must NOT fall through to a toolless graph that fabricates a
-                    # plausible answer (the failure this program was built to catch). Surface it
-                    # as degraded so it is traced + fed back, never recorded as a clean success.
-                    logger.warning(
-                        "[ORCH-1.74] focused-tools path failed for fleet server '%s' (%s); "
-                        "surfacing degraded instead of hallucinating via the graph.",
-                        agent_name,
-                        err,
-                    )
-                    result = _fleet_server_failed_result(agent_name, err)
-                else:
-                    logger.warning(
-                        "[ORCH-1.74] focused-tools path failed (%s); falling through to the full graph.",
-                        err,
-                    )
-                    result = await _execute_graph(
-                        config=config,
-                        query=task,
-                        run_id=run_id,
-                        max_steps=max_steps,
-                        agent_meta=agent_meta,
-                    )
+                servers = list(getattr(shape, "tool_servers", ()) or ())
+                logger.warning(
+                    "[ORCH-1.74] focused-tools path failed for fleet server(s) %s (%s); "
+                    "surfacing degraded instead of hallucinating via the graph.",
+                    servers,
+                    err,
+                )
+                result = _fleet_server_failed_result(
+                    agent_name or ",".join(servers), err
+                )
         elif _is_single_server_agent(agent_meta, config):
             result = await _execute_single_server(
                 config=config,
@@ -1281,9 +1281,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
