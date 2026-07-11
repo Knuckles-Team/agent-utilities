@@ -238,6 +238,24 @@ class RunEventLog:
         keep = [e for e in self._events if e.ordinal <= cut.through_ordinal]
         self._events = keep
 
+    # ── seeding (exact round-trip) ───────────────────────────────────────────
+    @classmethod
+    def from_records(
+        cls, run_id: str, records: list[dict[str, Any]], *, engine: Any | None = None
+    ) -> RunEventLog:
+        """Rehydrate a log from its OWN serialized :meth:`RunEvent.to_dict` records.
+
+        Unlike :meth:`from_events` (which re-bases ordinals for a *fork*), this
+        preserves every event's original ``ordinal``/``record_id``/``caused_by``
+        exactly — used to restore a previously-serialized log bit-for-bit (e.g.
+        :class:`~agent_utilities.orchestration.agent_digital_twin.AgentDigitalTwin`
+        deserialization), so a replayed twin's causal structure is identical to
+        the one that was captured, not merely equivalent.
+        """
+        log = cls(run_id, engine=engine)
+        log._events = [RunEvent.from_dict(r) for r in records]
+        return log
+
     # ── seeding (fork) ─────────────────────────────────────────────────────────
     @classmethod
     def from_events(

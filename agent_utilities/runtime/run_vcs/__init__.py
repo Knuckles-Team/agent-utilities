@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from .carrier import FsCarrier, FsSnapshot, is_overlayfs_available
 from .kernel import RunCut, RunEvent, RunEventLog
-from .replay import ReplayModel, replay_run
+from .replay import ReplayModel, capture_of, replay_run
 from .retained_output import RetainedRunGate, RetainedRunProposal
 from .run_commit import RunCommit, RunCommitStore
 from .run_session import RunSession, RunSessionRegistry
@@ -45,6 +45,7 @@ __all__ = [
     "RunEventLog",
     "RunSession",
     "RunSessionRegistry",
+    "capture_of",
     "is_overlayfs_available",
     "replay_run",
 ]
