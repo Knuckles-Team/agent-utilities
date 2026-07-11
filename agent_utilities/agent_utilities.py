@@ -26,4 +26,4 @@ from .security.tool_guard import *  # noqa: F403
 from .server import *  # noqa: F403
 from .tools.tool_filtering import *  # noqa: F403
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
