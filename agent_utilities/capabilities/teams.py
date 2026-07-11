@@ -38,6 +38,120 @@ class SharedTodoItem:
     created_by: str | None = None
 
 
+class _GraphComputeWorkItemView:
+    """Adapts a ``GraphComputeEngine`` (``ctx.deps.graph_engine.graph`` — the
+    exact object :class:`TeamCapability` already reads/writes) to the
+    ``add_node``/``query_cypher``/``compare_and_set_node_fields`` protocol
+    :mod:`agent_utilities.orchestration.work_item` expects, so team
+    ``:TaskNode`` states can be migrated onto the SAME WorkItem state machine
+    as the ``:AgentTask``/ingestion-queue paths WITHOUT introducing a second
+    storage location — the shadow WorkItem lives in the exact graph object
+    team tasks already live in today (CONCEPT:AU-AHE.evaluation.interpretability-tests / AU-P1-CL).
+
+    Two adaptations are required because ``GraphComputeEngine``'s own
+    ``add_node``/``query_cypher`` signatures differ from the protocol:
+
+    * ``add_node`` stamps an explicit ``id`` property — the native Cypher
+      engine's ``{id: $id}`` node-identity match requires it as a real
+      stored property (unlike the backend-routed engines, which id-fast-path
+      around this).
+    * ``query_cypher`` has no separate params map (the wire protocol carries
+      only literal query text) — params are inlined via
+      ``EpistemicGraphBackend._inline_cypher_params``, the SAME primitive
+      that backend already uses for this exact engine.
+    """
+
+    def __init__(self, graph: Any) -> None:
+        self._graph = graph
+
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+    ) -> None:
+        props = dict(properties or {})
+        props["type"] = node_type
+        props["id"] = node_id
+        self._graph.add_node(node_id, props)
+
+    def link_nodes(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        properties: dict | None = None,
+        ephemeral: bool = False,
+    ) -> None:
+        with contextlib.suppress(Exception):
+            self._graph.add_edge(source_id, target_id, rel_type=str(rel_type))
+
+    def query_cypher(
+        self, cypher: str, params: dict | None = None
+    ) -> list[dict[str, Any]]:
+        from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+            EpistemicGraphBackend,
+        )
+
+        inlined = EpistemicGraphBackend._inline_cypher_params(cypher, params or {})
+        try:
+            return self._graph.query_cypher(inlined) or []
+        except Exception as e:  # noqa: BLE001 — read is best-effort
+            logger.debug("team-task work-item view: query_cypher failed: %s", e)
+            return []
+
+    def compare_and_set_node_fields(
+        self, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
+    ) -> bool:
+        return bool(
+            self._graph.compare_and_set_node_fields(node_id, conditions, updates)
+        )
+
+
+# Free-form team status word -> the WorkItem transition it drives. Anything
+# NOT listed here (the team-collab API is intentionally lenient — arbitrary
+# caller strings are accepted) simply skips the WorkItem transition and
+# mirrors the literal string onto the legacy field, unchanged.
+_TEAM_STATUS_TRANSITIONS: dict[str, str] = {
+    "in_progress": "start",
+    "running": "start",
+    "started": "start",
+    "completed": "succeed",
+    "done": "succeed",
+    "succeeded": "succeed",
+    "cancelled": "cancel",
+    "canceled": "cancel",
+    "failed": "fail",
+    "error": "fail",
+}
+
+
+def _team_task_claim_for_commit(
+    view: _GraphComputeWorkItemView, task_id: str, tenant: str
+) -> dict[str, Any]:
+    """Ensure the shadow exists, claim it if still ``ready``, and return a
+    claim dict usable for :func:`~agent_utilities.orchestration.work_item.commit_result`.
+
+    Team tasks are single-writer (no competing worker pool), so when the
+    shadow is already ``running`` (a prior ``in_progress`` transition already
+    claimed it) this reads its CURRENT fencing epoch rather than re-claiming
+    — safe here precisely because there is no concurrent claimant to fence
+    against, unlike the ingestion queue / AgentTask dispatch.
+    """
+    from ..orchestration import work_item as _wi
+
+    item_id = _wi.ensure_team_task_work_item(view, task_id, tenant=tenant)
+    item = _wi.get_work_item(view, item_id)
+    if item is not None and item.get("status") == _wi.WorkItemStatus.READY.value:
+        claim = _wi.claim_specific(view, item_id)
+        if claim is not None:
+            _wi.mark_running(view, item_id, claim)
+            return claim
+        item = _wi.get_work_item(view, item_id)
+    return {"work_item_id": item_id, "fence_token": (item or {}).get("lease_epoch")}
+
+
 @dataclass
 class TeamCapability(AbstractCapability[Any]):
     """Capability that enables multi-agent team coordination.
@@ -109,6 +223,17 @@ class TeamCapability(AbstractCapability[Any]):
                     engine.graph.add_edge(
                         task_id, assigned_to, type="ASSIGNED_TO_AGENT"
                     )
+            # AU-P1-CL: create the ``ready`` shadow WorkItem alongside the
+            # legacy TaskNode — best-effort, and independent of the legacy
+            # write above so a WorkItem hiccup never blocks task creation.
+            with contextlib.suppress(Exception):
+                from ..orchestration import work_item as _wi
+
+                _wi.ensure_team_task_work_item(
+                    _GraphComputeWorkItemView(engine.graph),
+                    task_id,
+                    tenant=self.team_id or "",
+                )
         return task_id
 
     async def message_member(
@@ -175,6 +300,17 @@ class TeamCapability(AbstractCapability[Any]):
     ) -> bool:
         """Update the status of a task in the Knowledge Graph.
 
+        AU-P1-CL: drives the REAL transition through the WorkItem state
+        machine first (:func:`~agent_utilities.orchestration.work_item.start_team_task_work_item` /
+        ``commit_result``/``cancel_work_item``) — best-effort, so a WorkItem
+        plumbing hiccup never blocks the legacy mirror write below, which is
+        what ``list_team_tasks``/existing callers read. The legacy field
+        always mirrors the CALLER'S literal ``status`` string (this API is
+        intentionally lenient, e.g. 'done' is accepted though not one of the
+        canonical WorkItem-mapped words) — WorkItem is the authoritative
+        decider of WHETHER/HOW a transition lands, not what string ends up in
+        the field.
+
         Args:
             ctx: Run context.
             task_id: The ID of the task node.
@@ -190,6 +326,27 @@ class TeamCapability(AbstractCapability[Any]):
         if task_id not in engine.graph:
             logger.warning("Task %s not found in graph", task_id)
             return False
+
+        transition = _TEAM_STATUS_TRANSITIONS.get(status.strip().lower())
+        if transition is not None:
+            with contextlib.suppress(Exception):
+                from ..orchestration import work_item as _wi
+
+                view = _GraphComputeWorkItemView(engine.graph)
+                tenant = self.team_id or ""
+                if transition == "start":
+                    _wi.start_team_task_work_item(view, task_id, tenant=tenant)
+                elif transition == "cancel":
+                    _wi.cancel_work_item(view, _wi.team_task_work_item_id(task_id))
+                else:  # "succeed" / "fail"
+                    claim = _team_task_claim_for_commit(view, task_id, tenant)
+                    _wi.commit_result(
+                        view,
+                        claim["work_item_id"],
+                        claim,
+                        outcome="succeeded" if transition == "succeed" else "failed",
+                        retryable=False,
+                    )
 
         engine.graph.nodes[task_id]["status"] = status
         engine.graph.nodes[task_id]["updated_at"] = time.strftime(

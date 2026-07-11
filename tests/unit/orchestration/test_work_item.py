@@ -609,3 +609,91 @@ def test_work_item_view_of_task_maps_statuses(engine: FakeEngine) -> None:
     view = wi.work_item_view_of_task(engine, "job-1")
     assert view["status"] == wi.WorkItemStatus.DEAD_LETTER.value
     assert view["shim"] is True
+
+
+# ---------------------------------------------------------------------------
+# AU-P1-CL: ingestion-:Task bridge (engine_tasks.py claim/reap authority)
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_task_work_item_id_round_trips(engine: FakeEngine) -> None:
+    item_id = wi.ingest_task_work_item_id("job-42")
+    assert item_id == "workitem:ingest_task:job-42"
+    assert wi.ingest_task_job_id_from_work_item_id(item_id) == "job-42"
+    assert wi.ingest_task_job_id_from_work_item_id("workitem:agent_task:x") is None
+
+
+def test_ensure_ingest_task_work_item_is_idempotent(engine: FakeEngine) -> None:
+    first = wi.ensure_ingest_task_work_item(
+        engine,
+        "job-1",
+        prio_bucket=1,
+        resource_class="ingestion",
+        fairness_group="codebase",
+    )
+    second = wi.ensure_ingest_task_work_item(engine, "job-1", prio_bucket=3)
+    assert first == second == wi.ingest_task_work_item_id("job-1")
+    item = wi.get_work_item(engine, first)
+    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["prio_bucket"] == 1  # first call's stamp wins (upsert no-op)
+    assert item["resource_class"] == "ingestion"
+    assert item["fairness_group"] == "codebase"
+
+
+def test_claim_ingest_task_work_item_wins_then_a_second_claim_loses(
+    engine: FakeEngine,
+) -> None:
+    claim1 = wi.claim_ingest_task_work_item(engine, "job-1", token="host-a")
+    assert claim1 is not None
+    assert claim1["work_item_id"] == wi.ingest_task_work_item_id("job-1")
+
+    claim2 = wi.claim_ingest_task_work_item(engine, "job-1", token="host-b")
+    assert claim2 is None  # already leased/running by host-a
+
+    item = wi.get_work_item(engine, claim1["work_item_id"])
+    assert item["status"] == wi.WorkItemStatus.RUNNING.value
+    assert item["lease_owner"] == "host-a"
+
+
+# ---------------------------------------------------------------------------
+# AU-P1-CL: team-collaboration :TaskNode bridge (teams.py TeamCapability)
+# ---------------------------------------------------------------------------
+
+
+def test_team_task_work_item_id_round_trips(engine: FakeEngine) -> None:
+    assert wi.team_task_work_item_id("task_abc") == "workitem:team_task:task_abc"
+
+
+def test_ensure_team_task_work_item_is_ready_no_dependencies(
+    engine: FakeEngine,
+) -> None:
+    item_id = wi.ensure_team_task_work_item(engine, "task_1", tenant="team_x")
+    item = wi.get_work_item(engine, item_id)
+    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["kind"] == "team_task"
+    assert item["tenant"] == "team_x"
+    assert item["dep_count"] == 0
+
+
+def test_start_team_task_work_item_claims_and_runs(engine: FakeEngine) -> None:
+    claim = wi.start_team_task_work_item(engine, "task_1", tenant="team_x")
+    assert claim is not None
+    item = wi.get_work_item(engine, claim["work_item_id"])
+    assert item["status"] == wi.WorkItemStatus.RUNNING.value
+
+    # A second start (already running) is a no-op (None) — matches
+    # TeamCapability.update_task_status's "nothing to transition" handling.
+    assert wi.start_team_task_work_item(engine, "task_1", tenant="team_x") is None
+
+
+def test_team_task_status_view_maps_canonical_vocabulary(engine: FakeEngine) -> None:
+    assert wi.team_task_status_view(engine, "task_nope") is None
+
+    wi.ensure_team_task_work_item(engine, "task_1")
+    assert wi.team_task_status_view(engine, "task_1") == "pending"
+
+    claim = wi.start_team_task_work_item(engine, "task_1")
+    assert wi.team_task_status_view(engine, "task_1") == "in_progress"
+
+    wi.commit_result(engine, claim["work_item_id"], claim, outcome="succeeded")
+    assert wi.team_task_status_view(engine, "task_1") == "completed"

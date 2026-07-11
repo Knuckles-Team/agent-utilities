@@ -1,22 +1,34 @@
-"""Backend-agnostic :Task claim via the engine compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library).
+"""Backend-agnostic :Task claim via the WorkItem state machine (AU-P1-CL).
 
-The worker claim used to be a single-host ``threading.Lock`` + Postgres advisory
-lock guarding a read-then-``SET``. It is now arbitrated by the engine's atomic
-``compare_and_set`` (held under the graph write lock), so the claim is exactly-
-once *across hosts* regardless of the configured mirror backend.
+The worker claim used to be a single raw ``compare_and_set_node_fields`` on
+the ``:Task`` node's own ``status`` field. AU-P1-CL made the ingestion
+queue's claim/commit/reap arbitration authoritative on a deterministic
+shadow ``:WorkItem`` (:mod:`agent_utilities.orchestration.work_item`) instead
+— the SAME engine-native CAS/lease/attempt machinery ``:AgentTask`` dispatch
+already uses — so these tests were rewritten (from mocking a single
+``backend.compare_and_set_node_fields`` call) to exercise the REAL WorkItem
+transitions against a real in-memory ``EpistemicGraphBackend`` (no isolated
+``__control__`` graph in these tests — the same pattern
+``test_task_reaper.py``/``test_task_queue_controls.py`` already use).
 
-These exercise ``TaskManagerMixin._claim_next_task`` with the backend CAS mocked
-(no live engine): the claim must CAS ``status: pending → running`` and stamp
-ownership, must skip a candidate whose CAS lost, and two sequential claims of the
-same row must produce one winner and one loser.
+These exercise ``TaskManagerMixin._claim_next_task`` with ``_select_pending_task``
+stubbed to hand back a controlled candidate queue (the bucket-ascending
+selection itself is covered elsewhere: ``test_select_pending_admission.py``):
+a winning claim must create+claim the shadow WorkItem, mirror
+``:Task.status: running`` + the shadow's id/epoch, and skip a candidate whose
+shadow is already claimed elsewhere; two sequential claims of the same row
+must produce one winner and one loser.
 """
 
-from unittest.mock import MagicMock
-
+from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+    EpistemicGraphBackend,
+)
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
     _decode_metadata,
+    _encode_metadata,
 )
+from agent_utilities.orchestration import work_item as wi
 
 TOKEN = "claimhost:333:1700000003"
 
@@ -26,13 +38,14 @@ class _ClaimHarness:
 
     ``_select_pending_task`` is stubbed to hand back a controlled queue of
     candidate rows (the bucket-ascending selection is covered elsewhere); the
-    backend's ``compare_and_set_node_fields`` is a mock so no engine is needed.
+    win/lose arbitration is the REAL ``work_item`` state machine against a
+    real ``EpistemicGraphBackend`` bound as BOTH ``backend`` and the control
+    plane (``_control`` falls back to ``self.backend`` when no isolated
+    ``control_backend`` is set — CONCEPT:AU-KG.backend.schedule-on-control-graph).
     """
 
-    def __init__(self, candidates, cas_results):
-        self.backend = MagicMock()
-        # cas_results: list[bool] consumed per CAS attempt (winner/loser).
-        self.backend.compare_and_set_node_fields.side_effect = list(cas_results)
+    def __init__(self, candidates, backend=None):
+        self.backend = backend if backend is not None else EpistemicGraphBackend()
         self._candidates = list(candidates)
         self._tok = TOKEN
 
@@ -42,123 +55,149 @@ class _ClaimHarness:
         return self._candidates.pop(0) if self._candidates else None
 
     def _make_admission(self):
-        # ORCH-1.81: disable the admission gate for these pure CAS tests.
+        # ORCH-1.81: disable the admission gate for these pure claim tests.
         return None
 
     def _get_host_token(self) -> str:
         return self._tok
 
-    # The claim CAS now routes through the control-plane accessor
-    # (CONCEPT:AU-KG.backend.schedule-on-control-graph): ``_control`` falls back to ``self.backend`` when no
-    # isolated ``control_backend`` is set, so binding the real property keeps the
-    # CAS pointed at the mocked backend in these tests.
     control_backend = None
     _control = TaskManagerMixin._control
     _control_cypher = TaskManagerMixin._control_cypher
+    _work_item_engine = TaskManagerMixin._work_item_engine
 
     # Bind the real method under test.
     _claim_next_task = TaskManagerMixin._claim_next_task
 
 
-def test_claim_uses_cas_with_pending_condition_and_running_update():
-    """A winning claim CASes status pending→running and stamps ownership."""
-    h = _ClaimHarness(
-        candidates=[{"id": "job-1", "meta": None}],
-        cas_results=[True],
-    )
+def _add_task(b: EpistemicGraphBackend, tid: str, **meta) -> None:
+    b.add_node(tid, node_type="Task", status="pending", metadata=_encode_metadata(meta))
+
+
+def _task_row(tid: str) -> dict:
+    return {"id": tid, "meta": None}
+
+
+def _task_status(b: EpistemicGraphBackend, tid: str) -> str | None:
+    rows = b.execute("MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": tid})
+    return rows[0]["s"] if rows else None
+
+
+def test_claim_wins_creates_running_shadow_and_stamps_task():
+    """A winning claim creates+claims the shadow WorkItem and mirrors the win
+    onto the legacy :Task node (status + work_item_id/epoch stamped)."""
+    b = EpistemicGraphBackend()
+    _add_task(b, "job-1", target="/x")
+    h = _ClaimHarness(candidates=[_task_row("job-1")], backend=b)
 
     result = h._claim_next_task()
 
     assert result is not None
     job_id, meta = result
     assert job_id == "job-1"
-
-    # Exactly one CAS, with the right condition + updates.
-    h.backend.compare_and_set_node_fields.assert_called_once()
-    args, kwargs = h.backend.compare_and_set_node_fields.call_args
-    called_id, conditions, updates = args
-    assert called_id == "job-1"
-    assert conditions == {"status": "pending"}
-    assert updates["status"] == "running"
-
-    # The metadata update is the encoded ownership stamp the reaper decodes.
-    stamped = _decode_metadata(updates["metadata"])
-    assert stamped["claimed_by"] == TOKEN
-    assert "claim_unix" in stamped
-    assert "started_at" in stamped
-    # Returned meta matches what was written.
     assert meta["claimed_by"] == TOKEN
+    assert "claim_unix" in meta and "started_at" in meta
+    work_item_id = meta["work_item_id"]
+    assert work_item_id == wi.ingest_task_work_item_id("job-1")
+    assert meta["work_item_epoch"] == 1
+
+    # Legacy :Task mirror reflects the win (unchanged shape + the new stamps).
+    assert _task_status(b, "job-1") == "running"
+    rows = b.execute("MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": "job-1"})
+    stamped = _decode_metadata(rows[0]["m"])
+    assert stamped["work_item_id"] == work_item_id
+    assert stamped["claimed_by"] == TOKEN
+
+    # The shadow WorkItem is the REAL authority: running, attempt=1, leased
+    # by this host's token.
+    item = wi.get_work_item(h._work_item_engine, work_item_id)
+    assert item is not None
+    assert item["status"] == "running"
+    assert item["attempt"] == 1
+    assert item["lease_owner"] == TOKEN
 
 
-def test_claim_skips_candidate_whose_cas_lost():
-    """A CAS that returns False (peer won the row) is not treated as claimed;
-    the claimer moves on to the next candidate."""
+def test_claim_skips_candidate_whose_shadow_already_claimed():
+    """A candidate whose shadow WorkItem a peer already claimed (still within
+    its lease) is skipped — the claimer moves on to the next candidate."""
+    b = EpistemicGraphBackend()
+    _add_task(b, "job-lost", target="/x")
+    _add_task(b, "job-won", target="/y")
     h = _ClaimHarness(
-        candidates=[{"id": "job-lost", "meta": None}, {"id": "job-won", "meta": None}],
-        cas_results=[False, True],
+        candidates=[_task_row("job-lost"), _task_row("job-won")], backend=b
     )
+
+    # A peer already won job-lost's shadow (fresh lease — not stale).
+    peer_item_id = wi.ingest_task_work_item_id("job-lost")
+    wi.submit_work_item(
+        h._work_item_engine,
+        kind="ingest_task",
+        payload_ref="job-lost",
+        work_item_id=peer_item_id,
+    )
+    peer_claim = wi.claim_specific(
+        h._work_item_engine, peer_item_id, token="peerhost:1:1"
+    )
+    assert peer_claim is not None
 
     result = h._claim_next_task()
 
     assert result is not None
     job_id, _meta = result
-    assert job_id == "job-won"  # the lost candidate was skipped
-    assert h.backend.compare_and_set_node_fields.call_count == 2
-    claimed_ids = [
-        c.args[0] for c in h.backend.compare_and_set_node_fields.call_args_list
-    ]
-    assert claimed_ids == ["job-lost", "job-won"]
+    assert job_id == "job-won"  # the already-claimed candidate was skipped
+    # The peer's claim on job-lost is untouched (this claimer never mirrored
+    # a win onto it).
+    assert _task_status(b, "job-lost") == "pending"
 
 
 def test_claim_returns_none_when_idle():
-    """No pending candidates → no CAS, returns None."""
-    h = _ClaimHarness(candidates=[], cas_results=[])
+    """No pending candidates → no claim attempt, returns None."""
+    h = _ClaimHarness(candidates=[])
 
     assert h._claim_next_task() is None
-    h.backend.compare_and_set_node_fields.assert_not_called()
 
 
-def test_claim_returns_none_when_all_candidates_lost():
-    """Every candidate lost its CAS → returns None (idle), never a phantom claim."""
-    h = _ClaimHarness(
-        candidates=[{"id": "a", "meta": None}, {"id": "b", "meta": None}],
-        cas_results=[False, False],
-    )
+def test_claim_returns_none_when_all_candidates_already_claimed():
+    """Every candidate's shadow is already claimed elsewhere → idle (None),
+    never a phantom claim."""
+    b = EpistemicGraphBackend()
+    _add_task(b, "a", target="/a")
+    _add_task(b, "b", target="/b")
+    h = _ClaimHarness(candidates=[_task_row("a"), _task_row("b")], backend=b)
+
+    for job_id in ("a", "b"):
+        item_id = wi.ingest_task_work_item_id(job_id)
+        wi.submit_work_item(
+            h._work_item_engine,
+            kind="ingest_task",
+            payload_ref=job_id,
+            work_item_id=item_id,
+        )
+        assert (
+            wi.claim_specific(h._work_item_engine, item_id, token="peerhost:1:1")
+            is not None
+        )
 
     assert h._claim_next_task() is None
-    assert h.backend.compare_and_set_node_fields.call_count == 2
+    assert _task_status(b, "a") == "pending"
+    assert _task_status(b, "b") == "pending"
 
 
 def test_two_sequential_claims_of_same_task_first_wins_second_loses():
-    """First claimer wins (True); a second claimer of the SAME row loses (False).
+    """First claimer wins; a second claimer of the SAME row loses.
 
-    Models the cross-host race the engine CAS now arbitrates: only one flip of
-    pending→running succeeds.
+    Models the cross-host race the WorkItem CAS now arbitrates: only one
+    ``ready -> leased`` transition succeeds.
     """
-    backend = MagicMock()
-    # The row, in a shared store. After the first CAS wins, it's 'running'; a
-    # second CAS guarded on status=='pending' must fail.
-    state = {"status": "pending"}
+    b = EpistemicGraphBackend()
+    _add_task(b, "job-shared", target="/x")
 
-    def fake_cas(node_id, conditions, updates):
-        for k, v in conditions.items():
-            if state.get(k) != v:
-                return False
-        state.update(updates)
-        return True
-
-    backend.compare_and_set_node_fields.side_effect = fake_cas
-
-    def make_harness():
-        h = _ClaimHarness(candidates=[], cas_results=[])
-        h.backend = backend
-        # Both claimers see the same single pending row on their first select.
-        h._candidates = [{"id": "job-shared", "meta": None}]
-        return h
+    def make_harness() -> _ClaimHarness:
+        return _ClaimHarness(candidates=[_task_row("job-shared")], backend=b)
 
     first = make_harness()._claim_next_task()
     second = make_harness()._claim_next_task()
 
     assert first is not None and first[0] == "job-shared"  # winner
-    assert second is None  # loser got False → no claim, no other candidate
-    assert state["status"] == "running"
+    assert second is None  # loser got no claim, no other candidate
+    assert _task_status(b, "job-shared") == "running"
