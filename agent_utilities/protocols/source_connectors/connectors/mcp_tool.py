@@ -53,6 +53,7 @@ from ..base import (
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
 from ..registry import register_source
 from .mcp_package import _decode_tool_result, _load_mcp_config, _run_async
@@ -1509,7 +1510,11 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             or self.acl_groups_field
             or self.acl_markings_field
         ):
-            return ExternalAccess.public()
+            # No ACL fields configured for this preset/instance (CONCEPT:AU-P0-4):
+            # fail-closed default (quarantined), not silently public. Set
+            # CONNECTOR_DEFAULT_PUBLIC=true to opt a dev/local deployment back
+            # into the legacy public-by-default behavior.
+            return default_external_access()
 
         def _principals(field: str) -> list[str]:
             raw = _dig(record, field) if field else None
