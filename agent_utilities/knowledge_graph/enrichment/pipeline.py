@@ -262,8 +262,15 @@ class _BatchedBackend:
         ops, self._nodes = self._nodes, []
         if self._submit_bulk(ops):
             return
+        # Per-item fallback: skip a poison node instead of aborting the whole repo's
+        # structural pass (CONCEPT:AU-KG.enrichment.card-attempt-status — one bad symbol must not wedge ingest).
         for op in ops:
-            self._backend.add_node(op["id"], **op["properties"])
+            try:
+                self._backend.add_node(op["id"], **op["properties"])
+            except Exception:  # noqa: BLE001 - skip the bad node, keep ingesting
+                logger.debug(
+                    "per-item add_node failed for %s", op.get("id"), exc_info=True
+                )
 
     def _flush_edges(self) -> None:
         if not self._edges:
@@ -272,7 +279,15 @@ class _BatchedBackend:
         if self._submit_bulk(ops):
             return
         for op in ops:
-            self._backend.add_edge(op["source"], op["target"], **op["properties"])
+            try:
+                self._backend.add_edge(op["source"], op["target"], **op["properties"])
+            except Exception:  # noqa: BLE001 - skip the bad edge, keep ingesting
+                logger.debug(
+                    "per-item add_edge failed for %s->%s",
+                    op.get("source"),
+                    op.get("target"),
+                    exc_info=True,
+                )
 
     def flush(self) -> None:
         """Flush nodes first (so endpoints exist), then edges."""
