@@ -15,6 +15,20 @@
 -- owner. It templates over every base table in the current schema (node tables
 -- + kg_edges); re-run after introducing new node types, or call
 -- PostgreSQLBackend.enable_row_level_security() which regenerates the same DDL.
+--
+-- AU-P0-5: this loop is genuinely generic — it walks EVERY table in
+-- current_schema(), not just the KG's own node/edge tables. So when the
+-- unified state-store pool (agent_utilities.core.state_store, STATE_DB_URI)
+-- shares this schema/database, the SAME script also RLS-secures its tables
+-- (sessions/turns/dispatch_workers, the usage-analytics tables, durable-exec
+-- checkpoints, the Postgres task queue) — no separate migration needed, they
+-- just need to exist by the time this runs. Both connection pools now set the
+-- GUC on every checkout before the caller's SQL runs:
+--   * PostgreSQLBackend._conn() -> PostgreSQLBackend._scope_tenant()
+--   * agent_utilities.core.state_store.open_state_connection() (Postgres path)
+--     -> state_store.set_state_tenant()
+-- If the state-store lives in a DIFFERENT database/schema than the KG
+-- backend, run this script there too (it needs no KG-specific objects).
 
 DO $$
 DECLARE
