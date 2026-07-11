@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 954
+total_concepts: 961
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -3142,6 +3142,19 @@ concepts:
   - AU-KG.backend.connection-registry
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.backend.continuous-stardog-mirror
+  name: OFF by default
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
+  doc: OFF by default
+  dotted: AU-KG.backend.continuous-stardog-mirror
+  aliases:
+  - AU-KG.backend.continuous-stardog-mirror
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.backend.declared-columns-so-schema
   name: Declared columns so schema-backed Kuzu can
   pillar: AU-KG
@@ -4592,6 +4605,22 @@ concepts:
   - AU-KG.enrichment.atomic-triple-extraction
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.enrichment.card-attempt-status
+  name: keeps a down card LLM from being retry-stormed
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/enrichment/cards.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/enrichment/query.py
+  doc: keeps a down card LLM from being retry-stormed
+  dotted: AU-KG.enrichment.card-attempt-status
+  aliases:
+  - AU-KG.enrichment.card-attempt-status
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.enrichment.ciso-assistant-extraction
   name: / CISO-002
   pillar: AU-KG
@@ -4970,6 +4999,19 @@ concepts:
   - AU-KG.ingest.claude-memory-connector
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ingest.code-source-partition
+  name: every code node the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: every code node the
+  dotted: AU-KG.ingest.code-source-partition
+  aliases:
+  - AU-KG.ingest.code-source-partition
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.content-acquisition
   name: the acquisition half of content-aware ingestion. Given
   pillar: AU-KG
@@ -5013,6 +5055,19 @@ concepts:
   dotted: AU-KG.ingest.decoupled-kg-ingest-consumer
   aliases:
   - AU-KG.ingest.decoupled-kg-ingest-consumer
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.default-graph-leak-guard
+  name: ──
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
+  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+  doc: ──
+  dotted: AU-KG.ingest.default-graph-leak-guard
+  aliases:
+  - AU-KG.ingest.default-graph-leak-guard
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.deterministic-classifier
@@ -5568,6 +5623,18 @@ concepts:
   dotted: AU-KG.ingest.skill-workflow-ingestion
   aliases:
   - AU-KG.ingest.skill-workflow-ingestion
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.source-id-naming-schema
+  name: ──
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
+  doc: ──
+  dotted: AU-KG.ingest.source-id-naming-schema
+  aliases:
+  - AU-KG.ingest.source-id-naming-schema
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.source-sync-canonical
@@ -7037,6 +7104,34 @@ concepts:
   dotted: AU-KG.ontology.single-source-full-drain
   aliases:
   - AU-KG.ontology.single-source-full-drain
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.stardog-catalog-import
+  name: AU-KG.ontology.stardog-catalog-import
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ontology_publisher.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: AU-KG.ontology.stardog-catalog-import
+  dotted: AU-KG.ontology.stardog-catalog-import
+  aliases:
+  - AU-KG.ontology.stardog-catalog-import
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.stardog-catalog-overwrite
+  name: / stardog-catalog-import — Stardog catalog twins
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ontology_publisher.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: / stardog-catalog-import — Stardog catalog twins
+  dotted: AU-KG.ontology.stardog-catalog-overwrite
+  aliases:
+  - AU-KG.ontology.stardog-catalog-overwrite
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.submission-criteria-gate
