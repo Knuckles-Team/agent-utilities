@@ -164,14 +164,21 @@ def register_state_tools(mcp):
             "``mine_discovery`` (CONCEPT:AU-KG.evolution.mining-flywheel, default ON via "
             "KG_LOOP_MINE_DISCOVERY): the discovery-flywheel mining pass — association-"
             "rule + anomaly + graph_learn link-prediction over the KG's Capability/"
-            "Concept nodes, write-back only (propose-only, never auto-merges)."
+            "Concept nodes, write-back only (propose-only, never auto-merges). "
+            "'placement_control' (CONCEPT:AU-KG.evolution.placement-mining-canary-loop, "
+            "Seam 4): manually trigger ONE governed pass of the workload-aware "
+            "placement loop — mine -> propose -> ActionPolicy review "
+            "(``apply_placement_change``, fail-closed approval_required by default) -> "
+            "engine reshard (the real online-move RPC) -> measured canary -> outcome "
+            "recorded back to mining. Opt-in/manual-trigger ONLY — calling this action "
+            "IS the manual trigger; it never runs on import or on any periodic loop."
         ),
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
         action: str = Field(
             default="list",
-            description="submit|list|run|drive|cancel|prioritize|state|specs|review",
+            description="submit|list|run|drive|cancel|prioritize|state|specs|review|placement_control",
         ),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
@@ -211,9 +218,20 @@ def register_state_tools(mcp):
             "(CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to "
             "config.kg_loop_mine_discovery (default True); explicit true/false overrides.",
         ),
+        placement_scan_limit: int = Field(
+            default=200,
+            description="'placement_control' only: provenance row-scan cap for the "
+            "placement mining pass.",
+        ),
+        placement_canary_tolerance: float = Field(
+            default=0.10,
+            description="'placement_control' only: fraction the canary metric may "
+            "regress by and still be promoted (SLO noise tolerance).",
+        ),
     ) -> str:
         """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
-        the self-evolution flywheel (state / specs / review) — the one entrypoint."""
+        the self-evolution flywheel (state / specs / review / placement_control) —
+        the one entrypoint."""
         import json as _json
 
         from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -334,6 +352,29 @@ def register_state_tools(mcp):
                     {
                         "action": "review",
                         "result": review_spec(engine, sid, decision, reviewer="user"),
+                    },
+                    default=str,
+                )
+            if action == "placement_control":
+                # Seam 4 (CONCEPT:AU-KG.evolution.placement-mining-canary-loop):
+                # manual-trigger ONE governed placement-loop pass. Calling this
+                # action over MCP/REST IS the explicit manual trigger, so
+                # ``enabled=True`` is passed unconditionally here — the module
+                # itself stays opt-in/OFF for every other (e.g. periodic/
+                # automatic) caller that does not pass this flag explicitly.
+                from agent_utilities.knowledge_graph.research.placement_mining import (
+                    placement_control_loop,
+                )
+
+                return _json.dumps(
+                    {
+                        "action": "placement_control",
+                        "result": placement_control_loop(
+                            engine,
+                            tolerance=placement_canary_tolerance,
+                            limit=placement_scan_limit,
+                            enabled=True,
+                        ),
                     },
                     default=str,
                 )

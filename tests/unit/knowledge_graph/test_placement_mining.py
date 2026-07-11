@@ -26,6 +26,7 @@ from agent_utilities.knowledge_graph.research.placement_mining import (
     gather_access_records,
     gather_drift_scores,
     mine_placement_patterns,
+    placement_control_loop,
     placement_proposals_from_mining,
     proposals_from_association,
     proposals_from_drift_anomaly,
@@ -83,7 +84,16 @@ def _row(episode_id, tool_name, tenant="", modality="", entity_id="", entity_typ
 
 def test_gather_access_records_parses_args_json():
     engine = _AccessStubEngine(
-        rows=[_row("ep1", "graph_query", tenant="acme", modality="text", entity_id="doc1", entity_type="Doc")]
+        rows=[
+            _row(
+                "ep1",
+                "graph_query",
+                tenant="acme",
+                modality="text",
+                entity_id="doc1",
+                entity_type="Doc",
+            )
+        ]
     )
     records = gather_access_records(engine)
     assert records == [
@@ -112,8 +122,22 @@ def test_gather_access_records_degrades_on_query_failure():
 
 def test_build_baskets_drops_single_item_episodes():
     records = [
-        {"episode_id": "ep1", "tool_name": "graph_query", "tenant": "acme", "modality": "", "entity_id": "", "entity_type": ""},
-        {"episode_id": "ep2", "tool_name": "graph_query", "tenant": "acme", "modality": "", "entity_id": "doc1", "entity_type": "Doc"},
+        {
+            "episode_id": "ep1",
+            "tool_name": "graph_query",
+            "tenant": "acme",
+            "modality": "",
+            "entity_id": "",
+            "entity_type": "",
+        },
+        {
+            "episode_id": "ep2",
+            "tool_name": "graph_query",
+            "tenant": "acme",
+            "modality": "",
+            "entity_id": "doc1",
+            "entity_type": "Doc",
+        },
     ]
     baskets = build_baskets(records)
     # ep1 has only 1 distinct item (tool+tenant = 2 actually) -> keep; verify shape
@@ -168,19 +192,29 @@ def test_mine_placement_patterns_invokes_associate_surface(monkeypatch):
     def fake_invoke(*, surface, action, graph, candidates, params):
         captured.setdefault(action, params)
         if action == "associate":
-            return json.dumps({"surface": surface, "action": action, "result": {"rules": []}})
+            return json.dumps(
+                {"surface": surface, "action": action, "result": {"rules": []}}
+            )
         if action == "anomaly":
-            return json.dumps({"surface": surface, "action": action, "result": {"rows": []}})
+            return json.dumps(
+                {"surface": surface, "action": action, "result": {"rows": []}}
+            )
         if action == "sequence":
-            return json.dumps({"surface": surface, "action": action, "result": {"patterns": []}})
+            return json.dumps(
+                {"surface": surface, "action": action, "result": {"patterns": []}}
+            )
         raise AssertionError(f"unexpected action {action}")
 
     monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
 
     engine = _AccessStubEngine(
         rows=[
-            _row("ep1", "graph_query", tenant="acme", entity_id="doc1", entity_type="Doc"),
-            _row("ep2", "graph_query", tenant="acme", entity_id="doc2", entity_type="Doc"),
+            _row(
+                "ep1", "graph_query", tenant="acme", entity_id="doc1", entity_type="Doc"
+            ),
+            _row(
+                "ep2", "graph_query", tenant="acme", entity_id="doc2", entity_type="Doc"
+            ),
         ]
     )
     result = mine_placement_patterns(engine)
@@ -189,7 +223,9 @@ def test_mine_placement_patterns_invokes_associate_surface(monkeypatch):
     assert result["errors"] == []
 
 
-def test_mine_placement_patterns_degrades_cleanly_on_no_mining_engine_build(monkeypatch):
+def test_mine_placement_patterns_degrades_cleanly_on_no_mining_engine_build(
+    monkeypatch,
+):
     import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
 
     monkeypatch.setattr(
@@ -199,8 +235,12 @@ def test_mine_placement_patterns_degrades_cleanly_on_no_mining_engine_build(monk
     )
     engine = _AccessStubEngine(
         rows=[
-            _row("ep1", "graph_query", tenant="acme", entity_id="doc1", entity_type="Doc"),
-            _row("ep2", "graph_query", tenant="acme", entity_id="doc2", entity_type="Doc"),
+            _row(
+                "ep1", "graph_query", tenant="acme", entity_id="doc1", entity_type="Doc"
+            ),
+            _row(
+                "ep2", "graph_query", tenant="acme", entity_id="doc2", entity_type="Doc"
+            ),
         ]
     )
     result = mine_placement_patterns(engine)
@@ -297,7 +337,11 @@ def test_tenant_read_tool_becomes_replica_proposal():
 
 
 def test_sequence_pattern_becomes_cache_prewarm():
-    sequence = {"patterns": [{"items": ["tool:login", "tool:browse"], "support": 0.75, "count": 6}]}
+    sequence = {
+        "patterns": [
+            {"items": ["tool:login", "tool:browse"], "support": 0.75, "count": 6}
+        ]
+    }
     proposals = proposals_from_sequence(sequence)
     assert len(proposals) == 1
     prop = proposals[0]
@@ -321,7 +365,12 @@ def test_placement_proposals_from_mining_fans_out_all_sources():
     mine_result = {
         "association": {
             "rules": [
-                {"antecedent": ["entity:a"], "consequent": ["entity:b"], "confidence": 0.9, "lift": 2.0}
+                {
+                    "antecedent": ["entity:a"],
+                    "consequent": ["entity:b"],
+                    "confidence": 0.9,
+                    "lift": 2.0,
+                }
             ]
         },
         "tenant_anomaly": {
@@ -336,7 +385,12 @@ def test_placement_proposals_from_mining_fans_out_all_sources():
     }
     proposals = placement_proposals_from_mining(mine_result)
     kinds = {p.kind for p in proposals}
-    assert kinds == {"materialized_join", "shard_split", "embedding_refresh", "cache_prewarm"}
+    assert kinds == {
+        "materialized_join",
+        "shard_split",
+        "embedding_refresh",
+        "cache_prewarm",
+    }
 
 
 def test_placement_proposal_rejects_unknown_kind():
@@ -391,7 +445,9 @@ def test_run_canary_rolls_back_on_regression():
         calls["rollback"] += 1
         return {"rolled_back": True}
 
-    measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 250.0}])  # +150% regression
+    measurements = iter(
+        [{"latency_ms": 100.0}, {"latency_ms": 250.0}]
+    )  # +150% regression
     result = run_canary(
         _proposal(),
         measurement_fn=lambda p, phase: next(measurements),
@@ -417,7 +473,9 @@ def test_run_canary_rolls_back_when_no_measurement_available():
 
 
 def test_run_canary_tolerates_small_regression_within_tolerance():
-    measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 105.0}])  # +5%, within 10% default
+    measurements = iter(
+        [{"latency_ms": 100.0}, {"latency_ms": 105.0}]
+    )  # +5%, within 10% default
     result = run_canary(
         _proposal(),
         measurement_fn=lambda p, phase: next(measurements),
@@ -444,7 +502,9 @@ def test_apply_placement_change_targets_placement_catalog_for_shard_split(monkey
         return json.dumps({"route": "assigned"})
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
 
@@ -476,7 +536,9 @@ def test_apply_placement_change_for_replica_also_targets_catalog(monkeypatch):
         return json.dumps({"route": "assigned"})
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
 
@@ -487,7 +549,11 @@ def test_apply_placement_change_for_replica_also_targets_catalog(monkeypatch):
 
 def test_apply_placement_change_for_non_catalog_kinds_is_an_accepted_record():
     result = apply_placement_change(_proposal(kind="materialized_join", target="a|b"))
-    assert result == {"applied": True, "method": "accepted_record", "detail": "materialized_join"}
+    assert result == {
+        "applied": True,
+        "method": "accepted_record",
+        "detail": "materialized_join",
+    }
 
 
 def test_rollback_placement_change_calls_catalog_remove(monkeypatch):
@@ -501,7 +567,9 @@ def test_rollback_placement_change_calls_catalog_remove(monkeypatch):
         return json.dumps({"removed": True})
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
 
@@ -524,7 +592,9 @@ def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
         return json.dumps({"route": "assigned"})
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
 
@@ -577,7 +647,9 @@ def _patch_mine_result(monkeypatch, *, anomaly_score: float = 4.0) -> None:
         lambda engine, **kw: {
             "association": {"rules": []},
             "tenant_anomaly": {
-                "result": {"rows": [{"is_anomaly": True, "anomaly_score": anomaly_score}]},
+                "result": {
+                    "rows": [{"is_anomaly": True, "anomaly_score": anomaly_score}]
+                },
                 "tenant_ids": ["hot-tenant"],
             },
             "drift_anomaly": {"result": {"rows": []}, "entity_ids": []},
@@ -590,7 +662,9 @@ def _patch_mine_result(monkeypatch, *, anomaly_score: float = 4.0) -> None:
 
 
 def test_below_floor_proposal_never_becomes_a_claim(monkeypatch):
-    _patch_mine_result(monkeypatch, anomaly_score=0.5)  # saturates well below CONFIDENCE_FLOOR
+    _patch_mine_result(
+        monkeypatch, anomaly_score=0.5
+    )  # saturates well below CONFIDENCE_FLOOR
     engine = _CycleStubEngine()
     rep = run_placement_mining_cycle(engine)
 
@@ -603,7 +677,9 @@ def test_below_floor_proposal_never_becomes_a_claim(monkeypatch):
 
 def test_eligible_proposal_persists_as_an_unverified_proposal_claim(monkeypatch):
     _patch_mine_result(monkeypatch, anomaly_score=4.0)
-    engine = _CycleStubEngine()  # no governance_rule override ⇒ shipped default (approval_required)
+    engine = (
+        _CycleStubEngine()
+    )  # no governance_rule override ⇒ shipped default (approval_required)
     rep = run_placement_mining_cycle(engine)
 
     assert rep["eligible"] == 1
@@ -621,7 +697,9 @@ def test_shipped_default_never_applies_or_canaries(monkeypatch):
     import agent_utilities.knowledge_graph.research.placement_mining as pm
 
     monkeypatch.setattr(
-        pm, "run_canary", lambda *a, **kw: canary_calls.append(1) or CanaryResult("x", "promote", "")
+        pm,
+        "run_canary",
+        lambda *a, **kw: canary_calls.append(1) or CanaryResult("x", "promote", ""),
     )
     _patch_mine_result(monkeypatch, anomaly_score=4.0)
     engine = _CycleStubEngine()  # shipped default
@@ -658,7 +736,9 @@ def test_relaxed_policy_runs_canary_and_applies_on_promote(monkeypatch):
     import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(
         engine_tools_mod,
@@ -671,7 +751,9 @@ def test_relaxed_policy_runs_canary_and_applies_on_promote(monkeypatch):
     # actually fire (mirrors test_trace_pattern_miner.py's identical gotcha).
     _patch_mine_result(monkeypatch, anomaly_score=5.0)
     engine = _CycleStubEngine(
-        governance_rules=[{"kind": "apply_placement_change", "target": "*", "tier": "auto"}]
+        governance_rules=[
+            {"kind": "apply_placement_change", "target": "*", "tier": "auto"}
+        ]
     )
     measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 90.0}])
     rep = run_placement_mining_cycle(
@@ -688,7 +770,9 @@ def test_relaxed_policy_rejects_on_canary_regression(monkeypatch):
     import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
 
     monkeypatch.setattr(
-        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["catalog_assign", "catalog_remove"]}
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
     )
     monkeypatch.setattr(
         engine_tools_mod,
@@ -697,7 +781,9 @@ def test_relaxed_policy_rejects_on_canary_regression(monkeypatch):
     )
     _patch_mine_result(monkeypatch, anomaly_score=5.0)
     engine = _CycleStubEngine(
-        governance_rules=[{"kind": "apply_placement_change", "target": "*", "tier": "auto"}]
+        governance_rules=[
+            {"kind": "apply_placement_change", "target": "*", "tier": "auto"}
+        ]
     )
     measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 300.0}])
     rep = run_placement_mining_cycle(
@@ -731,3 +817,311 @@ def test_apply_placement_change_default_never_auto():
     )
     assert rule["tier"] == TIER_APPROVAL
     assert rule["tier"] not in (TIER_AUTO, TIER_AUTO_NOTIFY)
+
+
+# ---------------------------------------------------------------------------
+# apply/rollback — the REAL online-move RPC (reshard), not a route-only flip
+# ---------------------------------------------------------------------------
+
+
+def test_apply_placement_change_prefers_reshard_online_move(monkeypatch):
+    """When the engine build exposes ``reshard``, apply MUST use the real
+    online-move RPC (data + route), not the route-only ``catalog_assign``."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    captured: dict[str, Any] = {}
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        captured["domain"] = domain
+        captured["action"] = action
+        captured["params"] = json.loads(params_json)
+        return json.dumps(
+            {
+                "graph": "acme:ws1",
+                "from_shard": 3,
+                "to_shard": 5,
+                "nodes": 10,
+                "edges": 4,
+            }
+        )
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {
+            "resharding": [
+                "catalog_assign",
+                "catalog_remove",
+                "reshard",
+                "rebalance_plan",
+            ]
+        },
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    prop = _proposal(kind="shard_split", target="acme:ws1")
+    result = apply_placement_change(prop)
+
+    assert result["applied"] is True
+    assert result["method"] == "reshard"
+    assert captured["domain"] == "resharding"
+    assert captured["action"] == "reshard"
+    assert captured["params"]["graph"] == "acme:ws1"
+    assert "to_shard" in captured["params"]
+    assert "shard" not in captured["params"]
+    # the engine's pre-move shard is stashed on the proposal for rollback.
+    assert prop.evidence["_reshard_from_shard"] == 3
+
+
+def test_rollback_reshards_straight_back_to_recorded_from_shard(monkeypatch):
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        calls.append({"action": action, "params": json.loads(params_json)})
+        return json.dumps({"graph": "acme:ws1", "from_shard": 3, "to_shard": 5})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove", "reshard"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    prop = _proposal(kind="shard_split", target="acme:ws1")
+    apply_placement_change(prop)  # records _reshard_from_shard = 3
+    result = rollback_placement_change(prop)
+
+    assert result["rolled_back"] is True
+    assert result["method"] == "reshard"
+    assert len(calls) == 2
+    assert calls[1]["action"] == "reshard"
+    assert calls[1]["params"] == {"graph": "acme:ws1", "to_shard": 3}
+
+
+def test_rollback_falls_back_to_catalog_remove_without_a_recorded_from_shard(
+    monkeypatch,
+):
+    """No prior apply happened (no ``_reshard_from_shard`` recorded) — even
+    with ``reshard`` available, rollback degrades to the route-only revert."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    captured: dict[str, Any] = {}
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        captured["action"] = action
+        return json.dumps({"removed": True})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove", "reshard"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    result = rollback_placement_change(_proposal(kind="shard_split", target="acme:ws1"))
+
+    assert result["rolled_back"] is True
+    assert captured["action"] == "catalog_remove"
+
+
+# ---------------------------------------------------------------------------
+# canary measurement — real engine stat fallback (shard load skew)
+# ---------------------------------------------------------------------------
+
+
+def test_shard_load_skew_measurement_reads_rebalance_plan(monkeypatch):
+    import agent_utilities.knowledge_graph.research.placement_mining as pm
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    monkeypatch.setattr(
+        engine_tools_mod, "ENGINE_DOMAINS", {"resharding": ["rebalance_plan"]}
+    )
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "_dispatch",
+        lambda domain, methods, action, params_json, graph: json.dumps(
+            {
+                "moves": [],
+                "shards": [
+                    {"shard": 0, "total": 100, "graphs": 3},
+                    {"shard": 1, "total": 40, "graphs": 1},
+                ],
+            }
+        ),
+    )
+    # bypass the promql attempt so the fallback path is exercised deterministically
+    monkeypatch.setattr(pm, "_promql_latency_measurement", lambda proposal: {})
+
+    result = pm._default_measurement(_proposal(), "baseline")
+    assert result == {"shard_load_skew": 60.0}
+
+
+def test_shard_load_skew_measurement_empty_without_resharding_surface(monkeypatch):
+    import agent_utilities.knowledge_graph.research.placement_mining as pm
+
+    monkeypatch.setattr(pm, "_promql_latency_measurement", lambda proposal: {})
+    result = pm._shard_load_skew_measurement()
+    # No resharding surface stubbed at all -> _resharding_methods() reads the
+    # REAL engine_tools.ENGINE_DOMAINS, which is empty/irrelevant here; the
+    # call degrades cleanly either way (never raises).
+    assert isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# placement_control_loop — Seam 4: the orchestrated, opt-in controller step
+# ---------------------------------------------------------------------------
+
+
+def test_placement_control_loop_default_off_is_a_zero_side_effect_noop(monkeypatch):
+    """Default OFF: importing/calling this without opting in must NEVER mine,
+    govern, canary, or reshard anything."""
+    import agent_utilities.knowledge_graph.research.placement_mining as pm
+
+    monkeypatch.delenv("PLACEMENT_CONTROL_LOOP_ENABLED", raising=False)
+
+    def _boom(*a, **kw):  # pragma: no cover - must never be called
+        raise AssertionError("mining must not run while the loop is disabled")
+
+    monkeypatch.setattr(pm, "mine_placement_patterns", _boom)
+
+    rep = placement_control_loop(_CycleStubEngine())
+    assert rep == {
+        "enabled": False,
+        "skipped": True,
+        "reason": (
+            "placement_control_loop is opt-in "
+            "(PLACEMENT_CONTROL_LOOP_ENABLED=0) — manual trigger required"
+        ),
+    }
+
+
+def test_placement_control_loop_enabled_via_env_flag(monkeypatch):
+    """The config/env opt-in path (distinct from an explicit ``enabled=True``
+    manual-trigger call) also turns the loop on."""
+    monkeypatch.setenv("PLACEMENT_CONTROL_LOOP_ENABLED", "1")
+    _patch_mine_result(monkeypatch, anomaly_score=0.5)  # below floor -> no side effects
+    rep = placement_control_loop(_CycleStubEngine())
+    assert rep["enabled"] is True
+    assert rep["eligible"] == 0
+
+
+def test_placement_control_loop_denied_proposal_never_applied(monkeypatch):
+    """SAFETY: a policy DENIAL (forbidden tier) must never reach the engine's
+    reshard RPC, fail-closed."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    dispatched_actions: list[str] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        dispatched_actions.append(action)
+        return json.dumps({"ok": True})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["reshard", "catalog_remove"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+    _patch_mine_result(monkeypatch, anomaly_score=5.0)
+    engine = _CycleStubEngine(
+        governance_rules=[
+            {"kind": "apply_placement_change", "target": "*", "tier": "forbidden"}
+        ]
+    )
+
+    rep = placement_control_loop(engine, enabled=True)
+
+    assert rep["enabled"] is True
+    assert rep["applied"] == 0
+    assert dispatched_actions == []  # the engine reshard RPC was NEVER invoked
+    proposals = engine.by_type("PlacementProposal")
+    assert proposals[0]["status"] == "proposal"  # never promoted
+
+
+def test_placement_control_loop_promotes_via_mocked_reshard_and_records_outcome(
+    monkeypatch,
+):
+    """The full Seam-4 loop: synthetic mining -> 1 proposal -> ActionPolicy
+    approves -> a mocked engine reshard is invoked -> the canary keeps the
+    change -> the outcome is recorded back for mining to read."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    dispatched: list[dict[str, Any]] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        dispatched.append({"action": action, "params": json.loads(params_json)})
+        return json.dumps({"graph": "hot-tenant", "from_shard": 2, "to_shard": 6})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["reshard", "catalog_remove", "rebalance_plan"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+    _patch_mine_result(monkeypatch, anomaly_score=5.0)
+    engine = _CycleStubEngine(
+        governance_rules=[
+            {"kind": "apply_placement_change", "target": "*", "tier": "auto"}
+        ]
+    )
+    measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 90.0}])
+
+    rep = placement_control_loop(
+        engine, measurement_fn=lambda p, phase: next(measurements), enabled=True
+    )
+
+    assert rep["enabled"] is True
+    assert rep["applied"] == 1
+    assert rep["outcomes_recorded"] == 1
+    assert any(d["action"] == "reshard" for d in dispatched)
+    proposals = engine.by_type("PlacementProposal")
+    assert proposals[0]["status"] == "applied"
+    # the outcome fed back for the mining flywheel to read.
+    outcomes = engine.by_type("ClaimOutcome")
+    assert len(outcomes) == 1
+    assert outcomes[0]["reward"] == pytest.approx(proposals[0]["confidence"])
+    assert outcomes[0]["durable_reward"] == pytest.approx(1.0)
+
+
+def test_placement_control_loop_rolls_back_via_reshard_on_regression(monkeypatch):
+    """A regressing canary rolls back through the SAME real reshard RPC
+    (straight back to the engine-reported pre-move shard), never applies,
+    and still records the (negative) outcome back to mining."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    dispatched: list[dict[str, Any]] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        params = json.loads(params_json)
+        dispatched.append({"action": action, "params": params})
+        return json.dumps({"graph": "hot-tenant", "from_shard": 2, "to_shard": 6})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["reshard", "catalog_remove"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+    _patch_mine_result(monkeypatch, anomaly_score=5.0)
+    engine = _CycleStubEngine(
+        governance_rules=[
+            {"kind": "apply_placement_change", "target": "*", "tier": "auto"}
+        ]
+    )
+    measurements = iter([{"latency_ms": 100.0}, {"latency_ms": 300.0}])  # regression
+
+    rep = placement_control_loop(
+        engine, measurement_fn=lambda p, phase: next(measurements), enabled=True
+    )
+
+    assert rep["applied"] == 0
+    assert rep["outcomes_recorded"] == 1
+    reshard_calls = [d for d in dispatched if d["action"] == "reshard"]
+    assert len(reshard_calls) == 2  # apply, then rollback
+    assert reshard_calls[1]["params"] == {"graph": "hot-tenant", "to_shard": 2}
+    proposals = engine.by_type("PlacementProposal")
+    assert proposals[0]["status"] == "rejected"
+    outcomes = engine.by_type("ClaimOutcome")
+    assert outcomes[0]["durable_reward"] == pytest.approx(0.0)
