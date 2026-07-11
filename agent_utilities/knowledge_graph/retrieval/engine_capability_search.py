@@ -62,9 +62,7 @@ def build_capability_filters(
             {"property": "capabilities", "op": "array_contains", "value": str(cap)}
         )
     if tenant is not None:
-        filters.append(
-            {"property": "tenant", "op": "eq_or_null", "value": str(tenant)}
-        )
+        filters.append({"property": "tenant", "op": "eq_or_null", "value": str(tenant)})
     for tag in policy_tags or ():
         filters.append(
             {"property": "policy_tags", "op": "array_contains", "value": str(tag)}

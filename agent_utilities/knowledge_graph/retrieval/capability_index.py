@@ -498,7 +498,9 @@ class CapabilityIndex:
             # Intersection of provider sets — O(sum of set sizes).
             for cap in required_caps:
                 providers = self._cap_to_ids.get(cap, set())
-                candidate = set(providers) if candidate is None else candidate & providers
+                candidate = (
+                    set(providers) if candidate is None else candidate & providers
+                )
                 if not candidate:
                     return set()
         if tenant is not None:
@@ -643,7 +645,10 @@ class CapabilityIndex:
             # CONCEPT:AU-P1-3 — explainable routing: why this candidate was eligible.
             if req or tenant is not None or req_policy:
                 provenance["eligibility"] = self.explain(
-                    nid, required_caps=req, tenant=tenant, required_policy_tags=req_policy
+                    nid,
+                    required_caps=req,
+                    tenant=tenant,
+                    required_policy_tags=req_policy,
                 )
             results.append(
                 Designation(
@@ -764,11 +769,7 @@ class CapabilityIndex:
         )
         missing_policy = sorted(req_policy - policy_of)
 
-        eligible = (
-            not missing_caps
-            and tenant_match is not False
-            and not missing_policy
-        )
+        eligible = not missing_caps and tenant_match is not False and not missing_policy
         return {
             "id": id,
             "capabilities": sorted(caps),
