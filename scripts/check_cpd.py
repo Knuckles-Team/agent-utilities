@@ -41,7 +41,7 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
 
 def _check_drift() -> tuple[list[str], list]:
     errors: list[str] = []
-    cpds, generated_at = gcp.generate(None)
+    cpds, generated_at = gcp.generate(None, refresh_cache=False)
     md = gcp.render_markdown(cpds, generated_at=generated_at)
     js = gcp.render_json(cpds, generated_at=generated_at)
 
