@@ -126,6 +126,10 @@ def test_engine_backend_uses_live_result_exclusively_never_touches_kg(
         "dag_id": "dag-1",
         "checkpoint_id": None,
         "depends_on_task_ids": [],
+        # L15: the engine-native path stamps its own backend marker so
+        # `agent_dispatch_worker._fence_still_valid` fails CLOSED (not open)
+        # on a fence-check error for claims made through this backend.
+        "_claim_backend": "engine",
     }
 
 

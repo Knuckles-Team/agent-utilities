@@ -73,6 +73,7 @@ __all__ = [
     "setup_otel",
     "verify_otel_pipeline",
     "get_otel_status_summary",
+    "parse_otlp_headers",
 ]
 
 logfire: Any
@@ -112,6 +113,27 @@ def _generate_otlp_auth_header(public_key: str, secret_key: str) -> str:
     return f"Authorization=Basic {auth_encoded}"
 
 
+def parse_otlp_headers(headers: str) -> dict[str, str]:
+    """Parse an OTLP headers string (``"key=value,key2=value2"``) into a dict.
+
+    CONCEPT:AU-OS.config.secrets-authentication — shared OTLP header parsing
+
+    Extracted so every OTLP exporter constructed in this package (the Langfuse
+    span processor below, and :class:`agent_utilities.observability.
+    TelemetryEngine`'s real TracerProvider/MeterProvider setup) parses the
+    ``OTEL_EXPORTER_OTLP_HEADERS``-style string identically instead of each
+    reimplementing the same split/strip logic.
+    """
+    header_dict: dict[str, str] = {}
+    if headers:
+        for part in headers.split(","):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                header_dict[k.strip()] = v.strip()
+    return header_dict
+
+
 def _create_otlp_span_processor(
     endpoint: str,
     headers: str,
@@ -139,14 +161,7 @@ def _create_otlp_span_processor(
         )
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        # Parse headers from "key=value,key2=value2" format to dict
-        header_dict: dict[str, str] = {}
-        if headers:
-            for part in headers.split(","):
-                part = part.strip()
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    header_dict[k.strip()] = v.strip()
+        header_dict = parse_otlp_headers(headers)
 
         # Ensure endpoint includes /v1/traces for the trace exporter
         traces_endpoint = endpoint.rstrip("/")

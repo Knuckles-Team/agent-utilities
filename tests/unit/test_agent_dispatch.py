@@ -895,6 +895,9 @@ def test_claim_agent_task_claims_and_writes_lease():
         "checkpoint_id": None,
         "depends_on_task_ids": ["dag-1:task:a"],
         "fence_token": 1,
+        # L15: the KG claim path stamps its own backend marker so
+        # `_fence_still_valid` knows the fail-OPEN posture applies to it.
+        "_claim_backend": "kg",
     }
     assert claim["lease_id"].startswith("lease:task-1:")
     assert engine.graph.nodes["task-1"]["status"] == "running"
