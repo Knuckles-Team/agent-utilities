@@ -27,6 +27,8 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+from ..backends.sparql.source_partition import make_source_id
+
 logger = logging.getLogger(__name__)
 
 # Actions that route to source sync (used by the scheduler dispatch).
@@ -603,7 +605,7 @@ def _sync_fleet_connectors(
                     doc_type=doc_type,
                     source=getattr(doc, "source_uri", "") or "",
                     metadata={
-                        "source_system": f"fleet:{package}",
+                        "source_system": make_source_id("fleet", package),
                         "package": package,
                         "updated_at": getattr(doc, "updated_at", None),
                     },
@@ -1370,7 +1372,7 @@ def _sync_confluence(
                         doc_type="wiki",
                         source=getattr(doc, "source_uri", ""),
                         metadata={
-                            "source_system": f"confluence:{name}",
+                            "source_system": make_source_id("confluence", name),
                             "space_id": rec.get("spaceId"),
                             "version": (rec.get("version") or {}).get("number"),
                             "confluence_page_id": str(getattr(doc, "id", "")),
@@ -1528,7 +1530,7 @@ def _sync_dockerhub(
                 "type": "repository",
                 "name": ns,
                 "domain": "dockerhub",
-                "source_system": f"dockerhub:{ns}",
+                "source_system": make_source_id("dockerhub", ns),
             }
         ]
         rels: list[dict[str, Any]] = []
@@ -1548,7 +1550,7 @@ def _sync_dockerhub(
                     "star_count": rec.get("star_count"),
                     "is_private": rec.get("is_private"),
                     "domain": "dockerhub",
-                    "source_system": f"dockerhub:{ns}",
+                    "source_system": make_source_id("dockerhub", ns),
                     "externalToolId": f"{ns}/{name}",
                     "updatedAt": rec.get("last_updated"),
                 }

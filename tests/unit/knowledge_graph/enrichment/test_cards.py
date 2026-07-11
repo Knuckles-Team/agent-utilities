@@ -19,6 +19,42 @@ def _fn(name, ast_hash):
     )
 
 
+def _ctor(name, ast_hash):
+    e = _fn(name, ast_hash)
+    e.kind = "constructor"  # trivial → no LLM, permanent-empty 'skip'
+    return e
+
+
+def test_card_status_ok_skip_failed():
+    """CONCEPT:AU-KG.enrichment.card-attempt-status — the backfill must tell a PERMANENT empty (trivial)
+    from a TRANSIENT LLM failure, so it stops re-trying trivials but keeps retrying failures."""
+
+    def good_llm(prompt: str) -> str:
+        return '{"summary": "Does a thing.", "responsibilities": ["x"]}'
+
+    def boom_llm(prompt: str) -> str:
+        raise RuntimeError("vLLM 502")
+
+    # ok: real summary landed.
+    ok = generate_symbol_cards([_fn("do_thing", "hok")], good_llm, {})
+    assert ok[0].status == "ok" and ok[0].summary
+
+    # skip: a trivial symbol gets an empty card with NO LLM call → permanent, never retry.
+    calls = {"n": 0}
+
+    def counting_llm(prompt: str) -> str:
+        calls["n"] += 1
+        return '{"summary": "", "responsibilities": []}'
+
+    skipped = generate_symbol_cards([_ctor("__init__", "hsk")], counting_llm, {})
+    assert skipped[0].status == "skip" and skipped[0].summary == ""
+    assert calls["n"] == 0  # trivial → no LLM round-trip
+
+    # failed: an LLM transport error is transient → status 'failed' (retry + trip breaker).
+    failed = generate_symbol_cards([_fn("hard_one", "hfa")], boom_llm, {})
+    assert failed[0].status == "failed" and failed[0].summary == ""
+
+
 def test_cards_generated_and_cached_by_ast_hash():
     calls = {"n": 0}
 

@@ -166,9 +166,15 @@ class _BatchedBackend:
     writes if the engine has no bulk path or a batch fails. (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.16, #1)
     """
 
-    def __init__(self, backend: Any, batch_size: int = 1000) -> None:
+    def __init__(
+        self, backend: Any, batch_size: int = 1000, source_system: str | None = None
+    ) -> None:
         self._backend = backend
         self._batch_size = batch_size
+        # Provenance source id stamped on every buffered node (CONCEPT:AU-KG.ingest.code-source-partition)
+        # so code records land in their ``urn:source:code:<repo>`` named graph instead of the
+        # SPARQL default graph. ``None`` ⇒ no stamping (non-code enrichment is unchanged).
+        self._source_system = source_system
         self._nodes: list[dict[str, Any]] = []
         self._edges: list[dict[str, Any]] = []
         graph = getattr(backend, "_graph", None)
@@ -195,11 +201,19 @@ class _BatchedBackend:
         return self._bulk is not None
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
+        props: dict[str, Any] = {"label": label, **properties}
+        # Stamp the source-provenance contract (source_system + domain) on every code
+        # node at the one write chokepoint, so partition routing sends it to the right
+        # named graph. A caller-set source_system still wins (stamp_source setdefaults).
+        if self._source_system:
+            from .provenance import stamp_source
+
+            stamp_source(props, self._source_system)
         self._nodes.append(
             {
                 "op": "add_node",
                 "id": node_id,
-                "properties": {"label": label, **properties},
+                "properties": props,
             }
         )
         if len(self._nodes) >= self._batch_size:
@@ -248,8 +262,15 @@ class _BatchedBackend:
         ops, self._nodes = self._nodes, []
         if self._submit_bulk(ops):
             return
+        # Per-item fallback: skip a poison node instead of aborting the whole repo's
+        # structural pass (CONCEPT:AU-KG.enrichment.card-attempt-status — one bad symbol must not wedge ingest).
         for op in ops:
-            self._backend.add_node(op["id"], **op["properties"])
+            try:
+                self._backend.add_node(op["id"], **op["properties"])
+            except Exception:  # noqa: BLE001 - skip the bad node, keep ingesting
+                logger.debug(
+                    "per-item add_node failed for %s", op.get("id"), exc_info=True
+                )
 
     def _flush_edges(self) -> None:
         if not self._edges:
@@ -258,7 +279,15 @@ class _BatchedBackend:
         if self._submit_bulk(ops):
             return
         for op in ops:
-            self._backend.add_edge(op["source"], op["target"], **op["properties"])
+            try:
+                self._backend.add_edge(op["source"], op["target"], **op["properties"])
+            except Exception:  # noqa: BLE001 - skip the bad edge, keep ingesting
+                logger.debug(
+                    "per-item add_edge failed for %s->%s",
+                    op.get("source"),
+                    op.get("target"),
+                    exc_info=True,
+                )
 
     def flush(self) -> None:
         """Flush nodes first (so endpoints exist), then edges."""
@@ -295,8 +324,13 @@ class EnrichmentPipeline:
         writeback_fn: Callable[[list[GraphNode]], Any] | None = None,
         batch_parse_fn: BatchParseFn | None = None,
         index_fn: IndexFn | None = None,
+        source_system: str | None = None,
     ) -> None:
         self.backend = backend
+        # Canonical source id (e.g. ``code:<repo>``) stamped on every node this pipeline
+        # writes, so code lands in its own ``urn:source:code:<repo>`` named graph rather
+        # than the SPARQL default graph (CONCEPT:AU-KG.ingest.code-source-partition). ``None`` ⇒ unstamped.
+        self.source_system = source_system
         self.parse_fn = parse_fn
         # Optional batched parse (one RPC for N files). When set, changed files
         # are parsed in a single round-trip instead of per-file. (CONCEPT:EG-KG.compute.graph-compute-engine)
@@ -437,7 +471,7 @@ class EnrichmentPipeline:
         # round-trip. The buffer flushes via the engine's bulk op (nodes before
         # edges). Reads (e.g. capability_provider) still hit the real backend. (#1)
         real_backend = self.backend
-        self.backend = _BatchedBackend(real_backend)
+        self.backend = _BatchedBackend(real_backend, source_system=self.source_system)
         try:
             for c in all_code:
                 self._write_code(c, cards_by_id.get(c.id))

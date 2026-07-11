@@ -22,6 +22,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from ..backends.sparql.source_partition import make_source_id
+
 logger = logging.getLogger(__name__)
 
 # File extensions the engine's tree-sitter parser understands — kept in sync with
@@ -160,7 +162,7 @@ def index_instance(
       (delta sync); ``None`` indexes all (full sync).
     """
     summary = IndexSummary(instance=instance)
-    domain = f"gitlab:{instance}"
+    domain = make_source_id("gitlab", instance)
     watermark = since
 
     # Iterate defensively: project enumeration is paginated, so a transient blip

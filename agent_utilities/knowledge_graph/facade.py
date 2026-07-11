@@ -3,27 +3,30 @@ from __future__ import annotations
 
 """Knowledge Graph facade — the single object the execution plane talks to.
 
-Plan 04 (Multi-Layer Knowledge Graph) splits the system into layers:
+The **epistemic-graph engine is the ONE authority** (compute + in-memory cache +
+semantic + durable persistence); the facade composes it with the semantic + retrieval
+layers behind one object. There is NO L0/L1/L2 tier vocabulary — the facade exposes three
+collaborating concerns, all served by the one authority:
 
-* **L0 — store**: the configured persistent graph backend (LadybugDB, Neo4j,
-  FalkorDB, in-memory epistemic engine, …) that holds the labelled property
-  graph.
-* **L1 — compute**: the Rust-native ``epistemic-graph`` compute client used for
-  in-process graph algorithms (when available).
-* **L2 — semantic / retrieval**: OWL reasoning (``owl_bridge``) and the
-  capability-aware designation index (:class:`CapabilityIndex`) that turn the
-  graph into actionable routing/designation decisions.
+* **store** — the graph backend the authority persists to (the epistemic engine, plus any
+  durable mirrors under ``backends/`` when ``GRAPH_BACKEND=fanout``) holding the labelled
+  property graph.
+* **compute** — the Rust-native ``epistemic-graph`` compute client for in-process graph
+  algorithms (when available).
+* **semantic / retrieval** — OWL reasoning (``owl_bridge``) and the capability-aware
+  designation index (:class:`CapabilityIndex`) that turn the graph into actionable
+  routing/designation decisions.
 
-Layer contract (strictly one-directional)::
+Dependency contract (strictly one-directional)::
 
-    graph/*  ->  facade (KnowledgeGraph)  ->  { L0 store, L1 compute, L2 semantic/retrieval }
+    graph/*  ->  facade (KnowledgeGraph)  ->  { store, compute, semantic/retrieval }
 
 The execution plane (``graph/*`` — routing, planning, orchestration) depends on
-this facade. The facade depends downward on L0/L1/L2. **Nothing below the
-facade imports the execution plane**, and the facade itself imports its layers
+this facade. The facade depends downward on those concerns. **Nothing below the
+facade imports the execution plane**, and the facade itself imports them
 lazily and defensively so that *constructing* a :class:`KnowledgeGraph` never
 requires a running service, an installed optional backend, or a network
-connection. Each layer is materialised on first access and any import/connect
+connection. Each is materialised on first access and any import/connect
 failure is tolerated (the attribute resolves to ``None``), keeping the facade
 usable in tests, edge deployments, and degraded environments.
 """
@@ -84,11 +87,11 @@ class KnowledgeGraph:
         self._object_funnel: Any = None
 
     # ------------------------------------------------------------------
-    # L0 — store
+    # store — the authority's graph backend
     # ------------------------------------------------------------------
     @property
     def store(self) -> Any:
-        """The configured persistent graph backend (L0), or ``None``.
+        """The configured persistent graph backend (the authority's store), or ``None``.
 
         Created lazily via the backend factory. Any failure (missing optional
         package, unreachable service) is tolerated and yields ``None``.
@@ -107,11 +110,11 @@ class KnowledgeGraph:
         return self._store
 
     # ------------------------------------------------------------------
-    # L1 — compute
+    # compute — the Rust-native graph client
     # ------------------------------------------------------------------
     @property
     def compute(self) -> Any:
-        """The Rust-native graph compute client (L1), or ``None``.
+        """The Rust-native graph compute client, or ``None``.
 
         Prefers the store backend's own compute engine when present; otherwise
         instantiates a standalone ``GraphComputeEngine``. Tolerates absence of
@@ -134,11 +137,11 @@ class KnowledgeGraph:
         return self._compute
 
     # ------------------------------------------------------------------
-    # L2 — semantic (OWL bridge)
+    # semantic — the OWL reasoning bridge
     # ------------------------------------------------------------------
     @property
     def semantic(self) -> Any:
-        """The OWL reasoning bridge (L2 semantics), or ``None``.
+        """The OWL reasoning bridge (semantic layer), or ``None``.
 
         Built lazily over the active compute/store layers. Requires an OWL
         backend; if none can be constructed the attribute resolves to ``None``.
@@ -180,11 +183,11 @@ class KnowledgeGraph:
             return None
 
     # ------------------------------------------------------------------
-    # L2 — retrieval (capability index)
+    # retrieval — the capability designation index
     # ------------------------------------------------------------------
     @property
     def retrieval(self) -> CapabilityIndex:
-        """The capability-aware designation index (L2 retrieval).
+        """The capability-aware designation index (retrieval layer).
 
         Unlike the other layers this always resolves to a usable object: a
         fresh empty :class:`CapabilityIndex` is created on first access if one
@@ -406,7 +409,7 @@ class KnowledgeGraph:
         return tenant_graph_name(effective_tenant, base or default_graph_name())
 
     def populate_capability_index(self, nodes: Any) -> int:
-        """Populate the L2 retrieval index from graph nodes (Plan 08 Synergy 1).
+        """Populate the retrieval (capability designation) index from graph nodes (Plan 08 Synergy 1).
 
         This is the bridge that lets the live router call :meth:`designate`
         once the knowledge graph feeds real nodes into the capability index. It
