@@ -69,6 +69,17 @@ class ReplayModel:
             )
         return self._by_request[key]
 
+    def override(self, request: Any, response: Any) -> None:
+        """Substitute ``response`` for ``request`` — a COUNTERFACTUAL response override.
+
+        Never used by a live run (which only ever reads recorded captures): this exists
+        for a counterfactual replay (e.g.
+        :func:`agent_utilities.orchestration.agent_digital_twin.counterfactual_replay`)
+        to answer "what if a different model/prompt version had produced this response
+        instead" without ever calling a live model.
+        """
+        self._by_request[_request_key(request)] = response
+
 
 def _request_key(request: Any) -> str:
     return content_digest(MODEL_EXCHANGE, "declaration", {"request": request}, ())
@@ -111,7 +122,7 @@ def replay_run(log: RunEventLog) -> ReplayResult:
             continue
         steps += 1
         # The recorded capture that answered this declaration (causal child).
-        recorded_capture = _capture_of(ev, events)
+        recorded_capture = capture_of(ev, events)
         if ev.schema_ref == MODEL_EXCHANGE:
             reconstructed.append(model.respond(ev.payload.get("request")))
         elif recorded_capture is not None:
@@ -138,7 +149,7 @@ def replay_run(log: RunEventLog) -> ReplayResult:
     )
 
 
-def _capture_of(declaration: RunEvent, events: list[RunEvent]) -> RunEvent | None:
+def capture_of(declaration: RunEvent, events: list[RunEvent]) -> RunEvent | None:
     """The capture event caused by ``declaration`` (its causal child), if any."""
     for ev in events:
         if ev.mode == "capture" and declaration.record_id in ev.caused_by:
