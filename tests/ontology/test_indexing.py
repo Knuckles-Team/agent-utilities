@@ -11,6 +11,8 @@ that drift, and tombstone compaction physically evicting deletes.
 Self-contained against existing stable code (CapabilityIndex) only.
 """
 
+import types
+
 import pytest
 
 from agent_utilities.knowledge_graph.ontology.indexing import (
@@ -243,3 +245,193 @@ def test_staleness_ledger_classifies() -> None:
     )
     report2 = ledger.compare({"a": {"v": 1}, "b": {"v": 99}, "c": {"v": 3}})
     assert report2.needs_reindex is False
+
+
+# ── CDC-driven lifecycle (CONCEPT:AU-P1-3 pattern reuse — L33) ───────────────
+#
+# Mirrors the fake-streaming/CDC-capable-graph pattern from
+# tests/unit/graph/test_capability_designation.py (the AU-P1-3
+# CapabilityIndexWatcher suite) to prove ObjectIndexFunnel adopts the SAME
+# bootstrap-once + engine_subscription.subscribe pattern rather than its own
+# rebuild loop.
+class _FakeStreaming:
+    """Minimal stand-in for ``client.streaming`` (``cdc_read`` + ``watch``)."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def cdc_read(self, _graph_name, cursor, limit=4096):
+        pending = [e for e in self.events if e["seq"] >= cursor]
+        return pending[:limit]
+
+    def watch(self, _graph_name, cursor, label="", timeout_ms=0):
+        pending = [e for e in self.events if e["seq"] >= cursor]
+        next_seq = (pending[-1]["seq"] + 1) if pending else cursor
+        return {"events": pending, "next_seq": next_seq}
+
+
+class _CdcCapableGraph:
+    """A node-scannable graph that ALSO resolves an engine streaming surface."""
+
+    def __init__(self, nodes: dict, streaming: _FakeStreaming) -> None:
+        self._nodes = dict(nodes)
+        self._client = types.SimpleNamespace(streaming=streaming)
+        self.graph_name = "engtest"
+        self.node_ids_calls = 0
+
+    def node_ids(self):
+        self.node_ids_calls += 1
+        return list(self._nodes.keys())
+
+    def _get_node_properties(self, nid):
+        return self._nodes.get(nid, {})
+
+
+class _PlainGraph:
+    """A node-scannable graph with NO streaming surface (the CDC-unavailable case)."""
+
+    def __init__(self, nodes: dict) -> None:
+        self._nodes = dict(nodes)
+        self.node_ids_calls = 0
+
+    def node_ids(self):
+        self.node_ids_calls += 1
+        return list(self._nodes.keys())
+
+    def _get_node_properties(self, nid):
+        return self._nodes.get(nid, {})
+
+
+def _engine_nodes(n: int, seed_offset: int = 0) -> dict:
+    return {
+        f"t{i}": {
+            "id": f"t{i}",
+            "type": "tool",
+            "embedding": _vec(i + seed_offset),
+            "capabilities": ["search"],
+        }
+        for i in range(n)
+    }
+
+
+def test_bind_engine_bootstraps_once_via_full_scan() -> None:
+    streaming = _FakeStreaming()
+    graph = _CdcCapableGraph(_engine_nodes(3), streaming)
+    engine = types.SimpleNamespace(graph=graph)
+
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    result = funnel.bind_engine(engine)
+
+    assert result.mode == "batch"
+    assert result.rebuilt is True
+    assert graph.node_ids_calls == 1  # exactly one bootstrap full scan
+    assert funnel.live_ids() == {"t0", "t1", "t2"}
+    assert funnel.cdc_available is True
+    assert funnel.bound_engine is engine
+
+
+def test_poll_delivers_cdc_upsert_without_a_full_rescan() -> None:
+    streaming = _FakeStreaming()
+    graph = _CdcCapableGraph(_engine_nodes(3), streaming)
+    engine = types.SimpleNamespace(graph=graph)
+
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel.bind_engine(engine)
+    assert graph.node_ids_calls == 1
+
+    # A brand-new object arrives purely via the CDC feed.
+    streaming.events.append(
+        {
+            "seq": 1,
+            "kind": "upsert",
+            "node_id": "t99",
+            "label": "",
+            "after": {
+                "id": "t99",
+                "type": "tool",
+                "embedding": _vec(99),
+                "capabilities": ["search"],
+            },
+        }
+    )
+    result = funnel.poll()
+
+    assert graph.node_ids_calls == 1  # STILL just the one bootstrap scan
+    assert result.mode == "cdc"
+    assert result.upserted == 1
+    assert result.rebuilt is False
+    assert "t99" in funnel.live_ids()
+    assert len(funnel) == 4
+
+
+def test_poll_delivers_cdc_delete_without_a_full_rescan() -> None:
+    streaming = _FakeStreaming()
+    graph = _CdcCapableGraph(_engine_nodes(3), streaming)
+    engine = types.SimpleNamespace(graph=graph)
+
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel.bind_engine(engine)
+
+    streaming.events.append(
+        {"seq": 1, "kind": "delete", "node_id": "t0", "label": "", "after": None}
+    )
+    result = funnel.poll()
+
+    assert graph.node_ids_calls == 1  # eviction was incremental, not a rescan
+    assert result.mode == "cdc"
+    assert result.deleted == 1
+    assert "t0" not in funnel.live_ids()
+    # Deleted object never appears in search, even without a compaction.
+    for seed in range(20):
+        assert all(h.id != "t0" for h in funnel.search(_vec(seed), k=10))
+
+
+def test_poll_respects_data_restriction_on_cdc_events() -> None:
+    streaming = _FakeStreaming()
+    graph = _CdcCapableGraph(_engine_nodes(2), streaming)
+    engine = types.SimpleNamespace(graph=graph)
+
+    restriction = DataRestriction(allowed_types={"tool"})
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy", restriction=restriction)
+    funnel.bind_engine(engine)
+    assert graph.node_ids_calls == 1
+
+    # A non-admitted node type arrives via CDC -> the funnel's OWN
+    # DataRestriction still applies on the CDC path (via upsert()).
+    streaming.events.append(
+        {
+            "seq": 1,
+            "kind": "upsert",
+            "node_id": "dataset1",
+            "label": "",
+            "after": {"id": "dataset1", "type": "dataset", "embedding": _vec(50)},
+        }
+    )
+    result = funnel.poll()
+
+    assert graph.node_ids_calls == 1
+    assert result.upserted == 0
+    assert "dataset1" not in funnel.live_ids()
+
+
+def test_poll_without_cdc_surface_falls_back_to_reconcile() -> None:
+    """No engine streaming surface reachable -> poll degrades to one full
+    reconcile pass over a fresh scan (mirrors CapabilityIndexWatcher.refresh's
+    degrade-to-full-rebuild behaviour for a dev/non-engine backend)."""
+    graph = _PlainGraph(_engine_nodes(2))
+    engine = types.SimpleNamespace(graph=graph)
+
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel.bind_engine(engine)
+    assert funnel.cdc_available is False
+    assert graph.node_ids_calls == 1
+
+    result = funnel.poll()
+    assert graph.node_ids_calls == 2  # degraded: one extra full rescan
+    assert result.mode == "incremental"  # reconcile's SyncResult.mode
+
+
+def test_poll_before_bind_engine_raises() -> None:
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    with pytest.raises(RuntimeError):
+        funnel.poll()
