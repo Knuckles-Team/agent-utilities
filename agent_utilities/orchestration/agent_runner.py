@@ -351,6 +351,7 @@ async def run_agent(
         else ""
     )
     _bound_server = str(agent_meta.get("skill_of_server", "") or "")
+    _skill_id = str(agent_meta.get("skill_id", "") or "")
 
     # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
     # direct tool loop (bind only that server's toolset, no router); anything else
@@ -477,6 +478,7 @@ async def run_agent(
             error=err_msg,
             skill_used=_skill_used,
             bound_server=_bound_server,
+            skill_id=_skill_id,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -513,6 +515,7 @@ async def run_agent(
         error="delegation produced no usable data (degraded)" if degraded else None,
         skill_used=_skill_used,
         bound_server=_bound_server,
+        skill_id=_skill_id,
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -1978,6 +1981,7 @@ def _record_execution_trace(
     result_preview: str | None = None,
     skill_used: str = "",
     bound_server: str = "",
+    skill_id: str = "",
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
@@ -2030,12 +2034,17 @@ def _record_execution_trace(
                 "MERGE (t)-[:EXECUTED_ON]->(s)",
                 {"sid": f"srv:{server_name}", "tid": trace_id},
             )
-            # Skill-utilization provenance: which skill's SOP drove this run.
+            # Skill-utilization provenance: which skill's SOP drove this run. Match the
+            # skill node by ID — the engine cannot resolve a node by a non-id property
+            # (name) in a write, which silently dropped this edge; EXECUTED_ON matches by
+            # id and works, so mirror it. Prefer the resolved skill_id; fall back to the
+            # standard ``skill:<name>`` id.
             if skill_used:
+                rid = skill_id or f"skill:{skill_used}"
                 engine.backend.execute(
-                    "MATCH (r:CallableResource {name: $skill}), (t:RunTrace {id: $tid}) "
+                    "MATCH (r:CallableResource {id: $rid}), (t:RunTrace {id: $tid}) "
                     "MERGE (t)-[:USES_SKILL]->(r)",
-                    {"skill": skill_used, "tid": trace_id},
+                    {"rid": rid, "tid": trace_id},
                 )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
