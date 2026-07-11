@@ -145,7 +145,10 @@ def test_agent_policy_decision_node_from_action_decision_reuses_audit_id() -> No
     """The wrapper keys off the ALREADY-PERSISTED ActionDecision audit_id —
     same graph node, no second write (the reuse-audit's load-bearing property)."""
     req = action_policy.ActionRequest(
-        kind="agent_task.execute", target="task-1", source="agent-dispatch", actor_id="agent-1"
+        kind="agent_task.execute",
+        target="task-1",
+        source="agent-dispatch",
+        actor_id="agent-1",
     )
     decision = action_policy.ActionDecision(
         decision="allow_notify",
@@ -371,7 +374,9 @@ def test_execute_agent_task_turn_denied_is_terminal_failed(monkeypatch) -> None:
                 audit_id="action_decision:deny-1",
             )
 
-    monkeypatch.setattr(action_policy, "get_action_policy", lambda engine=None: _DenyPolicy())
+    monkeypatch.setattr(
+        action_policy, "get_action_policy", lambda engine=None: _DenyPolicy()
+    )
 
     outcome = worker.execute_agent_task_turn(engine, "task-3", agent_id="agent-1")
 
@@ -398,7 +403,9 @@ def test_execute_agent_task_turn_queued_for_approval_is_blocked_not_terminal(
                 approval_id="action_approval:1",
             )
 
-    monkeypatch.setattr(action_policy, "get_action_policy", lambda engine=None: _QueuePolicy())
+    monkeypatch.setattr(
+        action_policy, "get_action_policy", lambda engine=None: _QueuePolicy()
+    )
 
     outcome = worker.execute_agent_task_turn(engine, "task-4", agent_id="agent-1")
 
@@ -458,7 +465,7 @@ def test_execute_agent_task_turn_routes_claim_through_engine_claim_backend_switc
     monkeypatch.setattr(
         engine_claim,
         "_claim_agent_task_kg",
-        lambda engine, task_id, **kw: (kg_claim_calls.append(task_id) or None),
+        lambda engine, task_id, **kw: kg_claim_calls.append(task_id) or None,
     )
 
     engine_claim_calls: list[str] = []
@@ -569,3 +576,103 @@ def test_execute_agent_task_turn_stale_lease_fenced_out_at_commit() -> None:
     assert len(leases) == 2  # A's original + B's reclaim
     assert leases[-1]["owner_token"] == "hostB:2:agent-dispatch"
     assert leases[-1]["lease_epoch"] == 2
+
+
+# ---------------------------------------------------------------------------
+# L15 — the engine-native claim path must fail CLOSED on a fence-check error
+# (the KG best-effort path keeps its existing fail-OPEN posture).
+# ---------------------------------------------------------------------------
+
+
+class _RaisingLeaseEngine(_Gap6Engine):
+    """``_Gap6Engine`` whose ``:AgentLease`` fence-check query always raises,
+    isolating L15's fail-open/fail-closed split from every other engine
+    interaction on the commit path (policy decision, capability grant, ...),
+    which all still resolve normally."""
+
+    def query_cypher(self, q, params=None):
+        if "AgentLease {resource_id: $rid}" in q:
+            raise RuntimeError("engine query transport error")
+        return super().query_cypher(q, params)
+
+
+def test_fence_still_valid_kg_claim_fails_open_on_query_error() -> None:
+    """Regression guard: the KG best-effort path is UNCHANGED by L15 — a
+    fence-check query error must not block a legitimate commit on this path
+    (an audit-read hiccup must never block a legitimate commit)."""
+    engine = _RaisingLeaseEngine()
+    claim = {"fence_token": 1, "_claim_backend": "kg"}
+    assert worker._fence_still_valid(engine, "task-kg", claim, token="hostA:1") is True
+
+    # A claim with no `_claim_backend` marker at all (e.g. a hand-built test
+    # fixture, or a pre-L15 caller) must also default to the KG fail-open
+    # posture — only an EXPLICIT "engine" marker fails closed.
+    unmarked_claim = {"fence_token": 1}
+    assert (
+        worker._fence_still_valid(engine, "task-kg-2", unmarked_claim, token="hostA:1")
+        is True
+    )
+
+
+def test_fence_still_valid_engine_native_claim_fails_closed_on_query_error() -> None:
+    """L15: the engine-native claim path must fail CLOSED — a worker that
+    cannot confirm it still holds the lease must NOT commit."""
+    engine = _RaisingLeaseEngine()
+    claim = {"fence_token": 1, "_claim_backend": "engine"}
+    assert (
+        worker._fence_still_valid(engine, "task-engine", claim, token="hostA:1")
+        is False
+    )
+
+
+def test_fence_still_valid_engine_native_claim_fails_closed_with_no_engine() -> None:
+    """L15: an engine-native claim with no engine client to verify against
+    is likewise unconfirmable — fail CLOSED, not open."""
+    claim = {"fence_token": 1, "_claim_backend": "engine"}
+    assert (
+        worker._fence_still_valid(None, "task-engine", claim, token="hostA:1") is False
+    )
+
+
+def test_execute_agent_task_turn_engine_native_claim_aborts_commit_on_fence_query_error(
+    monkeypatch,
+) -> None:
+    """L15 end-to-end: with ``AGENT_CLAIM_BACKEND=engine`` and the fence-check
+    query raising at commit time, the turn must be ABORTED (never
+    ``"completed"``) and no writeback may land — an engine-native worker that
+    cannot confirm it still holds the lease must not commit, unlike the KG
+    best-effort path's fail-open posture."""
+    from agent_utilities.orchestration import engine_claim
+
+    monkeypatch.setenv("AGENT_CLAIM_BACKEND", "engine")
+
+    def _fake_try_engine_claim(task_id, *, token, now, claim_ttl_s):
+        return {
+            "task_id": task_id,
+            "lease_id": "lease:engine:live",
+            "dag_id": "",
+            "checkpoint_id": None,
+            "depends_on_task_ids": [],
+            "fence_token": 1,
+            "_claim_backend": engine_claim.AGENT_CLAIM_BACKEND_ENGINE,
+        }
+
+    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fake_try_engine_claim)
+
+    engine = _RaisingLeaseEngine()
+    engine.add_node("task-10", "AgentTask", properties={"status": "pending"})
+
+    outcome = worker.execute_agent_task_turn(
+        engine,
+        "task-10",
+        agent_id="agent-1",
+        executor=lambda claim: "ran via the engine-native claim",
+    )
+
+    assert outcome == "fenced"
+    # No writeback landed for the unverifiable commit — the task is left
+    # exactly where the (mocked) engine-native claim left it, never flipped
+    # to "completed" with a fabricated success outcome.
+    assert engine.nodes["task-10"]["status"] == "pending"
+    assert engine.by_type("OutcomeEvaluation") == []
+    assert engine.by_type("Observation") == []
