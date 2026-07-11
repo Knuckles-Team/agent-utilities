@@ -576,8 +576,8 @@ class MediaStore:
         **store_media_kwargs: Any,
     ) -> DocumentEvidenceLocus | None:
         """Store a document page's bytes AND through-write the EG evidence-graph
-        typed-node chain for its ``PageBox`` locus (Seam 2, CONCEPT:AU-KG.identity.
-        evidence-spine-convergence / EG-X1) — opt-in: nothing about
+        typed-node chain for its ``PageBox`` locus (Seam 2,
+        CONCEPT:AU-KG.identity.evidence-spine-convergence / EG-X1) — opt-in: nothing about
         :meth:`store_media` changes; call THIS when the caller has a located
         page+box to record, so the resulting occurrence becomes resolvable via
         epistemic-graph's OWN citation resolver (``Method::ExplainEvidence`` /
