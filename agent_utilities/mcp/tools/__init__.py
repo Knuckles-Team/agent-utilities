@@ -12,6 +12,7 @@ from agent_utilities.mcp.tools.engine_surface_tools import (
 )
 from agent_utilities.mcp.tools.engine_tools import register_engine_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
+from agent_utilities.mcp.tools.ops_causal_tools import register_ops_causal_tools
 from agent_utilities.mcp.tools.query_tools import register_query_tools
 from agent_utilities.mcp.tools.reach_tools import register_reach_tools
 from agent_utilities.mcp.tools.secret_tools import register_secret_tools
@@ -30,4 +31,5 @@ __all__ = [
     "register_secret_tools",
     "register_engine_tools",
     "register_engine_surface_tools",
+    "register_ops_causal_tools",
 ]
