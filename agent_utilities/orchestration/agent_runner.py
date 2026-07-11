@@ -341,6 +341,17 @@ async def run_agent(
         if channel_id:
             config["message_channel_id"] = channel_id
 
+    # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a package SKILL drove
+    # this run (its SOP is the prompt) and which server's tools it bound (F7), so the
+    # RunTrace records skill utilization: bare skill (prompt-only) has type=="skill";
+    # a skill bound to its server (F7) carries ``skill_of_server``.
+    _skill_used = (
+        agent_name
+        if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
+        else ""
+    )
+    _bound_server = str(agent_meta.get("skill_of_server", "") or "")
+
     # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
     # direct tool loop (bind only that server's toolset, no router); anything else
     # goes through the full multi-agent orchestration graph. Routing a one-server
@@ -458,7 +469,14 @@ async def run_agent(
         )
         # Record failure provenance
         _record_execution_trace(
-            engine, run_id, agent_name, task, status="failed", error=err_msg
+            engine,
+            run_id,
+            agent_name,
+            task,
+            status="failed",
+            error=err_msg,
+            skill_used=_skill_used,
+            bound_server=_bound_server,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -493,6 +511,8 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
         error="delegation produced no usable data (degraded)" if degraded else None,
+        skill_used=_skill_used,
+        bound_server=_bound_server,
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -1468,6 +1488,12 @@ def _is_bound_template_agent(
 # value, auto-behaviour — not a knob).
 _MAX_BOUND_TOOLS = 20
 
+# Wall-clock budget for a single-server direct tool loop. Generous enough for a
+# legitimate multi-step, multi-tool run, but far below the MCP client timeout so a
+# blocking tool fails loud in minutes instead of hanging for the full client budget
+# (CONCEPT:AU-ORCH.execution.delegation-wall-clock). One correct value, not a knob.
+_EXECUTE_AGENT_WALL_CLOCK_S = 300.0
+
 
 def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
     """A degraded result for a resolved fleet-server delegation that failed.
@@ -1675,7 +1701,23 @@ async def _execute_single_server(
 
         run_kwargs["usage_limits"] = UsageLimits(**limit_kwargs)
 
-    result = await agent.run(prompt, **run_kwargs)
+    # CONCEPT:AU-ORCH.execution.delegation-wall-clock — bound the direct tool loop with a wall-clock.
+    # ``usage_limits`` caps model round-trips but NOT time: a fleet tool that blocks (e.g.
+    # a systems-manager telemetry call shelling to a stuck host command) hangs the whole
+    # delegation for the full client timeout (observed: 1800s) and piles engine
+    # connections. A hung delegation is worse than a failed one — time out and raise so
+    # the caller records it as a degraded/failed run (fail-loud), never an indefinite hang.
+    try:
+        result = await asyncio.wait_for(
+            agent.run(prompt, **run_kwargs),
+            timeout=_EXECUTE_AGENT_WALL_CLOCK_S,
+        )
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"single-server agent '{agent_name}' exceeded the "
+            f"{_EXECUTE_AGENT_WALL_CLOCK_S:.0f}s wall-clock budget — a bound tool likely "
+            f"blocked; failing loud instead of hanging"
+        ) from exc
     output = (
         getattr(result, "output", None)
         if getattr(result, "output", None) is not None
@@ -1934,13 +1976,18 @@ def _record_execution_trace(
     error: str | None = None,
     duration_ms: float | None = None,
     result_preview: str | None = None,
+    skill_used: str = "",
+    bound_server: str = "",
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — Execution provenance tracking.
 
     Creates a ``RunTrace`` node linked to the agent's Server/Resource node,
-    enabling full audit trail of agent invocations.
+    enabling full audit trail of agent invocations. When a package skill drove the
+    run, ``skill_used``/``bound_server`` record which skill ran and which server's
+    tools it bound, and a ``USES_SKILL`` edge is written (CONCEPT:AU-ORCH.execution.skill-utilization-provenance)
+    so "which runs used skill X, and what tools did it drive" is a single traversal.
     """
     if not engine:
         return
@@ -1960,6 +2007,10 @@ def _record_execution_trace(
         props["duration_ms"] = round(duration_ms, 1)
     if result_preview:
         props["result_preview"] = result_preview[:500]
+    if skill_used:
+        props["skill_used"] = skill_used
+    if bound_server:
+        props["bound_server"] = bound_server
 
     # Stamp the originating identity + correlation so the audit trail answers
     # "which tenant/actor ran this, and which agents share its run?" as a
@@ -1969,14 +2020,23 @@ def _record_execution_trace(
     try:
         engine.add_node(trace_id, "RunTrace", properties=props)
 
-        # Link to the agent's server node if it exists
-        server_id = f"srv:{agent_name}"
         if engine.backend:
+            # EXECUTED_ON links to the actual server whose tools ran — the bound server
+            # for a skill-driven run (agent_name is the skill, not a Server), else the
+            # agent's own server node.
+            server_name = bound_server or agent_name
             engine.backend.execute(
                 "MATCH (s:Server {id: $sid}), (t:RunTrace {id: $tid}) "
                 "MERGE (t)-[:EXECUTED_ON]->(s)",
-                {"sid": server_id, "tid": trace_id},
+                {"sid": f"srv:{server_name}", "tid": trace_id},
             )
+            # Skill-utilization provenance: which skill's SOP drove this run.
+            if skill_used:
+                engine.backend.execute(
+                    "MATCH (r:CallableResource {name: $skill}), (t:RunTrace {id: $tid}) "
+                    "MERGE (t)-[:USES_SKILL]->(r)",
+                    {"skill": skill_used, "tid": trace_id},
+                )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
 
