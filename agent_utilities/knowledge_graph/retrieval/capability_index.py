@@ -32,10 +32,28 @@ prompt-embedding vector, so callers (and tests) may pass synthetic vectors.
 Layer contract: this is an L2 component. It is consumed by the
 :class:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph` facade and,
 through it, by the ``graph/*`` execution plane. It has no upward dependencies.
+
+**AU-P1-3 — engine-native capability index.** This class is now, by design, a
+*bounded, non-authoritative cache* — not the source of truth. The authority is
+the engine's own native filtered ANN (see
+:mod:`agent_utilities.knowledge_graph.retrieval.engine_capability_search`),
+queried directly with capability/tenant/policy filters composed into ONE
+``query_unified`` plan (``Scan``/``Filter``/``Rank``/``Limit``). This structure
+now exists only as: (a) a fallback when the engine ANN is unreachable (dev, or
+a lean engine build), and (b) a fast in-process ranking surface kept fresh by
+CDC deltas (:mod:`agent_utilities.graph.reactive.engine_subscription`) rather
+than a periodic full rebuild — see
+``graph/routing/enrichers/capability_designation.py``. Pass
+``bounded_cache_size`` to cap it with LRU eviction (:meth:`remove` is called on
+the evicted id so no backend — HNSW or numpy — grows without bound); omitting
+it keeps the historical unbounded behaviour for the other in-process reward-EMA
+consumers (``OutcomeRouter``, ``ReasonerRouter``) that reuse this class as a
+generic learner and are not part of the capability-designation cache.
 """
 
 import logging
 import pickle  # nosec B403 — only loads index snapshots written by this class's save()
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -125,6 +143,11 @@ class CapabilityIndex:
             unavailable.
         max_elements: Initial capacity hint for the HNSW backend (grows
             automatically as needed).
+        bounded_cache_size: When set, caps the number of resident ids —
+            ``add()`` evicts the least-recently-touched id (via :meth:`remove`)
+            once this many are resident (AU-P1-3: AU keeps only a bounded
+            cache; the engine is the authority). ``None`` (default) preserves
+            the historical unbounded behaviour.
     """
 
     def __init__(
@@ -134,6 +157,7 @@ class CapabilityIndex:
         space: str = "cosine",
         prefer_backend: str | None = None,
         max_elements: int = 1024,
+        bounded_cache_size: int | None = None,
     ) -> None:
         if space != "cosine":
             raise ValueError(f"Only 'cosine' space is supported, got {space!r}")
@@ -176,12 +200,28 @@ class CapabilityIndex:
         # class structure (the structured-prior analogue of arXiv:2606.09828's
         # depth-guided back-projection) instead of ranking on cosine alone.
         self._id_to_type: dict[str, str] = {}
+        # id -> tenant (CONCEPT:AU-P1-3 — policy/tenant filters). ``None``/absent
+        # means the entity is tenant-agnostic (visible to every tenant).
+        self._id_to_tenant: dict[str, str] = {}
+        # id -> set[policy tag] (CONCEPT:AU-P1-3). A candidate is eligible under a
+        # ``required_policy_tags`` filter only if it carries EVERY required tag —
+        # an untagged entity fails any non-empty policy requirement (fail-closed).
+        self._id_to_policy_tags: dict[str, set[str]] = {}
 
         # HNSW-specific state
         self._hnsw: Any = None
         self._label_to_id: dict[int, str] = {}
         self._id_to_label: dict[str, int] = {}
         self._next_label = 0
+
+        # Bounded-cache LRU (CONCEPT:AU-P1-3): ``None`` disables eviction outright,
+        # preserving the historical unbounded behaviour for non-designation callers
+        # (OutcomeRouter, ReasonerRouter, ...) that reuse this class as a plain
+        # reward-EMA learner over a small, naturally-bounded id space.
+        self._bounded_cache_size = (
+            int(bounded_cache_size) if bounded_cache_size else None
+        )
+        self._lru: OrderedDict[str, None] = OrderedDict()
 
     # ------------------------------------------------------------------
     # Properties
@@ -198,6 +238,9 @@ class CapabilityIndex:
 
     def __len__(self) -> int:
         return len(self._id_to_vec)
+
+    def __contains__(self, id: str) -> bool:
+        return id in self._id_to_vec
 
     # ------------------------------------------------------------------
     # HNSW helpers
@@ -233,6 +276,9 @@ class CapabilityIndex:
         *,
         swappable_with: Any = None,
         node_type: str | None = None,
+        tenant: str | None = None,
+        policy_tags: Any = None,
+        reward: float | None = None,
     ) -> None:
         """Add (or replace) an entity in the index.
 
@@ -247,6 +293,16 @@ class CapabilityIndex:
                 When supplied, ``designate`` uses it to bias ranking toward the
                 ontology-coherent neighbourhood; omitting it leaves ranking on pure
                 cosine (+ reward), exactly as before.
+            tenant: Optional tenant this entity is scoped to (CONCEPT:AU-P1-3). Omitted
+                means the entity is visible to every tenant.
+            policy_tags: Optional iterable of policy tags this entity satisfies
+                (CONCEPT:AU-P1-3) — used by ``designate(required_policy_tags=...)``.
+            reward: Optional durable reward EMA to seed on first sight (CONCEPT:AU-P1-3 —
+                durable contextual-bandit outcomes). Only applied when ``id`` has no
+                in-process reward yet, so it never clobbers a value this process has
+                already learned from live outcomes; pass the value hydrated from the
+                engine's durable ``capability_reward`` node property (see
+                :mod:`.durable_outcome_store`) to survive a process restart.
         """
         vec = np.asarray(embedding, dtype=np.float32).reshape(-1)
         if vec.size == 0:
@@ -303,6 +359,19 @@ class CapabilityIndex:
             for p in partners:
                 self._swappable.setdefault(p, set()).add(id)
 
+        # Tenant/policy scoping (CONCEPT:AU-P1-3). Only overwrite when a value is
+        # supplied so an unscoped update never erases a known tenant/policy set.
+        if tenant is not None:
+            self._id_to_tenant[id] = str(tenant)
+        if policy_tags is not None:
+            self._id_to_policy_tags[id] = {str(p) for p in policy_tags}
+
+        # Durable reward hydration (CONCEPT:AU-P1-3): seed from the engine's durably
+        # persisted value ONLY when this process has not already learned a reward for
+        # ``id`` — a live in-process outcome always wins over a colder durable read.
+        if reward is not None and id not in self._reward:
+            self._reward[id] = min(1.0, max(0.0, float(reward)))
+
         # ANN index maintenance.
         if self._backend == "hnsw":
             self._ensure_hnsw(capacity_hint=len(self._id_to_vec))
@@ -316,12 +385,56 @@ class CapabilityIndex:
             self._hnsw_resize_if_needed(additional=1)
             self._hnsw.add_items(norm_vec.reshape(1, -1), np.array([label]))
 
+        # Bounded-cache LRU eviction (CONCEPT:AU-P1-3) — touch ``id`` as most-recently
+        # used, then evict the oldest entries beyond the cap via :meth:`remove` so
+        # every backing structure (HNSW label, capability/tenant/policy/reward maps)
+        # stays in lockstep. A no-op unless ``bounded_cache_size`` was set.
+        if self._bounded_cache_size:
+            self._lru[id] = None
+            self._lru.move_to_end(id)
+            while len(self._lru) > self._bounded_cache_size:
+                oldest, _ = self._lru.popitem(last=False)
+                if oldest != id:
+                    self.remove(oldest)
+
+    def remove(self, id: str) -> bool:
+        """Evict ``id`` from every backing structure (CONCEPT:AU-P1-3 — bounded cache).
+
+        Removes the vector, capability/tenant/policy/type/reward/swappable state, and
+        (for the HNSW backend) marks the label deleted so the ANN index never grows
+        without bound. Returns ``False`` (no-op) when ``id`` was not resident.
+        """
+        if id not in self._id_to_vec:
+            return False
+        del self._id_to_vec[id]
+        self._lru.pop(id, None)
+        for cap in self._id_to_caps.pop(id, set()):
+            self._cap_to_ids.get(cap, set()).discard(id)
+        self._id_to_type.pop(id, None)
+        self._id_to_tenant.pop(id, None)
+        self._id_to_policy_tags.pop(id, None)
+        self._reward.pop(id, None)
+        partners = self._swappable.pop(id, set())
+        for p in partners:
+            self._swappable.get(p, set()).discard(id)
+        if self._backend == "hnsw":
+            label = self._id_to_label.pop(id, None)
+            if label is not None:
+                self._label_to_id.pop(label, None)
+                if self._hnsw is not None:
+                    try:
+                        self._hnsw.mark_deleted(label)
+                    except Exception as e:  # noqa: BLE001 — best-effort; stale label is harmless
+                        logger.debug("hnsw mark_deleted failed for %r: %s", id, e)
+        return True
+
     def build_from_edges(self, nodes: Any) -> None:
         """Bulk-load the index from an iterable of node descriptors.
 
         Each node may be a mapping or an object exposing ``id``, ``embedding``,
-        ``capabilities`` (or ``provides``/``providesCapability``), and an
-        optional ``swappable_with`` (or ``swappableWith``).
+        ``capabilities`` (or ``provides``/``providesCapability``), an optional
+        ``swappable_with`` (or ``swappableWith``), and optional ``tenant`` /
+        ``policy_tags`` (CONCEPT:AU-P1-3).
 
         Args:
             nodes: Iterable of node descriptors.
@@ -350,30 +463,69 @@ class CapabilityIndex:
             node_type = (
                 getter("type") or getter("node_type") or getter("nodeType") or None
             )
-            self.add(str(nid), emb, caps, swappable_with=swap, node_type=node_type)
+            tenant = getter("tenant")
+            policy_tags = getter("policy_tags") or getter("policyTags")
+            reward = getter("capability_reward") or getter("reward")
+            self.add(
+                str(nid),
+                emb,
+                caps,
+                swappable_with=swap,
+                node_type=node_type,
+                tenant=tenant,
+                policy_tags=policy_tags,
+                reward=reward,
+            )
 
     # ------------------------------------------------------------------
     # Query
     # ------------------------------------------------------------------
-    def _candidate_ids(self, required_caps: set[str] | None) -> set[str] | None:
-        """Return the candidate id set after capability filtering.
+    def _candidate_ids(
+        self,
+        required_caps: set[str] | None,
+        *,
+        tenant: str | None = None,
+        required_policy_tags: set[str] | None = None,
+    ) -> set[str] | None:
+        """Return the candidate id set after capability/tenant/policy filtering.
 
         Returns ``None`` to mean "no restriction" (all ids), or a concrete set
-        (possibly empty) when ``required_caps`` is provided.
+        (possibly empty) when any filter is provided (CONCEPT:AU-P1-3 — policy/tenant
+        filters). Every filter is an O(1)-per-id set operation — never a full scan.
         """
-        if not required_caps:
-            return None
-        # Intersection of provider sets — O(sum of set sizes).
         candidate: set[str] | None = None
-        for cap in required_caps:
-            providers = self._cap_to_ids.get(cap, set())
-            if candidate is None:
-                candidate = set(providers)
-            else:
-                candidate &= providers
+        if required_caps:
+            # Intersection of provider sets — O(sum of set sizes).
+            for cap in required_caps:
+                providers = self._cap_to_ids.get(cap, set())
+                candidate = (
+                    set(providers) if candidate is None else candidate & providers
+                )
+                if not candidate:
+                    return set()
+        if tenant is not None:
+            # Fail-open on tenant: an entity with no recorded tenant is global (visible
+            # to every tenant); one with a DIFFERENT tenant is excluded.
+            tenant_ids = {
+                i
+                for i in self._id_to_vec
+                if self._id_to_tenant.get(i) in (None, tenant)
+            }
+            candidate = tenant_ids if candidate is None else candidate & tenant_ids
             if not candidate:
                 return set()
-        return candidate or set()
+        if required_policy_tags:
+            # Fail-closed on policy: an entity must explicitly carry EVERY required
+            # tag — an untagged entity does not satisfy a non-empty requirement.
+            policy_ids = {
+                i
+                for i in self._id_to_vec
+                if required_policy_tags <= self._id_to_policy_tags.get(i, set())
+            }
+            candidate = policy_ids if candidate is None else candidate & policy_ids
+            if not candidate:
+                return set()
+        return candidate
 
     def designate(
         self,
@@ -384,6 +536,8 @@ class CapabilityIndex:
         *,
         ontology_prior: Any = None,
         prior_weight: float = 0.15,
+        tenant: str | None = None,
+        required_policy_tags: Any = None,
     ) -> list[Designation]:
         """Designate the top-``k`` entities for a task.
 
@@ -402,6 +556,12 @@ class CapabilityIndex:
                 ranking is on by default; pass a richer (e.g. subsumption-aware) prior
                 to override it, or ``prior_weight=0`` to fall back to pure cosine.
             prior_weight: Blend weight for the ontology prior; ``0`` disables it.
+            tenant: Optional tenant filter (CONCEPT:AU-P1-3 — policy/tenant filters).
+                Restricts candidates to entities scoped to this tenant or unscoped
+                (tenant-agnostic) entities.
+            required_policy_tags: Optional iterable of policy tags every candidate
+                must carry (CONCEPT:AU-P1-3). An entity with no policy tags fails any
+                non-empty requirement (fail-closed).
 
         Returns:
             Up to ``k`` :class:`Designation` objects sorted by descending
@@ -418,7 +578,12 @@ class CapabilityIndex:
         query = _l2_normalize(query)
 
         req = {str(c) for c in required_caps} if required_caps else None
-        candidates = self._candidate_ids(req)
+        req_policy = (
+            {str(p) for p in required_policy_tags} if required_policy_tags else None
+        )
+        candidates = self._candidate_ids(
+            req, tenant=tenant, required_policy_tags=req_policy
+        )
         if candidates is not None and not candidates:
             return []
 
@@ -477,6 +642,14 @@ class CapabilityIndex:
             alts = self.alternatives(nid)
             if alts:
                 provenance["alternatives"] = alts
+            # CONCEPT:AU-P1-3 — explainable routing: why this candidate was eligible.
+            if req or tenant is not None or req_policy:
+                provenance["eligibility"] = self.explain(
+                    nid,
+                    required_caps=req,
+                    tenant=tenant,
+                    required_policy_tags=req_policy,
+                )
             results.append(
                 Designation(
                     id=nid,
@@ -563,6 +736,57 @@ class CapabilityIndex:
     def alternatives(self, id: str) -> list[str]:
         """Return ids ``swappableWith`` the given entity (sorted, stable)."""
         return sorted(self._swappable.get(id, set()))
+
+    # ------------------------------------------------------------------
+    # Explainable routing (CONCEPT:AU-P1-3 — explainable-features output)
+    # ------------------------------------------------------------------
+    def explain(
+        self,
+        id: str,
+        required_caps: Any = None,
+        *,
+        tenant: str | None = None,
+        required_policy_tags: Any = None,
+    ) -> dict[str, Any]:
+        """Return WHY ``id`` was (or would be) eligible for a filtered designation.
+
+        A pure lookup — never ranks or embeds — so a caller/test can ask "why was
+        this candidate eligible" independent of a ``designate()`` call. Covers every
+        candidate-selection gate this class enforces: capability coverage, tenant
+        scoping, and policy-tag coverage. ``eligible`` is the AND of every gate that
+        was actually asked for (an omitted filter never disqualifies).
+        """
+        caps = set(self._id_to_caps.get(id, set()))
+        req = {str(c) for c in required_caps} if required_caps else set()
+        missing_caps = sorted(req - caps)
+
+        tenant_of = self._id_to_tenant.get(id)
+        tenant_match = None if tenant is None else tenant_of in (None, tenant)
+
+        policy_of = set(self._id_to_policy_tags.get(id, set()))
+        req_policy = (
+            {str(p) for p in required_policy_tags} if required_policy_tags else set()
+        )
+        missing_policy = sorted(req_policy - policy_of)
+
+        eligible = not missing_caps and tenant_match is not False and not missing_policy
+        return {
+            "id": id,
+            "capabilities": sorted(caps),
+            "required_caps": sorted(req),
+            "missing_caps": missing_caps,
+            "capabilities_matched": not missing_caps,
+            "tenant": tenant_of,
+            "required_tenant": tenant,
+            "tenant_match": tenant_match,
+            "policy_tags": sorted(policy_of),
+            "required_policy_tags": sorted(req_policy),
+            "missing_policy_tags": missing_policy,
+            "policy_matched": not missing_policy,
+            "reward": round(self.reward_of(id), 4),
+            "ontology_type": self._id_to_type.get(id),
+            "eligible": eligible,
+        }
 
     # ------------------------------------------------------------------
     # Reward write-back (Plan 08 Synergy 5 — closes the learning loop)
@@ -662,6 +886,11 @@ class CapabilityIndex:
             "swappable": {i: sorted(s) for i, s in self._swappable.items()},
             "reward": dict(self._reward),
             "id_to_type": dict(self._id_to_type),
+            "id_to_tenant": dict(self._id_to_tenant),
+            "id_to_policy_tags": {
+                i: sorted(p) for i, p in self._id_to_policy_tags.items()
+            },
+            "bounded_cache_size": self._bounded_cache_size,
             "id_to_label": self._id_to_label,
             "next_label": self._next_label,
             "ids": list(self._id_to_vec.keys()),
@@ -702,12 +931,17 @@ class CapabilityIndex:
             space=meta["space"],
             prefer_backend=meta["backend"],
             max_elements=meta.get("max_elements", 1024),
+            bounded_cache_size=meta.get("bounded_cache_size"),
         )
         idx._cap_to_ids = {c: set(ids) for c, ids in meta["cap_to_ids"].items()}
         idx._id_to_caps = {i: set(c) for i, c in meta["id_to_caps"].items()}
         idx._swappable = {i: set(s) for i, s in meta["swappable"].items()}
         idx._reward = dict(meta.get("reward", {}))
         idx._id_to_type = dict(meta.get("id_to_type", {}))
+        idx._id_to_tenant = dict(meta.get("id_to_tenant", {}))
+        idx._id_to_policy_tags = {
+            i: set(p) for i, p in meta.get("id_to_policy_tags", {}).items()
+        }
         idx._id_to_label = dict(meta["id_to_label"])
         idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
         idx._next_label = meta["next_label"]
@@ -716,6 +950,8 @@ class CapabilityIndex:
         arr = np.load(path / "embeddings.npy")
         for i, nid in enumerate(ids):
             idx._id_to_vec[nid] = np.asarray(arr[i], dtype=np.float32)
+            if idx._bounded_cache_size:
+                idx._lru[nid] = None
 
         if idx._backend == "hnsw":
             hnsw_path = path / "hnsw.bin"
