@@ -1163,6 +1163,22 @@ class AgentConfig(BaseSettings):
     # KG_TASKS_PARTITIONS. Bounds agent-dispatch consumer-group parallelism —
     # i.e. how many sessions can execute concurrently across the worker fleet.
     agent_turns_partitions: int = Field(default=6, alias="AGENT_TURNS_PARTITIONS")
+    # AgentBus delivery/wakeup plane (CONCEPT:AU-ECO.bus.partitioned-log-delivery, AU-P1-2): which durable
+    # partitioned log carries high-volume bus message BODIES (the semantic
+    # roster/subscription registry always stays in the KG). Unset (default) =
+    # auto: the engine's native AMQP-style broker (``graph_broker`` surface)
+    # when ``engine_endpoint`` signals a configured engine, else Kafka when
+    # ``TASK_QUEUE_BACKEND=kafka``/``KAFKA_BOOTSTRAP_SERVERS`` is set, else the
+    # zero-infra graph-node fallback (the original :BusMessage model — dev
+    # only, never the default once a broker is configured). An EXPLICIT value
+    # is a hard contract: ``engine``/``kafka`` raise when unreachable, mirroring
+    # ``TASK_QUEUE_BACKEND``. Values: engine | kafka | graph.
+    agent_bus_log_backend: str | None = Field(
+        default=None, alias="AGENT_BUS_LOG_BACKEND"
+    )
+    # Partitions ensured on the Kafka bus topics (``agent_bus_direct`` /
+    # ``agent_bus_topic``) when the Kafka bus-log backend is selected. Grow-only.
+    agent_bus_partitions: int = Field(default=6, alias="AGENT_BUS_PARTITIONS")
     # Durable-state externalization (CONCEPT:AU-OS.state.unified-durable-state-externalization): ONE flag selects where the
     # platform's durable state lives — durable-execution checkpoints, sessions/
     # turns/goals, and the KG task queue. Unset (default) keeps the zero-infra

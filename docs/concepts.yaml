@@ -1623,6 +1623,18 @@ concepts:
   - AU-ECO.bus.federation-relay
   canonical_pillar: AU-ECO
   needs_curation: false
+- id: AU-ECO.bus.log-backend-resolution
+  name: engine-broker → kafka → graph-fallback resolution order
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus_log.py
+  doc: engine-broker → kafka → graph-fallback resolution order
+  dotted: AU-ECO.bus.log-backend-resolution
+  aliases:
+  - AU-ECO.bus.log-backend-resolution
+  canonical_pillar: AU-ECO
+  needs_curation: false
 - id: AU-ECO.bus.native-capability
   name: the AgentBus is a NATIVE capability, not an opt-in persona
   pillar: AU-ECO
@@ -1647,6 +1659,20 @@ concepts:
   dotted: AU-ECO.bus.operator-view-agentbus
   aliases:
   - AU-ECO.bus.operator-view-agentbus
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.bus.partitioned-log-delivery
+  name: durable partitioned log as the AgentBus delivery/wakeup plane
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/messaging/bus_log.py
+  doc: durable partitioned log as the AgentBus delivery/wakeup plane
+  dotted: AU-ECO.bus.partitioned-log-delivery
+  aliases:
+  - AU-ECO.bus.partitioned-log-delivery
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.bus.pluggable-event-queue
@@ -1681,6 +1707,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/messaging/bus.py
+  - agent_utilities/messaging/bus_log.py
   doc: The cursor is advanced to the newest replayed message
   dotted: AU-ECO.bus.store-and-forward-log
   aliases:
@@ -3206,6 +3233,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/ingest_worker.py
+  - agent_utilities/messaging/bus_log.py
   doc: Keyed ingest partitions for per-tenant and per-repo ordering
   dotted: AU-KG.backend.keyed-ingest-partitions
   aliases:
@@ -3596,12 +3624,12 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.compute.engine-surface-manifest
-  name: Engine surface manifest
+  name: Every method under one of
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/mcp/tools/engine_tools.py
-  doc: Engine surface manifest
+  doc: Every method under one of
   dotted: AU-KG.compute.engine-surface-manifest
   aliases:
   - AU-KG.compute.engine-surface-manifest
@@ -4377,6 +4405,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/messaging/bus_log.py
   doc: federated search fanned across registered external
   dotted: AU-KG.coordination.engine-message-broker
   aliases:
@@ -8434,6 +8463,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
+  - agent_utilities/knowledge_graph/core/session.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
