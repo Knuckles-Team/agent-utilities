@@ -69,6 +69,38 @@ either path.
 This is a CORE capability (per "Universal capability — one core, thin entrypoints"):
 the messaging stack, the webui, the terminal — every entrypoint persists media through
 THIS, contributing only how it receives the bytes.
+
+**Evidence-spine convergence (Seam 2, CONCEPT:AU-KG.identity.evidence-spine-convergence /
+EG-X1).** Storing an ``:AssetOccurrence`` records *that* some bytes occurred; it says
+nothing about *where inside those bytes* a claim's evidence sits. epistemic-graph's
+own evidence-graph (``eg_epistemic::evidence.rs``, feature ``evidence-graph``) already
+resolves that from an ``:Evidence``-role node's ``evidence_span``/``occurrence_id``/
+``blob_ref`` properties via ``Method::ExplainEvidence`` — the SAME typed-node-by-
+convention ``SourceObject -> AssetOccurrence -> Blob`` identity chain this module's
+docstring describes above, just not previously linked to a located locus. Before this,
+an occurrence stored via AU had no path into that resolver: a claim citing it could
+name the occurrence but never recover the exact page/box/span.
+:meth:`MediaStore.store_document_page_evidence` closes that gap for the document
+modality: it stores the media (as :meth:`store_media` always has), then ALSO writes a
+``:SourceObject`` node for the owning document, an ``:Evidence`` node carrying a
+``PageBox`` ``EvidenceSpan`` locus plus the occurrence/blob identity chain, and —
+when a ``claim_id`` is given — the SAME ``relationship_type: "SUPPORTS"`` edge
+convention ``eg_epistemic``'s own claim materialization
+(``src/server/handlers/mining.rs::materialize_claim``) writes. No new engine
+write endpoint was needed: the generic ``nodes.add``/``edges.add`` RPCs the rest of
+this module already uses are sufficient to produce the EXACT property/edge shape
+``BeliefGraph::from_graph_view`` decodes — the resolver is entirely engine-side and is
+reused unchanged (see ``crates/eg-epistemic/tests/x1_evidence_chain.rs`` for the
+engine's own acceptance test of that decode path, and
+``tests/unit/knowledge_graph/test_media_store_evidence_spine.py`` for this module's
+half of the round-trip). Opt-in by construction: nothing about :meth:`store_media`
+changes, and a caller that never calls :meth:`store_document_page_evidence` writes
+nothing extra. Scoped to ONE modality (document page-box) end-to-end; the SAME
+pattern (an ``:Evidence`` node's ``evidence_span`` set to the modality's own
+``EvidenceSpan`` variant, plus ``occurrence_id``/``blob_ref``) extends unchanged to
+the other ten loci ``eg_modality::EvidenceSpan`` defines (image region, audio/video
+segment, table cell range, code symbol, …) — see ``docs/architecture/
+evidence_spine_convergence.md``.
 """
 
 from __future__ import annotations
@@ -188,6 +220,35 @@ class BulkMigrationResult:
             "occurrence_ids": list(self.occurrence_ids),
             "failed_ids": list(self.failed_ids),
         }
+
+
+@dataclass(frozen=True)
+class DocumentEvidenceLocus:
+    """The result of :meth:`MediaStore.store_document_page_evidence` — an
+    ``:AssetOccurrence`` whose exact page+box locus is now resolvable through the
+    ONE epistemic-graph evidence spine (CONCEPT:AU-KG.identity.evidence-spine-convergence,
+    EG-X1).
+
+    Attributes:
+        source_object_id: The ``:SourceObject`` node id for the owning document
+            (``sourceobject:<document_id>``) — the top of the identity chain.
+        occurrence_id: The ``:AssetOccurrence`` node id (from the underlying
+            :class:`StoredMedia`).
+        blob_id: The ``:Blob`` node id the occurrence resolves to.
+        evidence_id: The ``:Evidence`` node id carrying the located ``PageBox``
+            locus plus the ``occurrence_id``/``blob_ref`` identity chain —
+            the id `Method::ExplainEvidence`/``evidence_citations`` walk to.
+        claim_id: The claim this evidence was linked to via a ``SUPPORTS`` edge,
+            when one was given.
+        digest: The content-addressed digest of the stored bytes.
+    """
+
+    source_object_id: str
+    occurrence_id: str
+    blob_id: str
+    evidence_id: str
+    digest: str
+    claim_id: str | None = None
 
 
 class MediaStore:
@@ -494,6 +555,165 @@ class MediaStore:
             deduped=not blob_is_new,
             size_bytes=len(data),
             blob_id=blob_id,
+        )
+
+    # -- evidence-spine through-write (Seam 2, CONCEPT:AU-KG.identity.evidence-spine-convergence) --
+    def store_document_page_evidence(
+        self,
+        data: bytes,
+        *,
+        document_id: str,
+        page: int,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        mime_type: str = "application/pdf",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> DocumentEvidenceLocus | None:
+        """Store a document page's bytes AND through-write the EG evidence-graph
+        typed-node chain for its ``PageBox`` locus (Seam 2, CONCEPT:AU-KG.identity.
+        evidence-spine-convergence / EG-X1) — opt-in: nothing about
+        :meth:`store_media` changes; call THIS when the caller has a located
+        page+box to record, so the resulting occurrence becomes resolvable via
+        epistemic-graph's OWN citation resolver (``Method::ExplainEvidence`` /
+        ``eg_epistemic::evidence_citations``) rather than a second, AU-side one.
+
+        Writes, beyond the usual :meth:`store_media` occurrence/blob:
+
+        1. A ``:SourceObject`` node for the owning document (``sourceobject:
+           <document_id>``, upserted once — a repeat call for the same
+           ``document_id`` reuses it) plus a structural ``hasOccurrence`` edge to
+           the new ``:AssetOccurrence``.
+        2. An ``:Evidence`` node carrying the located ``PageBox``
+           ``eg_modality::EvidenceSpan`` locus (as the externally-tagged
+           ``{"PageBox": {...}}`` shape ``BeliefGraph::from_graph_view`` decodes)
+           plus ``occurrence_id``/``blob_ref`` — the SAME identity-chain
+           convention ``eg_epistemic::evidence`` documents — and a structural
+           ``extractedFrom`` edge back to the occurrence.
+        3. When ``claim_id`` is given, a ``relationship_type: "SUPPORTS"`` edge
+           from the evidence node to it — the SAME convention
+           ``src/server/handlers/mining.rs::materialize_claim``'s own
+           ``supports_edge`` writes, so ``eg_epistemic``'s support/contradiction/
+           attack walk (and hence ``evidence_citations``) recognizes it with no
+           engine-side change.
+
+        Args:
+            data: The page's rendered/extracted bytes (e.g. a page image or PDF
+                slice) — stored exactly like :meth:`store_media`.
+            document_id: The owning document's id — becomes the ``PageBox``
+                locus's ``document_id`` AND the ``:SourceObject`` node's key.
+            page: 1-indexed (or however the caller numbers) page number.
+            x, y, width, height: The box's coordinates on that page, in
+                whatever unit the caller's page-rendering pipeline uses
+                (mirrors ``eg_modality::EvidenceSpan::PageBox`` — pass-through,
+                no unit conversion here).
+            claim_id: An existing ``:Claim``/belief-bearing node id to
+                SUPPORTS-link this evidence to. When omitted, the evidence node
+                is written but not yet cited by any claim (a later call can link
+                it by writing that edge directly).
+            confidence: This evidence node's own belief prior (read by
+                ``BeliefGraph::from_graph_view`` as ``confidence``, default
+                ``1.0`` — the media was actually observed, not inferred).
+            store_media_kwargs: Forwarded verbatim to :meth:`store_media`
+                (``embedding``, ``tenant``, ``owner``, ``acl``, ``message_id``, …).
+
+        Returns a :class:`DocumentEvidenceLocus` (or ``None`` on failure — never
+        raises, matching every other write in this module).
+        """
+        stored = self.store_media(
+            data,
+            media_type="document_page",
+            mime_type=mime_type,
+            source=source,
+            session=session,
+            **store_media_kwargs,
+        )
+        if stored is None:
+            return None
+
+        client = self._client
+        now = self._now()
+        source_object_id = f"sourceobject:{document_id}"
+        try:
+            if not bool(client.nodes.has(source_object_id)):
+                client.nodes.add(
+                    source_object_id,
+                    {
+                        "type": "SourceObject",
+                        "document_id": document_id,
+                        "mime_type": mime_type,
+                        "created_at": now,
+                    },
+                )
+            client.edges.add(
+                source_object_id, stored.occurrence_id, {"type": "hasOccurrence"}
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort, mirrors the module's posture
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.evidence-spine-convergence] SourceObject write failed for %s: %s",
+                document_id,
+                e,
+            )
+            return None
+
+        evidence_id = f"evidence:{uuid.uuid4().hex}"
+        evidence_props: dict[str, Any] = {
+            "type": "Evidence",
+            "about": document_id,
+            "confidence": float(confidence),
+            "evidence_span": {
+                "PageBox": {
+                    "document_id": document_id,
+                    "page": int(page),
+                    "x": float(x),
+                    "y": float(y),
+                    "width": float(width),
+                    "height": float(height),
+                }
+            },
+            "occurrence_id": stored.occurrence_id,
+            "blob_ref": stored.blob_id,
+            "created_at": now,
+        }
+        try:
+            client.nodes.add(evidence_id, evidence_props)
+            client.edges.add(
+                evidence_id, stored.occurrence_id, {"type": "extractedFrom"}
+            )
+            if claim_id:
+                client.edges.add(
+                    evidence_id, claim_id, {"relationship_type": "SUPPORTS"}
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.evidence-spine-convergence] Evidence write failed for occurrence %s: %s",
+                stored.occurrence_id,
+                e,
+            )
+            return None
+
+        logger.info(
+            "[CONCEPT:AU-KG.identity.evidence-spine-convergence] wrote evidence-graph chain "
+            "%s -> %s -> %s -> evidence %s (page=%s, claim=%s)",
+            source_object_id,
+            stored.occurrence_id,
+            stored.blob_id,
+            evidence_id,
+            page,
+            claim_id or "-",
+        )
+        return DocumentEvidenceLocus(
+            source_object_id=source_object_id,
+            occurrence_id=stored.occurrence_id,
+            blob_id=stored.blob_id,
+            evidence_id=evidence_id,
+            digest=stored.digest,
+            claim_id=claim_id,
         )
 
     # -- store: rendition -------------------------------------------------------
