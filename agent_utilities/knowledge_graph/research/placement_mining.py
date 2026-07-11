@@ -85,6 +85,7 @@ __all__ = [
     "apply_placement_change",
     "rollback_placement_change",
     "run_placement_mining_cycle",
+    "placement_control_loop",
 ]
 
 #: A mined finding must clear this floor before it is even materialized as a
@@ -791,13 +792,34 @@ class CanaryResult:
 
 
 def _default_measurement(proposal: PlacementProposal, phase: str) -> dict[str, float]:
-    """Best-effort PromQL SLO read for ``proposal.target`` (observability surface).
+    """Best-effort before/after read for ``proposal.target``'s placement.
 
-    Degrades to ``{}`` on any failure (unreachable engine / no promql
-    surface / no such series) — :func:`run_canary` treats an empty
-    measurement the same as evidence of a bad change (conservative
-    rollback), never as evidence of a good one.
+    Tries TWO real sources, in order, and returns whichever answers first
+    (never fabricated):
+
+    1. **PromQL SLO series** (``placement_latency_ms{target=...}``) — an
+       operator-instrumented latency metric, when the observability surface
+       is deployed and that series exists.
+    2. **Engine load-skew stat** (``ReshardingClient.rebalance_plan`` — the
+       engine's EG-KG.sharding.even-load-rebalance rebalance planner, a REAL
+       wired ``engine_resharding`` action, not fabricated): the spread
+       (max - min) of per-shard ``total`` load across every durable shard.
+       A placement change that improves balance narrows this spread; one
+       that worsens it widens it — exactly the "load skew from the capacity
+       model" signal a shard_split/replica canary is meant to test.
+
+    Degrades to ``{}`` when NEITHER answers (unreachable engine / no promql
+    surface / no resharding surface / no such series) — :func:`run_canary`
+    treats an empty measurement the same as evidence of a bad change
+    (conservative rollback), never as evidence of a good one.
     """
+    latency = _promql_latency_measurement(proposal)
+    if latency:
+        return latency
+    return _shard_load_skew_measurement()
+
+
+def _promql_latency_measurement(proposal: PlacementProposal) -> dict[str, float]:
     try:
         from agent_utilities.mcp.tools.engine_surface_tools import _invoke
 
@@ -810,7 +832,7 @@ def _default_measurement(proposal: PlacementProposal, phase: str) -> dict[str, f
         )
         payload = json.loads(raw)
     except Exception as e:  # noqa: BLE001 — a missing/unreachable surface degrades
-        logger.debug("placement_mining: default measurement failed: %s", e)
+        logger.debug("placement_mining: promql measurement failed: %s", e)
         return {}
     if not _mining_ok(payload):
         return {}
@@ -821,6 +843,44 @@ def _default_measurement(proposal: PlacementProposal, phase: str) -> dict[str, f
         except (TypeError, ValueError):
             return {}
     return {}
+
+
+def _shard_load_skew_measurement() -> dict[str, float]:
+    """``max(shard.total) - min(shard.total)`` over ``rebalance_plan``'s live
+    shard-load listing — a real, already-wired ``engine_resharding`` stat
+    (never a fabricated series). Empty on any failure (no resharding surface,
+    unreachable engine, non-redb build, no shards reported)."""
+    try:
+        from agent_utilities.mcp.tools import engine_tools
+
+        methods = _resharding_methods()
+        if "rebalance_plan" not in methods:
+            return {}
+        raw = engine_tools._dispatch(
+            "resharding",
+            methods,
+            "rebalance_plan",
+            json.dumps({"max_moves": 0}),
+            "",
+        )
+        payload = json.loads(raw)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("placement_mining: shard load-skew measurement failed: %s", e)
+        return {}
+    if isinstance(payload, dict) and payload.get("error"):
+        return {}
+    shards = payload.get("shards") if isinstance(payload, dict) else None
+    if not isinstance(shards, list) or not shards:
+        return {}
+    try:
+        totals = [
+            float(s["total"]) for s in shards if isinstance(s, dict) and "total" in s
+        ]
+    except (TypeError, ValueError):
+        return {}
+    if not totals:
+        return {}
+    return {"shard_load_skew": max(totals) - min(totals)}
 
 
 def run_canary(
@@ -922,15 +982,28 @@ def run_canary(
 def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
     """Reach the accepted change to its real system of record.
 
-    * ``shard_split`` / ``replica`` — the engine's ``PlacementCatalog`` admin
-      path: ``ReshardingClient.catalog_assign`` via the SAME
+    * ``shard_split`` / ``replica`` — the engine's REAL online-move RPC:
+      ``ReshardingClient.reshard(graph, to_shard)`` (wire ``Method::Reshard``,
+      handled by ``RedbBackend::reshard_graph`` engine-side) via the SAME
       ``engine_<domain>`` dispatcher ``engine_tools.py`` already exposes as
       ``engine_resharding`` (no second placement authority, no new engine
-      RPC). Both proposal kinds are literally a partition-placement
-      decision — ``shard_split`` assigns the hot tenant its own virtual
-      shard, ``replica`` pins a hot READ set to a dedicated shard/node
+      RPC). This is a genuine data move — the engine copies the graph's rows
+      onto the target shard and flips its catalog route — NOT a client-side
+      HRW-ring rewrite and NOT the route-only ``catalog_assign`` (which only
+      flips routing metadata without moving anything already resident on a
+      different shard — see ``ReshardingClient.catalog_assign``'s own
+      docstring: "Flips the ROUTE only — to MOVE the rows too use reshard").
+      ``catalog_assign`` is kept ONLY as a degrade path for an engine build
+      whose ``engine_resharding`` surface does not (yet) expose ``reshard``.
+      Both proposal kinds are literally a partition-placement decision —
+      ``shard_split`` moves the hot tenant onto its own virtual shard,
+      ``replica`` moves a hot READ set onto a dedicated shard/node
       (``proposal.evidence`` may carry an explicit ``shard``/``node``; a
       deterministic placeholder shard is derived from the target otherwise).
+      The engine's ``ReshardReport`` echoes back the graph's PRE-move
+      ``from_shard`` — stashed onto ``proposal.evidence`` so
+      :func:`rollback_placement_change` can reshard the graph straight back
+      to where it actually was, not merely drop a routing entry.
     * ``cache_prewarm`` — the shared content-addressed KV-cache
       (:class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`), which
       already degrades every transport error to a no-op.
@@ -953,11 +1026,18 @@ def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
 def rollback_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
     """Revert an applied change — the canary's "undo" path.
 
-    ``shard_split``/``replica`` drop the explicit catalog placement
-    (``catalog_remove`` — reverts to the default FNV-1a hash-ring routing,
-    see ``placement_catalog.py``'s module docstring). The remaining kinds
-    have no destructive engine-side state to revert (a KV-cache prewarm or
-    an accepted-record kind), so rollback is a no-op by construction.
+    ``shard_split``/``replica``: when :func:`apply_placement_change` actually
+    moved the graph (the ``reshard`` path), this resharding it straight BACK
+    onto the recorded pre-move ``from_shard`` (``proposal.evidence["
+    _reshard_from_shard"]``, stashed by the apply call) — a real online move
+    back, not just a routing-metadata drop. When there is no such recorded
+    shard (the ``catalog_assign`` degrade path was used, or the engine never
+    reported one), this falls back to dropping the explicit catalog
+    placement (``catalog_remove`` — reverts to the default FNV-1a hash-ring
+    routing, see ``placement_catalog.py``'s module docstring). The remaining
+    kinds have no destructive engine-side state to revert (a KV-cache
+    prewarm or an accepted-record kind), so rollback is a no-op by
+    construction.
     """
     if proposal.kind in {"shard_split", "replica"}:
         return _rollback_via_catalog(proposal)
@@ -970,23 +1050,65 @@ def _resharding_methods() -> set[str]:
     return set(engine_tools.ENGINE_DOMAINS.get("resharding") or [])
 
 
+#: Evidence key the apply/rollback pair use to hand off the engine-reported
+#: pre-move shard — internal bookkeeping (leading underscore), never a mined
+#: signal, so it is easy to tell apart from the rest of ``proposal.evidence``.
+_RESHARD_FROM_SHARD_KEY = "_reshard_from_shard"
+
+
+def _target_shard(proposal: PlacementProposal) -> int:
+    shard = proposal.evidence.get("shard")
+    if shard is not None:
+        return int(shard)
+    # Deterministic placeholder virtual-shard id (a real deployment's
+    # rebalance planner — ``ReshardingClient.rebalance_plan`` — picks the
+    # actual target; this only needs to be STABLE per target so a repeat
+    # canary reassigns the same shard).
+    return abs(hash(proposal.target)) % 8
+
+
 def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
     from agent_utilities.mcp.tools import engine_tools
 
     methods = _resharding_methods()
+    shard = _target_shard(proposal)
+
+    if "reshard" in methods:
+        # The REAL online-move RPC (wire ``Method::Reshard`` ->
+        # ``RedbBackend::reshard_graph``): copies the graph's rows onto
+        # ``shard`` and flips its catalog route — not a routing-only stub.
+        try:
+            raw = engine_tools._dispatch(
+                "resharding",
+                methods,
+                "reshard",
+                json.dumps({"graph": proposal.target, "to_shard": shard}),
+                "",
+            )
+            payload = json.loads(raw)
+        except Exception as e:  # noqa: BLE001 — surface as data, never raise
+            return {"applied": False, "method": "reshard", "detail": str(e)}
+        if isinstance(payload, dict) and payload.get("error"):
+            return {"applied": False, "method": "reshard", "detail": payload["error"]}
+
+        # The engine's ``ReshardReport`` echoes the graph's PRE-move shard —
+        # stash it so a rollback resharding straight back knows its target.
+        if isinstance(payload, dict) and payload.get("from_shard") is not None:
+            proposal.evidence[_RESHARD_FROM_SHARD_KEY] = payload["from_shard"]
+        _invalidate_placement_cache(proposal.target)
+        return {"applied": True, "method": "reshard", "detail": payload}
+
+    # Degrade path: an engine build whose ``engine_resharding`` surface does
+    # not expose ``reshard`` yet — fall back to the route-only admin call
+    # (better than nothing, but it does NOT move any already-resident rows;
+    # see ``apply_placement_change``'s docstring).
     if "catalog_assign" not in methods:
         return {
             "applied": False,
             "method": "catalog_assign",
             "detail": "resharding surface unavailable",
         }
-    shard = proposal.evidence.get("shard")
-    if shard is None:
-        # Deterministic placeholder virtual-shard id (a real deployment's
-        # rebalance planner picks the actual target; this only needs to be
-        # STABLE per target so a repeat canary reassigns the same shard).
-        shard = abs(hash(proposal.target)) % 8
-    params: dict[str, Any] = {"graph": proposal.target, "shard": int(shard)}
+    params: dict[str, Any] = {"graph": proposal.target, "shard": shard}
     node = proposal.evidence.get("node")
     if node is not None:
         params["node"] = node
@@ -1012,6 +1134,31 @@ def _rollback_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
     from agent_utilities.mcp.tools import engine_tools
 
     methods = _resharding_methods()
+    from_shard = proposal.evidence.get(_RESHARD_FROM_SHARD_KEY)
+
+    if "reshard" in methods and from_shard is not None:
+        # Reshard straight back to where the engine says the graph actually
+        # was before the apply — a real online move back, not a routing drop.
+        try:
+            raw = engine_tools._dispatch(
+                "resharding",
+                methods,
+                "reshard",
+                json.dumps({"graph": proposal.target, "to_shard": int(from_shard)}),
+                "",
+            )
+            payload = json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            return {"rolled_back": False, "method": "reshard", "detail": str(e)}
+        _invalidate_placement_cache(proposal.target)
+        if isinstance(payload, dict) and payload.get("error"):
+            return {
+                "rolled_back": False,
+                "method": "reshard",
+                "detail": payload["error"],
+            }
+        return {"rolled_back": True, "method": "reshard", "detail": payload}
+
     if "catalog_remove" not in methods:
         return {
             "rolled_back": False,
@@ -1092,7 +1239,7 @@ def run_placement_mining_cycle(
     tolerance: float = _CANARY_TOLERANCE,
     limit: int = _SCAN_LIMIT,
 ) -> dict[str, Any]:
-    """Mine -> propose -> govern -> canary -> apply, end to end (X-5).
+    """Mine -> propose -> govern -> canary -> apply -> outcome, end to end (X-5/Seam-4).
 
     Mirrors ``loop_controller._run_trace_mining``'s shape exactly: mine ->
     :class:`PlacementProposal` -> ``Claim`` (ALWAYS persisted,
@@ -1100,19 +1247,32 @@ def run_placement_mining_cycle(
     (reused as-is) -> ``action_policy.decide(kind="apply_placement_change")``
     (SAFETY-CRITICAL — shipped tier is ``approval_required``, see
     ``deploy/action-policy.default.yml``) -> ONLY THEN a measured
-    :func:`run_canary` -> a promoted canary flips the ``Claim`` to
-    ``status="applied"``; a rolled-back one is marked ``status="rejected"``.
+    :func:`run_canary` (which itself drives the engine's real online-move
+    RPC, see :func:`apply_placement_change`) -> a promoted canary flips the
+    ``Claim`` to ``status="applied"``; a rolled-back one is marked
+    ``status="rejected"`` -> the canary's verdict closes the loop back to
+    mining through the SAME X-3 epistemic mining flywheel
+    (:class:`~.claim_flywheel.ClaimFlywheel`) and durable outcome router
+    (:class:`~agent_utilities.orchestration.outcome_router.OutcomeRouter`)
+    every other mining pass in this controller already uses — never a
+    second, placement-specific learning/observation store.
 
     Propose-only by construction: nothing reaches the canary (let alone the
-    engine's PlacementCatalog) unless BOTH governance is valid AND the
+    engine's real reshard RPC) unless BOTH governance is valid AND the
     action-policy decision allows — the shipped default never allows it, so
-    this never applies anything out of the box.
+    this never applies anything out of the box. A ``decision.decision ==
+    "deny"`` (a ``forbidden``-tier override) retracts the claim outright —
+    it is never applied, canaried, or re-proposed on a later mining pass
+    over the same content-addressed finding id (:meth:`ClaimFlywheel.
+    is_retracted`).
     """
     from agent_utilities.orchestration.action_policy import (
         ActionRequest,
         get_action_policy,
     )
+    from agent_utilities.orchestration.outcome_router import OutcomeRouter
 
+    from .claim_flywheel import ClaimFlywheel
     from .promotion_governance import PromotionGovernanceValidator
 
     errors: list[str] = []
@@ -1124,9 +1284,17 @@ def run_placement_mining_cycle(
 
     validator = PromotionGovernanceValidator(engine)
     action_policy = get_action_policy(engine)
+    # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
+    # evolution.mining-flywheel) + the SAME durable contextual-bandit spine
+    # (CONCEPT:AU-P1-3) every other mining pass in this controller closes its
+    # loop through — one instance per cycle, mirroring
+    # ``loop_controller._run_trace_mining``.
+    flywheel = ClaimFlywheel(engine)
+    router = OutcomeRouter(namespace="placement_mining")
 
     persisted = 0
     applied = 0
+    outcomes_recorded = 0
     examples: list[dict[str, Any]] = []
 
     for prop in eligible:
@@ -1140,6 +1308,20 @@ def run_placement_mining_cycle(
             "quality_score": claim.confidence,
             "type": "PlacementProposal",
         }
+
+        # -- X3: a retracted claim (e.g. a prior human/forbidden-tier denial
+        # of this SAME content-addressed finding) is never re-proposed. --
+        if flywheel.is_retracted(claim.id):
+            if len(examples) < 5:
+                examples.append(
+                    {
+                        "claim_id": claim.id,
+                        "kind": prop.kind,
+                        "target": prop.target,
+                        "skipped": "retracted",
+                    }
+                )
+            continue
 
         try:
             engine.add_node(
@@ -1159,10 +1341,22 @@ def run_placement_mining_cycle(
             continue
 
         try:
+            flywheel.propose(claim.id, reason=f"mined {prop.kind} placement finding")
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"placement_mining:flywheel_propose {claim.id}: {e}")
+
+        try:
             verdict = validator.validate(spec)
         except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
             errors.append(f"placement_mining:validate {claim.id}: {e}")
             continue
+
+        try:
+            flywheel.validate(
+                claim.id, verdict.valid, reason="; ".join(verdict.failures)
+            )
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"placement_mining:flywheel_validate {claim.id}: {e}")
 
         # -- SAFETY-CRITICAL: action_policy.decide() MUST run — and complete —
         # BEFORE the canary (which itself applies to a small scope) for every
@@ -1186,6 +1380,19 @@ def run_placement_mining_cycle(
         except Exception as e:  # noqa: BLE001 — fail closed, never crash
             errors.append(f"placement_mining:action_policy {claim.id}: {e}")
             continue
+
+        # -- fail-closed: a policy DENIAL retracts the claim outright — it is
+        # never applied, never canaried, and (durably, via the flywheel's own
+        # RETRACTED-is-terminal rule) never re-proposed by a later cycle. --
+        if decision.decision == "deny":
+            try:
+                flywheel.reject(
+                    claim.id,
+                    reason=f"action_policy denied: {decision.reason}",
+                    action_decision=decision.decision,
+                )
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"placement_mining:flywheel_reject {claim.id}: {e}")
 
         record: dict[str, Any] = {
             "claim_id": claim.id,
@@ -1214,8 +1421,42 @@ def run_placement_mining_cycle(
             new_status = "proposal"
             if canary is not None:
                 new_status = "applied" if canary.applied else "rejected"
-                if canary.applied:
-                    applied += 1
+                # -- close the loop: the canary's verdict becomes the
+                # flywheel's ACCEPTED/RETRACTED transition AND a durable
+                # bandit observation keyed on this (kind, target) — the SAME
+                # observation a later mining pass over the same target reads
+                # back (``OutcomeRouter.reward_of`` / ``CapabilityIndex``). --
+                reward = 1.0 if canary.applied else 0.0
+                try:
+                    if canary.applied:
+                        applied += 1
+                        flywheel.accept(
+                            claim.id,
+                            reason=canary.reason,
+                            action_decision=decision.decision,
+                        )
+                    else:
+                        flywheel.reject(
+                            claim.id,
+                            reason=f"canary rollback: {canary.reason}",
+                            action_decision=decision.decision,
+                        )
+                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                    errors.append(
+                        f"placement_mining:flywheel_transition {claim.id}: {e}"
+                    )
+                try:
+                    router.record(prop.kind, prop.target, reward)
+                    flywheel.record_outcome(
+                        claim.id,
+                        reward=prop.confidence,
+                        durable_reward=reward,
+                        note=canary.reason,
+                        durable_key=router.key(prop.kind, prop.target),
+                    )
+                    outcomes_recorded += 1
+                except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
+                    errors.append(f"placement_mining:outcome {claim.id}: {e}")
             try:
                 engine.add_node(
                     claim.id,
@@ -1240,6 +1481,68 @@ def run_placement_mining_cycle(
         "eligible": len(eligible),
         "persisted": persisted,
         "applied": applied,
+        "outcomes_recorded": outcomes_recorded,
         "examples": examples,
         "errors": errors,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Seam 4 — the orchestrated, opt-in controller step
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def placement_control_loop(
+    engine: Any,
+    *,
+    measurement_fn: MeasurementFn | None = None,
+    tolerance: float = _CANARY_TOLERANCE,
+    limit: int = _SCAN_LIMIT,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Seam 4 — THE manual-trigger controller step that closes the placement
+    loop: mine -> propose -> ActionPolicy review -> engine reshard (online
+    move) -> measured canary -> outcome recorded back to mining.
+
+    This is deliberately a THIN gate in front of :func:`run_placement_mining_cycle`
+    — the ONE mine->govern->canary->apply->outcome spine (no second
+    authority, no duplicated governance/canary logic): every safety property
+    (the fail-closed ``apply_placement_change`` ActionPolicy tier, the X-3
+    ``ClaimFlywheel`` lifecycle, :class:`CanaryResult`) is that function's,
+    reused as-is.
+
+    **Default OFF / manual-trigger (opt-in) — never auto-reshards on
+    import.** ``enabled=None`` (the default) resolves to
+    ``setting("PLACEMENT_CONTROL_LOOP_ENABLED", False, cast=bool)`` — an
+    operator must explicitly opt in via that env/config flag for this to run
+    on an automatic/periodic caller. A caller that IS the manual trigger
+    itself (the ``graph_loops`` MCP action / its REST twin — a human or an
+    orchestrator explicitly asking for one governed pass right now) passes
+    ``enabled=True`` for that one call, bypassing the flag without changing
+    it — nothing in this module, and nothing this function calls, is ever
+    invoked merely by importing the package or by any periodic/scheduled
+    loop unless an operator has explicitly turned the flag on.
+
+    Disabled ⇒ a zero-side-effect no-op report: mining, governance, the
+    canary, and the engine reshard RPC never run.
+    """
+    from agent_utilities.core.config import setting
+
+    gate = (
+        bool(setting("PLACEMENT_CONTROL_LOOP_ENABLED", False))
+        if enabled is None
+        else bool(enabled)
+    )
+    if not gate:
+        return {
+            "enabled": False,
+            "skipped": True,
+            "reason": (
+                "placement_control_loop is opt-in "
+                "(PLACEMENT_CONTROL_LOOP_ENABLED=0) — manual trigger required"
+            ),
+        }
+    report = run_placement_mining_cycle(
+        engine, measurement_fn=measurement_fn, tolerance=tolerance, limit=limit
+    )
+    return {"enabled": True, **report}
