@@ -63,8 +63,8 @@ flowchart TD
     Review -->|rework within budget| Exec
     Review -->|budget exhausted| Human[escalation_cb → human]
     Human --> Done
-    Done --> WB[record_action_outcome<br/>role_experience:role]
-    WB --> Profile[(Employee.experienceProfile<br/>+ experienceScore)]
+    Done --> WB["record_action_outcome<br/>role_experience:role"]
+    WB --> Profile[("Employee.experienceProfile<br/>+ experienceScore")]
     Profile -.reads back.-> Recruiter
 ```
 
