@@ -489,6 +489,14 @@ class RegistryNodeType(StrEnum):
     INFERENCE_PROFILE = "inference_profile"
     TASK_CLASS = "task_class"
 
+    # Enterprise Operations Causal Graph (Codex X-2) — the ONE ITSM node genuinely
+    # missing from the hub: a ServiceNow/Jira "Change" (a PLANNED change ticket,
+    # e.g. sn_change_request) is materially distinct from INCIDENT (an unplanned
+    # outage) — both connectors already crosswalk their unplanned-event resource
+    # (Issue/Incident) to INCIDENT, but neither has anywhere to put the planned
+    # kind. See agent_utilities.knowledge_graph.ontology.ops_causal_crosswalk.
+    CHANGE_REQUEST = "change_request"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -954,6 +962,14 @@ class RegistryEdgeType(StrEnum):
     TUNED_FOR = "TUNED_FOR"
     BOUND_TO_ROLE = "BOUND_TO_ROLE"
     USES_PROFILE = "USES_PROFILE"
+
+    # Enterprise Operations Causal Graph (Codex X-2) — the one edge genuinely
+    # missing from the hub for the Langfuse leg of the causal spine (Trace/
+    # Generation → Agent/Tool/Model): USED_TOOL already covers → Tool, but
+    # nothing covers "this generation actually invoked this model" (distinct
+    # from COMPATIBLE_WITH_MODEL, which is a routing-eligibility edge, not an
+    # observed-usage one). See ops_causal_crosswalk / ops_causal_graph.
+    USED_MODEL = "used_model"
 
 
 class RegistryNode(BaseModel):
@@ -2246,9 +2262,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
-        "company"
-    )
+    org_type: Literal[
+        "company", "team", "vendor", "opensource", "regulator"
+    ] = "company"
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )

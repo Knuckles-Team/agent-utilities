@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 969
+total_concepts: 975
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4405,6 +4405,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/messaging/bus_log.py
   doc: federated search fanned across registered external
   dotted: AU-KG.coordination.engine-message-broker
@@ -4773,6 +4774,19 @@ concepts:
   - AU-KG.enrichment.multimodal-readers
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.enrichment.ops-causal-graph
+  name: AU-KG.enrichment.ops-causal-graph
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/ops_causal_graph.py
+  - agent_utilities/mcp/tools/ops_causal_tools.py
+  doc: AU-KG.enrichment.ops-causal-graph
+  dotted: AU-KG.enrichment.ops-causal-graph
+  aliases:
+  - AU-KG.enrichment.ops-causal-graph
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.enrichment.proposals-live-as
   name: proposals live as
   pillar: AU-KG
@@ -4882,6 +4896,21 @@ concepts:
   dotted: AU-KG.evolution.mining-flywheel
   aliases:
   - AU-KG.evolution.mining-flywheel
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.identity.asset-occurrence
+  name: migrate_legacy_assets_bulk progress callback failed
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/cli.py
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/messaging/router.py
+  doc: migrate_legacy_assets_bulk progress callback failed
+  dotted: AU-KG.identity.asset-occurrence
+  aliases:
+  - AU-KG.identity.asset-occurrence
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.agent-utilities-checkout
@@ -5258,6 +5287,32 @@ concepts:
   dotted: AU-KG.ingest.enterprise-source-extractor
   aliases:
   - AU-KG.ingest.enterprise-source-extractor
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.envelope-atomic
+  name: AU-KG.ingest.envelope-atomic
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: AU-KG.ingest.envelope-atomic
+  dotted: AU-KG.ingest.envelope-atomic
+  aliases:
+  - AU-KG.ingest.envelope-atomic
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.envelope-atomic-transaction
+  name: shared migration tail for the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+  doc: shared migration tail for the
+  dotted: AU-KG.ingest.envelope-atomic-transaction
+  aliases:
+  - AU-KG.ingest.envelope-atomic-transaction
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.external-graph-federation
@@ -6303,7 +6358,6 @@ concepts:
   - agent_utilities/core/chat_persistence.py
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/parallel_engine.py
-  - agent_utilities/graph/routing/enrichers/capability_designation.py
   - agent_utilities/graph/routing/enrichers/self_model.py
   - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/graph/routing/strategies/workflow_context.py
@@ -6920,6 +6974,18 @@ concepts:
   dotted: AU-KG.ontology.ontology-property-types
   aliases:
   - AU-KG.ontology.ontology-property-types
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.ops-causal-crosswalk
+  name: AU-KG.ontology.ops-causal-crosswalk
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/ops_causal_crosswalk.py
+  doc: AU-KG.ontology.ops-causal-crosswalk
+  dotted: AU-KG.ontology.ops-causal-crosswalk
+  aliases:
+  - AU-KG.ontology.ops-causal-crosswalk
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.optimistic-concurrency-object-property
@@ -7803,6 +7869,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/optimal_execution.py
   - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/source_resolver.py
+  - agent_utilities/knowledge_graph/enrichment/ops_causal_graph.py
   - agent_utilities/knowledge_graph/maintenance/owl_closure.py
   - agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
   - agent_utilities/knowledge_graph/orchestration/engine_finance.py
@@ -8471,10 +8538,12 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/__init__.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/knowledge_graph/core/engine_resolver.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
+  - agent_utilities/knowledge_graph/core/placement_catalog.py
   - agent_utilities/knowledge_graph/core/session.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
@@ -8608,13 +8677,14 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.compute.kg-2
-  name: AU-KG.compute.kg-2
+  name: and native
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/retrieval/engine_capability_search.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: AU-KG.compute.kg-2
+  doc: and native
   dotted: AU-KG.compute.kg-2
   aliases:
   - AU-KG.compute.kg-2
@@ -9135,6 +9205,7 @@ concepts:
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
+  - agent_utilities/orchestration/work_item.py
   doc: Queue-driven agent dispatch with session-keyed partitions
   dotted: AU-ORCH.dispatch.queue-agent-dispatch
   aliases:
@@ -11389,6 +11460,18 @@ concepts:
   - AU-ORCH.session.unified-agent-entrypoint
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.twin.agent-digital-twin
+  name: Agent Digital Twin + deterministic replay
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_digital_twin.py
+  doc: Agent Digital Twin + deterministic replay
+  dotted: AU-ORCH.twin.agent-digital-twin
+  aliases:
+  - AU-ORCH.twin.agent-digital-twin
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-OS.audit.config-staleness-auditor
   name: Configuration Staleness Auditor
   pillar: AU-OS
@@ -12884,13 +12967,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.scaling.resolve-active-channel-once
-  name: resolve the active channel once;
+  name: AU-OS.scaling.resolve-active-channel-once
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/core/release_channel.py
-  - agent_utilities/graph/routing/enrichers/capability_designation.py
-  doc: resolve the active channel once;
+  doc: AU-OS.scaling.resolve-active-channel-once
   dotted: AU-OS.scaling.resolve-active-channel-once
   aliases:
   - AU-OS.scaling.resolve-active-channel-once
@@ -13438,12 +13520,12 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.storage.blob-namespace
-  name: and recording a
+  name: and recording a KG
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/media_store.py
-  doc: and recording a
+  doc: and recording a KG
   dotted: EG-KG.storage.blob-namespace
   aliases:
   - EG-KG.storage.blob-namespace
@@ -13539,12 +13621,12 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.txn.reader-never-sees-node
-  name: a reader never sees a node without its blob
+  name: What it does NOT cover is the
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/media_store.py
-  doc: a reader never sees a node without its blob
+  doc: What it does NOT cover is the
   dotted: EG-KG.txn.reader-never-sees-node
   aliases:
   - EG-KG.txn.reader-never-sees-node
