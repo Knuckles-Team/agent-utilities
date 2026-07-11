@@ -29,7 +29,7 @@ long-lived container that the gateway and connectors share.
 | Caddy | HTTPS reverse proxy in front of the gateway + connectors |
 | OpenBao | optional secrets store |
 | Langfuse | optional observability |
-| Kafka / Keycloak / swarm | **not** in this tier (see [Enterprise](enterprise.md)) |
+| Kafka / Keycloak / an orchestrator (Kubernetes or Swarm) | **not** in this tier (see [Enterprise](enterprise.md)) |
 
 > **Postgres mirror extension requirement.** Postgres here is an **optional
 > write-only mirror** of the engine authority (not the system of record). If you
@@ -135,7 +135,8 @@ curl -s -X POST localhost:9000/api/graph/query \
 
 ## Graduate to enterprise
 
-Add a swarm, Keycloak SSO, the Kafka event backbone, LGTM observability, and the
+Add an orchestrator (Kubernetes/RKE2 by default; Swarm is also selectable),
+Keycloak SSO, the Kafka event backbone, LGTM observability, and the
 full connector fleet — see [Enterprise](enterprise.md), driven by the
 `agent-os-genesis` (alias `day0`) skill-workflow. The flag-level path is rungs
 (d) and (e) of the
