@@ -255,7 +255,9 @@ def _persist_markings(key: tuple[str, str]) -> None:
     # Back-compat storage id for the unscoped ("") bucket keeps the exact
     # pre-P0-5 node id shape; a tenant-scoped marking gets its own namespaced
     # id so two tenants' markings for the "same" node_id never collide.
-    storage_id = f"marking::{node_id}" if not tenant else f"marking::{tenant}::{node_id}"
+    storage_id = (
+        f"marking::{node_id}" if not tenant else f"marking::{tenant}::{node_id}"
+    )
     try:
         store.execute(
             "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, "

@@ -198,7 +198,9 @@ def _resolve_identity(
         return None, None
     if envelope.operation == "upsert" and envelope.typed_payload is not None:
         row = envelope.to_entity_dict()
-        node_id = str(row.get("id") or envelope.source_object_id or envelope.idempotency_key)
+        node_id = str(
+            row.get("id") or envelope.source_object_id or envelope.idempotency_key
+        )
         return node_id, row
     node_id = envelope.source_object_id or envelope.idempotency_key
     return node_id, None
@@ -328,7 +330,9 @@ def _apply_tombstone(
     return {"status": "success", "node_id": node_id}
 
 
-def _restore_archived(backend: Any, node_id: str | None, was_archived: bool | None) -> None:
+def _restore_archived(
+    backend: Any, node_id: str | None, was_archived: bool | None
+) -> None:
     if backend is None or not node_id or was_archived is None:
         return
     try:
@@ -451,7 +455,9 @@ def _rollback(
     if "write" in applied:
         if envelope.operation == "delete" and node_id:
             _restore_archived(backend, node_id, prior_archived)
-        elif envelope.operation != "snapshot_complete" and node_id and not existed_before:
+        elif (
+            envelope.operation != "snapshot_complete" and node_id and not existed_before
+        ):
             _delete_node(backend, node_id)
         # snapshot_complete: `_reconcile` already applies its own per-row
         # tombstones defensively (each guarded in its own try/except) — there
