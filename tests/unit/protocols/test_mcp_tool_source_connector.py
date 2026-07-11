@@ -398,6 +398,69 @@ def test_acl_fields_map_to_external_access():
     assert docs["r2"].external_access.is_public is True
 
 
+@pytest.mark.concept("AU-P0-4")
+def test_unconfigured_acl_defaults_to_quarantined_not_public(monkeypatch):
+    """No acl_* fields configured -> fail-closed default (CONCEPT:AU-P0-4).
+
+    An unproven/unconfigured connector must never default a document's access
+    to world-public; it must default to the most-restrictive descriptor
+    (:meth:`ExternalAccess.quarantined`) unless the operator explicitly opts a
+    dev/local deployment back into public via ``CONNECTOR_DEFAULT_PUBLIC``.
+    """
+    monkeypatch.delenv("CONNECTOR_DEFAULT_PUBLIC", raising=False)
+
+    server = FastMCP("no-acl-server")
+
+    @server.tool
+    def records(action: str, params_json: str = "{}") -> dict:
+        return {"items": [{"id": "r1", "text": "body"}]}
+
+    conn = build_connector(
+        "mcp_tool",
+        {
+            "client": server,
+            "tool": "records",
+            "action": "list",
+            "records_path": "items",
+        },
+    )
+    docs = {d.id: d for d in conn.load()}
+    access = docs["r1"].external_access
+    assert access is not None
+    assert access.is_public is False
+    from agent_utilities.protocols.source_connectors.base import (
+        CONNECTOR_UNCONFIGURED_MARKING,
+    )
+
+    assert CONNECTOR_UNCONFIGURED_MARKING in access.markings
+    assert access.user_emails == []
+    assert access.group_ids == []
+
+
+@pytest.mark.concept("AU-P0-4")
+def test_connector_default_public_opt_in_restores_legacy_behavior(monkeypatch):
+    """``CONNECTOR_DEFAULT_PUBLIC=true`` is the explicit dev/local opt-in back to public."""
+    monkeypatch.setenv("CONNECTOR_DEFAULT_PUBLIC", "true")
+
+    server = FastMCP("no-acl-server-optin")
+
+    @server.tool
+    def records(action: str, params_json: str = "{}") -> dict:
+        return {"items": [{"id": "r1", "text": "body"}]}
+
+    conn = build_connector(
+        "mcp_tool",
+        {
+            "client": server,
+            "tool": "records",
+            "action": "list",
+            "records_path": "items",
+        },
+    )
+    docs = {d.id: d for d in conn.load()}
+    assert docs["r1"].external_access.is_public is True
+
+
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_page_pagination_offset_exhaustion_and_max_records():
     server = FastMCP("paged")
