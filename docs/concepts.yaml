@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 969
+total_concepts: 974
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4884,6 +4884,21 @@ concepts:
   - AU-KG.evolution.mining-flywheel
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.identity.asset-occurrence
+  name: migrate_legacy_assets_bulk progress callback failed
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/cli.py
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/messaging/router.py
+  doc: migrate_legacy_assets_bulk progress callback failed
+  dotted: AU-KG.identity.asset-occurrence
+  aliases:
+  - AU-KG.identity.asset-occurrence
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ingest.agent-utilities-checkout
   name: the agent-utilities checkout
   pillar: AU-KG
@@ -5258,6 +5273,32 @@ concepts:
   dotted: AU-KG.ingest.enterprise-source-extractor
   aliases:
   - AU-KG.ingest.enterprise-source-extractor
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.envelope-atomic
+  name: AU-KG.ingest.envelope-atomic
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: AU-KG.ingest.envelope-atomic
+  dotted: AU-KG.ingest.envelope-atomic
+  aliases:
+  - AU-KG.ingest.envelope-atomic
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.envelope-atomic-transaction
+  name: shared migration tail for the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+  doc: shared migration tail for the
+  dotted: AU-KG.ingest.envelope-atomic-transaction
+  aliases:
+  - AU-KG.ingest.envelope-atomic-transaction
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.external-graph-federation
@@ -6303,7 +6344,6 @@ concepts:
   - agent_utilities/core/chat_persistence.py
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/parallel_engine.py
-  - agent_utilities/graph/routing/enrichers/capability_designation.py
   - agent_utilities/graph/routing/enrichers/self_model.py
   - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/graph/routing/strategies/workflow_context.py
@@ -6322,6 +6362,7 @@ concepts:
   - agent_utilities/knowledge_graph/memory/observer.py
   - agent_utilities/knowledge_graph/memory/optimization_engine.py
   - agent_utilities/knowledge_graph/retrieval/budget.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/messaging/router.py
@@ -7068,6 +7109,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
     from the ambient context — never from caller-supplied clearance
@@ -7999,6 +8041,21 @@ concepts:
   - AU-KG.retrieval.assimilated-from-mragent
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.retrieval.context-compiler
+  name: MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations
+    + a proof graph, instead of the plain relevance-sorted text the other modes return
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations
+    + a proof graph, instead of the plain relevance-sorted text the other modes return
+  dotted: AU-KG.retrieval.context-compiler
+  aliases:
+  - AU-KG.retrieval.context-compiler
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.retrieval.cross-session-chat-recall
   name: chat transcripts can contain multi-MB
   pillar: AU-KG
@@ -8471,10 +8528,12 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/__init__.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/knowledge_graph/core/engine_resolver.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
+  - agent_utilities/knowledge_graph/core/placement_catalog.py
   - agent_utilities/knowledge_graph/core/session.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
@@ -8608,13 +8667,15 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.compute.kg-2
-  name: AU-KG.compute.kg-2
+  name: min-max normalized across the
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+  - agent_utilities/knowledge_graph/retrieval/engine_capability_search.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: AU-KG.compute.kg-2
+  doc: min-max normalized across the
   dotted: AU-KG.compute.kg-2
   aliases:
   - AU-KG.compute.kg-2
@@ -9135,6 +9196,7 @@ concepts:
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
+  - agent_utilities/orchestration/work_item.py
   doc: Queue-driven agent dispatch with session-keyed partitions
   dotted: AU-ORCH.dispatch.queue-agent-dispatch
   aliases:
@@ -11389,6 +11451,18 @@ concepts:
   - AU-ORCH.session.unified-agent-entrypoint
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.twin.agent-digital-twin
+  name: Agent Digital Twin + deterministic replay
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_digital_twin.py
+  doc: Agent Digital Twin + deterministic replay
+  dotted: AU-ORCH.twin.agent-digital-twin
+  aliases:
+  - AU-ORCH.twin.agent-digital-twin
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-OS.audit.config-staleness-auditor
   name: Configuration Staleness Auditor
   pillar: AU-OS
@@ -12884,13 +12958,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.scaling.resolve-active-channel-once
-  name: resolve the active channel once;
+  name: AU-OS.scaling.resolve-active-channel-once
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/core/release_channel.py
-  - agent_utilities/graph/routing/enrichers/capability_designation.py
-  doc: resolve the active channel once;
+  doc: AU-OS.scaling.resolve-active-channel-once
   dotted: AU-OS.scaling.resolve-active-channel-once
   aliases:
   - AU-OS.scaling.resolve-active-channel-once
@@ -13438,12 +13511,12 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.storage.blob-namespace
-  name: and recording a
+  name: and recording a KG
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/media_store.py
-  doc: and recording a
+  doc: and recording a KG
   dotted: EG-KG.storage.blob-namespace
   aliases:
   - EG-KG.storage.blob-namespace
@@ -13539,12 +13612,12 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.txn.reader-never-sees-node
-  name: a reader never sees a node without its blob
+  name: What it does NOT cover is the
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/media_store.py
-  doc: a reader never sees a node without its blob
+  doc: What it does NOT cover is the
   dotted: EG-KG.txn.reader-never-sees-node
   aliases:
   - EG-KG.txn.reader-never-sees-node
