@@ -93,3 +93,23 @@ def test_unknown_action_error_without_matches():
     err = unknown_action_error("zzzzz", ["get_movie"], target="radarr")
     assert "Unknown action 'zzzzz' on radarr" in str(err)
     assert "list_actions" in str(err)
+
+
+def test_dispatch_folds_flat_fields_into_body_param():
+    """dispatch() self-heals the REST-body convention like run_blocking does."""
+
+    class _JiraLike:
+        def create_issue(self, update_history=None, payload=None):
+            return {"update_history": update_history, "payload": payload}
+
+        def get_all_projects(self):
+            return ["AU", "KAN"]
+
+    c = _JiraLike()
+    # LLM's flat fields folded into the single `payload` body param
+    res = dispatch(
+        c, "create_issue", {"fields": {"summary": "S"}}, service="jira"
+    )
+    assert res == {"update_history": None, "payload": {"fields": {"summary": "S"}}}
+    # read path (no body param) is a strict no-op
+    assert dispatch(c, "get_all_projects", {}, service="jira") == ["AU", "KAN"]
