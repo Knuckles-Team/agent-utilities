@@ -727,12 +727,16 @@ def _resolve_media_store(engine: Any) -> Any:
 async def _persist_media(
     engine: Any, event: Any, *, message_memory_id: str | None
 ) -> None:
-    """Durably persist an event's media attachments into the KG (CONCEPT:AU-KG.ingest.list-durable-media).
+    """Durably persist an event's media attachments into the KG (CONCEPT:AU-KG.identity.asset-occurrence).
 
     For each image/voice/video/audio attachment: download the bytes (best-effort) and
     hand them to :class:`MediaStore`, which stores them content-addressed in the engine
-    BLOB substrate and creates a ``:MediaAsset`` linked to ``message_memory_id``. Runs
-    on the background persist pass (off the reply path); any failure is logged + skipped.
+    BLOB substrate and creates a DISTINCT ``:AssetOccurrence`` linked to
+    ``message_memory_id`` — one occurrence PER ATTACHMENT PER MESSAGE, even when the
+    same bytes were already seen in a previous message (only the underlying ``:Blob``
+    dedups; each message's occurrence keeps its own source/owner/event-time/
+    provenance, CONCEPT:AU-KG.identity.asset-occurrence — AU-P1-4). Runs on the
+    background persist pass (off the reply path); any failure is logged + skipped.
     """
     msg = getattr(event, "message", None)
     attachments = getattr(msg, "attachments", None) or []
@@ -749,6 +753,12 @@ async def _persist_media(
     if store is None:
         return
     import httpx
+
+    platform = str(getattr(event, "platform", ""))
+    channel_id = str(getattr(event, "channel_id", ""))
+    owner = str(getattr(event, "user_id", "") or getattr(msg, "author_id", ""))
+    timestamp = getattr(msg, "timestamp", None) or getattr(event, "timestamp", None)
+    event_time = timestamp.isoformat() if timestamp is not None else None
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for att in media[:8]:  # cap per turn
@@ -768,9 +778,18 @@ async def _persist_media(
                 media_type=str(getattr(att, "media_type", "")),
                 mime_type=getattr(att, "mime_type", "")
                 or resp.headers.get("content-type", "").split(";")[0].strip(),
-                source=str(getattr(event, "platform", "")),
+                source=platform,
                 message_id=message_memory_id,
                 name=getattr(att, "filename", ""),
+                owner=owner,
+                event_time=event_time,
+                provenance={
+                    "platform": platform,
+                    "channel_id": channel_id,
+                    "thread_id": str(getattr(event, "thread_id", "")),
+                    "message_id": str(getattr(msg, "id", "")),
+                    "filename": getattr(att, "filename", ""),
+                },
             )
 
 

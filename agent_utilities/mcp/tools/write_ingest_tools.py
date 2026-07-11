@@ -230,12 +230,15 @@ def register_write_ingest_tools(mcp):
                     )
                     return "\n".join(str(r) for r in res)
                 elif action == "recall_media":
-                    # CONCEPT:AU-KG.ingest.list-durable-media — list durable :MediaAsset records (the
-                    # content-addressed media we persisted from chat). Returns
-                    # metadata (asset_id + content_digest + media_type), NOT raw
-                    # bytes (those are fetched by digest via MediaStore.fetch_bytes).
+                    # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
+                    # records: both AU-P1-4's ``:AssetOccurrence`` nodes (current)
+                    # and any pre-AU-P1-4 digest-keyed ``:MediaAsset`` nodes not yet
+                    # migrated (CONCEPT:AU-KG.ingest.list-durable-media — back-compat).
+                    # Returns metadata (asset_id + content_digest + media_type), NOT
+                    # raw bytes (those are fetched by digest via
+                    # MediaStore.fetch_bytes).
                     # Optional filter: node_id=<message memory id> for a turn's media.
-                    where = "n.type = 'MediaAsset'"
+                    where = "n.type IN ['AssetOccurrence', 'MediaAsset']"
                     if node_id:
                         where += f" AND n.message_id = '{node_id}'"
                     try:
