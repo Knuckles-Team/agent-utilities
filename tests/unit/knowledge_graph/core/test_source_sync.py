@@ -520,7 +520,17 @@ class _Rec:
 
 
 def _entities_by_type(batches):
-    """Flatten ingest_external_batch calls → {type: [entity, ...]}."""
+    """Flatten ingest_external_batch calls → {type: [entity, ...]}.
+
+    AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): dockerhub/twenty/
+    tunnel_manager/firefly_iii/paperless_ngx/audiobookshelf/gramps are now
+    envelope-native — each entity is routed through its own
+    ``ingest_envelope``/``ingest_external_batch`` call (one entry in
+    ``eng.batches`` per entity) rather than a single combined batch. This helper
+    (and the ``rels = [... for _d, _e, rl in eng.batches ...]`` flattening in the
+    tests below) already aggregates across every call, so the per-type/per-edge
+    assertions are unchanged by the migration — only the batch GRANULARITY did.
+    """
     out: dict[str, list] = {}
     for _domain, entities, _rels in batches:
         for e in entities:
@@ -529,7 +539,13 @@ def _entities_by_type(batches):
 
 
 def test_dockerhub_typed_owl_entities(monkeypatch):
-    """DockerHub repos rebuild as :Repository + :ContainerImage with a contains edge."""
+    """DockerHub repos rebuild as :Repository + :ContainerImage with a contains edge.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity (the
+    ``contains`` edge is carried on the IMAGE's own envelope, not the versionless
+    repo's); ``eng.batches`` aggregates one entry per entity (see
+    ``_entities_by_type``'s docstring).
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_configured_server", lambda cands: "dockerhub-mcp")
@@ -562,7 +578,11 @@ def test_dockerhub_typed_owl_entities(monkeypatch):
 
 
 def test_twenty_typed_owl_entities(monkeypatch):
-    """Twenty CRM rebuilds people/companies/opportunities as typed OWL entities + links."""
+    """Twenty CRM rebuilds people/companies/opportunities as typed OWL entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both edges
+    carried on the person's/opportunity's own envelope.
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_configured_server", lambda cands: "twenty-mcp")
@@ -601,7 +621,11 @@ def test_twenty_typed_owl_entities(monkeypatch):
 
 
 def test_tunnel_manager_typed_hosts(monkeypatch):
-    """tunnel-manager hosts rebuild as :Host (+ :Tunnel when proxy_command is set)."""
+    """tunnel-manager hosts rebuild as :Host (+ :Tunnel when proxy_command is set).
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    ``connects_via`` edge is carried on the HOST's own envelope.
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_configured_server", lambda cands: "tunnel-manager-mcp")
@@ -636,7 +660,11 @@ def test_tunnel_manager_typed_hosts(monkeypatch):
 
 
 def test_firefly_iii_typed_owl_entities(monkeypatch):
-    """Firefly III rebuilds accounts/transactions/budgets as typed OWL entities + links."""
+    """Firefly III rebuilds accounts/transactions/budgets as typed OWL entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both edges
+    carried on the TRANSACTION's own envelope.
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
@@ -681,7 +709,11 @@ def test_firefly_iii_typed_owl_entities(monkeypatch):
 
 
 def test_paperless_ngx_typed_owl_entities(monkeypatch):
-    """Paperless-ngx rebuilds documents/correspondents/tags as typed OWL entities + links."""
+    """Paperless-ngx rebuilds documents/correspondents/tags as typed OWL entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both edges
+    carried on the DOCUMENT's own envelope.
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
@@ -717,7 +749,11 @@ def test_paperless_ngx_typed_owl_entities(monkeypatch):
 
 
 def test_audiobookshelf_typed_owl_entities(monkeypatch):
-    """Audiobookshelf rebuilds libraries/books/authors as typed OWL entities + links."""
+    """Audiobookshelf rebuilds libraries/books/authors as typed OWL entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both edges
+    carried on the BOOK's own envelope.
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_configured_server", lambda cands: "audiobookshelf-mcp")
@@ -760,7 +796,14 @@ def test_audiobookshelf_typed_owl_entities(monkeypatch):
 
 
 def test_gramps_typed_owl_entities(monkeypatch):
-    """Gramps rebuilds people/families/events as typed OWL entities + links."""
+    """Gramps rebuilds people/families/events as typed OWL entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; a person's
+    ``part_of`` event edge is carried on the PERSON's own envelope, while the
+    father/mother/child ``member_of`` edges are carried on the FAMILY's own
+    envelope (the family, not the referenced person, is the entity whose
+    ``change`` marker reflects a membership edit).
+    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
     monkeypatch.setattr(ss, "_configured_server", lambda cands: "gramps-mcp")
@@ -810,6 +853,255 @@ def test_gramps_typed_owl_entities(monkeypatch):
     assert any(r["type"] == "part_of" for r in rels)  # person → event
 
 
+# ── L32: jira/plane/ard/langfuse/technitium/home_assistant/uptime_kuma — newly
+# migrated to envelope-native (AU-P1-5) and previously untested at the entity/rel
+# level (only sweep/config-gating tests referenced them before). ──────────────
+
+
+def test_langfuse_typed_owl_entities(monkeypatch):
+    """Langfuse traces/observations rebuild as :Trace/:Observation/:Generation.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    ``part_of`` edge is carried on the OBSERVATION's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
+
+    def fake_drain(preset, **kw):
+        if preset == "langfuse-traces":
+            return [_Rec("t1", {"name": "Trace 1"}, "2026-06-01")]
+        if preset == "langfuse-observations":
+            return [
+                _Rec(
+                    "o1",
+                    {"type": "GENERATION", "model": "gpt", "traceId": "t1"},
+                    "2026-06-02",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(ss, "_drain_preset", fake_drain)
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_langfuse(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"trace", "generation"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # observation → trace
+
+
+def test_technitium_typed_dns(monkeypatch):
+    """Technitium zones/records rebuild as :DnsZone/:DnsRecord with a part_of edge.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    ``part_of`` edge is carried on the RECORD's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "technitium-dns-mcp")
+
+    def fake_run_async(coro):
+        coro.close()
+        return fake_run_async.queue.pop(0)
+
+    fake_run_async.queue = [
+        {"response": {"zones": [{"name": "example.com", "type": "Primary"}]}},
+        {
+            "response": {
+                "records": [
+                    {"name": "www", "type": "A", "rData": {"ipAddress": "1.2.3.4"}}
+                ]
+            }
+        },
+    ]
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_technitium(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"dns_zone", "dns_record"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # record → zone
+
+
+def test_home_assistant_typed_entities(monkeypatch):
+    """Home Assistant states rebuild as :Entity/:Device with a part_of edge.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    ``part_of`` edge is carried on the ENTITY's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
+    monkeypatch.setattr(
+        ss,
+        "_drain_preset",
+        lambda preset, **kw: [
+            _Rec(
+                "light.kitchen",
+                {
+                    "state": "on",
+                    "attributes": {"friendly_name": "Kitchen Light"},
+                    "last_updated": "2026-06-01",
+                },
+            )
+        ],
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_home_assistant(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"entity", "device"} <= set(by_type)
+    assert by_type["entity"][0]["name"] == "Kitchen Light"
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # entity → device
+
+
+def test_uptime_kuma_typed_monitors(monkeypatch):
+    """Uptime Kuma monitors/heartbeats rebuild as :Monitor/:HeartbeatStat.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    ``part_of`` edge is carried on the HEARTBEAT's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "uptime-mcp")
+
+    def fake_run_async(coro):
+        coro.close()
+        return fake_run_async.queue.pop(0)
+
+    fake_run_async.queue = [
+        [{"id": 1, "name": "Homepage", "url": "https://x", "type": "http"}],
+        {"1": [{"status": 1, "ping": 12, "time": "2026-06-01T00:00:00Z"}]},
+    ]
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_uptime_kuma(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"uptime_monitor", "heartbeat_stat"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # heartbeat → monitor
+
+
+def test_jira_typed_owl_entities(monkeypatch):
+    """Jira issues rebuild as issue/person/epic entities + links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both
+    edges are carried on the ISSUE's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_tracker_instances",
+        lambda *a, **kw: [{"name": "jira", "server": "atlassian-mcp"}],
+    )
+    monkeypatch.setattr(ss, "_build_preset_conn", lambda *a, **kw: object())
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, since, **kw: [
+            _Rec(
+                "PROJ-1",
+                {
+                    "fields": {
+                        "summary": "Fix bug",
+                        "status": {"name": "Open"},
+                        "assignee": {"accountId": "u1", "displayName": "Ada"},
+                        "customfield_10014": "EPIC-1",
+                        "updated": "2026-06-01",
+                    }
+                },
+            )
+        ],
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_jira(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"issue", "person", "goal"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "has_role" for r in rels)  # issue → assignee
+    assert any(r["type"] == "part_of" for r in rels)  # issue → epic
+
+
+def test_plane_typed_owl_entities(monkeypatch):
+    """Plane work items rebuild as issue/project entities + a part_of link.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; the
+    edge is carried on the ISSUE's own envelope.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_tracker_instances",
+        lambda *a, **kw: [{"name": "plane", "server": "plane-mcp", "projects": ["p1"]}],
+    )
+    monkeypatch.setattr(ss, "_build_preset_conn", lambda *a, **kw: object())
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, since, **kw: [
+            _Rec("i1", {"name": "Do thing", "updated_at": "2026-06-01"})
+        ],
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_plane(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"issue", "software_project"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # issue → project
+
+
+def test_ard_typed_owl_entities(monkeypatch):
+    """ARD registry resources rebuild as :MCPServer/:Skill + registry/capability links.
+
+    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both
+    edges are carried on the RESOURCE's own envelope.
+    """
+    import types
+
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss, "_resolve_ard_registries", lambda: [{"name": "hf", "preset": "huggingface"}]
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        lambda kind, conf: object(),
+    )
+    doc = types.SimpleNamespace(
+        id="srv1",
+        title="Some MCP Server",
+        text="desc",
+        updated_at="2026-06-01",
+        metadata={
+            "record": {"publisher": {"domain": "example.com"}, "tags": ["search"]},
+            "ard_media_type": "application/mcp-server",
+        },
+    )
+    monkeypatch.setattr(ss, "_drain_incremental", lambda conn, since, **kw: [doc])
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_ard(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"ResourceRegistry", "MCPServer", "ServiceCapability"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "registeredIn" for r in rels)
+    assert any(r["type"] == "providesCapability" for r in rels)
+
+
 # ── L27: live sync_source call sites for the 5 mandatory-manifest ops connectors ──
 
 
@@ -839,7 +1131,9 @@ def test_l27_connectors_all_registered_and_gate_checked():
     for source in l27:
         gate = precheck_source(source)
         assert gate["checked"] is True, f"{source} has no discoverable manifest"
-        assert gate["ok"] is True, f"{source} manifest failed the gate: {gate['violations']}"
+        assert gate["ok"] is True, (
+            f"{source} manifest failed the gate: {gate['violations']}"
+        )
 
 
 def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
@@ -855,7 +1149,9 @@ def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
 
     backend = FakeBackend()
     engine = FakeEngine(backend)
-    out = sync_source(engine, "container-manager-mcp", mode="full", client=fake_call_tool)
+    out = sync_source(
+        engine, "container-manager-mcp", mode="full", client=fake_call_tool
+    )
 
     assert out["status"] == "ok"
     assert out["source"] == "container-manager-mcp"
@@ -906,7 +1202,9 @@ def test_documentdb_mcp_unconfigured_server_skips_not_errors(monkeypatch):
 def test_systems_manager_sync_runs_via_generic_ops_handler(monkeypatch):
     import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
 
-    monkeypatch.setattr(mcp_pkg_mod, "_load_mcp_config", _fake_mcp_config("systems-manager"))
+    monkeypatch.setattr(
+        mcp_pkg_mod, "_load_mcp_config", _fake_mcp_config("systems-manager")
+    )
 
     def fake_call_tool(tool_name, arguments):
         assert tool_name == "list_hosts"
