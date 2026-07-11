@@ -318,6 +318,17 @@ async def run_agent(
         config["invoker_allowed_tools"] = list(allowed_tools)
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
+    # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
+    # of tools; binding every schema to the single-server agent makes the LLM call hang
+    # and the run silently degrade to a hallucinating toolless graph. When the caller
+    # set no explicit allow-list, bind only the top-K task-relevant tools (KG capability
+    # index, bounded; lexical fallback; hard cap). Only for resolved MCP servers.
+    if agent_meta.get("type") == "server" and not config.get("invoker_allowed_tools"):
+        _selected = await _select_relevant_tool_names(
+            engine, task, agent_meta.get("tools") or [], agent_name=agent_name
+        )
+        if _selected:
+            config["invoker_allowed_tools"] = _selected
     # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
     # requested (or when an explicit session_id is given). The id is stamped into config so
     # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
@@ -378,18 +389,32 @@ async def run_agent(
                     agent_name=agent_name,
                     max_steps=max_steps,
                 )
-            except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
-                logger.warning(
-                    "[ORCH-1.74] focused-tools path failed (%s); falling through to the full graph.",
-                    _flatten_exception_group(e),
-                )
-                result = await _execute_graph(
-                    config=config,
-                    query=task,
-                    run_id=run_id,
-                    max_steps=max_steps,
-                    agent_meta=agent_meta,
-                )
+            except Exception as e:  # noqa: BLE001
+                err = _flatten_exception_group(e)
+                if agent_meta.get("type") == "server":
+                    # CONCEPT:AU-ORCH.execution.no-silent-hallucination — a delegation that named a SPECIFIC
+                    # fleet server must NOT fall through to a toolless graph that fabricates a
+                    # plausible answer (the failure this program was built to catch). Surface it
+                    # as degraded so it is traced + fed back, never recorded as a clean success.
+                    logger.warning(
+                        "[ORCH-1.74] focused-tools path failed for fleet server '%s' (%s); "
+                        "surfacing degraded instead of hallucinating via the graph.",
+                        agent_name,
+                        err,
+                    )
+                    result = _fleet_server_failed_result(agent_name, err)
+                else:
+                    logger.warning(
+                        "[ORCH-1.74] focused-tools path failed (%s); falling through to the full graph.",
+                        err,
+                    )
+                    result = await _execute_graph(
+                        config=config,
+                        query=task,
+                        run_id=run_id,
+                        max_steps=max_steps,
+                        agent_meta=agent_meta,
+                    )
         elif _is_single_server_agent(agent_meta, config):
             result = await _execute_single_server(
                 config=config,
@@ -1357,6 +1382,127 @@ def _is_bound_template_agent(
     return bool(
         agent_meta.get("type") == "agent_template" and config.get("mcp_toolsets")
     )
+
+
+# Above this many tools on one server, bind only the task-relevant subset. A fleet
+# server can expose hundreds (container-manager-mcp: 314); handing every schema to one
+# agent makes the LLM call hang and the run silently fall through to a hallucinating
+# toolless graph. Kept as a module constant per Configuration discipline (one correct
+# value, auto-behaviour — not a knob).
+_MAX_BOUND_TOOLS = 20
+
+
+def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
+    """A degraded result for a resolved fleet-server delegation that failed.
+
+    CONCEPT:AU-ORCH.execution.no-silent-hallucination — returned INSTEAD of falling through to the
+    toolless graph, so a named-server delegation that could not run its real tools
+    surfaces the failure (picked up as ``degraded`` by ``_delegation_degraded`` →
+    truthful RunTrace + negative feedback) rather than a confident fabrication.
+    """
+    return {
+        "status": "failed",
+        "results": {
+            "output": (
+                f"Delegation to fleet server '{agent_name}' could not produce a "
+                f"tool-grounded result ({error}). Refusing to fall back to a general "
+                f"answer, which would fabricate tool output."
+            )
+        },
+        "metadata": {"degraded": True, "outcome": "fleet_server_failed"},
+    }
+
+
+def _lexical_top_k_tools(task: str, tools: list[dict[str, Any]], k: int) -> list[str]:
+    """Fast, dependency-free relevance ranking of tool names against the task.
+
+    Scores each tool by task-word overlap on its name (weighted) + description.
+    Returns up to ``k`` names with a non-zero score, most relevant first; ``[]``
+    when nothing matches (caller then hard-caps). No LLM/embedding round-trip, so
+    it can never re-introduce the latency this whole mechanism exists to avoid.
+    """
+    import re
+
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", task.lower())}
+    if not words:
+        return []
+    scored: list[tuple[int, str]] = []
+    for t in tools:
+        name = str(t.get("name") or "")
+        if not name:
+            continue
+        nlow = name.lower()
+        dlow = str(t.get("description") or "").lower()
+        score = sum(1 for w in words if w in dlow) + 3 * sum(
+            1 for w in words if w in nlow
+        )
+        if score:
+            scored.append((score, name))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [n for _s, n in scored][:k]
+
+
+def _match_designated_to_names(ranked_ids: list[str], name_set: set[str]) -> list[str]:
+    """Map KG-designation resource ids back to this server's tool names, in order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for rid in ranked_ids:
+        rid_s = str(rid)
+        base = rid_s.split(":")[-1].split("/")[-1].split("__")[-1]
+        cand = rid_s if rid_s in name_set else (base if base in name_set else "")
+        if not cand:
+            cand = next((n for n in name_set if n and rid_s.endswith(n)), "")
+        if cand and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+async def _select_relevant_tool_names(
+    engine: IntelligenceGraphEngine | None,
+    task: str,
+    tools: list[dict[str, Any]],
+    *,
+    agent_name: str = "",
+    max_tools: int = _MAX_BOUND_TOOLS,
+) -> list[str] | None:
+    """Pick the top-K task-relevant tools when a server exposes too many.
+
+    CONCEPT:AU-ORCH.execution.task-aware-tool-selection — returns ``None`` when the server is small
+    enough to bind wholesale. Otherwise: a fast lexical ranker over tool name +
+    description (top-K by task-word overlap), then a hard cap. Always yields a focused,
+    callable set so the single-server agent runs fast instead of stalling on hundreds of
+    schemas.
+
+    NOTE: this deliberately does NOT call the KG capability index on the per-delegation
+    hot path. That index is embedding-backed and builds on first use — a cold-start
+    round-trip that can take tens of seconds, i.e. it re-introduces the exact stall this
+    mechanism exists to prevent, and a thread-bounded timeout still orphans the slow
+    build. Lexical selection is deterministic and sub-millisecond; a pre-warmed
+    capability-index ranker is the right future enhancement, not a live blocking call.
+    """
+    names = [str(t.get("name")) for t in (tools or []) if t.get("name")]
+    if len(names) <= max_tools:
+        return None
+
+    selected = _lexical_top_k_tools(task, tools, max_tools)
+    if selected:
+        logger.info(
+            "[ORCH-tool-select] lexical chose %d/%d tools for '%s'",
+            len(selected),
+            len(names),
+            agent_name,
+        )
+        return selected
+
+    # Hard cap — nothing matched lexically, but never hand the agent hundreds of schemas.
+    logger.info(
+        "[ORCH-tool-select] hard-capped %d/%d tools for '%s'",
+        max_tools,
+        len(names),
+        agent_name,
+    )
+    return names[:max_tools]
 
 
 async def _execute_single_server(

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 952
+total_concepts: 954
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -8397,7 +8397,13 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/executor.py
+  - agent_utilities/graph/state.py
+  - agent_utilities/models/graph.py
   - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/tool_provenance.py
   doc: carry the per-tool-call provenance up to run_agent, which
   dotted: AU-KG.temporal.message-history-read
   aliases:
@@ -9458,6 +9464,18 @@ concepts:
   - AU-ORCH.execution.nl-compilation-pipeline
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.execution.no-silent-hallucination
+  name: returned INSTEAD of falling through to the
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: returned INSTEAD of falling through to the
+  dotted: AU-ORCH.execution.no-silent-hallucination
+  aliases:
+  - AU-ORCH.execution.no-silent-hallucination
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.execution.node-direct-end
   name: a node may END the run directly with End[GraphResponse
   pillar: AU-ORCH
@@ -9849,6 +9867,18 @@ concepts:
   dotted: AU-ORCH.execution.swe-workspace-tools
   aliases:
   - AU-ORCH.execution.swe-workspace-tools
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.execution.task-aware-tool-selection
+  name: a resolved fleet server can expose HUNDREDS
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: a resolved fleet server can expose HUNDREDS
+  dotted: AU-ORCH.execution.task-aware-tool-selection
+  aliases:
+  - AU-ORCH.execution.task-aware-tool-selection
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.two-level-fair-rotation
