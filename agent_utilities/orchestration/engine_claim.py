@@ -184,6 +184,11 @@ def _try_engine_claim(
         "checkpoint_id": result.get("checkpoint_id"),
         "depends_on_task_ids": list(result.get("depends_on_task_ids") or []),
         "fence_token": fence_token,
+        # L15: marks this claim as the engine-native path, so
+        # `agent_dispatch_worker._fence_still_valid` fails CLOSED (rejects
+        # the commit) rather than open when it cannot confirm the fence —
+        # this backend has no KG best-effort fallback semantics to lean on.
+        "_claim_backend": AGENT_CLAIM_BACKEND_ENGINE,
     }
 
 

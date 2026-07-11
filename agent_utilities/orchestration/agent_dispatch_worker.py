@@ -347,7 +347,21 @@ def claim_agent_task(
         "checkpoint_id": row.get("checkpoint_id"),
         "depends_on_task_ids": list(row.get("depends_on_task_ids") or []),
         "fence_token": fence_token,
+        # AU-P0-3/L15: marks this claim as the KG best-effort path, so
+        # `_fence_still_valid` knows fail-OPEN is defensible for it (see that
+        # function's docstring). `engine_claim._try_engine_claim` stamps
+        # `"engine"` instead for the engine-native path, which must fail
+        # CLOSED on a fence-check error.
+        "_claim_backend": "kg",
     }
+
+
+#: Marker `claim["_claim_backend"]` value stamped by the engine-native claim
+#: path (`orchestration.engine_claim._try_engine_claim`). Kept as a bare
+#: string literal (not imported from `engine_claim`) to avoid the import
+#: cycle documented at the top of `engine_claim.py`; must stay in sync with
+#: `engine_claim.AGENT_CLAIM_BACKEND_ENGINE`.
+_CLAIM_BACKEND_ENGINE_NATIVE = "engine"
 
 
 def _fence_still_valid(
@@ -363,14 +377,34 @@ def _fence_still_valid(
     stale holder's commit must be rejected, never allowed to overwrite the
     newer holder's work.
 
-    Fails OPEN (returns ``True``) when there is nothing to fence against: no
-    engine, no ``fence_token`` on the claim (e.g. an engine-native claim that
-    hasn't threaded one through yet), no live lease row, or a lease row that
-    predates this fencing scheme (no ``lease_epoch`` recorded) — same
-    best-effort posture as :func:`resolve_capability_grant` (an audit-read
-    hiccup must never block a legitimate commit).
+    Posture (AU-P0-3/L15) depends on which backend produced ``claim``
+    (``claim["_claim_backend"]``, stamped by :func:`claim_agent_task` as
+    ``"kg"`` and by ``engine_claim._try_engine_claim`` as ``"engine"``):
+
+    * **KG best-effort path** (``_claim_backend != "engine"``, including
+      claims with no marker at all — e.g. hand-built test fixtures) — fails
+      OPEN (returns ``True``) when there is nothing to fence against: no
+      engine, no ``fence_token`` on the claim, no live lease row, or a lease
+      row that predates this fencing scheme (no ``lease_epoch`` recorded).
+      Same best-effort posture as :func:`resolve_capability_grant` (an
+      audit-read hiccup must never block a legitimate commit on this path).
+    * **Engine-native path** (``_claim_backend == "engine"``) — fails CLOSED
+      (returns ``False``, rejecting the commit) whenever the fence cannot be
+      confirmed: no engine to query, or the fence-check query itself raises.
+      A worker on this path that cannot confirm it still holds the lease
+      must NOT commit — silently allowing the commit through on a query
+      error would let a stale holder overwrite a newer holder's work with no
+      way to detect it after the fact.
     """
+    is_engine_native = claim.get("_claim_backend") == _CLAIM_BACKEND_ENGINE_NATIVE
     if engine is None:
+        if is_engine_native:
+            logger.warning(
+                "Fence check for engine-native claim %s has no engine client "
+                "to verify against — failing CLOSED (commit rejected).",
+                task_id,
+            )
+            return False
         return True
     claimed_epoch = claim.get("fence_token")
     if claimed_epoch is None:
@@ -381,7 +415,16 @@ def _fence_still_valid(
             "l.lease_epoch AS lease_epoch ORDER BY l.acquired_at DESC LIMIT 1",
             {"rid": task_id},
         )
-    except Exception as e:  # noqa: BLE001 — fence check is audit-best-effort
+    except Exception as e:  # noqa: BLE001 — see posture note above: KG path only
+        if is_engine_native:
+            logger.warning(
+                "Fence check query failed for engine-native claim %s — "
+                "cannot confirm the lease is still held, failing CLOSED "
+                "(commit rejected): %s",
+                task_id,
+                e,
+            )
+            return False
         logger.debug("Fence check query failed for %s: %s", task_id, e)
         return True
     if not rows:
