@@ -155,12 +155,18 @@ def _add_fields(index: Any, fields: dict[str, Any]) -> None:
     )
 
 
-def build_designation_index(engine: Any) -> Any | None:
+def build_designation_index(
+    engine: Any, *, capability_hierarchy: Any | None = None
+) -> Any | None:
     """Build a bounded CapabilityIndex cache from the engine's callable nodes, or None.
 
     This is a full scan — reserved for a one-time bootstrap (see the module
     docstring). Ongoing maintenance is CDC-driven via
     :class:`CapabilityIndexWatcher`, not a repeat of this function.
+
+    ``capability_hierarchy`` (X-4) is passed straight through to the constructed
+    :class:`CapabilityIndex` — see its docstring for the ontology-subsumption-aware
+    filtering this enables. ``None`` (default) is the pre-X-4 exact-match behaviour.
     """
     from agent_utilities.knowledge_graph.retrieval.capability_index import (
         CapabilityIndex,
@@ -169,7 +175,9 @@ def build_designation_index(engine: Any) -> Any | None:
     nodes = _callable_nodes_with_embeddings(engine)
     if not nodes:
         return None
-    index = CapabilityIndex(bounded_cache_size=_DEFAULT_BOUND)
+    index = CapabilityIndex(
+        bounded_cache_size=_DEFAULT_BOUND, capability_hierarchy=capability_hierarchy
+    )
     for fields in nodes:
         try:
             _add_fields(index, fields)
@@ -196,15 +204,25 @@ class CapabilityIndexWatcher:
     environment without CDC still gets a (bounded) working cache.
     """
 
-    def __init__(self, engine: Any) -> None:
+    def __init__(self, engine: Any, *, capability_hierarchy: Any | None = None) -> None:
         self.engine = engine
-        built = build_designation_index(engine)
+        # CONCEPT:AU-P1-3 (X-4) — baked in at construction, like bounded_cache_size;
+        # a later call with a different hierarchy does not retroactively rebuild an
+        # already-cached watcher (same known limitation as other construction-time
+        # index parameters in this module).
+        self._capability_hierarchy = capability_hierarchy
+        built = build_designation_index(
+            engine, capability_hierarchy=capability_hierarchy
+        )
         if built is None:
             from agent_utilities.knowledge_graph.retrieval.capability_index import (
                 CapabilityIndex,
             )
 
-            built = CapabilityIndex(bounded_cache_size=_DEFAULT_BOUND)
+            built = CapabilityIndex(
+                bounded_cache_size=_DEFAULT_BOUND,
+                capability_hierarchy=capability_hierarchy,
+            )
         self._index: Any = built
         self._subscription = self._build_subscription(engine)
         if self._subscription is not None and getattr(
@@ -271,7 +289,9 @@ class CapabilityIndexWatcher:
         ``refresh``) and always re-scans the engine.
         """
         if force_full:
-            rebuilt = build_designation_index(self.engine)
+            rebuilt = build_designation_index(
+                self.engine, capability_hierarchy=self._capability_hierarchy
+            )
             if rebuilt is not None:
                 self._index = rebuilt
             return self._index
@@ -280,7 +300,9 @@ class CapabilityIndexWatcher:
         if sub is None or not getattr(sub, "available", False):
             # No CDC surface reachable — the only correctness-preserving option is
             # a full rebuild each time (matches the pre-AU-P1-3 behaviour exactly).
-            rebuilt = build_designation_index(self.engine)
+            rebuilt = build_designation_index(
+                self.engine, capability_hierarchy=self._capability_hierarchy
+            )
             if rebuilt is not None:
                 self._index = rebuilt
             return self._index
@@ -298,21 +320,30 @@ class CapabilityIndexWatcher:
         return self._index
 
 
-def get_designation_index(engine: Any, *, refresh: bool = False) -> Any | None:
+def get_designation_index(
+    engine: Any, *, refresh: bool = False, capability_hierarchy: Any | None = None
+) -> Any | None:
     """Return the CDC-maintained bounded CapabilityIndex cache for ``engine``.
 
     Builds (and caches on ``engine``) a :class:`CapabilityIndexWatcher` on first
     use; every call thereafter is O(new-CDC-changes), not a rebuild. ``refresh=True``
     forces one explicit full rebuild (bypassing CDC gating) — the pre-AU-P1-3
-    semantics of this flag are preserved for existing callers.
+    semantics of this flag are preserved for existing callers. ``capability_hierarchy``
+    (X-4) only takes effect on the FIRST call for a given engine (it is baked into
+    the watcher at construction, like ``bounded_cache_size``); later calls reuse
+    the already-cached watcher's hierarchy.
     """
     watcher = getattr(engine, "_capability_index_watcher", None)
     if watcher is None:
         try:
-            watcher = CapabilityIndexWatcher(engine)
+            watcher = CapabilityIndexWatcher(
+                engine, capability_hierarchy=capability_hierarchy
+            )
         except Exception as e:  # noqa: BLE001 — degrade to the legacy one-shot build
             logger.debug("get_designation_index: watcher construction failed: %s", e)
-            index = build_designation_index(engine)
+            index = build_designation_index(
+                engine, capability_hierarchy=capability_hierarchy
+            )
             try:
                 engine._designation_index = index
             except Exception:
@@ -333,6 +364,23 @@ def get_designation_index(engine: Any, *, refresh: bool = False) -> Any | None:
     return index
 
 
+def embed_query(query: str, embed_fn: Any = None) -> Any | None:
+    """Resolve ``query`` to an embedding vector via ``embed_fn``, or the default model.
+
+    Shared by every designation entry point in this module (and by the X-4
+    ``capability_routing`` module) so embedding-model resolution has exactly one
+    implementation. Returns ``None`` (never raises) when no model is configured.
+    """
+    if embed_fn is None:
+        from agent_utilities.core.embedding_utilities import create_embedding_model
+
+        model = create_embedding_model()
+        if model is None:
+            return None
+        embed_fn = model.get_text_embedding
+    return embed_fn(query)
+
+
 def designate_specialists(
     engine: Any,
     query: str,
@@ -342,6 +390,7 @@ def designate_specialists(
     tenant: str | None = None,
     policy_tags: list[str] | None = None,
     embed_fn: Any = None,
+    capability_hierarchy: Any | None = None,
 ) -> list[str] | None:
     """Designate the top-``k`` callable resource ids for ``query``.
 
@@ -350,17 +399,14 @@ def designate_specialists(
     no engine vector surface is reachable. Returns a list of ids, or ``None`` if
     designation is unavailable at all (no embeddings, no model, empty index) —
     signalling the caller to fall back to its keyword scan.
+
+    ``capability_hierarchy`` (X-4) makes ``required_caps`` ontology-subsumption-aware
+    on BOTH paths (engine-native push-down + in-process fallback). ``None``
+    (default) is the pre-X-4 exact-match behaviour, unchanged for every existing
+    caller.
     """
     try:
-        if embed_fn is None:
-            from agent_utilities.core.embedding_utilities import create_embedding_model
-
-            model = create_embedding_model()
-            if model is None:
-                return None
-            embed_fn = model.get_text_embedding
-
-        embedding = embed_fn(query)
+        embedding = embed_query(query, embed_fn)
         if embedding is None:
             return None
 
@@ -375,12 +421,13 @@ def designate_specialists(
             required_caps=required_caps,
             tenant=tenant,
             policy_tags=policy_tags,
+            capability_hierarchy=capability_hierarchy,
         )
         if engine_hits is not None:
             return [nid for nid, _score in engine_hits]
 
         # No engine vector surface reachable at all -> bounded in-process fallback.
-        index = get_designation_index(engine)
+        index = get_designation_index(engine, capability_hierarchy=capability_hierarchy)
         if index is None or len(index) == 0:
             return None
 
@@ -456,15 +503,23 @@ def explain_capability_eligibility(
     required_caps: list[str] | None = None,
     tenant: str | None = None,
     policy_tags: list[str] | None = None,
+    capability_hierarchy: Any | None = None,
 ) -> dict[str, Any] | None:
     """Explain WHY ``entity_id`` is (or isn't) eligible under the given filters.
 
     CONCEPT:AU-P1-3 — explainable routing. Reads the bounded in-process cache (built/
     maintained the same way :func:`designate_specialists` maintains it); returns
     ``None`` when the cache is unavailable or the entity was never indexed, so the
-    caller can distinguish "not eligible" from "not known".
+    caller can distinguish "not eligible" from "not known". ``capability_hierarchy``
+    (X-4) makes the returned ``missing_caps``/``eligible`` verdict subsumption-aware
+    and adds a ``subsumption_paths`` entry — see
+    :func:`~agent_utilities.knowledge_graph.retrieval.capability_index.compute_eligibility`.
+    For a candidate the in-process cache never resident (the common case when the
+    engine's own filtered ANN is authoritative), prefer
+    ``graph.routing.enrichers.capability_routing.explain_routing_eligibility``,
+    which computes the same shape directly from the engine's node properties.
     """
-    index = get_designation_index(engine)
+    index = get_designation_index(engine, capability_hierarchy=capability_hierarchy)
     if index is None or len(index) == 0:
         return None
     if entity_id not in index:

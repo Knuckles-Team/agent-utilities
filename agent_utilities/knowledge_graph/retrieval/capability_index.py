@@ -49,6 +49,15 @@ the evicted id so no backend — HNSW or numpy — grows without bound); omittin
 it keeps the historical unbounded behaviour for the other in-process reward-EMA
 consumers (``OutcomeRouter``, ``ReasonerRouter``) that reuse this class as a
 generic learner and are not part of the capability-designation cache.
+
+**X-4 — ontology-subsumption-aware selection.** Pass ``capability_hierarchy``
+(a :class:`~agent_utilities.knowledge_graph.ontology.capability_hierarchy.
+CapabilityHierarchy`) to make capability filtering subsumption-aware: a
+``required_caps`` entry ``T`` is satisfied by an entity declaring ``T`` OR any
+*narrower* capability type the ontology's ``rdfs:subClassOf`` chain says is a
+``T`` (a tool declaring ``DNSCapability`` now satisfies a request for the
+broader ``ServiceCapability``). Omitting it (the default) preserves the exact
+pre-X-4 flat-string-equality behaviour — every existing caller is unaffected.
 """
 
 import logging
@@ -90,7 +99,7 @@ except Exception:  # pragma: no cover - import guard
 _REWARD_REGEN_DISTANCE = 0.25
 
 
-__all__ = ["Designation", "CapabilityIndex"]
+__all__ = ["Designation", "CapabilityIndex", "compute_eligibility"]
 
 
 @dataclass
@@ -121,6 +130,91 @@ def _l2_normalize(vec: NDArray) -> NDArray:
     return vec / norm
 
 
+def compute_eligibility(
+    *,
+    id: str,
+    capabilities: Any,
+    required_caps: Any = None,
+    tenant: str | None = None,
+    required_tenant: str | None = None,
+    policy_tags: Any = None,
+    required_policy_tags: Any = None,
+    reward: float = 0.5,
+    ontology_type: str | None = None,
+    hierarchy: Any | None = None,
+) -> dict[str, Any]:
+    """Pure eligibility computation shared by every explainability surface (X-4).
+
+    Answers "why was (or wasn't) this candidate eligible" from plain values —
+    the candidate's declared capabilities/tenant/policy-tags/reward — with no
+    dependency on :class:`CapabilityIndex` state. :meth:`CapabilityIndex.explain`
+    is a thin wrapper over this; the X-4 engine-native routing path
+    (``graph/routing/enrichers/capability_routing.py``) calls it directly on
+    properties fetched straight from the engine, so explainability works for a
+    candidate the bounded in-process cache never resident (the common case when
+    the engine's own filtered ANN is the authority, not this cache).
+
+    When ``hierarchy`` is given, a required capability is also satisfied by any
+    declared capability that is a (transitive) ontology subtype of it — the
+    subsumption path(s) actually used are reported in ``subsumption_paths``
+    (``required_cap -> [declared_cap, ..., required_cap]``), the concrete "WHY"
+    the reasoner accepted a non-exact match.
+    """
+    caps = {str(c) for c in (capabilities or ())}
+    req = {str(c) for c in required_caps} if required_caps else set()
+
+    subsumption_paths: dict[str, list[str]] = {}
+    if hierarchy is not None:
+        satisfied: set[str] = set()
+        for r in req:
+            if r in caps:
+                satisfied.add(r)
+                continue
+            for c in sorted(caps):
+                if hierarchy.is_subtype_of(c, r):
+                    satisfied.add(r)
+                    path = hierarchy.subsumption_path(c, r)
+                    if path:
+                        subsumption_paths[r] = path
+                    break
+    else:
+        satisfied = req & caps
+    missing_caps = sorted(req - satisfied)
+
+    tenant_of = tenant
+    tenant_match = (
+        None if required_tenant is None else tenant_of in (None, required_tenant)
+    )
+
+    policy_of = {str(p) for p in (policy_tags or ())}
+    req_policy = (
+        {str(p) for p in required_policy_tags} if required_policy_tags else set()
+    )
+    missing_policy = sorted(req_policy - policy_of)
+
+    eligible = not missing_caps and tenant_match is not False and not missing_policy
+    result: dict[str, Any] = {
+        "id": id,
+        "capabilities": sorted(caps),
+        "required_caps": sorted(req),
+        "missing_caps": missing_caps,
+        "capabilities_matched": not missing_caps,
+        "tenant": tenant_of,
+        "required_tenant": required_tenant,
+        "tenant_match": tenant_match,
+        "policy_tags": sorted(policy_of),
+        "required_policy_tags": sorted(req_policy),
+        "missing_policy_tags": missing_policy,
+        "policy_matched": not missing_policy,
+        "reward": round(float(reward), 4),
+        "ontology_type": ontology_type,
+        "eligible": eligible,
+    }
+    if hierarchy is not None:
+        result["subsumption_paths"] = subsumption_paths
+    return result
+
+
 class CapabilityIndex:
     """Capability-filtered ANN index over entity embeddings.
 
@@ -148,6 +242,9 @@ class CapabilityIndex:
             once this many are resident (AU-P1-3: AU keeps only a bounded
             cache; the engine is the authority). ``None`` (default) preserves
             the historical unbounded behaviour.
+        capability_hierarchy: Optional ontology subsumption source (X-4) — see
+            the class docstring. ``None`` (default) is exact flat-string
+            capability matching, byte-for-byte the pre-X-4 behaviour.
     """
 
     def __init__(
@@ -158,12 +255,16 @@ class CapabilityIndex:
         prefer_backend: str | None = None,
         max_elements: int = 1024,
         bounded_cache_size: int | None = None,
+        capability_hierarchy: Any | None = None,
     ) -> None:
         if space != "cosine":
             raise ValueError(f"Only 'cosine' space is supported, got {space!r}")
         self._dim = dim
         self._space = space
         self._max_elements = max(1, max_elements)
+        # CONCEPT:AU-P1-3 (X-4) — optional ontology subsumption source. ``None``
+        # (default) preserves exact pre-X-4 flat-string capability matching.
+        self._hierarchy = capability_hierarchy
 
         # Choose backend.
         if prefer_backend == "numpy":
@@ -477,6 +578,25 @@ class CapabilityIndex:
                 reward=reward,
             )
 
+    def capabilities_of(self, id: str) -> frozenset[str]:
+        """The declared (literal) capability set for ``id`` (empty if unknown)."""
+        return frozenset(self._id_to_caps.get(id, ()))
+
+    def _providers_for(self, cap: str) -> set[str]:
+        """ids providing ``cap`` — plus, with a hierarchy attached (X-4), ids
+        providing any ontology subtype of ``cap`` (subsumption-aware lookup).
+
+        No change to storage: this only widens which inverted-index buckets are
+        unioned for a single required capability, so it stays an O(1)-per-subtype
+        set lookup, never a scan. Without a hierarchy this is byte-identical to
+        the pre-X-4 lookup.
+        """
+        ids = set(self._cap_to_ids.get(cap, set()))
+        if self._hierarchy is not None:
+            for sub in self._hierarchy.descendants(cap):
+                ids |= self._cap_to_ids.get(sub, set())
+        return ids
+
     # ------------------------------------------------------------------
     # Query
     # ------------------------------------------------------------------
@@ -495,9 +615,10 @@ class CapabilityIndex:
         """
         candidate: set[str] | None = None
         if required_caps:
-            # Intersection of provider sets — O(sum of set sizes).
+            # Intersection of provider sets — O(sum of set sizes). Each provider
+            # set is subsumption-widened (X-4) when a hierarchy is attached.
             for cap in required_caps:
-                providers = self._cap_to_ids.get(cap, set())
+                providers = self._providers_for(cap)
                 candidate = (
                     set(providers) if candidate is None else candidate & providers
                 )
@@ -752,41 +873,26 @@ class CapabilityIndex:
 
         A pure lookup — never ranks or embeds — so a caller/test can ask "why was
         this candidate eligible" independent of a ``designate()`` call. Covers every
-        candidate-selection gate this class enforces: capability coverage, tenant
+        candidate-selection gate this class enforces: capability coverage (ontology
+        subsumption-aware when a ``capability_hierarchy`` is attached — X-4), tenant
         scoping, and policy-tag coverage. ``eligible`` is the AND of every gate that
-        was actually asked for (an omitted filter never disqualifies).
+        was actually asked for (an omitted filter never disqualifies). Delegates to
+        the shared, index-independent :func:`compute_eligibility` (X-4) so the
+        engine-native routing path computes the identical eligibility shape for a
+        candidate this bounded cache never resident.
         """
-        caps = set(self._id_to_caps.get(id, set()))
-        req = {str(c) for c in required_caps} if required_caps else set()
-        missing_caps = sorted(req - caps)
-
-        tenant_of = self._id_to_tenant.get(id)
-        tenant_match = None if tenant is None else tenant_of in (None, tenant)
-
-        policy_of = set(self._id_to_policy_tags.get(id, set()))
-        req_policy = (
-            {str(p) for p in required_policy_tags} if required_policy_tags else set()
+        return compute_eligibility(
+            id=id,
+            capabilities=self._id_to_caps.get(id, set()),
+            required_caps=required_caps,
+            tenant=self._id_to_tenant.get(id),
+            required_tenant=tenant,
+            policy_tags=self._id_to_policy_tags.get(id, set()),
+            required_policy_tags=required_policy_tags,
+            reward=self.reward_of(id),
+            ontology_type=self._id_to_type.get(id),
+            hierarchy=self._hierarchy,
         )
-        missing_policy = sorted(req_policy - policy_of)
-
-        eligible = not missing_caps and tenant_match is not False and not missing_policy
-        return {
-            "id": id,
-            "capabilities": sorted(caps),
-            "required_caps": sorted(req),
-            "missing_caps": missing_caps,
-            "capabilities_matched": not missing_caps,
-            "tenant": tenant_of,
-            "required_tenant": tenant,
-            "tenant_match": tenant_match,
-            "policy_tags": sorted(policy_of),
-            "required_policy_tags": sorted(req_policy),
-            "missing_policy_tags": missing_policy,
-            "policy_matched": not missing_policy,
-            "reward": round(self.reward_of(id), 4),
-            "ontology_type": self._id_to_type.get(id),
-            "eligible": eligible,
-        }
 
     # ------------------------------------------------------------------
     # Reward write-back (Plan 08 Synergy 5 — closes the learning loop)
