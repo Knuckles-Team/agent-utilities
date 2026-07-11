@@ -273,6 +273,10 @@ def _create_model_impl(
     # config.chat_models), applied to the client below. Empty/None ⇒ inherit the caller.
     _model_headers: dict[str, str] = {}
     _model_ssl_verify: bool | str | None = None
+    # Per-model reasoning-effort: starts as the caller's value; a config/registry override
+    # (anything other than the ``"inherit"`` sentinel) replaces it — including an explicit
+    # ``None`` that opts the model back into its native reasoning.
+    _reasoning_effort = reasoning_effort
 
     # CONCEPT:AU-ORCH.routing.functional-role-resolution — resolve a functional role (planner/generator/learner/judge)
     # to a concrete model when an explicit model_id was not supplied. Explicit args win.
@@ -287,6 +291,8 @@ def _create_model_impl(
                 _model_headers = dict(_resolved.headers)
             if getattr(_resolved, "ssl_verify", None) is not None:
                 _model_ssl_verify = _resolved.ssl_verify
+            if getattr(_resolved, "reasoning_effort", "inherit") != "inherit":
+                _reasoning_effort = _resolved.reasoning_effort
 
     # CONCEPT:AU-ORCH.routing.functional-role-resolution — when NO explicit/role model was
     # supplied, route to the operator's DEFINED default chat model (config.chat_models'
@@ -300,9 +306,6 @@ def _create_model_impl(
             _model_id = _default_model.id
     _model_id = _model_id or "qwen/qwen3.6-27b"
     _provider = provider or "openai"
-    # Default reasoning OFF (content-bearing, fast) for every OpenAI-compatible model built
-    # here; opt back in per call with reasoning_effort=None / a level. See create_model docstring.
-    _rsettings = _openai_reasoning_settings(reasoning_effort)
 
     # Check if this model is defined in models.json, and override settings if so
     model_info = get_model_config(_model_id)
@@ -329,6 +332,11 @@ def _create_model_impl(
             _model_headers = {**_model_headers, **model_info["headers"]}
         if model_info.get("ssl_verify") is not None:
             _model_ssl_verify = model_info["ssl_verify"]
+        # Per-model reasoning-effort override (config.chat_models wins over the registry).
+        # "inherit" (the default sentinel) leaves the caller's value; any other value —
+        # including an explicit null/None to re-enable native reasoning — replaces it.
+        if model_info.get("reasoning_effort", "inherit") != "inherit":
+            _reasoning_effort = model_info["reasoning_effort"]
 
     # Apply the resolved per-model TLS + static headers. Per-model ssl_verify (when set)
     # overrides the caller/global default for THIS endpoint only; per-model headers sit
@@ -337,6 +345,10 @@ def _create_model_impl(
         ssl_verify = _model_ssl_verify
     if _model_headers:
         custom_headers = {**_model_headers, **(custom_headers or {})}
+
+    # Reasoning OFF by default (content-bearing, fast) unless a per-call arg or a per-model
+    # override (a level, or null for native reasoning) says otherwise. See create_model docstring.
+    _rsettings = _openai_reasoning_settings(_reasoning_effort)
 
     # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — an OAuth2 client-credentials
     # bearer instead of a static api_key. Mutually exclusive at the call site (the config-layer
