@@ -162,3 +162,73 @@ OpenBao KV v2 at `apps/<service>`; the per-service token carries the `agent-apps
 `BAO_ROOT_TOKEN` (finite-TTL tokens silently expire — that broke connector writes once). Store
 every credential you provision/recover at `apps/<service>` so the next bring-up finds it. Rotation
 runbook: the OpenBao + GitLab-JWKS sections above + the rotate-credentials skill.
+
+## 8. The homelab is Kubernetes (RKE2) — Swarm AND Docker are fully sunset
+
+As of 2026-07, the homelab runs a single **RKE2** cluster (Cilium CNI, kube-proxy-free eBPF);
+Docker Swarm is dissolved and **`docker.service` is stopped + disabled on every node**. Only
+RKE2's own **containerd** (`/run/k3s/containerd/containerd.sock`) runs. Sections 1-7 above are the
+Swarm-era playbook; these are the k8s-native equivalents.
+
+- **No host Docker for builds.** The GitLab runner uses the **kubernetes executor**
+  (`privileged=true`, no `docker.sock`/host_path mount); image build/mirror jobs run as **in-pod
+  DinD** (`registry.arpa/debian/debian-dind`) and push to the k8s-hosted `registry.arpa`. This is
+  what let Docker be removed entirely — the host buildx builders were vestigial. Inspect containers
+  with `crictl`, NOT docker: `sudo /var/lib/rancher/rke2/bin/crictl --runtime-endpoint
+  unix:///run/k3s/containerd/containerd.sock ps` (the bare `crictl` grabs the dead `cri-dockerd.sock`).
+- **Private registry trust per node.** Each node needs `/etc/rancher/rke2/registries.yaml`
+  (mirror `registry.arpa` → `http://<r820>:5000` primary + `https://registry.arpa` fallback) **and**
+  the CA at `/etc/rancher/rke2/registry.arpa-ca.pem`, then an `rke2-agent`/`rke2-server` restart.
+  A node missing these hits `x509: certificate signed by unknown authority` on private pulls (a
+  late-joined GPU node hit exactly this). To move a locally-built image onto a node without pushing:
+  `sudo docker save <img> | sudo /var/lib/rancher/rke2/bin/ctr -a /run/k3s/containerd/containerd.sock -n k8s.io images import -`.
+- **Storage:** DBs / SQLite / any file-locked store → **hostPath + `nodeSelector` (data-in-place),
+  NEVER NFS** (NFS locking corrupts Postgres/SQLite). Bulk read-mostly media/blobs → NFS ok.
+  Migrate a stateful service by `docker stop` + `docker cp` from the STOPPED container (consistent
+  snapshot) → hostPath, then a hostPath-pinned pod. `enableServiceLinks: false` for neo4j (a
+  `NEO4J_`-named Service injects `NEO4J_PORT_*` env that neo4j rejects as unknown config).
+- **Naming collision gotcha:** the KG mirrors already own the Deployment/Service names
+  `neo4j`/`falkordb` in ns `platform`. `kubectl apply` a same-named resource CLOBBERS the mirror
+  (repoints it). Check for an existing same-named resource in the target namespace before `apply`.
+
+## 9. DNS + edge model on k8s — and the "wildcard points at the dead edge" trap ★
+
+The homelab keeps its `*.arpa` (internal) + `*.heavenhomestead.com` (public) hostnames across the
+Swarm→k8s move so nothing reconfigures. How resolution + routing works now:
+
+- **technitium** is the `.arpa` DNS authority (the site router points DNS at it). **Every k8s
+  Ingress host gets an explicit `A → 10.0.0.240`** record (the Cilium LoadBalancer VIP for
+  ingress-nginx). ingress-nginx then routes by `Host` header to the right Service.
+- **caddy** (hostNetwork on the control-plane node) is the **public** edge (`*.heavenhomestead.com`)
+  + a few host-service routes.
+- **★ THE TRAP (cost us a confusing outage):** the `.arpa` zone had a **wildcard `*.arpa → <old
+  swarm edge IP>`** left over from the Swarm era. After migration, that old caddy ran a STALE
+  Swarm Caddyfile whose `reverse_proxy` targets were all dead swarm services → **502**. So any
+  `.arpa` name WITHOUT an explicit ingress record (a service under a slightly different name, e.g.
+  `uptime.arpa` when the ingress is `uptime-kuma.arpa`) — OR any client that had **cached the old
+  wildcard answer** before the explicit record existed — fell through to the dead edge and 502'd.
+  Symptom: "some `.arpa` services load, some don't, seemingly at random."
+  - **FIX:** repoint the wildcard to the **ingress VIP**, not the old edge:
+    `POST /api/zones/records/add?zone=arpa&domain=*.arpa&type=A&ipAddress=10.0.0.240&ttl=60&overwrite=true`
+    (technitium API; creds in `services/technitium-dns-mcp/.env`). Now unmatched names hit
+    ingress-nginx (served if an ingress exists for that Host, else a clean 404 — never the dead 502).
+  - **Name mismatches:** add the expected hostname as an extra `host` on that service's Ingress
+    (e.g. add `uptime.arpa` alongside `uptime-kuma.arpa`).
+  - **Client-side cache:** a device that cached `name.arpa → old-edge` keeps failing until its
+    resolver TTL expires — tell the user to flush DNS. Keeping BOTH the explicit records AND the
+    wildcard on the ingress VIP makes the cached-vs-fresh distinction harmless going forward.
+  - **Genesis takeaway:** when standing up (or migrating) the edge, NEVER leave a `*.arpa` wildcard
+    pointing at anything but the live ingress VIP. Use a low TTL (60s) on migration records.
+
+## 10. The KG host daemon is a single-flock singleton — pin the MCP server to `client`
+
+`graph-os` (MCP gateway) and `graph-os-host` (the consolidated host daemon: queue drain + workers +
+**maintenance scheduler** that drives the loop engine, delta-sweeps, enrichment) are separate
+deployments. The host daemon holds a singleton `flock` (`host_lock.py`); only ONE process may be
+`host`. **Pin `graph-os` to `KG_DAEMON_ROLE=client`** — otherwise both default to `auto` and, because
+each pod's lock lives on a PRIVATE emptyDir (not shared storage), BOTH self-elect as host = the
+duplicate-drainer thrash that can wedge the scheduler (it silently killed ALL background maintenance
+for hours once — alive + holding the lock ⇒ no failover). Defense-in-depth: a **watchdog CronJob**
+that restarts `graph-os-host` if the maint-loop log goes silent (no `[maint-loop]` line in 6 min).
+The loop-engine `KG_LOOP*` config (interval/topics/**breadth off**/report-only) goes on the
+**host daemon** deployment, not the MCP server — the daemon runs the tick.
