@@ -29,6 +29,8 @@ import difflib
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
+from agent_utilities.mcp.concurrency import _wrap_data_kwargs
+
 #: Action strings that request the list of valid actions instead of executing one.
 DISCOVERY_ACTIONS = ("list_actions", "help", "actions")
 
@@ -141,7 +143,12 @@ def dispatch(
         raise unknown_action_error(action, actions, target=target)
 
     method = getattr(client, canonical)
-    result = method(**(dict(kwargs) if kwargs else {}))
+    # Self-heal the REST-body calling convention the same way run_blocking does:
+    # fold an LLM's flat fields into the method's single body param
+    # (data/payload/body) so getattr-dynamic create/update dispatch doesn't crash
+    # on `unexpected keyword argument`. No-op for methods without a body param.
+    call_kwargs = _wrap_data_kwargs(method, (), dict(kwargs) if kwargs else {})
+    result = method(**call_kwargs)
     if result_coercer is not None:
         return result_coercer(result)
     return result
