@@ -257,6 +257,12 @@ _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 # (zero embed calls) for the cooldown, then one probe batch tests recovery.
 _EMBED_CB_THRESHOLD = 3
 _EMBED_CB_COOLDOWN = 300.0
+# Card-enrichment circuit-breaker (CONCEPT:AU-KG.enrichment.card-attempt-status): mirrors the embedder
+# breaker so a down card LLM (vLLM 502s) doesn't get retry-stormed every 20s. After this
+# many consecutive fully-failed backfill batches the circuit OPENS: ticks become cheap
+# no-ops for the cooldown, then one probe batch tests recovery.
+_CARD_CB_THRESHOLD = 3
+_CARD_CB_COOLDOWN = 300.0
 _TASK_ORPHAN_GRACE_SEC = 90.0
 _TASK_MAX_RUNTIME_SEC = 7200.0
 _TASK_MAX_REQUEUE = 3
@@ -1637,12 +1643,19 @@ class TaskManagerMixin(GraphEngineProtocol):
         throttle between batches so it yields promptly to interactive runs.
         """
         import json
+        import time
 
         backend = getattr(self, "backend", None)
         if not backend:
             return
         if not hasattr(self, "_enrich_card_cache"):
             self._enrich_card_cache: dict[str, Any] = {}
+
+        # Circuit breaker: while OPEN (a down card LLM), this tick is a cheap no-op so a
+        # broken endpoint is never retry-stormed (CONCEPT:AU-KG.enrichment.card-attempt-status).
+        now = time.monotonic()
+        if self._card_circuit_open(now):
+            return
 
         from ..enrichment.cards import (
             generate_symbol_cards,
@@ -1666,11 +1679,19 @@ class TaskManagerMixin(GraphEngineProtocol):
             except ImportError:
                 pass
 
+            # Select nodes STILL needing a card: no summary AND not yet attempted
+            # (``card_status`` is set to 'ok'/'skip' once a node is resolved, so a trivial
+            # or genuinely-un-summarizable symbol drops out and the window ADVANCES instead
+            # of re-fetching the same rows forever). A transient LLM failure leaves
+            # card_status unset, so it is retried next tick — governed by the breaker.
+            # ORDER BY makes the scan deterministic. (CONCEPT:AU-KG.enrichment.card-attempt-status)
             rows = self.query_cypher(
                 "MATCH (n:Code) WHERE n.summary = '' AND n.ast_hash IS NOT NULL "
+                "AND n.card_status IS NULL "
                 "RETURN n.id AS id, n.name AS name, n.kind AS kind, "
                 "n.file_path AS file_path, n.patterns AS patterns, "
-                "n.language AS language, n.ast_hash AS ast_hash LIMIT " + str(BATCH)
+                "n.language AS language, n.ast_hash AS ast_hash "
+                "ORDER BY n.id LIMIT " + str(BATCH)
             )
             if not rows:
                 return
@@ -1717,26 +1738,53 @@ class TaskManagerMixin(GraphEngineProtocol):
                     store=self._card_store(),
                 )
             written = 0
+            attempted = (
+                0  # nodes resolved this batch (ok + skip) — real forward progress
+            )
+            failed = 0  # transient LLM failures — NOT marked done, retried next tick
             for card in cards:
-                if not card.summary:
+                status = getattr(card, "status", "ok" if card.summary else "skip")
+                if status == "failed":
+                    failed += 1
                     continue
                 try:
-                    backend.execute(
-                        "MATCH (n:Code {id: $id}) SET n.summary = $summary, "
-                        "n.responsibilities = $resp",
-                        {
-                            "id": card.id,
-                            "summary": card.summary,
-                            "resp": json.dumps(card.responsibilities),
-                        },
-                    )
-                    written += 1
+                    if status == "ok" and card.summary:
+                        backend.execute(
+                            "MATCH (n:Code {id: $id}) SET n.summary = $summary, "
+                            "n.responsibilities = $resp, n.card_status = 'ok'",
+                            {
+                                "id": card.id,
+                                "summary": card.summary,
+                                "resp": json.dumps(card.responsibilities),
+                            },
+                        )
+                        written += 1
+                    else:
+                        # PERMANENT empty (trivial accessor / un-summarizable): mark
+                        # 'skip' so it never re-selects (fixes the never-100% stall).
+                        backend.execute(
+                            "MATCH (n:Code {id: $id}) SET n.card_status = 'skip'",
+                            {"id": card.id},
+                        )
+                    attempted += 1
                 except Exception:
                     logger.debug("card writeback failed for %s", card.id, exc_info=True)
-            logger.info("KG enrichment: backfilled %d/%d cards", written, len(rows))
-            # If nothing landed (LLM likely down), stop this tick; retry later.
-            if written == 0:
+            logger.info(
+                "KG enrichment: %d summarized, %d skipped, %d failed (of %d)",
+                written,
+                attempted - written,
+                failed,
+                len(rows),
+            )
+            # Breaker: a batch that produced ONLY failures (no node resolved) signals a
+            # down LLM → count toward opening the circuit and stop this tick. Any forward
+            # progress (a summary OR a skip mark) resets it. Because attempted nodes are
+            # now marked, an all-trivial window no longer freezes the tick (the old
+            # ``written == 0 → return`` bug); only a genuine outage stops it.
+            if attempted == 0 and failed > 0:
+                self._card_circuit_record(False, now)
                 return
+            self._card_circuit_record(True, now)
 
     # Candidate text columns used to build embedding input, in priority order.
     _EMBED_TEXT_COLS = (
@@ -1770,6 +1818,31 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "circuit OPEN for %.0fs (skipping embed work to avoid a retry-storm)",
                 fails,
                 _EMBED_CB_COOLDOWN,
+            )
+
+    def _card_circuit_open(self, now: float) -> bool:
+        """True while the card-enrichment breaker is OPEN (skip card work).
+
+        CONCEPT:AU-KG.enrichment.card-attempt-status — keeps a down card LLM from being retry-stormed.
+        """
+        return getattr(self, "_card_cb_open_until", 0.0) > now
+
+    def _card_circuit_record(self, success: bool, now: float) -> None:
+        """Record a card-backfill batch outcome; open the breaker after repeated all-fail
+        batches, reset it on any forward progress."""
+        if success:
+            self._card_cb_failures = 0
+            self._card_cb_open_until = 0.0
+            return
+        fails = int(getattr(self, "_card_cb_failures", 0)) + 1
+        self._card_cb_failures = fails
+        if fails >= _CARD_CB_THRESHOLD:
+            self._card_cb_open_until = now + _CARD_CB_COOLDOWN
+            logger.warning(
+                "card backfill: card LLM unhealthy (%d consecutive all-fail batches) — "
+                "circuit OPEN for %.0fs (skipping card work to avoid a retry-storm)",
+                fails,
+                _CARD_CB_COOLDOWN,
             )
 
     # CONCEPT:AU-KG.compute.per-channel-embedding-backfill — Per-channel embedding backfill: round-robin unembedded

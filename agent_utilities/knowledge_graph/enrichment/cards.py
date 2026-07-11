@@ -44,6 +44,11 @@ class CapabilityCard(BaseModel):
     summary: str = ""
     responsibilities: list[str] = Field(default_factory=list)
     patterns: list[str] = Field(default_factory=list)
+    # Enrichment outcome (CONCEPT:AU-KG.enrichment.card-attempt-status), so the backfill can tell a
+    # PERMANENT empty (``skip`` — trivial accessor or genuinely un-summarizable, never retry)
+    # apart from a TRANSIENT failure (``failed`` — LLM error/outage, retry + trip the breaker).
+    # ``ok`` = a real summary landed. Auto-derived from the summary unless set explicitly.
+    status: str = "ok"
 
 
 _SYMBOL_PROMPT = """Document this {language} {kind} named `{name}` from `{file_path}`.
@@ -284,7 +289,12 @@ class CardStore:
             logger.debug("CardStore.put_many failed: %s", e)
 
 
-def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
+def _card_for(
+    c: CodeEntity, summary: str, resp: list[str], status: str | None = None
+) -> CapabilityCard:
+    # Auto-derive the attempt status from the summary unless the caller forces one
+    # (an LLM-transport failure passes status="failed" so it is retried, not marked done).
+    _status = status or ("ok" if str(summary).strip() else "skip")
     return CapabilityCard(
         id=c.id,
         kind="symbol",
@@ -294,6 +304,7 @@ def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
         summary=summary,
         responsibilities=resp,
         patterns=c.patterns,
+        status=_status,
     )
 
 
@@ -372,14 +383,16 @@ def generate_symbol_cards(
                         summary, resp = _parse_card_json(llm_fn(prompt))
                     except Exception as e:  # pragma: no cover - transport failure
                         logger.debug("card gen failed for %s: %s", c.id, e)
-                        summary, resp = "", []
+                        # Transient LLM failure → mark 'failed' so it is retried (not
+                        # permanently marked done) and the backfill breaker can trip.
+                        return [_card_for(c, "", [], status="failed")]
                     return [_card_for(c, summary, resp)]
                 prompt = build_batch_prompt(group, calls_by_id)
                 try:
                     parsed = _parse_batch_cards(llm_fn(prompt), len(group))
                 except Exception as e:  # pragma: no cover - transport failure
                     logger.debug("batch card gen failed (%d syms): %s", len(group), e)
-                    parsed = [("", []) for _ in group]
+                    return [_card_for(c, "", [], status="failed") for c in group]
                 return [
                     _card_for(c, s, r) for c, (s, r) in zip(group, parsed, strict=True)
                 ]

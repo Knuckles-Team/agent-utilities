@@ -1147,6 +1147,50 @@ async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONRespons
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
+    """REST twin of ``graph_ontology action='publish_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+
+    Push the platform's authoritative bundled TBox to a Stardog triplestore, overwriting
+    the target named graph by default so an updated ontology updates the catalog.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_ontology",
+            action="publish_stardog",
+            named_graph=body.get("named_graph", ""),
+            overwrite=bool(body.get("overwrite", True)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONResponse:
+    """REST twin of ``graph_ontology action='import_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-import).
+
+    Consume the TBox already living in a Stardog database / named graph back into the
+    engine, activating it for reasoning.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_ontology",
+            action="import_stardog",
+            named_graph=body.get("named_graph", ""),
+            activate=bool(body.get("activate", True)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2467,9 +2511,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -3249,6 +3293,17 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/ontology/sync-packages",
         graph_ontology_sync_packages_endpoint,
+        ["POST"],
+    )
+    # CONCEPT:AU-KG.ontology.stardog-catalog-overwrite / stardog-catalog-import — Stardog catalog twins.
+    route(
+        "/graph/ontology/publish-stardog",
+        graph_ontology_publish_stardog_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/ontology/import-stardog",
+        graph_ontology_import_stardog_endpoint,
         ["POST"],
     )
     route("/graph/write/chat", graph_write_chat_endpoint, ["POST"])
