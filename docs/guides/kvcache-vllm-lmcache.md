@@ -373,6 +373,51 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
    healthy (`curl http://10.0.0.18:8000/health`) — the cold tier absorbs eviction
    (EG-185) rather than the box recomputing every prefill.
 
+## App-level bundle caching (Seam 6)
+
+Everything above is the **token-block** path: LMCache hashes raw KV bytes over
+token ids and the engine dedups/pools them — it has no notion of "a compiled
+context bundle."
+
+`ContextCompiler.compile` (`CONCEPT:AU-KG.retrieval.context-compiler`, the X-7
+policy-aware context compiler — `agent_utilities/knowledge_graph/retrieval/context_compiler.py`)
+adds a second, **app-level** use of the SAME `EpistemicGraphKVBackend` connector
+(`CONCEPT:AU-KG.retrieval.context-compiler-kv-seam`): pass `kv_backend=` (any object
+exposing the connector's `get(key) -> bytes | None` / `put(key, bytes) -> bool`
+shape) and `compile` will:
+
+1. Retrieve + policy-filter candidates as normal (unavoidable — this is how it
+   knows whether the underlying evidence changed).
+2. Compute a stable key from the **sorted post-policy evidence-id set** +
+   `session.policy_version` + `token_budget` (folding in `top_k`,
+   `diversity_lambda`, `weights`, `freshness_half_life_days`, `as_of`,
+   `mask_redactions` so nothing that changes the result can collide) —
+   `compute_bundle_cache_key`.
+3. On a hit, deserialize and return the previously-assembled `ContextBundle`
+   (`bundle.kv_cache_hit = True`) — skipping relevance/evidence/freshness
+   scoring, MMR diversity selection, budget-fitting, and proof-graph
+   construction.
+4. On a miss, assemble normally and `put` the serialized bundle under that key
+   for the next caller.
+
+This is opt-in (`kv_backend=None`, the default, leaves `compile` unchanged) and
+reuses the exact same `/kv/<hash>` HTTP surface and connector as the LMCache path
+— same server, same content-addressed store, same `graph_kvcache` MCP tool for
+inspection (`action="stats"` shows both kinds of keys mixed into one
+`unique_blocks` count; a `ctxbundle:<sha256>` key prefix distinguishes an
+app-level bundle entry from a raw LMCache token-block hash at a glance). It is
+**not** a second cache implementation and it does **not** feed the compiled
+bundle's *text* back into vLLM's token-level KV cache — that would require the
+served completion request to reuse the exact same rendered prompt string so
+vLLM's own prefix-caching/LMCache path can hash it, which `ContextCompiler`
+does not control (it hands its `as_text()` output to whatever caller builds the
+prompt). A deeper serving-layer integration would thread the compiled bundle's
+`as_text()` (or a stable prefix of it) into the prompt construction path so the
+SAME text is reused turn-to-turn, letting vLLM/LMCache's own token-hash cache
+take over from there — i.e. connecting the *epistemic* quality path (this
+seam) to the *serving-latency* path (the rest of this doc) end-to-end, rather
+than the two independently hitting the same backend as they do today.
+
 ## Rollback
 
 Redeploy the live service from the base compose only (drops the override, back to
