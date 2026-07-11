@@ -909,6 +909,40 @@ class GraphComputeEngine:
         rows = result.get("rows") if isinstance(result, dict) else None
         return rows or []
 
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
+        across the storage boundary).
+
+        Reaches ``Method::RegisterMaterialization`` via
+        ``client.query.register_materialization`` — the engine reads
+        ``derived_id``'s OWN already-stored provenance (its ``invalidation_deps``
+        property plus any outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a
+        dependency set and tracks it on its process-global truth-maintenance index.
+        Call this ONCE, right after writing a derived node (a mined claim, a
+        computed capability index entry, ...) plus its provenance edges — from then
+        on, ANY committed change to a dependency (through the normal write path)
+        automatically marks this materialization stale, with no further action
+        needed here. Returns ``{"id", "depends_on", "generating_activity"}`` — the
+        dependency set the engine actually resolved, never fabricated client-side;
+        an empty ``depends_on`` means the node carried no recognized provenance
+        (a legitimate answer, not an error). Requires an engine built with the
+        ``epistemic-tms`` feature (opt-in, not part of ``full``); on a build
+        without it the call raises a clear engine error — callers writing a
+        derived artifact should treat this as best-effort, the same posture as
+        every other write-path audit overlay in this codebase.
+        """
+        return self._client.query.register_materialization(derived_id) or {}
+
+    def materialization_status(self, id: str) -> str | None:
+        """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
+        never registered) of a materialization tracked on the SAME index
+        :meth:`register_materialization` writes to (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3).
+        Read-only — does not itself recompute anything. Requires an engine built
+        with the ``epistemic-tms`` feature (opt-in, not part of ``full``)."""
+        result = self._client.query.materialization_status(id) or {}
+        return result.get("status") if isinstance(result, dict) else None
+
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 
