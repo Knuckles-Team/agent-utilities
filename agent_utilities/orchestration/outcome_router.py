@@ -53,6 +53,16 @@ class OutcomeRouter:
     def _id(self, task_class: str, choice: str) -> str:
         return f"{self._ns}:{task_class}:{choice}"
 
+    def key(self, task_class: str, choice: str) -> str:
+        """Public form of :meth:`_id` — the exact durable-bandit key this router's
+        ``(task_class, choice)`` reward lives under (CONCEPT:AU-P1-3), so a caller
+        closing an outcome loop back to the SAME entity (e.g. the epistemic mining
+        flywheel's ``ClaimFlywheel.record_outcome(durable_key=...)``) can persist
+        onto it via :func:`~agent_utilities.graph.routing.enrichers.
+        capability_designation.record_capability_outcome` without reaching into a
+        private method."""
+        return self._id(task_class, choice)
+
     def select(self, task_class: str, prior: str, candidates: tuple[str, ...]) -> str:
         """Return the chosen candidate: the heuristic ``prior`` nudged by the learned reward-EMA.
 
