@@ -40,6 +40,8 @@ pillars:
     etl:           [etl, transform, transform-primitives, result-contract, extract-load]
     evolution:     [evolution, insight-engine, closed-loop, candidate-insight, flywheel, self-evolution]
     graphlearn:    [graphlearn, graph-learning, link-predictor, edge-function, kan, graph_learn]
+    identity:      [identity, media_store, asset-occurrence, evidence-spine, blob-identity, content-digest]
+    epistemic:     [epistemic, truth-maintenance, belief, paraconsistent, argumentation]
 
   # ─────────────────────────────────────────────────────────────────────────
   ORCH: # Graph Orchestration Engine — planning, routing, execution, the Loop.
@@ -55,6 +57,7 @@ pillars:
     optimization:  [gepa, prompt-optimizer, optimization-state, reflective, recursive-mas]
     org:           [org, recruiter, talent-market, staffing, work-item, work-item-dag, org-synthesis, kanban, manager-mode]
     runvcs:        [runvcs, run-vcs, run-commit, run-fork, run-revert, trace-replay, retained-output, carrier, event-kernel]
+    twin:          [twin, digital-twin, agent-digital-twin, counterfactual, what-if, simulation]
 
   # ─────────────────────────────────────────────────────────────────────────
   AHE:  # Agentic Harness Engineering — evolution, evaluation, reward, training.
