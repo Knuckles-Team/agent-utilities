@@ -277,3 +277,74 @@ can `bao kv put apps/<service> …` on bring-up. **Genesis automates all of this
 openbao-mcp tokens present, and why they can't self-mint). Raw HTTP KV-v2 write:
 `POST $BAO_ADDR/v1/apps/data/<service>` body `{"data":{…}}` (the openbao pod has no `curl` — use the
 `bao` CLI in-pod, or `urllib` from a python-having pod).
+
+## 12. Post-migration fleet operational findings (Swarm→k8s) ★
+
+The Swarm→k8s cutover baked each service image at its then-current version and lost the
+Swarm `compose.dev.yml` **source-mount** dev loop. The gaps that surfaced (all abstracted —
+they recur on any bake-and-ship fleet migration):
+
+- **★ Baked shared-framework drift is the #1 silent post-migration defect.** Every `*-mcp`
+  service bakes the shared framework lib (`agent-utilities`) at image-build time. Months later
+  those pods run a **stale** framework (seen: pods on `1.9.0` while canonical was `1.21.0`) — so
+  a bug fixed upstream stays broken *in the pod*, and the fix "works on canonical" but not via the
+  deployed service. **Detect it:** `kubectl exec <pod> -- python -c "import agent_utilities as a;
+  print(a.__version__)"` and compare to canonical. **Genesis takeaways:** (1) the fleet rollout
+  should pin the shared framework to a version **floor** and rebuild on framework releases;
+  (2) add a **post-deploy drift check** (per-pod framework `__version__` vs canonical) to the
+  doctor's fleet-valid gate; (3) until re-imaged, use the editable overlay below as the stopgap.
+
+- **★ The k8s editable-source dev loop = `nodeSelector` (source node) + `hostPath` file/dir
+  overlay onto the pod's `site-packages`.** This replaces the Swarm `/src` bind. The working-tree
+  source exists on **only one node** (the storage/source node that holds the workspace) — other
+  nodes do NOT have it (a `hostPath` there mounts an empty/absent path). So pin the pod to the
+  source node and overlay the live source over the baked install:
+  ```
+  spec.template.spec:
+    nodeSelector: { kubernetes.io/hostname: <source-node> }
+    containers[].volumeMounts: [{ name: live-src, mountPath: <site-packages>/<pkg> }]
+    volumes: [{ name: live-src, hostPath: { path: <workspace>/.../<pkg>, type: Directory } }]
+  ```
+  Then edit the source and `kubectl rollout restart deploy/<svc>` to re-import — live edit, no
+  rebuild. For a one-file framework hotfix, overlay just that file (`hostPath type: File`,
+  `mountPath` = the exact `site-packages/.../file.py`). **Genesis takeaway:** either export the
+  workspace to every node (read-only NFS/PV) so any node can host an editable pod, OR record the
+  source-node pin as the sanctioned dev-deploy. (Distinct from §8's DATA hostPath, which is
+  stateful storage, never NFS — this is read-only *source* overlay and MAY be NFS.)
+
+- **Cold-node image-pull latency on reschedule.** Moving a pod to a node that hasn't cached its
+  image (e.g. pinning to the source node for an overlay) adds **~75–120s** to the first rollout
+  while the image pulls. A `rollout status --timeout` shorter than that reports a false failure —
+  the pod is still pulling; poll `get pods` until Running/Ready. **Genesis takeaway:** pre-pull
+  fleet images onto candidate nodes, or expect the one-time pull on first schedule.
+
+- **Declared-but-undeployed MCP servers surface as "Session terminated" at the gateway.** The
+  fleet gateway/multiplexer declares the *entire* connector catalog, but only a subset are
+  actually deployed as pods post-migration. `find_tools`/`list_catalog` report the undeployed ones
+  under `unavailable: {<server>: "McpError: Session terminated"}` — that is **not** a crash of a
+  running server, it's a spawn/connect against something that isn't there. **Detect:** cross-check
+  the catalog against `kubectl get deploy -A`. **Genesis takeaway:** the fleet rollout should
+  reconcile *declared vs deployed* and health-gate each server it claims; a connector with no
+  deployment (or no creds) should be marked intentionally-absent, not silently failing. The
+  gateway already degrades gracefully (reports unavailable rather than erroring the whole call) —
+  keep that.
+
+- **In-pod DinD / CI runners cannot reach the GPU.** The k8s `nvidia-device-plugin` advertises
+  `nvidia.com/gpu` to **k8s-scheduled pods only** — it does not cross into a **docker-in-docker**
+  sidecar. A CI runner that spawns GPU job containers inside its DinD fails with
+  `could not select device driver "" with capabilities: [[gpu]]`. (Note: an *ephemeral* runner pod
+  restarting with `exitCode 0 / reason Completed` is normal recycle, not a crash — don't chase the
+  restart count.) **Genesis takeaway:** run GPU CI as **k8s pods with a `nvidia.com/gpu` limit**
+  (scheduled onto the GPU node), or bake the nvidia container runtime into the DinD image — a bare
+  DinD has no GPU access.
+
+- **Cross-cutting create/update bug the migration exposed (now fixed in the framework).**
+  Action-routed MCP tools pass an LLM's flat `params_json` fields as `**kwargs` into a client
+  method, but many write methods take the REST body as a single dict param — `data` (e.g. plane
+  `create_work_item(project_id, data)`) or `payload` (OpenAPI-codegen clients, e.g. atlassian
+  `jira_cloud_create_issue(update_history, payload)`). The LLM's natural flat shape then throws
+  `unexpected keyword argument '<field>'` and **every delegated create/update fails**. Fixed in the
+  shared `run_blocking` (folds stray fields into whichever single body param the target declares —
+  `data`/`payload`/`body`; strict no-op otherwise). WebDAV/binary-upload writes (e.g. nextcloud
+  file PUT) are unaffected. **Genesis takeaway:** this ships in the framework — but a pod on a
+  **stale baked framework** (first bullet) still has the bug until re-imaged/overlaid.

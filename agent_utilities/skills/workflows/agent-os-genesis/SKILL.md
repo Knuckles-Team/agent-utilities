@@ -414,6 +414,12 @@ egress is deterministic):
 - NVIDIA device-plugin on the GPU nodes; configure `registries.yaml` → `registry.arpa` + internal CA on every node.
 - Expected: `cluster-ready, cilium-healthy, gpu-advertised`
 
+> **Post-migration fleet operational findings** (baked-framework drift, the editable-source
+> `hostPath` overlay dev loop, cold-node image-pull latency, declared-but-undeployed MCP servers,
+> DinD/CI GPU access, and the create/update REST-body-wrap fix) are in
+> [`references/homelab-ops-learnings.md`](references/homelab-ops-learnings.md) **§12** — read it
+> when a deployed service "works on canonical" but not in-pod.
+
 **Gotchas (hardened 2026-07-09, live RKE2 Stage-1 bring-up — see `inventory/k8s-migration/STAGE1-FINDINGS.md`):**
 - **Run the RKE2 playbook with the full `ansible` distribution, not `ansible-core`.**
   `ansible-core` can't resolve the bare `sysctl:` task (`ansible.posix.sysctl` ships only in
