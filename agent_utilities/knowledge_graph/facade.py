@@ -375,6 +375,7 @@ class KnowledgeGraph:
         params: Any = None,
         *,
         session: GraphSession | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Run a tenant-scoped, permission-filtered, audited Cypher read.
 
@@ -391,6 +392,19 @@ class KnowledgeGraph:
                 trace in one object). When omitted, one is derived from today's
                 ambient actor via ``GraphSession.from_ambient()`` — existing
                 callers that never heard of ``GraphSession`` are unaffected.
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency). Default ``False`` — existing callers
+                get the byte-for-byte SAME plain ``list[dict]`` rows as before this
+                parameter existed. When ``True``, this method instead returns
+                ``list[EpistemicRow]``: the SAME rows widened with the engine's
+                per-row epistemic envelope (score, confidence, the bitemporal
+                valid/tx window, evidence provenance, policy labels) — resolved
+                server-side via ``Method::ExplainProvenanceByIds``, never
+                fabricated AU-side. Requires an ``EpistemicGraphBackend`` store
+                (a ``compute.explain_provenance_by_ids`` primitive); any other
+                backend degrades to an empty list rather than raising. See
+                ``docs/architecture/epistemic-columns-currency.md`` for the full
+                seam and how another read path adopts the same pattern.
         """
         store = self.store
         if store is None:
@@ -421,7 +435,42 @@ class KnowledgeGraph:
             except Exception as exc:  # pragma: no cover - never block a legacy read
                 logger.debug("fine-grained enforce skipped: %s", exc)
         audit_read([], summary="query", actor=session.actor)
-        return rows
+        if not include_epistemic:
+            return rows
+        return self._attach_epistemic(rows)  # type: ignore[return-value]
+
+    def _attach_epistemic(self, rows: list[dict[str, Any]]) -> list[Any]:
+        """CONCEPT:AU-KB-CURRENCY (Seam 1) — currency-upgrade plain ``rows`` into
+        :class:`~.core.epistemic_row.EpistemicRow` results.
+
+        Extracts the distinct node ids ``rows`` project (see
+        :func:`~.core.epistemic_row.row_ids_from_plain_rows`), resolves their
+        epistemic envelope in ONE round-trip via
+        ``compute.explain_provenance_by_ids`` (``Method::ExplainProvenanceByIds``),
+        and zips each engine row back with the plain row's own properties so no
+        information is lost by opting in. Degrades to ``[]`` (never raises, never
+        fabricates) when no compute engine is bound or nothing in ``rows`` carries
+        a resolvable id.
+        """
+        from .core.epistemic_row import EpistemicRow, row_ids_from_plain_rows
+
+        compute = self.compute
+        fetch = getattr(compute, "explain_provenance_by_ids", None)
+        if fetch is None:
+            logger.debug(
+                "KnowledgeGraph.query(include_epistemic=True): no compute engine "
+                "exposing explain_provenance_by_ids — returning no epistemic rows"
+            )
+            return []
+        id_props = row_ids_from_plain_rows(rows)
+        if not id_props:
+            return []
+        props_by_id = {ip["id"]: ip["properties"] for ip in id_props}
+        wire_rows = fetch([ip["id"] for ip in id_props]) or []
+        return [
+            EpistemicRow.from_wire(wr, properties=props_by_id.get(wr.get("id", ""), {}))
+            for wr in wire_rows
+        ]
 
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
         """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).

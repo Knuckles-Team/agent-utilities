@@ -887,6 +887,28 @@ class GraphComputeEngine:
         """
         return self._client.query.cypher(query) or []
 
+    def explain_provenance_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        """Resolve the engine's per-row epistemic envelope for exactly ``ids``
+        (CONCEPT:EG-KB-CURRENCY — Seam 1, the ``KnowledgeBatch`` currency).
+
+        Reaches ``Method::ExplainProvenanceByIds`` via
+        ``client.query.explain_provenance_by_ids`` — the ID-seeded sibling of
+        ``ExplainProvenance`` that needs no ``Op`` plan. Each returned row dict is
+        shaped like ``ExplainProvenanceRowWire``: ``{"id", "kind", "score",
+        "confidence", "valid_time", "tx_time", "source_refs", "policy_labels",
+        "evidence_spans"}`` — straight field copies off the engine's
+        ``KnowledgeSet``, never fabricated client-side. This is the primitive
+        :meth:`KnowledgeGraph.query`'s ``include_epistemic=True`` path builds
+        :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+        results from. Requires an engine built with the ``query`` feature; an id
+        absent from the graph is silently skipped (never fabricated).
+        """
+        if not ids:
+            return []
+        result = self._client.query.explain_provenance_by_ids(list(ids)) or {}
+        rows = result.get("rows") if isinstance(result, dict) else None
+        return rows or []
+
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 
