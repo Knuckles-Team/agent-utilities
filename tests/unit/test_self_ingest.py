@@ -5,7 +5,12 @@ Covers:
 * OTLP + ``_bulk`` record formatting into the exact wire shapes the engine
   expects (no live engine required),
 * a mock endpoint receiving batched records through the sink + log handler,
-* RunTrace / ToolCall provenance emission.
+* RunTrace / ToolCall provenance emission,
+* durability (CONCEPT:AU-OS.observability.durable-telemetry-pipeline): failed drains
+  REQUEUE instead of dropping, backpressure/exhausted-retries SPILL to a
+  durable buffer instead of vanishing, and the one true-loss case (buffer
+  itself unavailable/full) is loudly counted — never silent,
+* per-tenant identity stamping on every emitted record.
 
 @pytest.mark.concept("AU-KG.ingest.attaching-this-root-logger")
 """
@@ -20,6 +25,7 @@ from agent_utilities.observability.self_ingest import (
     SelfIngestConfig,
     SelfIngestLogHandler,
     SelfIngestSink,
+    SpillBuffer,
     emit_run_trace,
     emit_tool_call,
     get_self_ingest_sink,
@@ -50,6 +56,20 @@ class _CapturingTransport:
         return self.ok
 
 
+class _FlakyTransport:
+    """Fails the first ``fail_times`` calls, then succeeds — for requeue tests."""
+
+    def __init__(self, fail_times: int = 1):
+        self.fail_times = fail_times
+        self.calls: list[tuple[str, dict]] = []
+
+    def __call__(self, url: str, payload: dict) -> bool:
+        self.calls.append((url, payload))
+        if len(self.calls) <= self.fail_times:
+            return False
+        return True
+
+
 def _enabled_config(**over) -> SelfIngestConfig:
     base = dict(
         enabled=True,
@@ -57,6 +77,11 @@ def _enabled_config(**over) -> SelfIngestConfig:
         mode="otlp",
         batch_size=100,
         flush_interval=0.05,
+        # Tests that never hit backpressure/failure paths never touch the
+        # spill buffer at all (it's constructed lazily); tests that do force
+        # failures override this with a tmp_path-scoped file so they never
+        # touch the real XDG data dir.
+        spill_path="",
     )
     base.update(over)
     return SelfIngestConfig(**base)
@@ -190,21 +215,96 @@ class TestDelivery:
         assert sink.flush() == 5
         assert len(transport.calls) == 3  # 2 + 2 + 1
 
-    def test_failure_counts_and_no_raise(self):
+    def test_failure_counts_and_no_raise(self, tmp_path):
+        """A permanently-failing transport must never silently lose the record.
+
+        CONCEPT:AU-OS.observability.durable-telemetry-pipeline — after exhausting its
+        in-process retries, the record is durably spilled (not dropped).
+        """
         transport = _CapturingTransport(ok=False)
-        sink = SelfIngestSink(_enabled_config(), transport=transport)
+        sink = SelfIngestSink(
+            _enabled_config(max_retries=2, spill_path=str(tmp_path / "spill.db")),
+            transport=transport,
+        )
         sink.emit_log(body="x")
         assert sink.flush() == 0  # nothing counted as sent on failure
-        assert sink.failures == 1
+        assert sink.failures >= 1
         assert sink.sent == 0
+        # Not silently lost: it lands in the durable buffer, not the void.
+        assert sink.dropped == 0
+        assert sink.spilled == 1
+        assert sink.spill_depth() == 1
 
-    def test_queue_overflow_drops_without_blocking(self):
+    def test_queue_overflow_spills_without_blocking(self, tmp_path):
+        """A saturated in-process queue is backpressure, not a reason to lose data.
+
+        CONCEPT:AU-OS.observability.durable-telemetry-pipeline — overflow spills to the
+        durable buffer; ``dropped`` stays 0.
+        """
         transport = _CapturingTransport()
-        sink = SelfIngestSink(_enabled_config(queue_max=2), transport=transport)
+        sink = SelfIngestSink(
+            _enabled_config(queue_max=2, spill_path=str(tmp_path / "spill.db")),
+            transport=transport,
+        )
         for i in range(5):
             sink.emit_log(body=f"m{i}")
-        assert sink.dropped == 3
+        assert sink.dropped == 0
+        assert sink.spilled == 3
         assert sink.emitted == 5
+        assert sink.spill_depth() == 3
+
+    def test_dropped_only_when_spill_buffer_itself_saturated(self, tmp_path, caplog):
+        """The one true-loss case: durable buffer AND queue are both full.
+
+        Even then it must be loudly counted + logged, never silent.
+        """
+        transport = _CapturingTransport()
+        sink = SelfIngestSink(
+            _enabled_config(
+                queue_max=1,
+                spill_path=str(tmp_path / "spill.db"),
+                spill_max_records=1,
+            ),
+            transport=transport,
+        )
+        with caplog.at_level(logging.ERROR):
+            for i in range(4):
+                sink.emit_log(body=f"m{i}")
+        assert sink.dropped >= 1
+        assert any("DROPPED" in r.message for r in caplog.records)
+
+    def test_requeue_then_success_never_drops(self):
+        """A transient failure retries in-process and eventually sends — no loss."""
+        transport = _FlakyTransport(fail_times=1)
+        sink = SelfIngestSink(_enabled_config(max_retries=3), transport=transport)
+        sink.emit_log(body="retry-me")
+        sent = sink.flush()
+        assert sent == 1
+        assert sink.sent == 1
+        assert sink.requeued >= 1
+        assert sink.dropped == 0
+        assert sink.spilled == 0
+        # First call failed, second (requeued) call succeeded.
+        assert len(transport.calls) == 2
+
+    def test_redeem_spill_resends_durable_backlog(self, tmp_path):
+        """Once the endpoint recovers, the worker drains the durable backlog."""
+        transport = _CapturingTransport(ok=False)
+        spill_path = str(tmp_path / "spill.db")
+        sink = SelfIngestSink(
+            _enabled_config(max_retries=0, spill_path=spill_path),
+            transport=transport,
+        )
+        sink.emit_log(body="stuck")
+        assert sink.flush() == 0
+        assert sink.spilled == 1
+        assert sink.spill_depth() == 1
+
+        # Endpoint recovers.
+        transport.ok = True
+        sink._redeem_spill(10)
+        assert sink.sent == 1
+        assert sink.spill_depth() == 0
 
     def test_log_handler_forwards_records(self):
         transport = _CapturingTransport()
@@ -250,3 +350,110 @@ class TestProvenanceStream:
         assert "tool_call" in by_type
         # error status maps to ERROR severity
         assert by_type["tool_call"]["severityNumber"] == 17
+
+
+# ---------------------------------------------------------------------------
+# Per-tenant identity stamping (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
+# ---------------------------------------------------------------------------
+class TestTenantStamping:
+    def _attrs_of(self, transport: _CapturingTransport, index: int = 0) -> dict:
+        recs = transport.calls[0][1]["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+        return {a["key"]: a["value"] for a in recs[index]["attributes"]}
+
+    def test_log_stamped_with_ambient_actor(self):
+        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.brain_context import ActorContext, use_actor
+
+        transport = _CapturingTransport()
+        sink = SelfIngestSink(_enabled_config(), transport=transport)
+
+        with use_actor(
+            ActorContext(
+                actor_id="agent:marketing",
+                actor_type=ActorType.AI_AGENT,
+                tenant_id="acme",
+            )
+        ):
+            sink.emit_log(body="tenant-scoped log")
+
+        assert sink.flush() == 1
+        attrs = self._attrs_of(transport)
+        assert attrs["tenant.id"]["stringValue"] == "acme"
+        assert attrs["actor.id"]["stringValue"] == "agent:marketing"
+
+    def test_run_trace_and_tool_call_are_stamped_too(self):
+        """Stamping happens at the single ``emit`` choke-point, not just logs."""
+        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.brain_context import ActorContext, use_actor
+
+        transport = _CapturingTransport()
+        sink = SelfIngestSink(_enabled_config(), transport=transport)
+        set_self_ingest_sink(sink)
+
+        with use_actor(
+            ActorContext(
+                actor_id="agent:ops", actor_type=ActorType.AI_AGENT, tenant_id="acme-2"
+            )
+        ):
+            emit_run_trace(run_id="run-42", status="success")
+
+        assert sink.flush() == 1
+        attrs = self._attrs_of(transport)
+        assert attrs["tenant.id"]["stringValue"] == "acme-2"
+        assert attrs["actor.id"]["stringValue"] == "agent:ops"
+
+    def test_default_system_actor_stamps_empty_tenant(self):
+        """No ambient actor scoped ⇒ the privileged SYSTEM_ACTOR (tenant_id="")."""
+        transport = _CapturingTransport()
+        sink = SelfIngestSink(_enabled_config(), transport=transport)
+        sink.emit_log(body="unscoped")
+        assert sink.flush() == 1
+        attrs = self._attrs_of(transport)
+        assert attrs["tenant.id"]["stringValue"] == ""
+        assert attrs["actor.id"]["stringValue"] == "system"
+
+
+# ---------------------------------------------------------------------------
+# SpillBuffer — durable, crash-safe overflow store
+# ---------------------------------------------------------------------------
+class TestSpillBuffer:
+    def test_append_and_pop_round_trips(self, tmp_path):
+        buf = SpillBuffer(str(tmp_path / "spill.db"))
+        assert buf.available
+        assert buf.append({"body": "a"})
+        assert buf.append({"body": "b"})
+        assert buf.count() == 2
+
+        popped = buf.pop_batch(10)
+        assert [r["body"] for r in popped] == ["a", "b"]
+        assert buf.count() == 0
+        buf.close()
+
+    def test_survives_across_instances(self, tmp_path):
+        """The buffer is durable: a fresh instance sees a prior instance's data."""
+        path = str(tmp_path / "spill.db")
+        buf1 = SpillBuffer(path)
+        buf1.append({"body": "durable"})
+        buf1.close()
+
+        buf2 = SpillBuffer(path)
+        assert buf2.count() == 1
+        assert buf2.pop_batch(10)[0]["body"] == "durable"
+        buf2.close()
+
+    def test_bounded_capacity_rejects_beyond_max(self, tmp_path):
+        buf = SpillBuffer(str(tmp_path / "spill.db"), max_records=1)
+        assert buf.append({"body": "first"})
+        assert buf.append({"body": "second"}) is False
+        assert buf.count() == 1
+
+    def test_unwritable_path_degrades_to_unavailable(self, tmp_path):
+        # A path whose parent cannot be created (a file standing where a
+        # directory is needed) must degrade gracefully, never raise.
+        blocker = tmp_path / "not_a_dir"
+        blocker.write_text("x")
+        buf = SpillBuffer(str(blocker / "nested" / "spill.db"))
+        assert buf.available is False
+        assert buf.append({"body": "x"}) is False
+        assert buf.pop_batch(10) == []
+        assert buf.count() == 0
