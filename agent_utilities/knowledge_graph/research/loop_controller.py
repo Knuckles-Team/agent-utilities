@@ -1018,6 +1018,7 @@ class LoopController:
 
         from .auto_merge import GovernedAutoMerger, MergePolicy
         from .candidate_insight import candidates_from_mine_discovery
+        from .claim_flywheel import ClaimFlywheel
         from .promotion_governance import PromotionGovernanceValidator
 
         errors: list[str] = []
@@ -1027,6 +1028,13 @@ class LoopController:
 
         validator = PromotionGovernanceValidator(self.engine)
         action_policy = get_action_policy(self.engine)
+        # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
+        # evolution.mining-flywheel). One instance per cycle so its in-process
+        # cache keeps a single candidate's propose→validate→accept sequence
+        # correct even against a minimal engine double; cross-cycle
+        # retracted-memory (a claim never re-proposed) additionally depends on
+        # the engine's own query_cypher reflecting prior writes.
+        flywheel = ClaimFlywheel(self.engine)
         autonomy_on = bool(_cfg.kg_insight_autonomy)
 
         persisted = 0
@@ -1036,6 +1044,21 @@ class LoopController:
         for cand in eligible:
             claim = cand.to_claim_node()
             bundle = cand.to_evidence_bundle()
+
+            # -- X3: a retracted claim is never re-proposed, even when re-mining
+            # produces the identical content-addressed finding id again. --
+            if flywheel.is_retracted(claim.id):
+                if len(examples) < 5:
+                    examples.append(
+                        {
+                            "claim_id": claim.id,
+                            "finding_type": cand.finding_type,
+                            "confidence": round(cand.confidence, 4),
+                            "skipped": "retracted",
+                        }
+                    )
+                continue
+
             spec = {
                 "id": claim.id,
                 "name": claim.name,
@@ -1066,6 +1089,13 @@ class LoopController:
                 errors.append(f"insight_validation:persist {claim.id}: {e}")
                 continue
 
+            # -- X3: record the flywheel's PROPOSED event (best-effort audit
+            # overlay; never gates the pipeline above). --
+            try:
+                flywheel.propose(claim.id, reason=f"mined {cand.finding_type} finding")
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"insight_validation:flywheel_propose {claim.id}: {e}")
+
             # -- validation: REUSE promotion_governance (which itself reuses the
             # capability ratchet's recorded verdict) as-is, never reimplemented. --
             try:
@@ -1073,6 +1103,13 @@ class LoopController:
             except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
                 errors.append(f"insight_validation:validate {claim.id}: {e}")
                 continue
+
+            try:
+                flywheel.validate(
+                    claim.id, verdict.valid, reason="; ".join(verdict.failures)
+                )
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"insight_validation:flywheel_validate {claim.id}: {e}")
 
             # -- action gate: SAFETY-CRITICAL, unconditional. A mined claim is
             # NEVER promoted without this call, autonomy on or off (see docstring). --
@@ -1096,6 +1133,16 @@ class LoopController:
             except Exception as e:  # noqa: BLE001 — fail closed, never crash
                 errors.append(f"insight_validation:action_policy {claim.id}: {e}")
                 continue
+
+            if decision.decision == "deny":
+                try:
+                    flywheel.reject(
+                        claim.id,
+                        reason=f"action_policy denied: {decision.reason}",
+                        action_decision=decision.decision,
+                    )
+                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                    errors.append(f"insight_validation:flywheel_reject {claim.id}: {e}")
 
             record: dict[str, Any] = {
                 "claim_id": claim.id,
@@ -1129,6 +1176,9 @@ class LoopController:
                     record["merge_reason"] = evaluation.reason
                     if evaluation.merged:
                         promoted += 1
+                        self._accept_mined_claim(
+                            cand, claim, decision.decision, flywheel, record, errors
+                        )
                 except Exception as e:  # noqa: BLE001 — never crash the cycle
                     errors.append(f"insight_validation:merge {claim.id}: {e}")
 
@@ -1145,6 +1195,67 @@ class LoopController:
             "examples": examples,
             "errors": errors,
         }
+
+    def _accept_mined_claim(
+        self,
+        cand: Any,
+        claim: Any,
+        action_decision: str,
+        flywheel: Any,
+        record: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        """X3 flywheel LOOP 1 — ontology-gap (``PredictedEdge``) → accept → materialize.
+
+        Called ONLY after the EXISTING ``GovernedAutoMerger`` already flipped
+        the claim proposal → active (``evaluation.merged``); this never makes
+        its own promotion decision. Records the flywheel's VALIDATED→ACCEPTED
+        transition, and — for a ``PredictedEdge`` finding specifically — closes
+        the ontology-gap loop: materializes the predicted relation as a REAL
+        edge in the KG (the accepted claim finally lands as graph structure,
+        not just a claim about one) and captures that acceptance as an
+        observation fed back through the durable bandit spine
+        (:meth:`~.claim_flywheel.ClaimFlywheel.record_outcome`, CONCEPT:AU-P1-3).
+        Best-effort throughout — a failure here never unwinds the promotion
+        that already happened.
+        """
+        try:
+            flywheel.accept(
+                claim.id,
+                reason=f"promoted mined {cand.finding_type} finding",
+                action_decision=action_decision,
+            )
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"insight_validation:flywheel_accept {claim.id}: {e}")
+
+        if cand.finding_type != "PredictedEdge":
+            return
+
+        payload = cand.payload or {}
+        src = payload.get("source") or payload.get("src") or payload.get("from")
+        dst = payload.get("target") or payload.get("dst") or payload.get("to")
+        if src and dst:
+            try:
+                self.engine.add_edge(
+                    str(src),
+                    str(dst),
+                    "PREDICTED_RELATION",
+                    confidence=cand.confidence,
+                    claim_id=claim.id,
+                )
+                record["materialized"] = True
+            except Exception as e:  # noqa: BLE001 — materialization is best-effort
+                errors.append(f"insight_validation:materialize {claim.id}: {e}")
+
+        try:
+            outcome = flywheel.record_outcome(
+                claim.id,
+                reward=cand.confidence,
+                note="ontology-gap claim accepted and materialized",
+            )
+            record["outcome"] = outcome
+        except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
+            errors.append(f"insight_validation:outcome {claim.id}: {e}")
 
     def _claim_promoter(
         self, claim: Any, bundle: Any, errors: list[str]
@@ -1245,6 +1356,7 @@ class LoopController:
         )
 
         from .candidate_insight import candidates_from_sequential_patterns
+        from .claim_flywheel import ClaimFlywheel
         from .promotion_governance import PromotionGovernanceValidator
         from .trace_pattern_miner import mine_trace_patterns
 
@@ -1258,6 +1370,10 @@ class LoopController:
         validator = PromotionGovernanceValidator(self.engine)
         action_policy = get_action_policy(self.engine)
         router = OutcomeRouter(namespace="trace_pattern_miner")
+        # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
+        # evolution.mining-flywheel); see ``_run_insight_validation`` for why one
+        # instance per cycle.
+        flywheel = ClaimFlywheel(self.engine)
 
         persisted = 0
         routed = 0
@@ -1266,6 +1382,20 @@ class LoopController:
         for cand in eligible:
             claim = cand.to_claim_node()
             bundle = cand.to_evidence_bundle()
+
+            # -- X3: a retracted claim is never re-proposed. --
+            if flywheel.is_retracted(claim.id):
+                if len(examples) < 5:
+                    examples.append(
+                        {
+                            "claim_id": claim.id,
+                            "finding_type": cand.finding_type,
+                            "confidence": round(cand.confidence, 4),
+                            "skipped": "retracted",
+                        }
+                    )
+                continue
+
             spec = {
                 "id": claim.id,
                 "name": claim.name,
@@ -1292,12 +1422,24 @@ class LoopController:
                 errors.append(f"trace_mining:persist {claim.id}: {e}")
                 continue
 
+            try:
+                flywheel.propose(claim.id, reason=f"mined {cand.finding_type} finding")
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"trace_mining:flywheel_propose {claim.id}: {e}")
+
             # -- validation: REUSE promotion_governance as-is, never reimplemented. --
             try:
                 verdict = validator.validate(spec)
             except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
                 errors.append(f"trace_mining:validate {claim.id}: {e}")
                 continue
+
+            try:
+                flywheel.validate(
+                    claim.id, verdict.valid, reason="; ".join(verdict.failures)
+                )
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"trace_mining:flywheel_validate {claim.id}: {e}")
 
             task_class, choice = self._trace_pattern_route(cand)
 
@@ -1327,6 +1469,16 @@ class LoopController:
                 errors.append(f"trace_mining:action_policy {claim.id}: {e}")
                 continue
 
+            if decision.decision == "deny":
+                try:
+                    flywheel.reject(
+                        claim.id,
+                        reason=f"action_policy denied: {decision.reason}",
+                        action_decision=decision.decision,
+                    )
+                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                    errors.append(f"trace_mining:flywheel_reject {claim.id}: {e}")
+
             record: dict[str, Any] = {
                 "claim_id": claim.id,
                 "finding_type": cand.finding_type,
@@ -1352,6 +1504,18 @@ class LoopController:
                     routed += 1
                 except Exception as e:  # noqa: BLE001 — learning must never break the cycle
                     errors.append(f"trace_mining:route {claim.id}: {e}")
+
+                if record["routed"]:
+                    self._accept_routed_claim(
+                        cand,
+                        claim,
+                        router,
+                        task_class,
+                        choice,
+                        decision.decision,
+                        flywheel,
+                        errors,
+                    )
 
             if len(examples) < 5:
                 examples.append(record)
@@ -1381,6 +1545,57 @@ class LoopController:
         if not cand.source_ids:
             return "", ""
         return "failure_tool_sequence", str(cand.source_ids[0])
+
+    def _accept_routed_claim(
+        self,
+        cand: Any,
+        claim: Any,
+        router: Any,
+        task_class: str,
+        choice: str,
+        action_decision: str,
+        flywheel: Any,
+        errors: list[str],
+    ) -> None:
+        """X3 flywheel LOOP 2 — process/routing quality (``SequentialPattern``) →
+        accept → outcome → durable bandit feedback.
+
+        Called ONLY after ``router.record()`` already applied the routing
+        change (this never makes its own routing decision). Records the
+        flywheel's VALIDATED→ACCEPTED transition, then closes the loop with
+        TWO deliberately distinct rewards
+        (:meth:`~.claim_flywheel.ClaimFlywheel.record_outcome`): the claim's
+        OWN outcome (``reward=cand.confidence`` — the pattern's mined
+        ``support``, i.e. how well-evidenced accepting this claim was; a
+        confidently-mined claim is not itself "bad" just because what it
+        teaches the router is negative, so this does NOT auto-deprecate a
+        well-supported claim) versus the bandit's ``durable_reward=0.0`` — the
+        SAME negative observation ``router.record()`` already fed the
+        in-process ``OutcomeRouter``, ALSO persisted DURABLY onto that
+        router's bandit key (CONCEPT:AU-P1-3) so the learned routing
+        preference survives a process restart instead of resetting to the
+        neutral 0.5 prior on the next cycle. Best-effort throughout — never
+        unwinds the routing change that already happened.
+        """
+        try:
+            flywheel.accept(
+                claim.id,
+                reason="routing change applied",
+                action_decision=action_decision,
+            )
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"trace_mining:flywheel_accept {claim.id}: {e}")
+
+        try:
+            flywheel.record_outcome(
+                claim.id,
+                reward=cand.confidence,
+                durable_reward=0.0,
+                note="repeated failure pattern routed away from",
+                durable_key=router.key(task_class, choice),
+            )
+        except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
+            errors.append(f"trace_mining:outcome {claim.id}: {e}")
 
     # -- belief revision / confidence propagation (CONCEPT:AU-KG.maintenance.confidence-propagation-belief-revision) -- #
     def _run_belief_revision(self) -> dict[str, Any]:
