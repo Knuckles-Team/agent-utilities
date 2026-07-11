@@ -125,3 +125,73 @@ def test_call_site_header_wins_over_per_model_header(monkeypatch):
 
     headers = getattr(_client(model), "default_headers", {}) or {}
     assert headers.get("X-Client-Id") == "from-call"
+
+
+def _reasoning_extra_body(model):
+    settings = getattr(model, "settings", None)
+    if not settings:
+        return None
+    return dict(settings).get("extra_body")
+
+
+def test_per_model_reasoning_effort_pins_level(monkeypatch):
+    """A configured reasoning_effort level is threaded into the request (extra_body)."""
+    monkeypatch.setattr(
+        model_factory,
+        "get_model_config",
+        lambda mid=None: {
+            "id": "thinker",
+            "provider": "openai",
+            "base_url": "https://vllm.arpa/v1",
+            "reasoning_effort": "high",
+        },
+    )
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+
+    model = model_factory._create_model_impl(provider="openai", model_id="thinker")
+    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") == "high"
+
+
+def test_per_model_reasoning_effort_null_opts_into_native_reasoning(monkeypatch):
+    """reasoning_effort=None (explicit null) sends NO override — the model reasons natively.
+
+    Even though the caller default is 'none' (thinking off), the per-model null wins and no
+    reasoning_effort is injected, so the model uses its own default behaviour.
+    """
+    monkeypatch.setattr(
+        model_factory,
+        "get_model_config",
+        lambda mid=None: {
+            "id": "native",
+            "provider": "openai",
+            "base_url": "https://vllm.arpa/v1",
+            "reasoning_effort": None,
+        },
+    )
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+
+    model = model_factory._create_model_impl(
+        provider="openai", model_id="native", reasoning_effort="none"
+    )
+    # No reasoning_effort override present (settings is None, or extra_body lacks the key).
+    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") is None
+
+
+def test_reasoning_effort_inherit_keeps_caller_value(monkeypatch):
+    """The default 'inherit' sentinel leaves the caller's reasoning_effort untouched."""
+    monkeypatch.setattr(
+        model_factory,
+        "get_model_config",
+        lambda mid=None: {
+            "id": "plain",
+            "provider": "openai",
+            "base_url": "https://vllm.arpa/v1",
+            "reasoning_effort": "inherit",
+        },
+    )
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+
+    model = model_factory._create_model_impl(
+        provider="openai", model_id="plain", reasoning_effort="low"
+    )
+    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") == "low"
