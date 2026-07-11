@@ -23,6 +23,10 @@ class GraphResponse(BaseModel):
     usage: Any | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Per-tool-call provenance from the multi-agent graph run, so run_agent persists
+    # :ToolCall nodes for the graph path too — not only the direct single-server loop
+    # (CONCEPT:AU-KG.temporal.message-history-read).
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 from agent_utilities.models.sdd import Task
