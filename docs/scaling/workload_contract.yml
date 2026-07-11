@@ -1,0 +1,145 @@
+# SCALE-P2-1 — 1M-resident workload contract.
+#
+# This is the DEFINITION of what "1,000,000 residents" means as a running system,
+# replacing the linear arithmetic in capacity_model.md as the acceptance criterion.
+# It is consumed by `docs/scaling/workload_contract.py` (typed loader + scaling) and
+# driven by `scripts/scale/loadgen.py` (the load generator) and asserted by
+# `tests/scale/soak/` (the soak/chaos harness).
+#
+# Every numeric axis here is anchored to the EXISTING capacity_model.py constants
+# (RESIDENTS_PER_L0_SHARD, ACTIVE_AGENTS_PER_WORKER, EVENTS_PER_ACTIVE_AGENT_PER_SEC,
+# the ~52 kB measured working-set anchor, the AddNode p50 anchor) rather than picking
+# new unanchored numbers — see the `# anchor:` comments. `active_fraction=0.02` is the
+# model's own reference active fraction for the 1M case.
+#
+# `scale` (docs/scaling/workload_contract.py `ScaledWorkload.for_scale`) multiplies the
+# population/rate axes by a factor in (0, 1] for a CI-sized or dev-sized run; the SLO
+# percentile targets and per-unit sizes do NOT scale (an SLO is a per-operation
+# contract, not a population-dependent one).
+
+name: "agent-utilities 1M-resident workload contract"
+version: 1
+reference_active_fraction: 0.02  # matches capacity_model.py's documented reference case
+
+# ---------------------------------------------------------------------------
+# 1. Registered agents + resident metadata
+# ---------------------------------------------------------------------------
+population:
+  registered_agents: 1_000_000
+  # anchor: capacity_model.md "per-agent working-set footprint (~52 kB)" measured anchor.
+  resident_metadata_bytes_avg: 53_248  # ~52 KiB
+
+# ---------------------------------------------------------------------------
+# 2. Concurrently-active sessions/turns
+# ---------------------------------------------------------------------------
+concurrency:
+  # anchor: capacity_model.active_agents(1_000_000, 0.02) == 20_000
+  concurrent_active_sessions: 20_000
+  # A session's turn is not always mid-flight (think time / tool-call I/O wait);
+  # this is the modeled fraction of active sessions with a turn actually executing
+  # inside a worker at any instant (matches ACTIVE_AGENTS_PER_WORKER's multiplexing
+  # assumption of ~25 active agents serviced per worker rather than 1:1 pinning).
+  concurrent_turns_in_flight: 5_000
+  avg_turn_duration_s: 30.0
+
+# ---------------------------------------------------------------------------
+# 3. Throughput rates
+# ---------------------------------------------------------------------------
+rates:
+  # concurrent_turns_in_flight / avg_turn_duration_s, rounded.
+  turns_per_sec: 167.0
+  # modeled ~1 tool call per active agent per second while active.
+  tool_calls_per_sec: 20_000.0
+  # anchor: capacity_model.event_throughput_per_sec(1_000_000, 0.02) == 40_000
+  # (EVENTS_PER_ACTIVE_AGENT_PER_SEC=2.0 * 20_000 active agents).
+  graph_mutations_per_sec: 40_000.0
+  # AgentBus: 0.1 msg/s per active agent (coordination chatter, not the main channel).
+  messages_per_sec: 2_000.0
+  # turns_per_sec * ~800 avg tokens/turn (prompt+completion). This is a WORKLOAD
+  # SUBMISSION rate the harness drives/simulates, not a claim about real LLM
+  # provider throughput — token generation capacity is model_factory/provider's
+  # concern, tracked separately (see docs/scaling/capacity_model.md's production
+  # guard section). Reported by the load generator as an informational rate only.
+  tokens_per_sec: 133_600.0
+
+# ---------------------------------------------------------------------------
+# 4. Tenants + skew (incl. one elephant tenant)
+# ---------------------------------------------------------------------------
+tenants:
+  count: 5_000
+  # Zipf-like skew across the long tail of ordinary tenants (exponent 1.0 = classic
+  # Zipf). The elephant tenant below sits OUTSIDE this distribution, deliberately
+  # oversized to stress per-tenant fairness/quota (AU-P1-1 tenant_in_flight_count)
+  # and hot-tenant/noisy-neighbor isolation.
+  skew_model: "zipf"
+  skew_exponent: 1.0
+  elephant_tenant:
+    residents_fraction: 0.05   # 50,000 of the 1,000,000 residents on one tenant
+    active_fraction: 0.10      # but a disproportionate 10% of concurrent turns
+    messages_fraction: 0.15    # and 15% of bus traffic (the noisiest neighbor)
+
+# ---------------------------------------------------------------------------
+# 5. Per-agent working set / history / media volume
+# ---------------------------------------------------------------------------
+per_agent:
+  # anchor: same ~52 KiB measured working-set anchor as population.resident_metadata_bytes_avg.
+  working_set_bytes_avg: 53_248
+  history_bytes_avg: 204_800       # ~200 KiB retained conversation/turn history
+  history_bytes_p99: 2_097_152     # ~2 MiB long-lived sessions (heavy tail)
+  media_bytes_avg: 1_048_576       # ~1 MiB average attached media/blob volume
+  media_bytes_p99: 52_428_800      # ~50 MiB p99 (a handful of agents carry large media)
+
+# ---------------------------------------------------------------------------
+# 6. Interactive vs background mix
+# ---------------------------------------------------------------------------
+mix:
+  interactive_fraction: 0.70   # foreground, human/agent-in-the-loop turns
+  background_fraction: 0.30    # scheduled goal loops, ingestion-driven, autonomous work
+
+# ---------------------------------------------------------------------------
+# 7. Availability + RPO/RTO
+# ---------------------------------------------------------------------------
+availability:
+  target_percent: 99.9
+  # Durable-write commit lag under the queue-driven dispatch stage
+  # (AU-ORCH.dispatch.queue-agent-dispatch): at-least-once delivery + Kafka/Postgres
+  # commit means a failure can lose at most this much recent write activity.
+  rpo_seconds: 60
+  # Fleet detection + reap/reclaim + resume target. NOTE (honest gap, not yet closed):
+  # this is materially smaller than agent_dispatch.DEFAULT LEASE_TTL_S-class defaults
+  # used elsewhere (claim TTL / dispatch worker CLAIM_TTL_S default of 3600s) — those
+  # are a max-staleness SAFETY bound for crash detection, not a tuned RTO target. A
+  # real RTO=300s deployment must run dispatch workers/reapers with a much shorter
+  # lease TTL than the 1h default; tracked as a follow-up, not silently reconciled here.
+  rto_seconds: 300
+
+# ---------------------------------------------------------------------------
+# 8. SLO targets (percentiles, milliseconds) — the acceptance criterion
+# ---------------------------------------------------------------------------
+# These are PER-OPERATION targets: they do not change with population/scale. The
+# soak/chaos harness measures the SAME percentiles from a scaled-down run and
+# asserts them against these targets; a real hardware soak at scale=1.0 asserts
+# the same targets against the real 1M-resident deployment.
+slo:
+  queue_latency_ms:        # submit -> claimed (dispatch queue wait)
+    p50: 50
+    p95: 500
+    p99: 2_000
+    p99_9: 5_000
+  query_latency_ms:        # a graph read (get_work_item / query_cypher)
+    # anchor: MEASURED_ADDNODE_P50_MS=0.187ms single-op anchor, with realistic
+    # multi-hop/lock-contention headroom at the higher percentiles.
+    p50: 2
+    p95: 10
+    p99: 30
+    p99_9: 150
+  write_latency_ms:        # a graph write / CAS (AddNode, compare_and_set_node_fields)
+    p50: 1
+    p95: 5
+    p99: 20
+    p99_9: 100
+  end_to_end_latency_ms:   # full turn: submit -> succeeded
+    p50: 2_000
+    p95: 8_000
+    p99: 20_000
+    p99_9: 45_000
