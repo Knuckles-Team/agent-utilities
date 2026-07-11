@@ -46,6 +46,7 @@ executes granted entries (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 import fnmatch
 import json
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -825,6 +826,86 @@ class ActionPolicy:
             )
 
 
+# CONCEPT:AU-OS.governance.action-policy-decision-point — process-wide
+# ``ActionPolicy`` instance cache keyed by ``id(engine)``. SCALE-P2-1 soak
+# finding (``scripts/scale/loadgen.py`` MAX_MESSAGE_EVENTS comment): every
+# ``AgentBus.send``/``MessagingService.send`` call — and every other
+# ``get_action_policy(engine).decide(...)`` call site — went through this
+# factory, and it used to build a BRAND-NEW ``ActionPolicy()`` on every single
+# call. ``ActionPolicy`` docstring already promised "stateless apart from an
+# mtime-cached parse of the policy file", but that cache lives on
+# ``self._file_cache`` — a throwaway instance never gets to reuse it, so a
+# fresh instance re-reads + re-parses ``deploy/action-policy.default.yml``
+# (pure-Python PyYAML, no C accelerator in most deployments) from disk on
+# EVERY ``decide()`` call. Profiled at ~13-300ms/call (env-dependent), two-plus
+# orders of magnitude above the AddNode anchor, entirely attributable to this
+# repeated parse (cProfile: ``yaml.safe_load``/composer/scanner frames
+# dominate cumulative time; the KG-backed rate/blast/KG-rule reads are cheap
+# against a mock engine).
+#
+# The fix: reuse ONE ``ActionPolicy`` per distinct engine identity so its
+# mtime-guarded YAML cache actually gets to do its job — the file is parsed
+# once and only re-parsed if its mtime changes on disk. This changes NO
+# governance semantics: KG-stored rule overrides (``_kg_rules``) and the
+# rate-limit/blast-radius ledger reads still hit the engine on every
+# ``decide()`` call (unchanged — those must reflect live mutable state); only
+# the immutable, disk-backed default/file policy is now built once and reused.
+_policy_cache_lock = threading.Lock()
+_POLICY_CACHE: dict[int, tuple[Any, ActionPolicy]] = {}
+#: Bound so a long process (or a test session that spins up many short-lived
+#: fake engines) can't grow this cache without limit — oldest entry evicted
+#: first (dict preserves insertion order). Production has effectively 1-2
+#: distinct engines for the life of the process, so this cap is never hit
+#: there; it only guards pathological test/bench usage.
+_POLICY_CACHE_MAX_SIZE = 64
+_NO_ENGINE_POLICY: ActionPolicy | None = None
+
+
 def get_action_policy(engine: Any = None) -> ActionPolicy:
-    """Construct the policy gate for ``engine`` (cheap; file parse is cached)."""
-    return ActionPolicy(engine=engine)
+    """Return the process-wide cached policy gate for ``engine``.
+
+    One ``ActionPolicy`` instance per distinct engine identity (or a single
+    shared instance when ``engine`` is ``None``) so its mtime-cached file
+    parse is actually reused across calls instead of being rebuilt from
+    scratch every time (see the module-level comment above for the SCALE-P2-1
+    perf finding this fixes). Call :func:`reset_action_policy_cache_for_tests`
+    to force re-construction (e.g. after swapping ``policy_path`` out from
+    under a long-lived engine in a test).
+    """
+    global _NO_ENGINE_POLICY
+    if engine is None:
+        if _NO_ENGINE_POLICY is None:
+            with _policy_cache_lock:
+                if _NO_ENGINE_POLICY is None:
+                    _NO_ENGINE_POLICY = ActionPolicy(engine=None)
+        return _NO_ENGINE_POLICY
+
+    key = id(engine)
+    with _policy_cache_lock:
+        cached = _POLICY_CACHE.get(key)
+        # ``cached[0] is engine`` guards against an ``id()`` being reused by an
+        # unrelated, later object once the original engine was garbage
+        # collected — a stale hit would silently hand back the WRONG engine's
+        # policy gate.
+        if cached is not None and cached[0] is engine:
+            return cached[1]
+        policy = ActionPolicy(engine=engine)
+        if len(_POLICY_CACHE) >= _POLICY_CACHE_MAX_SIZE and key not in _POLICY_CACHE:
+            _POLICY_CACHE.pop(next(iter(_POLICY_CACHE)))
+        _POLICY_CACHE[key] = (engine, policy)
+        return policy
+
+
+def reset_action_policy_cache_for_tests() -> None:
+    """Force re-construction of every cached policy gate (test-isolation seam).
+
+    Mirrors ``AgentBus.reset_log_backend_cache_for_tests`` — call this when a
+    test mutates something ``ActionPolicy.__init__`` reads once (e.g. the
+    ``ACTION_IRREVERSIBILITY_AVERSION`` env flag) and needs the NEXT
+    ``get_action_policy(engine)`` call to pick the change up rather than reuse
+    an already-cached instance.
+    """
+    global _NO_ENGINE_POLICY
+    with _policy_cache_lock:
+        _POLICY_CACHE.clear()
+        _NO_ENGINE_POLICY = None
