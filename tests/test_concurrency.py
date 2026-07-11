@@ -50,6 +50,9 @@ class _Api:
     def list_work_items(self, project_id, cursor=None):  # flat, no data param
         return (project_id, cursor)
 
+    def jira_create_issue(self, update_history=None, payload=None):  # payload body
+        return {"update_history": update_history, "payload": payload}
+
     def flexible(self, project_id, **kw):  # VAR_KEYWORD accepts anything
         return kw
 
@@ -64,6 +67,10 @@ def test_wrap_data_folds_stray_fields_into_data():
     assert _wrap_data_kwargs(
         api.update_work_item, (), {"project_id": "P", "work_item_id": "W", "state": "x"}
     ) == {"project_id": "P", "work_item_id": "W", "data": {"state": "x"}}
+    # payload-convention client (atlassian codegen): stray fields -> `payload`
+    assert _wrap_data_kwargs(
+        api.jira_create_issue, (), {"fields": {"summary": "S"}}
+    ) == {"payload": {"fields": {"summary": "S"}}}
 
 
 def test_wrap_data_is_noop_when_not_applicable():
