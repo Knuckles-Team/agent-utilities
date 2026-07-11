@@ -1089,6 +1089,31 @@ class LoopController:
                 errors.append(f"insight_validation:persist {claim.id}: {e}")
                 continue
 
+            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): stamp this
+            # mined claim's real invalidation-dependency provenance — a `:DerivedFrom`
+            # edge to each base fact `cand.source_ids` names (the SAME ids the finding
+            # was actually mined from, never fabricated) — then register it as a live
+            # engine-side TruthMaintenance materialization off that SAME provenance.
+            # From this point on, the engine auto-invalidates this claim the moment any
+            # of those base facts changes/is removed through the normal write path — no
+            # polling, no second bookkeeping store here. Best-effort audit overlay,
+            # same posture as the flywheel calls below: never gates the pipeline. --
+            for source_id in claim.source_ids:
+                try:
+                    self.engine.add_edge(
+                        claim.id, source_id, relationship_type="DERIVED_FROM"
+                    )
+                except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
+                    errors.append(
+                        f"insight_validation:derived_from {claim.id}->{source_id}: {e}"
+                    )
+            try:
+                self.engine.register_materialization(claim.id)
+            except Exception as e:  # noqa: BLE001 — TMS registration is best-effort
+                errors.append(
+                    f"insight_validation:register_materialization {claim.id}: {e}"
+                )
+
             # -- X3: record the flywheel's PROPOSED event (best-effort audit
             # overlay; never gates the pipeline above). --
             try:

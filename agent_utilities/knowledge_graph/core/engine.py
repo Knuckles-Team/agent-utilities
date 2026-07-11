@@ -848,6 +848,28 @@ class IntelligenceGraphEngine(
 
         return self.graph_compute.get_blast_radius(node_id, depth)
 
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
+        across the storage boundary): the engine reads ``derived_id``'s OWN
+        already-stored provenance (its ``invalidation_deps`` property plus any
+        outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a dependency set and
+        tracks it so ANY subsequent committed change to a dependency (through the
+        normal write path) automatically marks it stale, with no polling. Call
+        this ONCE, right after writing a derived node (a mined claim, a computed
+        capability index entry, ...) plus its provenance edges. Thin passthrough
+        to :meth:`GraphComputeEngine.register_materialization`; requires an engine
+        built with the ``epistemic-tms`` feature (opt-in, not part of ``full``).
+        """
+        return self.graph_compute.register_materialization(derived_id)
+
+    def materialization_status(self, id: str) -> str | None:
+        """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
+        never registered) of a materialization tracked on the same index
+        :meth:`register_materialization` writes to. Thin passthrough to
+        :meth:`GraphComputeEngine.materialization_status`."""
+        return self.graph_compute.materialization_status(id)
+
     # --- Tier 2: Compute Scratchpad (Rust-native on-demand loading) ---
 
     def load_subgraph(

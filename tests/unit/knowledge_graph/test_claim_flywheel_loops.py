@@ -55,6 +55,9 @@ class _FlywheelLoopStubEngine:
     ) -> None:
         self.edges.append((source, target, rel_type, properties))
 
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        return {"id": derived_id, "depends_on": [], "generating_activity": None}
+
     def query_cypher(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -136,14 +139,31 @@ def test_ontology_gap_claim_accepts_materializes_and_feeds_outcome(monkeypatch):
     claim_id = claims[0]["id"]
 
     # LOOP 1 closes: the predicted edge is MATERIALIZED as a real KG edge.
-    assert len(eng.edges) == 1
-    src, dst, rel_type, props = eng.edges[0]
+    # (X-6 / Seam 3, CONCEPT:EG-KG.epistemic.truth-maintenance: the claim ALSO
+    # writes 2 `:DerivedFrom` provenance edges to its own source_ids at propose
+    # time -- unconditional, unrelated to this promotion-gated materialize step
+    # -- so `eng.edges` carries those too; asserted separately below.)
+    materialized = [e for e in eng.edges if e[2] == "PREDICTED_RELATION"]
+    assert len(materialized) == 1
+    src, dst, rel_type, props = materialized[0]
     assert (src, dst, rel_type) == (
         "concept:mining",
         "concept:calibration",
         "PREDICTED_RELATION",
     )
     assert props["claim_id"] == claim_id
+
+    # The propose-time provenance edges landed too, from the claim to its own
+    # mined source_ids (the SAME src/dst the predicted edge itself connects).
+    derived_from = {
+        (s, d)
+        for s, d, _, props in eng.edges
+        if s == claim_id and props.get("relationship_type") == "DERIVED_FROM"
+    }
+    assert derived_from == {
+        (claim_id, "concept:mining"),
+        (claim_id, "concept:calibration"),
+    }
 
     # the flywheel's OWN lifecycle overlay independently agrees: accepted.
     flywheel = ClaimFlywheel(eng)
@@ -166,10 +186,23 @@ def test_predicted_edge_not_promoted_stays_out_of_materialize_path():
     rep = LoopController(eng)._run_insight_validation(mine_result)
 
     assert rep["promoted"] == 0
-    assert eng.edges == []
+    # LOOP 1's materialize step (the `PREDICTED_RELATION` edge) must not fire.
+    assert not any(rel == "PREDICTED_RELATION" for _, _, rel, _ in eng.edges)
     assert eng.by_type("ClaimOutcome") == []
     claims = eng.by_type("Claim")
     assert claims[0]["status"] == "proposal"
+    claim_id = claims[0]["id"]
+
+    # The propose-time `:DerivedFrom` provenance edges (X-6 / Seam 3) still land
+    # regardless -- unconditional, unrelated to promotion.
+    assert {
+        (s, d)
+        for s, d, _, props in eng.edges
+        if props.get("relationship_type") == "DERIVED_FROM"
+    } == {
+        (claim_id, "concept:mining"),
+        (claim_id, "concept:calibration"),
+    }
 
 
 # ---------------------------------------------------------------------------
