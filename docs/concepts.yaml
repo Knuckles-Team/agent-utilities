@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 977
+total_concepts: 982
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -2232,6 +2232,19 @@ concepts:
   - AU-ECO.mcp.verbose-auto-wire
   canonical_pillar: AU-ECO
   needs_curation: false
+- id: AU-ECO.messaging.alert-intake
+  name: messaging alert-intake listening on
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/messaging/alert_intake.py
+  - agent_utilities/messaging/daemon.py
+  doc: messaging alert-intake listening on
+  dotted: AU-ECO.messaging.alert-intake
+  aliases:
+  - AU-ECO.messaging.alert-intake
+  canonical_pillar: AU-ECO
+  needs_curation: false
 - id: AU-ECO.messaging.blocking-store-memory
   name: store_memory is a BLOCKING call
   pillar: AU-ECO
@@ -3245,6 +3258,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/kvcache/__init__.py
   - agent_utilities/kvcache/config.py
   - agent_utilities/kvcache/l2_native_connector.py
@@ -4905,11 +4919,24 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/research/placement_mining.py
+  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/action_policy.py
   doc: AU-KG.evolution.placement-mining-canary-loop
   dotted: AU-KG.evolution.placement-mining-canary-loop
   aliases:
   - AU-KG.evolution.placement-mining-canary-loop
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.identity
+  name: AU-KG.identity
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  doc: AU-KG.identity
+  dotted: AU-KG.identity
+  aliases:
+  - AU-KG.identity
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.identity.asset-occurrence
@@ -4925,6 +4952,18 @@ concepts:
   dotted: AU-KG.identity.asset-occurrence
   aliases:
   - AU-KG.identity.asset-occurrence
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.identity.evidence-spine-convergence
+  name: Evidence write failed for occurrence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  doc: Evidence write failed for occurrence
+  dotted: AU-KG.identity.evidence-spine-convergence
+  aliases:
+  - AU-KG.identity.evidence-spine-convergence
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.agent-utilities-checkout
@@ -8095,6 +8134,18 @@ concepts:
   dotted: AU-KG.retrieval.context-compiler
   aliases:
   - AU-KG.retrieval.context-compiler
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.retrieval.context-compiler-kv-seam
+  name: '** — the compiled bundle can'
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+  doc: '** — the compiled bundle can'
+  dotted: AU-KG.retrieval.context-compiler-kv-seam
+  aliases:
+  - AU-KG.retrieval.context-compiler-kv-seam
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.cross-session-chat-recall
@@ -11497,6 +11548,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/agent_digital_twin.py
   doc: Agent Digital Twin + deterministic replay
   dotted: AU-ORCH.twin.agent-digital-twin
@@ -13462,6 +13514,20 @@ concepts:
   dotted: EG-KG.enrichment.content-address-separation
   aliases:
   - EG-KG.enrichment.content-address-separation
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.epistemic.truth-maintenance
+  name: Seam 3 — X-6
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: Seam 3 — X-6
+  dotted: EG-KG.epistemic.truth-maintenance
+  aliases:
+  - EG-KG.epistemic.truth-maintenance
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.graphlearn.link-predictor
