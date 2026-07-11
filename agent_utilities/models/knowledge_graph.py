@@ -169,6 +169,11 @@ class RegistryNodeType(StrEnum):
     # authoritative queue-of-record Goal/Task/AgentTask/Loop/dispatch converge
     # on; see agent_utilities.orchestration.work_item.
     WORK_ITEM = "work_item"
+    # Agent Digital Twin + deterministic replay (Codex X-8) — a durable,
+    # queryable PROJECTION over the run's own WorkItem/ToolCall/RunTrace/
+    # ActionDecision nodes plus the version pins it executed under; never a
+    # second provenance store. See agent_utilities.orchestration.agent_digital_twin.
+    AGENT_DIGITAL_TWIN = "agent_digital_twin"
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
@@ -558,6 +563,10 @@ class RegistryEdgeType(StrEnum):
     NEXT = "next"
     GROUNDED_IN = "grounded_in"
     REFERENCES = "references"
+    # Agent Digital Twin (Codex X-8): AgentDigitalTwin -[:TWIN_OF]-> RunTrace.
+    # The twin's references to its WorkItem/ToolCall/ActionDecision children
+    # reuse REFERENCES above rather than adding a new edge per child kind.
+    TWIN_OF = "twin_of"
     AUTHORED = "authored"
     SUPPORTS = "supports"
     # --- KG V2 edges (see docs/KG_V2_DESIGN.md §3) ---
@@ -4059,6 +4068,68 @@ class AgentPolicyDecisionNode(RegistryNode):
             agent_id=agent_id or req.actor_id,
             approval_id=decision.approval_id,
         )
+
+
+class AgentDigitalTwinNode(RegistryNode):
+    """A durable, queryable projection of one agent run (Codex X-8).
+
+    NOT a new provenance store: an ``AgentDigitalTwin`` never duplicates the
+    properties of the ``RunTrace``/``:ToolCall``/``WorkItem``/
+    ``AgentPolicyDecision`` nodes it describes — it references their ids
+    (``work_item_ids``/``tool_call_ids``/``decision_ids``) and adds exactly
+    the one thing none of them carry: the exact version pins (model/prompt/
+    tool/skill/policy/catalog-epoch) the run executed under, so a stored
+    twin can be deterministically replayed later against a historical KG
+    snapshot. See :mod:`agent_utilities.orchestration.agent_digital_twin`
+    for the capture/replay machinery (``VersionPins``, ``capture_twin``,
+    ``replay_twin``, ``counterfactual_replay``).
+
+    Linked ``(:AgentDigitalTwin)-[:TWIN_OF]->(:RunTrace)`` to the run it
+    twins, and ``(:AgentDigitalTwin)-[:REFERENCES]->`` each ``WorkItem``/
+    ``ToolCall``/``ActionDecision`` node in its run graph.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_DIGITAL_TWIN
+    run_id: str = Field(
+        default="", description="The RunTrace/run id this twin projects"
+    )
+    agent_name: str = Field(
+        default="", description="Agent identity that executed the run"
+    )
+    task: str = Field(default="", description="The task/goal text the run pursued")
+    versions_digest: str = Field(
+        default="",
+        description="VersionPins.digest() — a single content digest of every version pin",
+    )
+    versions_json: str = Field(
+        default="",
+        description="Full VersionPins, JSON-serialized (content-addressed by versions_digest)",
+    )
+    budget: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The run's WorkItem.budget (e.g. token/cost/time caps)",
+    )
+    work_item_ids: list[str] = Field(
+        default_factory=list, description="WorkItem ids forming this run's DAG"
+    )
+    tool_call_ids: list[str] = Field(
+        default_factory=list, description="ToolCall node ids this run made"
+    )
+    decision_ids: list[str] = Field(
+        default_factory=list,
+        description="AgentPolicyDecision (ActionDecision) audit ids this run produced",
+    )
+    outcome: str = Field(
+        default="",
+        description="Terminal outcome: succeeded | failed | cancelled | dead_letter",
+    )
+    event_count: int = Field(
+        default=0,
+        description="Number of run-VCS events (runtime.run_vcs.kernel.RunEvent) captured",
+    )
+    created_at: float = Field(
+        default=0.0, description="Unix timestamp the twin was captured"
+    )
 
 
 class HostNode(RegistryNode):
