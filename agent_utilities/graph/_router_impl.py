@@ -1508,6 +1508,18 @@ async def mcp_server_step(
                 output
             )
 
+            # Accumulate this MCP server's tool calls for :ToolCall provenance on the
+            # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
+            # block below is gated on ``event_queue`` and skipped for headless
+            # (MCP/telegram) delegations, which is exactly the MCP-execution path a
+            # fleet-server delegation takes.
+            try:
+                from ..orchestration.tool_provenance import extract_tool_calls
+
+                ctx.state.tool_calls.extend(extract_tool_calls(stream))
+            except Exception as _tc_exc:  # noqa: BLE001 — never break a run
+                logger.debug("mcp_server tool-call provenance skipped: %s", _tc_exc)
+
             # Stream events to WebUI
             if ctx.deps.event_queue:
                 from pydantic_ai.messages import (
