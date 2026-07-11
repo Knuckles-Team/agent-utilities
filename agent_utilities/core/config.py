@@ -1778,6 +1778,28 @@ class AgentConfig(BaseSettings):
     NO flag is passed and the engine is long-living (never auto-stops). Default
     60s. Gracefully omitted against an older engine binary that doesn't advertise
     the flag."""
+    placement_catalog_enabled: bool = Field(
+        default=True, alias="PLACEMENT_CATALOG_ENABLED"
+    )
+    """Consult the engine's authoritative PlacementCatalog when resolving a
+    sharded graph's owning endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, DIST-P2-2b —
+    ``knowledge_graph.core.placement_catalog.resolve_placement``), instead of
+    deciding placement purely from the static client-side HRW ring. Default
+    True: the catalog is authoritative WHEN a reachable engine advertises one;
+    an engine that doesn't (every endpoint unreachable, or an older engine
+    with no placement-route RPC) transparently falls back to the existing HRW
+    ring, so today's deployments are unaffected either way. Set False to force
+    pure HRW routing and skip the catalog round-trip entirely."""
+
+    placement_catalog_ttl_s: float = Field(default=5.0, alias="PLACEMENT_CATALOG_TTL_S")
+    """How long (seconds) a resolved ``(endpoint, epoch)`` from
+    :func:`~agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement`
+    is cached before the next call re-queries the engine catalog
+    (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Short by design — a partition mid fenced-cutover
+    should be rediscovered quickly. A stale-epoch redirect bypasses this TTL
+    outright via ``force_refresh=True``, so this only bounds the *unprompted*
+    re-check cadence."""
+
     graph_service_checkpoint_secs: int = Field(
         default=300, alias="GRAPH_SERVICE_CHECKPOINT_SECS"
     )
