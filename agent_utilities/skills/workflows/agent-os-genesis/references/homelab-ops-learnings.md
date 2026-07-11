@@ -232,3 +232,34 @@ for hours once — alive + holding the lock ⇒ no failover). Defense-in-depth: 
 that restarts `graph-os-host` if the maint-loop log goes silent (no `[maint-loop]` line in 6 min).
 The loop-engine `KG_LOOP*` config (interval/topics/**breadth off**/report-only) goes on the
 **host daemon** deployment, not the MCP server — the daemon runs the tick.
+
+## 11. OpenBao write-capable service tokens — mint + store (genesis MUST automate this)
+
+Services need an `agent-apps-rw` token to WRITE their own `apps/<service>` secrets. Genesis has to
+mint it — the ESO ClusterSecretStore token and the `openbao-mcp` token are (correctly) **read-only**,
+so nothing in the running cluster can create a rw token. It can ONLY be minted from the **root token
+captured at `bao operator init`** (held by the operator, never stored in the cluster — a `lookup-self`
+on the restricted service tokens even fails). The one-time genesis sequence, run with `BAO_ROOT_TOKEN`
+exported (operator supplies it via `! bao login` or the init output):
+
+```bash
+export BAO_ADDR=http://openbao.platform.svc:8200          # or openbao.arpa
+export VAULT_TOKEN=$BAO_ROOT_TOKEN                          # from `bao operator init` (operator-held)
+# 1. policy: read+write+list on the apps/ KV-v2 mount only (least privilege, fail-closed elsewhere)
+bao policy write agent-apps-rw - <<'POL'
+path "apps/data/*"     { capabilities = ["create","read","update","delete"] }
+path "apps/metadata/*" { capabilities = ["list","read","delete"] }
+POL
+# 2. a PERIODIC, RENEWABLE token (finite-TTL tokens silently expire → broke connector writes once)
+bao token create -policy=agent-apps-rw -period=768h -renewable=true -display-name=agent-apps-rw -format=json \
+  | jq -r .auth.client_token
+# 3. store the minted token where the fleet + ESO read it (so it survives), e.g. apps/openbao/AGENT_APPS_RW_TOKEN
+bao kv put apps/openbao AGENT_APPS_RW_TOKEN=<token>
+```
+
+Each `*-mcp` / service stack then gets that token as its `OPENBAO_TOKEN` (the `agent-apps-rw` policy),
+so it can `bao kv put apps/<service> …` on bring-up. **Genesis automates steps 1-3 right after
+`operator init` + unseal**, before deploying the fleet. Verify a write actually succeeds
+(`curl -s -X POST -H "X-Vault-Token: $TOK" --data '{"data":{"k":"v"}}' $BAO_ADDR/v1/apps/data/_probe`)
+— a `403 permission denied` means the token is read-only, not rw. Raw HTTP works too: KV-v2 write is
+`POST $BAO_ADDR/v1/apps/data/<service>` with body `{"data":{…}}`.
