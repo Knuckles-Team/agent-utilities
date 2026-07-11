@@ -110,7 +110,7 @@ def test_expert_is_a_dispatchable_agent_template() -> None:
     assert _is_bound_template_agent(meta, config), (
         "a bound AgentTemplate must route to the direct grounding loop, not the planner"
     )
-    # The persona (not the bare 'Specialized agent' stub) drives the run.
+    # The persona (not the bare 'Specialized agent' placeholder) drives the run.
     assert "Agent Utilities Ecosystem Expert" in config["tag_prompts"][EXPERT]
 
 

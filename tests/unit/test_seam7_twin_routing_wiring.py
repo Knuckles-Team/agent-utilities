@@ -209,8 +209,8 @@ async def test_graph_runvcs_twin_counterfactual_recomputes_a_real_policy_decisio
     assert len(report["decision_delta"]) == 1
     delta = report["decision_delta"][0]
     assert delta["original"]["decision"] == "allow"
-    # ActionPolicy.decide() genuinely recomputed this — a stub could never produce
-    # "queue_approval" from a hand-authored ruleset it never actually loaded.
+    # ActionPolicy.decide() genuinely recomputed this — a hardcoded fake could never
+    # produce "queue_approval" from a hand-authored ruleset it never actually loaded.
     assert delta["counterfactual"]["decision"] == "queue_approval"
 
 

@@ -72,7 +72,7 @@ def test_multi_graph_batch_update_degrades_without_engine_op(monkeypatch) -> Non
     applied_here: list[list] = []
     eng.batch_update = lambda ops: applied_here.append(ops) or {"added_nodes": len(ops)}  # type: ignore[method-assign]
 
-    # Stub engine_for_graph so the "other graph" path is exercised without an engine.
+    # Fake engine_for_graph so the "other graph" path is exercised without an engine.
     other_applied: dict[str, list] = {}
 
     class _OtherGC:
