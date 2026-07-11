@@ -17,6 +17,7 @@ Usage:
     agent-utilities-memory install --agents claude,codex,grok
     agent-utilities-memory doctor
     agent-utilities-memory export --format json
+    agent-utilities-memory migrate-media --batch-size 200
 """
 
 import argparse
@@ -141,6 +142,31 @@ def cmd_learn(args: argparse.Namespace) -> None:
     engine = _get_engine()
     result = run_learner(engine, transcript, now=args.now or None, dry_run=args.dry_run)
     print(_json.dumps(result, indent=2, default=str))
+
+
+def cmd_migrate_media(args: argparse.Namespace) -> None:
+    """Bulk-migrate legacy ``type='MediaAsset'`` nodes to ``:AssetOccurrence`` (CONCEPT:AU-KG.identity.asset-occurrence)."""
+    from agent_utilities.knowledge_graph.memory.native_ingest import media_store
+
+    store = media_store()
+    if store is None:
+        print("Error: no live engine reachable for media migration", file=sys.stderr)
+        sys.exit(1)
+
+    def _progress(summary: dict) -> None:
+        print(
+            f"  ... processed {summary['processed']}/{summary['scanned']} "
+            f"(migrated={summary['migrated']}, "
+            f"skipped={summary['skipped_already_migrated']}, "
+            f"failed={summary['failed']})",
+            file=sys.stderr,
+        )
+
+    result = store.migrate_legacy_assets_bulk(
+        batch_size=args.batch_size,
+        progress=None if args.quiet else _progress,
+    )
+    print(json.dumps(result.as_dict(), indent=2))
 
 
 def cmd_hygiene(args: argparse.Namespace) -> None:
@@ -329,6 +355,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Print edits without persisting"
     )
 
+    # migrate-media (CONCEPT:AU-KG.identity.asset-occurrence — bulk legacy MediaAsset -> AssetOccurrence sweep)
+    p = sub.add_parser(
+        "migrate-media",
+        help="Bulk-migrate legacy MediaAsset nodes to AssetOccurrence (idempotent)",
+    )
+    p.add_argument(
+        "--batch-size", type=int, default=100, help="Legacy ids processed per batch"
+    )
+    p.add_argument(
+        "--quiet", action="store_true", help="Suppress per-batch progress output"
+    )
+
     # hygiene (CONCEPT:AU-KG.memory.decay-scanner-merge — decay scanner + semantic merge)
     p = sub.add_parser(
         "hygiene",
@@ -378,6 +416,7 @@ def main() -> None:
         "observe": cmd_observe,
         "reflect": cmd_reflect,
         "learn": cmd_learn,
+        "migrate-media": cmd_migrate_media,
         "hygiene": cmd_hygiene,
         "materialize": cmd_materialize,
         "sync": cmd_sync,
