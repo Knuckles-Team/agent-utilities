@@ -5,7 +5,49 @@ All notable changes to agent-utilities will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] (1.18.0-dev) — P0 hardening Wave 1 (session currency, native Cypher, fail-closed connectors)
+
+### Added
+- **`GraphSession` — one explicit session currency (AU-P0-1).** New
+  `knowledge_graph/core/session.py`: a frozen dataclass (`actor`, `tenant`, `scopes`, `graph`,
+  `endpoint`, `catalog_epoch`, `txn`, `policy_version`, `trace_context`) that *wraps* — not
+  replaces — the three today-ambient authorities (`ActorContext`, the correlation traceparent,
+  per-call policy) into one value a caller can thread and log. `GraphSession.from_ambient()`
+  bridges today's ambient state; `use_session()`/`current_session()` mirror
+  `use_actor()`/`current_actor()`; `require_scope()` raises `ScopeError`. Threaded as a defaulted
+  `session: GraphSession | None = None` param through `facade.query`/`designate`,
+  `engine.add_node`/`add_edge`/`link_nodes`, `engine_query.query_cypher`, and
+  `media_store.store_media` — existing callers are unaffected. Not yet threaded through every
+  internal writer (~40 remain) and not yet consumed by a policy/routing authority (AU-P0-5/AU-P0-6).
+
+### Changed
+- **Native Cypher routing for `EpistemicGraphBackend` (AU-P0-2).** `execute()` now hands
+  label/property-scoped `MATCH` queries with a real `WHERE` predicate (`=`, `IN`, `CONTAINS`,
+  `IS [NOT] NULL`, `OR`, aggregates, `DISTINCT`) to `GraphComputeEngine.query_cypher` — the
+  engine's own `eg-query` parser/executor — instead of a client-side regex scan-and-eval. A
+  query the engine rejects, or a value its literal grammar can't express (`None`, negative
+  numbers), now raises (`CypherEngineError`/`NotImplementedError`/`ValueError`) instead of
+  silently returning `[]`. Two AU-specific shapes stay on typed engine methods because native
+  routing would give silently-wrong results: the virtual `id` node-identity accessor (no
+  guarantee every node stores `id` as a real property) and relationship-type traversal/merge
+  (edges are keyed by `rel_type`, not the engine's `relationship`/`type`).
+
+### Fixed
+- **Fail-closed connector permissions (AU-P0-4).** Unknown/unconfigured connector ACL state can
+  no longer silently mean public, and reconcile can no longer tombstone data on an unproven
+  signal:
+  - `ExternalAccess.quarantined()` / `default_external_access()` — the fail-closed default the
+    generic `mcp_package`/`mcp_tool` connectors now report when no `acl_*` fields are configured
+    (previously `ExternalAccess.public()`). New `CONNECTOR_DEFAULT_PUBLIC` flag (default `false`)
+    is the explicit dev/local opt-in back to the old behavior.
+  - New `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` flag (default empty): an operator can name a
+    source whose missing `connector_manifest.yml` should fail closed
+    (`connector_manifest_gate.precheck_source`) instead of the default silent pass-through, without
+    retroactively blocking the ~40 fleet sources that have no manifest yet.
+  - New `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` flag (default empty): `source_sync._reconcile` now
+    distinguishes an authoritatively-empty live-id snapshot (opt-in tombstone) from a
+    failed/skipped fetch (`fetch_ok=False`, always skips) so a transient upstream error can never
+    be mistaken for "everything was deleted".
 
 ## [1.13.0] - 2026-07-10 — MCP fleet-auth (Basic + OIDC) & connector defaults
 

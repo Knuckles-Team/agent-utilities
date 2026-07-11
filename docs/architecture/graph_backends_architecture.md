@@ -334,7 +334,7 @@ openCypher. Each backend advertises a `cypher_support` tier:
 | neo4j, falkordb | `full` | native Cypher |
 | **Postgres via Apache AGE** (`backend: "age"`) | `full` | native openCypher (`count(r)`, aliases, multi-hop, `-[*1..2]->`, edge props) + pgvector |
 | Postgres regex transpiler (`backend: "postgresql"`) | `subset` | only the bounded operational subset the engine emits; fallback when the AGE extension is absent |
-| epistemic_graph (in-memory) | `subset` | interprets the operational subset directly |
+| epistemic_graph (in-memory) | `subset` | AU-P0-2: label/property `MATCH` + a real `WHERE` predicate + aggregates/`DISTINCT` route to the engine's OWN native Cypher executor (`GraphComputeEngine.query_cypher`, its `eg-query` parser — still a bounded grammar, e.g. no comma-separated disjoint `MATCH` patterns or arbitrary function calls) instead of a client-side regex scan-and-eval; a rejected/unsupported shape raises (`CypherEngineError`/`NotImplementedError`) rather than silently returning `[]`. Two AU-specific shapes (the virtual `id` node-identity accessor; relationship-type traversal/merge, keyed by `rel_type` not the engine's `relationship`/`type`) stay on typed engine methods because native routing would give silently-wrong results. |
 
 **Register Postgres connections as `age`** (not `postgresql`) when you want one
 query to run unchanged across neo4j + falkordb + postgres. `list_connections`
