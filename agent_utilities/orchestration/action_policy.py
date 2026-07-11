@@ -172,6 +172,16 @@ DEFAULT_POLICY: dict[str, Any] = {
         # untouched) is always safe — auto.
         {"kind": "run.select", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "run.discard", "target": "*", "tier": TIER_AUTO},
+        # Workload-aware data-placement mining (X-5, CONCEPT:AU-KG.evolution.placement-mining-canary-loop):
+        # a mined co-occurrence/hot-access finding (:PlacementProposal — shard_split/
+        # replica/cache_prewarm/materialized_join/embedding_refresh/index_change)
+        # that cleared its confidence floor and the promotion-governance validator
+        # still requires a human before ``placement_mining`` even ENTERS the measured
+        # canary (small-scope apply → measure → promote/rollback) — SAFETY-CRITICAL,
+        # this tier must never silently become auto/auto_notify (see
+        # tests/unit/knowledge_graph/test_placement_mining.py::
+        # test_apply_placement_change_default_never_auto).
+        {"kind": "apply_placement_change", "target": "*", "tier": TIER_APPROVAL},
     ],
 }
 

@@ -102,3 +102,11 @@ rules:
   # approval_required. run.discard (drop the proposal, world untouched) is always safe.
   - {kind: run.select, target: "*", tier: approval_required}
   - {kind: run.discard, target: "*", tier: auto}
+  # Workload-aware data-placement mining (X-5): a mined co-occurrence/hot-access
+  # finding (:PlacementProposal) that cleared its confidence floor and governance
+  # still requires a human before placement_mining even ENTERS the measured canary
+  # (small-scope apply -> measure -> promote/rollback) — SAFETY-CRITICAL, this tier
+  # must never silently become auto/auto_notify (see
+  # tests/unit/knowledge_graph/test_placement_mining.py::
+  # test_apply_placement_change_default_never_auto).
+  - {kind: apply_placement_change, target: "*", tier: approval_required}
