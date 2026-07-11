@@ -16,6 +16,9 @@ metadata:
 
 # kg-sandbox
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_sandbox` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_sandbox"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_sandbox` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_sandbox` (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface) manages the RLM warm-fork tier (forkserver/os.fork, Wizer-warmed wasm, warm container pool, firecracker microVM). Actions: `status` (per-rung availability + pooled warm-parent count + per-rung reward EMA), `reap` (close idle warm parents + idle dev-workspaces), `warm` (pre-pay a `rung`'s startup so the next fan-out forks cheaply). Code execution itself stays inside the governed RLM loop; this surface is lifecycle + visibility.
 
 ## Invoke

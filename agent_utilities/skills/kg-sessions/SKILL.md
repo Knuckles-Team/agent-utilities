@@ -16,6 +16,9 @@ metadata:
 
 # kg-sessions
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_sessions`, `ingest_sessions`, `usage_query` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_sessions"])` once per session (as below), then proceed exactly as documented; or (2) call the `manage` intent verb with the same natural-language request — the resolver routes to `graph_sessions` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 This skill fronts three verbs:
 - **`graph_sessions`** — manage durable sessions: `list`, `get`, `delete`, `reply` (`user_reply` to a `session_id`), `cancel`.
 - **`usage_query`** — usage/cost analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): `summary`, `by_model`/`by_project`/`by_agent`, `tools`, `activity`, `sessions`/`session_detail`/`top_sessions`, `search`, `traces`, `series` (filter by date/project/agent/model).

@@ -16,6 +16,9 @@ metadata:
 
 # kg-observe
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_observe` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_observe"])` once per session (as below), then proceed exactly as documented; or (2) call the `why` intent verb with the same natural-language request — the resolver routes to `graph_observe` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_observe` (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot) queries the trace/score subgraph. Actions: `trace_rootcause` (failed assertions + low scores joined to their trace's agent, grouped; `query`=agent/capability filter), `prompt_regression` (mean score per prompt version — which regressed), `failure_cluster` (failing traces clustered by the failed assertion — systemic breaks across agents).
 
 ## Invoke
