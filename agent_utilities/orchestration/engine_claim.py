@@ -41,6 +41,14 @@ suspenders":
   surface (yet); this call falls back to the KG path for this claim (a
   process-lifetime engine outage still needs *a* claim mechanism), never a
   concurrent attempt of both.
+* ``AGENT_CLAIM_BACKEND=workitem`` (AU-P1-1) — routes the claim through the
+  unified :mod:`~agent_utilities.orchestration.work_item` state machine
+  (:func:`~agent_utilities.orchestration.work_item.claim_agent_task_via_work_item`):
+  the SAME CAS/lease/fencing primitives as the ``engine``/``kg`` backends,
+  now with atomic dependency release, bounded-retry-then-DLQ, and idempotent
+  result commit layered on top. Still opt-in (not the default) while this
+  backend proves out; see ``work_item.py``'s module docstring for the full
+  migrated-vs-shimmed accounting.
 """
 
 import logging
@@ -60,13 +68,20 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AGENT_CLAIM_BACKEND_ENGINE",
     "AGENT_CLAIM_BACKEND_KG",
+    "AGENT_CLAIM_BACKEND_WORKITEM",
     "resolve_claim_backend",
     "claim_agent_task",
 ]
 
 AGENT_CLAIM_BACKEND_KG = "kg"
 AGENT_CLAIM_BACKEND_ENGINE = "engine"
-_BACKENDS = {AGENT_CLAIM_BACKEND_KG, AGENT_CLAIM_BACKEND_ENGINE}
+#: AU-P1-1: the unified WorkItem state machine backend (opt-in).
+AGENT_CLAIM_BACKEND_WORKITEM = "workitem"
+_BACKENDS = {
+    AGENT_CLAIM_BACKEND_KG,
+    AGENT_CLAIM_BACKEND_ENGINE,
+    AGENT_CLAIM_BACKEND_WORKITEM,
+}
 
 #: Candidate ``(sub_client_attr, method_attr)`` probes for the engine's native
 #: claim-next/lease/CAS verb — several plausible namings, first callable wins
@@ -198,6 +213,15 @@ def claim_agent_task(
 
     if resolved == AGENT_CLAIM_BACKEND_KG:
         return _claim_agent_task_kg(
+            engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+        )
+
+    if resolved == AGENT_CLAIM_BACKEND_WORKITEM:
+        from agent_utilities.orchestration.work_item import (
+            claim_agent_task_via_work_item,
+        )
+
+        return claim_agent_task_via_work_item(
             engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
         )
 
