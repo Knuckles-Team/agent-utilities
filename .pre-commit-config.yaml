@@ -61,7 +61,7 @@ repos:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.5.11
+  rev: 0.11.7
   hooks:
   # --locked: fail (don't silently rewrite) if uv.lock is out of sync with
   # pyproject.toml — keeps the committed lock authoritative and never stale.

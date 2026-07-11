@@ -40,3 +40,14 @@ agent_utilities/knowledge_graph/retrieval/deploy_context.py
 agent_utilities/knowledge_graph/retrieval/entity_context.py
 agent_utilities/knowledge_graph/retrieval/ops_context.py
 agent_utilities/knowledge_graph/retrieval/troubleshoot_context.py
+# Epistemic-OS Hardening (2026-07-11) — internal machinery of surfaced capabilities,
+# not standalone user surfaces (same posture as the finance compute modules above):
+#   analytics_job_registry: consumed by the eg-jobs durable job plane (INT-P2-1).
+#   capability_hierarchy / capability_descriptor: internal routing structures behind
+#     ontology-driven tool/agent routing (X-4), which IS surfaced via graph_orchestrate.
+#   placement_mining: feeds the already-exposed ActionPolicy/reconciler surface (X-5) —
+#     proposals are reviewed/applied through action_policy, not a standalone tool.
+agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py
+agent_utilities/knowledge_graph/ontology/capability_hierarchy.py
+agent_utilities/knowledge_graph/retrieval/capability_descriptor.py
+agent_utilities/knowledge_graph/research/placement_mining.py

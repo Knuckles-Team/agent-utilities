@@ -236,7 +236,9 @@ class PlacementProposal:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def gather_access_records(engine: Any, *, limit: int = _SCAN_LIMIT) -> list[dict[str, Any]]:
+def gather_access_records(
+    engine: Any, *, limit: int = _SCAN_LIMIT
+) -> list[dict[str, Any]]:
     """Query the Episode/ToolCall/Entity provenance chain for per-call access records.
 
     Returns one record per ``(episode, tool_call)`` row:
@@ -552,7 +554,9 @@ def _prefixed(items: list[str], prefix: str) -> list[str]:
     return [i for i in items if i.startswith(prefix)]
 
 
-def proposals_from_association(association: dict[str, Any] | None) -> list[PlacementProposal]:
+def proposals_from_association(
+    association: dict[str, Any] | None,
+) -> list[PlacementProposal]:
     """Co-occurrence rules -> ``materialized_join`` / ``index_change`` / ``replica``.
 
     Classification (most-specific first, one proposal kind per rule):
@@ -633,7 +637,9 @@ def proposals_from_association(association: dict[str, Any] | None) -> list[Place
     return out
 
 
-def proposals_from_tenant_anomaly(tenant_anomaly: dict[str, Any] | None) -> list[PlacementProposal]:
+def proposals_from_tenant_anomaly(
+    tenant_anomaly: dict[str, Any] | None,
+) -> list[PlacementProposal]:
     """A tenant whose access count is a positive statistical outlier -> ``shard_split``.
 
     Only a HOT (positive-score) outlier is in scope — a cold/underused
@@ -673,7 +679,9 @@ def proposals_from_tenant_anomaly(tenant_anomaly: dict[str, Any] | None) -> list
     return out
 
 
-def proposals_from_drift_anomaly(drift_anomaly: dict[str, Any] | None) -> list[PlacementProposal]:
+def proposals_from_drift_anomaly(
+    drift_anomaly: dict[str, Any] | None,
+) -> list[PlacementProposal]:
     """An entity whose ``temporal_drift_score`` is a statistical outlier -> ``embedding_refresh``."""
     drift_anomaly = drift_anomaly or {}
     result = drift_anomaly.get("result") or {}
@@ -736,7 +744,9 @@ def proposals_from_sequence(sequence: dict[str, Any] | None) -> list[PlacementPr
     return out
 
 
-def placement_proposals_from_mining(mine_result: dict[str, Any] | None) -> list[PlacementProposal]:
+def placement_proposals_from_mining(
+    mine_result: dict[str, Any] | None,
+) -> list[PlacementProposal]:
     """The full fan-out: a :func:`mine_placement_patterns` report -> every proposal."""
     mine_result = mine_result or {}
     out: list[PlacementProposal] = []
@@ -887,7 +897,9 @@ def run_canary(
         try:
             rollback_(proposal)
         except Exception as e:  # noqa: BLE001 — rollback failure is logged, never raised
-            logger.debug("placement_mining: rollback failed for %s: %s", proposal.target, e)
+            logger.debug(
+                "placement_mining: rollback failed for %s: %s", proposal.target, e
+            )
         applied = False  # the canary-scope change was reverted; nothing stayed applied
 
     return CanaryResult(
@@ -986,7 +998,11 @@ def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 — surface as data, never raise
         return {"applied": False, "method": "catalog_assign", "detail": str(e)}
     if isinstance(payload, dict) and payload.get("error"):
-        return {"applied": False, "method": "catalog_assign", "detail": payload["error"]}
+        return {
+            "applied": False,
+            "method": "catalog_assign",
+            "detail": payload["error"],
+        }
 
     _invalidate_placement_cache(proposal.target)
     return {"applied": True, "method": "catalog_assign", "detail": payload}
@@ -1057,7 +1073,10 @@ def _apply_via_kvcache(proposal: PlacementProposal) -> dict[str, Any]:
     return {
         "applied": bool(stored),
         "method": "kvcache_put",
-        "detail": {"key": f"placement_prewarm:{key}", "value_b64": base64.b64encode(key.encode()).decode()},
+        "detail": {
+            "key": f"placement_prewarm:{key}",
+            "value_b64": base64.b64encode(key.encode()).decode(),
+        },
     }
 
 
@@ -1183,7 +1202,9 @@ def run_placement_mining_cycle(
         # so this branch never fires out of the box. --
         if verdict.valid and decision.allowed:
             try:
-                canary = run_canary(prop, measurement_fn=measurement_fn, tolerance=tolerance)
+                canary = run_canary(
+                    prop, measurement_fn=measurement_fn, tolerance=tolerance
+                )
                 record["canary"] = canary.to_dict()
                 record["applied"] = bool(canary.applied)
             except Exception as e:  # noqa: BLE001 — never let a canary crash the cycle

@@ -861,14 +861,14 @@ class ActionPolicy:
 # ``decide()`` call (unchanged — those must reflect live mutable state); only
 # the immutable, disk-backed default/file policy is now built once and reused.
 _policy_cache_lock = threading.Lock()
-_POLICY_CACHE: dict[int, tuple[Any, "ActionPolicy"]] = {}
+_POLICY_CACHE: dict[int, tuple[Any, ActionPolicy]] = {}
 #: Bound so a long process (or a test session that spins up many short-lived
 #: fake engines) can't grow this cache without limit — oldest entry evicted
 #: first (dict preserves insertion order). Production has effectively 1-2
 #: distinct engines for the life of the process, so this cap is never hit
 #: there; it only guards pathological test/bench usage.
 _POLICY_CACHE_MAX_SIZE = 64
-_NO_ENGINE_POLICY: "ActionPolicy | None" = None
+_NO_ENGINE_POLICY: ActionPolicy | None = None
 
 
 def get_action_policy(engine: Any = None) -> ActionPolicy:

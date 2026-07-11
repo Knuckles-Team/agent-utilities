@@ -275,7 +275,9 @@ def _cache_scope_key(session: GraphSession | None) -> tuple[str, str, str, str, 
     tenant = session.tenant or ""
     actor_id = (session.actor.actor_id if session.actor is not None else "") or ""
     policy_version = str(session.policy_version or "")
-    schema_version = str(session.catalog_epoch if session.catalog_epoch is not None else "")
+    schema_version = str(
+        session.catalog_epoch if session.catalog_epoch is not None else ""
+    )
     graph = session.graph or ""
     return tenant, actor_id, policy_version, schema_version, graph
 
