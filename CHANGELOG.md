@@ -5,6 +5,222 @@ All notable changes to agent-utilities will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
+
+Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/
+ingestion onto one engine-native model (`WorkItem`, `AgentBus` partitioned log,
+`ChangeEnvelope`, `AssetOccurrence`, engine-native capability index); Phase 2 starts
+making the engine (not the client) the placement/analytics authority and proves it
+under a defined, measured workload contract; the Exceed track (Codex X-series) adds
+an enterprise operations causal graph, an epistemic mining flywheel, ontology-driven
+routing, workload-aware placement mining, a policy-aware context compiler, and an
+agent digital twin. Also closes a fail-open gap flagged as a known follow-up in
+1.20.0. (Two Phase-2 items from the original 13-workstream plan — Arrow Flight
+external heavy-compute and an analytics job **scheduler** beyond the registries below
+— are not present in this codebase and are **not** claimed here.)
+
+### Fixed
+- **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
+  previously failed OPEN when the engine was unavailable or the fence-check query
+  raised — a worker unable to confirm it still held the lease could still commit.
+  It now branches on `_claim_backend`: the engine-native path fails **closed**
+  (rejects the commit), while the KG best-effort dev path stays fail-open as
+  before. Closes the exact gap called out as a known follow-up in the 1.20.0
+  entry above.
+- **Self-ingest telemetry is durable and non-lossy (OBS-P1-1).** `self_ingest.py`'s
+  bounded queue used to silently drop records on backpressure and count-and-move-on
+  on a failed drain. Failed sends now requeue in-process (bounded retries +
+  backoff), and backpressure/exhausted-retries spill to a durable SQLite (WAL)
+  `SpillBuffer` (mirrors the existing `GraphOutbox` pattern) instead of vanishing;
+  the only remaining loss case (the durable buffer itself unavailable/at its bound)
+  is now counted (`dropped`) and logged at ERROR — loss is never silent. Every
+  record is stamped with the ambient actor's `tenant.id`/`actor.id` at the single
+  `emit` choke-point.
+- **Real OpenTelemetry wiring (L24).** Replaces the OS-5.8 observability
+  placeholder with a real Tracer/Meter provider exporting via OTLP to the engine
+  collector (opt-in; instrumentation failures never break the business path).
+- **`USES_SKILL` provenance edge was silently dropped (F8).** The
+  `(RunTrace)-[:USES_SKILL]->(:CallableResource)` edge matched the skill by
+  `name`, which the engine can't resolve on a write (only `id` works), so the
+  edge silently never wrote even though `skill_used`/`EXECUTED_ON` looked correct.
+  Now matches by id (resolved `skill_id`, falling back to `skill:<name>`), same as
+  `EXECUTED_ON`.
+
+### Added — Phase 1: one Agent-OS work/identity/ingestion model
+- **Unified engine-native `WorkItem` state machine (AU-P1-1).** Consolidates the
+  four independently-evolved status vocabularies (`:Task` ingestion queue,
+  `:AgentTask` dispatch, Loop/Goal, the dispatch envelope) onto one versioned
+  lifecycle: `submitted → ready → leased(fencing_token) → running(heartbeat,
+  attempt) → succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter`.
+  Reuses AU-P0-3's engine-native CAS rather than a second claim mechanism; the
+  `:AgentTask`/agent-dispatch claim path can opt in via
+  `AGENT_CLAIM_BACKEND=workitem`, with read-only `WorkItemStatus` projections for
+  Goal/Loop/the ingestion queue so observability shows one vocabulary before a
+  full migration.
+- **Partitioned-log `AgentBus` delivery plane (AU-P1-2).** `send`/`receive` now
+  resolve a durable partitioned log (`messaging/bus_log.py`: the engine's native
+  broker, or Kafka, in that preference order) as the hot delivery path for
+  message bodies — real offsets/consumer cursors, a DLQ for poison messages,
+  backpressure via queue depth — instead of one `:BusMessage` graph node per
+  message. The KG keeps only the low-churn semantic registry (presence, topic
+  membership, subscriptions); falls back to the original graph-node model only
+  when no broker is configured (zero-infra dev path, never the default once a
+  broker exists).
+- **Engine-native capability index — filtered ANN + CDC (AU-P1-3).** Capability-
+  aware `designate()` is now authoritative in the engine:
+  `retrieval/engine_capability_search.py` composes capability/tenant/policy
+  filters with the vector `Rank` leg in one `query_unified` plan, falling back to
+  native `semantic_search` ANN + a bounded post-filter when the engine has no
+  `query` feature. The in-process `CapabilityIndex` (HNSW/numpy) is now a
+  **bounded, non-authoritative cache** (LRU-evicted, kept fresh by CDC deltas)
+  used only as a dev/lean-engine fallback and for reward write-back
+  (`record_outcome`).
+- **Distinct `AssetOccurrence` identity over deduped `Blob` (AU-P1-4).** Fixes a
+  real bug: `MediaStore` derived both the blob id and the media-asset id from the
+  content digest, so identical bytes from a second message/tenant silently
+  collapsed onto one node and overwrote its provenance. New identity chain
+  `Blob(digest) ← Rendition ← AssetOccurrence ← Message/Document`: only immutable
+  bytes dedup (`:Blob`); every `store_media()` call mints a distinct uuid-keyed
+  `:AssetOccurrence` owning its own source/tenant/owner/acl/event_time/retention/
+  legal_hold/provenance. Includes a `store_rendition()` API for derived forms and
+  a bulk migration CLI for legacy `MediaAsset` nodes.
+- **`ChangeEnvelope` — one canonical unit-of-change (AU-P1-5/AU-P1-6).** Every
+  connector shape (push, MCP pull, fleet-package pull, CDC/webhook, bulk
+  snapshot) can now emit (or be bridged into, via `from_connector_record`) one
+  typed `ChangeEnvelope`: identity/idempotency-key, provenance/lineage
+  (connector, source instance, source version, schema/mapping version),
+  bitemporal timestamps (event/valid/observed time), typed payload, and
+  governance (ACL, classification, retention, legal hold). Consumed by one
+  atomic `ingest_envelope()` transaction (validate → resolve identity → write →
+  lineage+checkpoint → CDC → watermark advance, crash-resume safe). A first wave
+  of `source_sync` handlers (`leanix`, `claude_memory`, plus 14 more this
+  release) migrated onto it. A baked-in `MANDATORY_NAMED_CONNECTOR_SOURCES` list
+  (12 identifiers: `jira`/`confluence`, `gitlab`, `servicenow`, `leanix`,
+  `langfuse`, `tunnel_manager`, `microsoft-agent`, `container-manager-mcp`,
+  `documentdb-mcp`, `repository-manager`, `systems-manager`, `vector-mcp`) is
+  **unconditionally** required to pass the connector-manifest gate — no operator
+  opt-in needed, layered under the existing opt-in
+  `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` allowlist from 1.20.0.
+
+### Added — Phase 2: engine-authoritative placement + analytics, measured at scale
+- **AU consumes the engine's placement catalog (DIST-P2-2b).** New
+  `knowledge_graph/core/placement_catalog.resolve_placement` asks the engine's
+  authoritative `PlacementCatalog` for a graph/tenant's owning endpoint before
+  falling back to the static client-side HRW ring, caching the `(endpoint,
+  epoch)` answer for a short TTL and re-resolving on a stale-epoch redirect.
+  **Honest caveat:** the engine does not yet expose a wire RPC for
+  `PlacementRoute` (today it's consumed only inside the engine's own MultiRaft
+  dispatch), so every current deployment still falls back to HRW byte-for-byte —
+  this ships the AU-side consumer half of a two-sided contract; the engine-side
+  wire RPC is a follow-up.
+- **Analytics feature/model/experiment registries (L41/INT-P2-1b).** Queryable
+  registries indexing engine analytics-job result Claims by `AlgoVersion` lineage
+  (family/algorithm/params_digest/code_version/env_version) + input-snapshot —
+  "jobs for model X" / "runs of experiment Z" queries with reproducibility
+  lineage, over the engine's existing store-of-record claims (no second store).
+- **Defined, measured workload contract + soak/chaos harness (SCALE-P2-1).**
+  Replaces `capacity_model.md`'s prior linear-arithmetic "1M residents" claim
+  with a machine-readable contract (`docs/scaling/workload_contract.yml`):
+  registered agents, concurrent sessions/turns, five independent rate axes,
+  tenant count + Zipf skew + one elephant tenant, per-agent footprint,
+  interactive/background mix, availability + RPO/RTO, and p50/p95/p99/p99.9 SLO
+  targets — cross-checked against `capacity_model.py` by
+  `tests/scale/test_workload_contract.py` so the two docs can't drift. A new
+  load generator (`scripts/scale/loadgen.py`) drives the contract's workload
+  against the real engine-native `WorkItem` path.
+- **`ActionPolicy` per-engine caching (L42).** Fixes a real 300ms/`decide()` cost
+  in the fail-closed autonomy gate by caching the policy per engine instance
+  instead of reloading it on every decision.
+
+### Added — Exceed track (Codex X-series)
+- **X-2 — Enterprise operations causal graph + `graph_ops_causal` MCP tool.**
+  Joins entities already ingested by the connector fleet (Langfuse, GitLab/
+  repository-manager, ServiceNow/Atlassian, LeanIX, container-manager-mcp) into
+  one causal chain: trace/generation → agent/tool/model → service → deployment
+  → commit/merge-request → incident/change → capability/owner → policy/control/
+  evidence. `root_cause_rank`/`blast_radius_analysis`/`change_risk_score`/
+  `control_evidence_chain` are thin compositions over the causal-reasoning engine
+  already shipped (`StructuralCausalModel`, `CausalVerifier`,
+  `SpuriousnessDetector`) — no new traversal algorithm. New `graph_ops_causal`
+  MCP tool (`join`/`root_cause`/`blast_radius`/`change_risk`/`control_evidence`
+  actions) + `kg-ops-causal` skill.
+- **X-3 — Epistemic mining flywheel + closed loops.** New `ClaimFlywheel`: a
+  governed `proposed → validated → accepted → deprecated → retracted` state
+  machine over mining-produced Claims, layered on the existing
+  promotion-governance/`ActionPolicy`/`GovernedAutoMerger` pipeline (no new
+  governance surface). `RETRACTED` is terminal and sticky, so a rejected mined
+  finding is never silently re-proposed. Closes two loops end-to-end: an
+  accepted ontology-gap claim now materializes as a real KG edge, and an
+  accepted routing-quality claim's outcome feeds back through the durable
+  contextual-bandit spine so the learned preference survives a restart.
+- **X-4 — Ontology-driven tool/agent routing.** Extends AU-P1-3's engine-native
+  capability retrieval with ontology-`rdfs:subClassOf` subsumption-aware
+  selection (a tool declaring a narrower capability now satisfies a request for
+  the broader one), a versioned `CapabilityDescriptor` (typed I/O schema, side
+  effects, cost/latency/locality, policy/approval class), and full eligibility
+  explainability (`explain_routing_eligibility()` computes the WHY-eligible dict
+  engine-native-first). Default (`capability_hierarchy=None`) is byte-identical
+  to pre-X-4 behavior.
+- **X-5 — Workload-aware placement mining.** Mines agent-trace co-occurrence
+  (tenant/tool/entity/modality access skew) into typed placement proposals
+  (virtual-shard split/replica/cache-prewarm/materialized-join/embedding-refresh/
+  index-change) with evidence + expected benefit; governed
+  (promotion-governance) and canary-measured (apply small, measure SLO delta,
+  promote or roll back) — no auto-apply. Accepted changes target the
+  `PlacementCatalog` admin path.
+- **X-7 — Policy-aware context compiler (CONCEPT:EPI-P3-1 universal epistemic
+  columns).** New `ContextCompiler` replaces the ad-hoc "flatten retrieval hits
+  into a text block" pattern with one selection/assembly layer scoring
+  relevance + MMR diversity + evidence quality + bi-temporal freshness + token
+  budget. Evidence quality reads one common `KnowledgeBatch`-shaped column set
+  when a result carries it — `confidence`/`source_refs`/`evidence_refs`/
+  `proof_ids`/`contradiction_ids`/`policy_labels` (an `"epistemic:contested"`
+  label flags a disputed claim) — degrading to a neutral prior when absent
+  (additive, not a breaking schema change). Every candidate passes through the
+  SAME fine-grained permissioning gate the live read path uses
+  (`ontology/permissioning.enforce`: row-level drop, column-level redaction — no
+  new permission system) before returning a `ContextBundle`: citations, a
+  `proof_graph` of supports/contradicts/alternative-to edges, and a `decisions`
+  log recording every selection/rejection with its scores.
+- **X-8 — Agent digital twin + deterministic replay.** New `AgentDigitalTwin`: a
+  durable, queryable projection over a run's existing `WorkItem` DAG, `:ToolCall`
+  provenance, and `AgentPolicyDecision` audit (never a new provenance store),
+  pinning the exact model/prompt/tool/skill/policy versions + catalog epoch a
+  run executed under. `replay_twin()` deterministically replays a recorded run
+  (tool calls/model responses mocked from the record, never re-executed);
+  `counterfactual_replay()` swaps a policy version (genuinely re-invokes the
+  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-supplied
+  alternate responses) and reports the delta; `twin_incident_steps()` is a
+  read-only step-through for incident investigation.
+
+### Security-relevant behavior (continuing the 1.20.0 posture)
+- Fail-closed connector ACLs, the fail-closed connector-manifest gate, and
+  never-silent-tombstone reconcile (all shipped in 1.20.0) now sit under a
+  second, **unconditional** layer: 12 named connectors must pass the manifest
+  gate with no operator opt-in (AU-P1-6).
+- The engine-native work-claim fencing check — which could fail OPEN on an
+  engine error as of 1.20.0 — now fails **closed** (L15): a worker that can't
+  prove it still holds the lease can no longer commit.
+- `GraphSession` scopes are now actually consumed by the admin-scope gate on
+  low-level engine tools (AU-P0-6) and by the tenant-scoped authorization caches
+  (AU-P0-5, both shipped in 1.20.0) — closing the "wired but not yet consumed"
+  gap called out in that entry.
+- No behavior change is silent: a task with no bound executor still resolves
+  `unroutable`/`failed`, never `completed`/`reward=1.0` (1.20.0, AU-P0-3); the
+  new `WorkItem` state machine (AU-P1-1) carries that same discipline forward
+  (`dead_letter`, not silent completion, once retries are exhausted).
+
+### Docs
+- Reconciled `AGENTS.md`'s Architecture Reference to shipped reality: `GraphSession`
+  scopes are now consumed (AU-P0-5/AU-P0-6, previously described as "still
+  open"); the capability index's in-process HNSW is now documented as a
+  bounded, non-authoritative cache behind the engine-native authority (AU-P1-3);
+  engine placement now prefers the catalog before falling back to HRW
+  (DIST-P2-2b), with the engine-side wire-RPC caveat stated explicitly.
+- Added an "honest caveat" section to `docs/architecture/engine_sharding.md`
+  documenting the DIST-P2-2b placement-catalog consumer and why it doesn't yet
+  change observed routing behavior.
+
 ## [1.20.0] - 2026-07-11 — Trustworthy Core (Phase 0)
 
 Assimilates the Codex 5.6 audit's P0 findings for the control plane: one session currency, native
