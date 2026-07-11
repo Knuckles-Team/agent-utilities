@@ -1,0 +1,375 @@
+connector: microsoft-agent
+ontology_source: microsoft
+schema_version: '1'
+resources:
+- name: Calendar
+  label: Calendar
+  id_prefix: calendar
+  relations: []
+- name: Channel
+  label: Channel
+  id_prefix: channel
+  relations:
+  - name: channelOfTeam
+    label: channel of team
+    target: Team
+    lpg_rel_type: ''
+- name: Chat
+  label: Chat
+  id_prefix: chat
+  relations: []
+- name: Event
+  label: Event
+  id_prefix: event
+  relations:
+  - name: hasAttendee
+    label: has attendee
+    target: Person
+    lpg_rel_type: ''
+  - name: inCalendar
+    label: in calendar
+    target: Calendar
+    lpg_rel_type: ''
+  - name: organizedBy
+    label: organized by
+    target: Person
+    lpg_rel_type: ''
+- name: File
+  label: File
+  id_prefix: file
+  relations:
+  - name: ownedByPerson
+    label: owned by person
+    target: Person
+    lpg_rel_type: ''
+  - name: storedInSite
+    label: stored in site
+    target: SharePointSite
+    lpg_rel_type: ''
+- name: Group
+  label: Group
+  id_prefix: group
+  relations: []
+- name: MailFolder
+  label: Mail Folder
+  id_prefix: mailfolder
+  relations: []
+- name: Message
+  label: Message
+  id_prefix: message
+  relations:
+  - name: inChannel
+    label: in channel
+    target: Channel
+    lpg_rel_type: ''
+  - name: inChat
+    label: in chat
+    target: Chat
+    lpg_rel_type: ''
+  - name: inFolder
+    label: in folder
+    target: MailFolder
+    lpg_rel_type: ''
+  - name: sentBy
+    label: sent by
+    target: Person
+    lpg_rel_type: ''
+  - name: sentTo
+    label: sent to
+    target: Person
+    lpg_rel_type: ''
+- name: SharePointSite
+  label: SharePoint Site
+  id_prefix: sharepointsite
+  relations: []
+- name: Team
+  label: Team
+  id_prefix: team
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: microsoft-calendar.updated
+  resource: event
+  description: "Watermark event for 'microsoft-calendar' \u2014 advances on lastModifiedDateTime (mcp_source_presets.json)."
+- name: microsoft-mail.updated
+  resource: email
+  description: "Watermark event for 'microsoft-mail' \u2014 advances on receivedDateTime (mcp_source_presets.json)."
+identity:
+  id_field:
+    event: id
+    email: id
+  title_field:
+    event: subject
+    email: subject
+  text_field:
+    event: bodyPreview
+    email: bodyPreview
+  updated_field:
+    event: lastModifiedDateTime
+    email: receivedDateTime
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Calendar:
+    ontology_class: null
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Channel:
+    ontology_class: null
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Chat:
+    ontology_class: null
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Event:
+    ontology_class: Event
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  File:
+    ontology_class: File
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Group:
+    ontology_class: Organization
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  MailFolder:
+    ontology_class: null
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Message:
+    ontology_class: null
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  SharePointSite:
+    ontology_class: Place
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+  Team:
+    ontology_class: Team
+    fields:
+      emailAddress: xsd:string
+      endDateTime: xsd:dateTime
+      externalToolId: xsd:string
+      mimeType: xsd:string
+      receivedDateTime: xsd:dateTime
+      sizeBytes: xsd:integer
+      startDateTime: xsd:dateTime
+      subject: xsd:string
+      userPrincipalName: xsd:string
+      webLink: xsd:string
+sync:
+- preset: microsoft-calendar
+  server: microsoft-agent
+  tool: microsoft_calendar
+  action: list_calendar_events
+  records_path: value
+  id_field: id
+  title_field: subject
+  text_field: bodyPreview
+  updated_field: lastModifiedDateTime
+  pagination: null
+  doc_type: event
+  raw:
+    server: microsoft-agent
+    tool: microsoft_calendar
+    action: list_calendar_events
+    records_path: value
+    id_field: id
+    title_field: subject
+    text_field: bodyPreview
+    updated_field: lastModifiedDateTime
+    doc_type: event
+- preset: microsoft-mail
+  server: microsoft-agent
+  tool: microsoft_mail
+  action: list_mail_messages
+  records_path: value
+  id_field: id
+  title_field: subject
+  text_field: bodyPreview
+  updated_field: receivedDateTime
+  pagination: null
+  doc_type: email
+  raw:
+    server: microsoft-agent
+    tool: microsoft_mail
+    action: list_mail_messages
+    records_path: value
+    id_field: id
+    title_field: subject
+    text_field: bodyPreview
+    updated_field: receivedDateTime
+    doc_type: email
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - microsoft_agent/connectors/mcp_source_presets.json
+  - microsoft_agent/ontology/microsoft.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 9a378ca77ce78dae239fddda4f194db8dbe2b49a28dcaa36adfa8a04b477b245
+    triple_count: 113
+  signer: ontology-manifest-generator
+  signature: d29dafce5b43a724442ee0d6fc7b164a352b6d454dac402e4f196acfb25043bc
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'hasAttachment' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hasBody' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'memberOfGroup' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'memberOfTeam' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Calendar.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Channel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Chat.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Event.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.File.ontology_class = 'File' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Group.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.MailFolder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Message.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SharePointSite.ontology_class = 'Place' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Team.ontology_class = 'Team' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "auth: OAuth2 \u2014 MSAL device-code flow w/ token cache (primary) + OIDC delegation + raw bearer fallback.\
+  \ Env actually read: OIDC_CLIENT_ID, MICROSOFT_TOKEN, AUDIENCE, DELEGATED_SCOPES, AUTH_TYPE, OIDC_CLIENT_SECRET/CONFIG_URL/BASE_URL.\
+  \ required_scopes (hardcoded Graph delegated scopes in code): User.Read, Mail.ReadWrite, Calendars.ReadWrite,\
+  \ Files.ReadWrite. Shape: per-user delegated (MSAL user token cache), NOT a shared service credential.\
+  \ KNOWN DOC DRIFT: README also documents MICROSOFT_CLIENT_ID/SECRET/SCOPE/GRANT_TYPE=client_credentials,\
+  \ but these are not referenced anywhere in the code path \u2014 do not rely on the README's client-credentials\
+  \ description."
+- "change_support: snapshot/poll only, via mcp_source_presets.json (materialize \u2014 see docs/architecture/kg_connectors_and_ingestion.md\
+  \ section 8 connector inventory for the real, already-shipped wiring). cdc: none (no change-data-capture/replication-log\
+  \ path). webhook: none (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM\
+  \ as a tool capability \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for\
+  \ this connector today)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."
+- "cross-connector note: atlassian-agent, gitlab-api, servicenow-api, microsoft-agent, and leanix-agent\
+  \ all layer a common OIDC_CLIENT_ID/SECRET + ENABLE_DELEGATION + DELEGATED_SCOPES + AUDIENCE RFC-8693-style\
+  \ token-exchange path on top of each connector's own native credential (a shared auth.py pattern across\
+  \ these agent-packages) \u2014 this is the per-user delegated-identity opt-in; the native credential\
+  \ above remains the system-to-system default."

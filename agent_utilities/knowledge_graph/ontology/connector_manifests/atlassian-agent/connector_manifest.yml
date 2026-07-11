@@ -1,0 +1,196 @@
+connector: atlassian-agent
+ontology_source: atlassian
+schema_version: '1'
+resources:
+- name: ConfluencePage
+  label: Confluence Page
+  id_prefix: confluencepage
+  relations: []
+- name: Epic
+  label: Jira Epic
+  id_prefix: epic
+  relations: []
+- name: Issue
+  label: Jira Issue
+  id_prefix: issue
+  relations:
+  - name: assignedTo
+    label: assigned to
+    target: Person
+    lpg_rel_type: ''
+  - name: inEpic
+    label: in epic
+    target: Epic
+    lpg_rel_type: ''
+  - name: inSprint
+    label: in sprint
+    target: Sprint
+    lpg_rel_type: ''
+  - name: reportedBy
+    label: reported by
+    target: Person
+    lpg_rel_type: ''
+- name: Sprint
+  label: Jira Sprint
+  id_prefix: sprint
+  relations: []
+actions: []
+events:
+- name: atlassian-confluence-pages.updated
+  resource: confluence_page
+  description: "Watermark event for 'atlassian-confluence-pages' \u2014 advances on version (mcp_source_presets.json)."
+- name: atlassian-jira-issues.updated
+  resource: jira_issue
+  description: "Watermark event for 'atlassian-jira-issues' \u2014 advances on fields.updated (mcp_source_presets.json)."
+identity:
+  id_field:
+    confluence_page: id
+    jira_issue: key
+  title_field:
+    confluence_page: title
+    jira_issue: key
+  text_field:
+    confluence_page: body
+    jira_issue: fields.summary
+  updated_field:
+    confluence_page: version
+    jira_issue: fields.updated
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ConfluencePage:
+    ontology_class: Document
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Epic:
+    ontology_class: null
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Issue:
+    ontology_class: Incident
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Sprint:
+    ontology_class: null
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+sync:
+- preset: atlassian-confluence-pages
+  server: atlassian-agent
+  tool: atlassian_confluence_page
+  action: get_pages
+  records_path: data.results
+  id_field: id
+  title_field: title
+  text_field: body
+  updated_field: version
+  pagination: null
+  doc_type: confluence_page
+  raw:
+    server: atlassian-agent
+    tool: atlassian_confluence_page
+    action: get_pages
+    records_path: data.results
+    id_field: id
+    title_field: title
+    text_field: body
+    updated_field: version
+    doc_type: confluence_page
+- preset: atlassian-jira-issues
+  server: atlassian-agent
+  tool: atlassian_jira_issue
+  action: search_for_issues_using_jql
+  records_path: data.issues
+  id_field: key
+  title_field: key
+  text_field: fields.summary
+  updated_field: fields.updated
+  pagination: null
+  doc_type: jira_issue
+  raw:
+    server: atlassian-agent
+    tool: atlassian_jira_issue
+    action: search_for_issues_using_jql
+    records_path: data.issues
+    id_field: key
+    title_field: key
+    text_field: fields.summary
+    updated_field: fields.updated
+    doc_type: jira_issue
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - atlassian_agent/connectors/mcp_source_presets.json
+  - atlassian_agent/ontology/atlassian.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
+    triple_count: 49
+  signer: ontology-manifest-generator
+  signature: 63f352e41725af402c82a81856bbc0e5ac83c5f130ec2d5dbbc68cc77bb8f650
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.ConfluencePage.ontology_class = 'Document' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Epic.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Issue.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Sprint.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- 'auth: multi-path fallback (OIDC token-exchange -> OAuth 3LO bearer -> PAT bearer -> Basic email:token
+  [default]). Env: ATLASSIAN_AGENT_URL/USER/TOKEN/VERIFY, ATLASSIAN_BEARER_TOKEN, ATLASSIAN_OAUTH_TOKEN,
+  OIDC_CLIENT_ID/SECRET, ENABLE_DELEGATION, AUDIENCE, DELEGATED_SCOPES (default ''read:jira-work write:jira-work''),
+  per-suite override e.g. ATLASSIAN_JIRA_CLOUD_TOKEN. Shape: single shared PAT/service account by default;
+  OIDC delegation is an opt-in per-user path. required_scopes: read:jira-work, write:jira-work (DELEGATED_SCOPES
+  default; verify against the live Jira/Confluence app''s granted scopes).'
+- "change_support: snapshot/poll only, via mcp_source_presets.json (delta(jira,confluence)+writeback(jira)\
+  \ \u2014 see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory for the\
+  \ real, already-shipped wiring). cdc: none (no change-data-capture/replication-log path). webhook: none\
+  \ (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM as a tool capability\
+  \ \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for this connector today)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."
+- "cross-connector note: atlassian-agent, gitlab-api, servicenow-api, microsoft-agent, and leanix-agent\
+  \ all layer a common OIDC_CLIENT_ID/SECRET + ENABLE_DELEGATION + DELEGATED_SCOPES + AUDIENCE RFC-8693-style\
+  \ token-exchange path on top of each connector's own native credential (a shared auth.py pattern across\
+  \ these agent-packages) \u2014 this is the per-user delegated-identity opt-in; the native credential\
+  \ above remains the system-to-system default."
