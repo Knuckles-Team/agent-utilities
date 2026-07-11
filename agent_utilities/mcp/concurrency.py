@@ -27,32 +27,43 @@ import anyio
 T = TypeVar("T")
 
 
+# Names fleet API-client methods use for a single REST-body dict parameter. An
+# action-routed method takes at most one of these; ``data`` (plane, gitlab-style
+# clients) and ``payload`` (the OpenAPI-codegen clients, e.g. atlassian) are the
+# two live conventions, ``body`` a common third.
+_BODY_PARAM_NAMES = ("data", "payload", "body")
+
+
 def _wrap_data_kwargs(func: Callable[..., T], args: tuple, kwargs: dict) -> dict:
-    """Fold stray keyword fields into a ``data`` dict when the target expects one.
+    """Fold stray keyword fields into the target's REST-body param when it has one.
 
     Action-routed MCP tools pass the LLM's free-form ``params_json`` fields as
     flat ``**kwargs`` into a client method. Many fleet API-client write methods
-    take the REST body as a single ``data: dict`` param (e.g.
-    ``create_work_item(project_id, data)``) — so an LLM that naturally passes
-    ``{project_id, name, description}`` (mirroring the REST payload) crashes with
-    ``unexpected keyword argument 'name'`` and the whole delegated create/update
-    fails. This makes the dispatch self-healing: when ``func`` declares an
-    explicit ``data`` parameter, no ``data`` was supplied, and there are extra
-    fields that don't match a named parameter, those extras are collected into
-    ``data``. It is a strict no-op for every method without a ``data`` param (the
-    overwhelming majority), so it is safe on the shared dispatch path.
-    CONCEPT:AU-ECO.mcp.standardized-interfaces
+    take the REST body as a single dict param — ``data`` (e.g.
+    ``create_work_item(project_id, data)``) or ``payload`` (e.g.
+    ``jira_cloud_create_issue(update_history, payload)``). An LLM that naturally
+    passes ``{project_id, name, description}`` / ``{fields: {...}}`` (mirroring
+    the REST payload) then crashes with ``unexpected keyword argument 'name'``
+    and the whole delegated create/update fails. This makes the dispatch
+    self-healing: when ``func`` declares exactly one body param, none was
+    supplied, and there are extra fields that don't match a named parameter,
+    those extras are collected into that body param. It is a strict no-op for
+    every method without such a param (the overwhelming majority), so it is safe
+    on the shared dispatch path. CONCEPT:AU-ECO.mcp.standardized-interfaces
     """
-    if args or "data" in kwargs or not kwargs:
+    if args or not kwargs:
         return kwargs
     try:
         params = inspect.signature(func).parameters
     except (TypeError, ValueError):
         return kwargs
-    if "data" not in params or any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
-    ):
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
         return kwargs
+    body_params = [n for n in _BODY_PARAM_NAMES if n in params]
+    # Only act when the body param is unambiguous and wasn't already supplied.
+    if len(body_params) != 1 or body_params[0] in kwargs:
+        return kwargs
+    body_param = body_params[0]
     named = {
         name
         for name, p in params.items()
@@ -63,7 +74,7 @@ def _wrap_data_kwargs(func: Callable[..., T], args: tuple, kwargs: dict) -> dict
     if not stray:
         return kwargs
     wrapped = {k: v for k, v in kwargs.items() if k in named}
-    wrapped["data"] = stray
+    wrapped[body_param] = stray
     return wrapped
 
 
