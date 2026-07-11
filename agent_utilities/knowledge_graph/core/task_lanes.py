@@ -143,6 +143,9 @@ LANE_SOFT_TIMEOUT_SEC: dict[str, float] = {
     "connectors": 180.0,
     "worldview": 300.0,
     "maint": 600.0,
+    # Card-enrichment backfill: bound a wedged tick to minutes, not the 30-min default,
+    # so a stalled card LLM frees its worker promptly (CONCEPT:AU-KG.enrichment.card-attempt-status).
+    "enrichment": 300.0,
     "research": 1800.0,
     "extraction": 1800.0,
     "ingestion": 3600.0,
