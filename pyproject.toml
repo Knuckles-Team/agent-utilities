@@ -470,7 +470,7 @@ agent-utilities = "agent_utilities.skills"
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent_data/**", "prompts/*.json", "skills/**", "**/*.ttl", "**/*.owl", "py.typed"]
+agent_utilities = ["agent_data/**", "prompts/*.json", "skills/**", "**/*.ttl", "**/*.owl", "py.typed", "knowledge_graph/ontology/connector_manifests/**"]
 
 [tool.setuptools.packages.find]
 where = ["."]
