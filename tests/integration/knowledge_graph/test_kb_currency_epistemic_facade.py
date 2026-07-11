@@ -3,19 +3,19 @@
 per-row epistemic envelope (score/confidence/valid+tx time/source_refs/
 policy_labels) instead of flattening the result to a plain ``dict``.
 
-This test wires the AU facade to a REAL, ephemeral ``epistemic-graph-server``
-built from the sibling ``eg-kb-currency`` worktree (the branch that adds
-``Method::ExplainProvenanceByIds`` / the widened ``ExplainProvenanceRowWire``),
-seeds a Claim + Evidence node pair with a real confidence + bitemporal window
-and a ``SUPPORTS`` edge directly over the raw engine client, then asserts the
-values the facade returns via ``include_epistemic=True`` originated in the
-engine (the confidence, the bitemporal window, AND the derived
-``source_refs``/``policy_labels`` the engine's belief-substrate resolution
-computes from the ``SUPPORTS`` edge — values this test never computes itself).
+This test stands up a REAL, ephemeral ``epistemic-graph-server`` (the sibling
+``epistemic-graph`` checkout, which carries ``Method::ExplainProvenanceByIds`` /
+the widened ``ExplainProvenanceRowWire``, CONCEPT:EG-KB-CURRENCY), seeds a Claim +
+Evidence node pair with a real confidence + bitemporal window and a ``SUPPORTS``
+edge directly over the raw engine client, then asserts the values the facade
+returns via ``include_epistemic=True`` originated in the engine (the confidence,
+the bitemporal window, AND the derived ``source_refs``/``policy_labels`` the
+engine's belief-substrate resolution computes from the ``SUPPORTS`` edge — values
+this test never computes itself).
 
-Skips (does not fail) when the sibling worktree binary is not built — this is
-an integration/measurement proof against a real database, not a unit gate (the
-same convention ``test_shard_write_parallelism.py`` uses).
+Skips (does not fail) when no engine binary is discoverable — this is an
+integration/measurement proof against a real database, not a unit gate (the same
+convention ``test_shard_write_parallelism.py`` uses).
 """
 
 from __future__ import annotations
@@ -23,31 +23,46 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
 
 import pytest
 
-# The EG worktree this AU worktree's cross-repo feature was co-developed
-# against — carries `Method::ExplainProvenanceByIds` and the widened
-# `ExplainProvenanceRowWire` (score/confidence/valid_time/tx_time/policy_labels)
-# in BOTH the Rust server and its own `epistemic_graph` Python client. Prepended
-# ahead of whatever `epistemic-graph` release happens to be pip-installed so
-# `import epistemic_graph` resolves to the matching client for this test — this
-# MUST happen before any AU module lazily imports `epistemic_graph` for the
-# first time in this process (every AU import site is lazy/inside a function,
-# so this module-level insert, which runs at collection time, wins).
-_EG_WORKTREE = Path("/home/apps/worktrees/epistemic-graph/eg-kb-currency")
-if _EG_WORKTREE.is_dir() and str(_EG_WORKTREE) not in sys.path:
-    sys.path.insert(0, str(_EG_WORKTREE))
-
-_EG_SERVER_BIN = Path(
-    "/home/apps/worktrees/.cargo-target/eg-kb-currency/debug/epistemic-graph-server"
-)
-
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(120)]
+
+
+def _find_engine_binary() -> str | None:
+    """Locate a built ``epistemic-graph-server`` (CONCEPT:EG-KB-CURRENCY: needs
+    ``Method::ExplainProvenanceByIds``, merged to the sibling checkout's ``main``).
+
+    Same discovery convention as ``test_shard_write_parallelism.py``: an explicit
+    override, then a sibling ``epistemic-graph`` checkout's ``target/release``
+    (walking up from this file so a worktree layout resolves too), then the
+    canonical workspace location, then whatever is on ``PATH``.
+    """
+    env = os.environ.get("EPISTEMIC_GRAPH_SERVER_BIN")
+    if env and os.path.exists(env):
+        return env
+    here = os.path.dirname(os.path.abspath(__file__))
+    cur = here
+    seen: set[str] = set()
+    while cur and cur not in seen:
+        seen.add(cur)
+        for sub in ("epistemic-graph", "agent-packages/epistemic-graph"):
+            cand = os.path.join(cur, sub, "target", "release", "epistemic-graph-server")
+            if os.path.exists(cand):
+                return cand
+        cur = os.path.dirname(cur)
+    canonical = (
+        "/home/apps/workspace/agent-packages/epistemic-graph/"
+        "target/release/epistemic-graph-server"
+    )
+    if os.path.exists(canonical):
+        return canonical
+    import shutil
+
+    return shutil.which("epistemic-graph-server")
 
 
 def _free_socket_path(root: Path) -> str:
@@ -62,7 +77,7 @@ def _wait_for_socket(proc: subprocess.Popen, sock_path: str, log_path: Path) -> 
         if proc.poll() is not None:
             tail = log_path.read_bytes()[-4000:].decode("utf-8", "replace")
             raise RuntimeError(
-                f"eg-kb-currency epistemic-graph-server exited early "
+                f"epistemic-graph-server exited early "
                 f"(code {proc.returncode}) during startup:\n{tail}"
             )
         if os.path.exists(sock_path):
@@ -74,21 +89,22 @@ def _wait_for_socket(proc: subprocess.Popen, sock_path: str, log_path: Path) -> 
             except OSError:
                 pass
         time.sleep(0.1)
-    raise RuntimeError(
-        "eg-kb-currency epistemic-graph-server did not become ready in time"
-    )
+    raise RuntimeError("epistemic-graph-server did not become ready in time")
 
 
 @pytest.fixture()
 def kb_currency_engine(tmp_path, monkeypatch):
-    """Start the eg-kb-currency worktree's server on an isolated socket + persist
-    dir, wire the AU engine resolver (``GRAPH_SERVICE_SOCKET``/``..._AUTH_SECRET``)
-    at THIS engine, and tear it down after. Yields ``(socket_path, auth_secret)``.
+    """Start a discovered ``epistemic-graph-server`` on an isolated socket +
+    persist dir, wire the AU engine resolver (``GRAPH_SERVICE_SOCKET``/
+    ``..._AUTH_SECRET``) at THIS engine, and tear it down after. Yields
+    ``(socket_path, auth_secret)``. Skips when no engine binary is discoverable, or
+    when the discovered build predates ``Method::ExplainProvenanceByIds``.
     """
-    if not _EG_SERVER_BIN.exists():
+    binary = _find_engine_binary()
+    if binary is None:
         pytest.skip(
-            f"eg-kb-currency worktree binary not built at {_EG_SERVER_BIN} "
-            "(cargo build --bin epistemic-graph-server in that worktree first)"
+            "no epistemic-graph-server binary discoverable "
+            "(EPISTEMIC_GRAPH_SERVER_BIN, sibling checkout target/release, or PATH)"
         )
 
     persist_dir = tmp_path / "persist"
@@ -102,7 +118,7 @@ def kb_currency_engine(tmp_path, monkeypatch):
     env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         [
-            str(_EG_SERVER_BIN),
+            str(binary),
             "--socket-path",
             sock_path,
             "--persist-dir",
@@ -158,7 +174,10 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     sock_path, auth_secret = kb_currency_engine
     test_graph_name = isolate_graph_compute_engine
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    try:
+        from epistemic_graph.client import SyncEpistemicGraphClient
+    except ImportError:  # pragma: no cover
+        pytest.skip("epistemic_graph client not importable")
 
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
@@ -170,8 +189,9 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     evidence_id = f"evidence-{uuid.uuid4().hex[:8]}"
 
     # ── Seed directly over the raw engine client (the "writes a Claim+Evidence
-    # into a real/ephemeral engine" step) — same default `__commons__` graph the
-    # facade's backend below resolves to, so both sides see the same data.
+    # into a real/ephemeral engine" step) — same graph the facade's backend below
+    # resolves to (via the isolate_graph_compute_engine remap), so both sides see
+    # the same data.
     raw = SyncEpistemicGraphClient.connect(
         socket_path=sock_path, auth_secret=auth_secret, graph_name=test_graph_name
     )
@@ -199,12 +219,20 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     finally:
         raw.close()
 
+    if not hasattr(SyncEpistemicGraphClient, "connect"):  # pragma: no cover
+        pytest.skip("epistemic_graph client shape unexpected")
+
     # ── Read via the AU facade. Wire the facade's backend to the SAME engine
     # explicitly (bypassing the lazy `create_backend()` factory, which has no
     # `graph_name`/socket override) — this still exercises the real
     # `KnowledgeGraph.query`/`_attach_epistemic` code path under test.
     kg = KnowledgeGraph()
     kg._store = EpistemicGraphBackend()
+    if not hasattr(kg.store.graph, "explain_provenance_by_ids"):  # pragma: no cover
+        pytest.skip(
+            "installed epistemic_graph client predates "
+            "explain_provenance_by_ids (CONCEPT:EG-KB-CURRENCY)"
+        )
     try:
         cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
 
