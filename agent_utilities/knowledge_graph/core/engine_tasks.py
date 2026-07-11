@@ -299,6 +299,20 @@ _PROMOTION_SWEEP_INTERVAL = 60.0
 # reaper's crash-requeue terminal) so the two failure modes triage separately.
 _TERMINAL_TASK_STATUS = frozenset({"completed", "failed", "cancelled", "dead_letter"})
 
+# AU-P1-CL: ``_update_task_status``'s terminal-status arg -> the WorkItem
+# outcome committed through the claim-time shadow (when one exists). All
+# calls through ``_update_task_status`` are treated as non-retryable (the
+# APP-LEVEL retry/backoff/DLQ decision lives in ``_fail_or_retry_task``,
+# which commits through ``work_item.commit_result`` itself with
+# ``retryable=True`` and only calls back into ``_update_task_status`` once
+# IT has already decided the outcome is terminal — see that method).
+_INGEST_TERMINAL_STATUS_TO_WORK_ITEM: dict[str, str] = {
+    "completed": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "dead_letter": "failed",
+}
+
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # per-batch summarization concurrency is CPU/mem auto-sized via
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env
@@ -474,6 +488,78 @@ class GraphEngineProtocol(Protocol):
         return []
 
 
+class _ControlPlaneWorkItemEngine:
+    """Adapts a ``TaskManagerMixin`` host to the ``engine`` protocol
+    :mod:`agent_utilities.orchestration.work_item` expects (``add_node``/
+    ``query_cypher``/``link_nodes``/``compare_and_set_node_fields``), bound
+    ENTIRELY to the host's isolated ``__control__`` backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
+
+    The ingestion queue's ``:Task`` claim/reap/retry is control-plane, so its
+    WorkItem shadow must be too — reusing ``engine.add_node``/
+    ``engine.query_cypher`` directly (as the AgentTask bridge does) would
+    route the shadow's CAS onto ``__commons__`` and reintroduce exactly the
+    content-ingestion write-lock contention the control/commons split exists
+    to avoid. This adapter is the ONLY thing that changes: every state-
+    machine transition in ``work_item.py`` is reused unmodified.
+    """
+
+    def __init__(self, host: "TaskManagerMixin") -> None:
+        self._host = host
+
+    def query_cypher(
+        self, cypher: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        return self._host._control_cypher(cypher, params)
+
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+    ) -> None:
+        backend = self._host._control
+        if backend is None:
+            return
+        add = getattr(backend, "add_node", None)
+        if callable(add):
+            add(node_id, label=node_type, **(properties or {}))
+
+    def link_nodes(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        properties: dict | None = None,
+        ephemeral: bool = False,
+    ) -> None:
+        backend = self._host._control
+        add_edge = getattr(backend, "add_edge", None)
+        if not callable(add_edge):
+            return
+        try:
+            add_edge(source_id, target_id, rel_type=str(rel_type), **(properties or {}))
+        except Exception as e:  # noqa: BLE001 — viz edge is best-effort
+            logger.debug("control-plane work-item view: link_nodes failed: %s", e)
+
+    def compare_and_set_node_fields(
+        self, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
+    ) -> bool:
+        backend = self._host._control
+        fn = getattr(backend, "compare_and_set_node_fields", None)
+        if not callable(fn):
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                f"{type(backend).__name__} has no compare_and_set_node_fields — "
+                "the ingestion queue's WorkItem shadow requires an engine-native "
+                "atomic CAS control backend."
+            )
+        return bool(fn(node_id, conditions, updates))
+
+
 class TaskManagerMixin(GraphEngineProtocol):
     """Mixin for native persistent Task Queues in the Intelligence Graph.
 
@@ -629,6 +715,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         if ctrl is not None and hasattr(ctrl, "execute"):
             return ctrl.execute(cypher, params)
         return []
+
+    @property
+    def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
+        """Cached :class:`_ControlPlaneWorkItemEngine` view for the ingestion
+        queue's WorkItem shadow (AU-P1-CL — see that class's docstring)."""
+        view = getattr(self, "_work_item_engine_cache", None)
+        if view is None:
+            view = _ControlPlaneWorkItemEngine(self)
+            self._work_item_engine_cache = view
+        return view
 
     def unified_daemon_status(self) -> dict[str, Any]:
         """Status of the single consolidated background daemon (CONCEPT:AU-KG.coordination.embedder-breaker).
@@ -1227,6 +1323,19 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _tick_task_reaper(self) -> None:
         """Requeue zombie/stuck 'running' tasks (CONCEPT:AU-KG.coordination.embedder-breaker ingestion durability).
 
+        AU-P1-CL: a task claimed under the WorkItem migration (carries
+        ``work_item_id`` in its metadata — stamped by :meth:`_claim_next_task`)
+        is reaped by :func:`~agent_utilities.orchestration.work_item.reap_expired_leases`
+        below — a single claim-TTL lease-expiry check, the SAME consolidation
+        ``agent_dispatch_worker`` already made for ``:AgentTask`` (folding the
+        dead-host-grace and same-host-runtime-cap cases into one mechanism,
+        since there is no periodic heartbeat renewing the lease mid-execution
+        here either). The bespoke host-token heuristic below now applies ONLY
+        to ``:Task`` rows that predate this migration (no ``work_item_id``)
+        — the non-destructive migration shim for in-flight legacy rows, kept
+        verbatim so it continues to self-heal them without requiring a
+        shadow:
+
         A task is marked 'running' when a worker claims it; if that worker/host
         process dies mid-task (crash / SIGKILL / redeploy) the Task is stranded in
         'running' forever and never re-claimed, silently wedging that ingestion. The
@@ -1244,11 +1353,76 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         if effective_daemon_role() != "host":
             return
+
+        now = time.time()
+
+        # AU-P1-CL: lease-expiry reap for shadowed (migrated) tasks — run
+        # first and independently of the legacy sweep below, so a failure in
+        # one pass never blocks the other.
+        try:
+            from agent_utilities.orchestration import work_item as _wi
+
+            reaped = _wi.reap_expired_leases(self._work_item_engine, now=now)
+            for item_id in reaped.get("reaped_ready", []):
+                job_id = _wi.ingest_task_job_id_from_work_item_id(item_id)
+                if job_id is None:
+                    continue
+                existing = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta",
+                    {"id": job_id},
+                )
+                meta = (
+                    _decode_metadata(existing[0].get("meta"))
+                    if existing and existing[0].get("meta")
+                    else {}
+                )
+                meta.pop("claimed_by", None)
+                meta.pop("claim_unix", None)
+                meta["reaper_last_reason"] = "workitem_lease_expired"
+                meta["reaper_last_at"] = datetime.now(UTC).isoformat()
+                # Guard on status='running' so we never clobber a task a worker
+                # just legitimately completed between the reap scan and this write.
+                self._control_cypher(
+                    "MATCH (t:Task {id: $id, status: 'running'}) "
+                    "SET t.status = 'pending', t.metadata = $meta",
+                    {"id": job_id, "meta": _encode_metadata(meta)},
+                )
+                logger.warning(
+                    "TaskReaper: requeued %s via WorkItem lease-expiry (%s)",
+                    job_id,
+                    item_id,
+                )
+            for item_id in reaped.get("reaped_dead_letter", []):
+                job_id = _wi.ingest_task_job_id_from_work_item_id(item_id)
+                if job_id is None:
+                    continue
+                existing = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta",
+                    {"id": job_id},
+                )
+                meta = (
+                    _decode_metadata(existing[0].get("meta"))
+                    if existing and existing[0].get("meta")
+                    else {}
+                )
+                meta["dead_letter_at"] = datetime.now(UTC).isoformat()
+                meta["error"] = "reaper: WorkItem lease exhausted max_attempts"
+                self._control_cypher(
+                    "MATCH (t:Task {id: $id}) SET t.status = 'dead_letter', t.metadata = $meta",
+                    {"id": job_id, "meta": _encode_metadata(meta)},
+                )
+                logger.warning(
+                    "TaskReaper: dead-lettered %s via WorkItem lease-expiry (%s)",
+                    job_id,
+                    item_id,
+                )
+        except Exception as e:  # noqa: BLE001 — WorkItem reap pass is best-effort
+            logger.debug("task_reaper: WorkItem lease-expiry pass failed: %s", e)
+
         try:
             grace = _TASK_ORPHAN_GRACE_SEC
             max_runtime = _TASK_MAX_RUNTIME_SEC
             max_resets = _TASK_MAX_REQUEUE
-            now = time.time()
             token = self._get_host_token()
 
             from agent_utilities.core.state_store import postgres_state_enabled
@@ -1266,6 +1440,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not tid:
                     continue
                 meta = _decode_metadata(row.get("meta")) or {}
+                if meta.get("work_item_id"):
+                    # AU-P1-CL: shadowed tasks are governed by the WorkItem
+                    # lease-expiry pass above — never double-reap the same row.
+                    continue
                 claimed_by = meta.get("claimed_by")
                 # Claim age: prefer claim_unix, else parse started_at; else unknown.
                 claim_unix = meta.get("claim_unix")
@@ -3361,17 +3539,30 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> tuple[str, dict[str, Any]] | None:
         """Claim the next runnable Task and stamp ownership (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
-        Atomicity is now arbitrated by the engine's compare-and-set, which holds
-        the graph write lock for the flip — so a row is claimed exactly once
-        *across hosts*, backend-agnostically, without the former Postgres
-        advisory lock (``state_claim_guard``) or in-process ``threading.Lock``.
-        The bucket-ascending candidate selection is unchanged; for each
-        candidate we CAS ``status: pending → running`` and stamp ownership. A
-        CAS that returns ``False`` means another worker won that row — we skip to
-        the next candidate. The ownership stamp (live host token + claim_unix)
-        is what the zombie reaper uses to requeue a dead host's work. Returns
-        ``(job_id, stamped_meta)`` or ``None`` when idle. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
+        AU-P1-CL: the actual race arbitration is now the engine-native WorkItem
+        state machine, not a raw field CAS on ``:Task``. Each proposed
+        candidate gets a deterministic shadow WorkItem — created lazily,
+        ``ready``, on first claim attempt
+        (:func:`~agent_utilities.orchestration.work_item.ensure_ingest_task_work_item`)
+        — and the win/lose decision is THAT shadow's ``ready -> leased ->
+        running`` CAS
+        (:func:`~agent_utilities.orchestration.work_item.claim_ingest_task_work_item`),
+        bound to the SAME isolated ``__control__`` backend the old raw CAS used
+        (:class:`_ControlPlaneWorkItemEngine`) — so a row is still claimed
+        exactly once *across hosts* without ever contending with content
+        ingestion. The bucket-ascending candidate selection is unchanged. A
+        lost claim (peer won it first, or a stale lease was just reclaimed
+        out from under us) means skip to the next candidate — same contract
+        as the old CAS loss. On a win, the legacy ``:Task.status``/metadata
+        are mirrored (unchanged shape, PLUS the shadow's id + fencing epoch,
+        so a later :meth:`_update_task_status` / :meth:`_fail_or_retry_task`
+        can commit the SAME shadow fenced on that epoch without a second
+        lookup) for unmigrated readers (lane_metrics, the reaper's legacy
+        branch, dashboards). Returns ``(job_id, stamped_meta)`` or ``None``
+        when idle. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
+        from agent_utilities.orchestration import work_item as _wi
+
         # ORCH-1.81: build this claim's admission gate from the live worker→lane
         # registry. Composes WITH the rotation+CAS: rotation proposes a candidate,
         # ``admit`` decides whether THIS free worker may take that lane/type now
@@ -3381,6 +3572,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             admit = self._make_admission()
         except Exception:  # noqa: BLE001 — scheduling is best-effort; never block claims
             admit = None
+
+        token = self._get_host_token()
 
         # Bound the retry sweep so a burst of contending workers can't spin
         # forever; each miss means a peer claimed that candidate, so the next
@@ -3392,31 +3585,84 @@ class TaskManagerMixin(GraphEngineProtocol):
                 return None
             job_id = row["id"]
             meta = _decode_metadata(row.get("meta"))
-            meta["started_at"] = datetime.now(UTC).isoformat()
-            meta["claimed_by"] = self._get_host_token()
-            meta["claim_unix"] = time.time()
-            encoded_meta = _encode_metadata(meta)
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the claim CAS (status: pending→running) is the
-            # hottest control-plane write; route it to the isolated __control__
-            # graph so claims hold a write lock that content ingestion never
-            # touches. Falls back to self.backend when no control backend exists.
-            won = self._control.compare_and_set_node_fields(
-                job_id,
-                {"status": "pending"},
-                {"status": "running", "metadata": encoded_meta},
-            )
-            if won:
-                # ORCH-1.81: stamp the registry the instant the CAS wins so the
-                # NEXT worker's admission sees this lane/type as covered/busy.
-                if worker_id is not None:
-                    from agent_utilities.knowledge_graph.core.task_lanes import (
-                        lane_for_task_type,
-                    )
+            tkind = str(meta.get("type") or meta.get("tkind") or "document")
 
-                    tk = str(meta.get("type") or meta.get("tkind") or "document")
-                    self._worker_registry().start(worker_id, lane_for_task_type(tk), tk)
-                return job_id, meta
-            # Lost the race for this row — try the next candidate.
+            # The shadow's prio_bucket/resource_class/fairness_group mirror the
+            # :Task's own lane/priority stamps (ORCH-1.75/1.76) — a small extra
+            # control-plane read, bounded by _CLAIM_MAX_RETRIES per attempt.
+            prio_bucket = _DEFAULT_PRIO_BUCKET
+            lane = ""
+            try:
+                fields = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.prio_bucket as prio_bucket, "
+                    "t.lane as lane, t.tkind as tkind",
+                    {"id": job_id},
+                )
+                if fields:
+                    prio_bucket = int(
+                        fields[0].get("prio_bucket") or _DEFAULT_PRIO_BUCKET
+                    )
+                    lane = str(fields[0].get("lane") or "")
+                    tkind = str(fields[0].get("tkind") or tkind)
+            except Exception as e:  # noqa: BLE001 — field lookup is best-effort
+                logger.debug(
+                    "claim: prio/lane/tkind lookup failed for %s: %s", job_id, e
+                )
+
+            max_attempts = int(meta.get("max_attempts", _TASK_MAX_ATTEMPTS))
+
+            try:
+                claim = _wi.claim_ingest_task_work_item(
+                    self._work_item_engine,
+                    job_id,
+                    prio_bucket=prio_bucket,
+                    resource_class=lane or "default",
+                    fairness_group=tkind,
+                    max_attempts=max_attempts,
+                    token=token,
+                    # Single-TTL reap model (AU-P1-CL): mirrors the same
+                    # consolidation agent_dispatch_worker.CLAIM_TTL_S already
+                    # made for AgentTask — the runtime cap IS the lease TTL.
+                    lease_ttl_s=_TASK_MAX_RUNTIME_SEC,
+                )
+            except _wi.WorkItemBackendUnavailable:
+                raise
+            except Exception as e:  # noqa: BLE001 — claim is best-effort; treat as a lost race
+                logger.warning("claim: WorkItem claim errored for %s: %s", job_id, e)
+                claim = None
+
+            if claim is None:
+                # Lost the race for this row (or a peer's stale lease was
+                # reclaimed first) — try the next candidate.
+                continue
+
+            now = time.time()
+            meta["started_at"] = datetime.now(UTC).isoformat()
+            meta["claimed_by"] = token
+            meta["claim_unix"] = now
+            meta["work_item_id"] = claim["work_item_id"]
+            meta["work_item_epoch"] = claim["fence_token"]
+            encoded_meta = _encode_metadata(meta)
+            # Mirror the win onto the legacy :Task node (no longer the race
+            # arbiter, but still what lane_metrics / the reaper's legacy
+            # branch / dashboards read) — CONCEPT:AU-KG.backend.schedule-on-control-graph. Only the
+            # actual WorkItem-CAS winner ever reaches this line for a given
+            # job_id, so an unconditional SET here is safe.
+            self._control_cypher(
+                "MATCH (t:Task {id: $id}) SET t.status = 'running', t.metadata = $meta",
+                {"id": job_id, "meta": encoded_meta},
+            )
+            # ORCH-1.81: stamp the registry the instant the claim wins so the
+            # NEXT worker's admission sees this lane/type as covered/busy.
+            if worker_id is not None:
+                from agent_utilities.knowledge_graph.core.task_lanes import (
+                    lane_for_task_type,
+                )
+
+                self._worker_registry().start(
+                    worker_id, lane_for_task_type(tkind), tkind
+                )
+            return job_id, meta
         return None
 
     def _task_worker_loop(self):
@@ -4998,6 +5244,19 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> None:
         """Update a task's status and metadata using base64-encoded JSON.
 
+        AU-P1-CL: when the task carries a claim-time WorkItem shadow
+        (``metadata['work_item_id']``, stamped by :meth:`_claim_next_task`),
+        a terminal status is first committed through
+        :func:`~agent_utilities.orchestration.work_item.commit_result`,
+        fenced on the epoch captured at claim time
+        (``metadata['work_item_epoch']``) — so a stale/superseded worker's
+        late completion is REJECTED (``"fenced"``) rather than clobbering
+        whatever a newer claim holder already decided, instead of the old
+        unconditional ``SET``. A task with no shadow (pre-migration ``:Task``
+        rows — the non-destructive migration shim) or whose commit is
+        accepted/already-settled falls through to the SAME unconditional
+        legacy ``:Task.status``/metadata write as before.
+
         CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task status/metadata is CONTROL plane → __control__.
         """
         if not self.backend:
@@ -5026,6 +5285,44 @@ class TaskManagerMixin(GraphEngineProtocol):
                 except (ValueError, TypeError):
                     pass
 
+        work_item_id = metadata.get("work_item_id")
+        outcome = _INGEST_TERMINAL_STATUS_TO_WORK_ITEM.get(status)
+        if work_item_id and outcome is not None:
+            from agent_utilities.orchestration import work_item as _wi
+
+            claim = {"fence_token": metadata.get("work_item_epoch")}
+            try:
+                result = _wi.commit_result(
+                    self._work_item_engine,
+                    work_item_id,
+                    claim,
+                    outcome=outcome,
+                    retryable=False,
+                    result_ref=f"outcome:ingest_task:{job_id}"
+                    if outcome == "succeeded"
+                    else None,
+                    error_ref=f"ingest_task:{job_id}:{status}"
+                    if outcome != "succeeded"
+                    else None,
+                )
+            except Exception as e:  # noqa: BLE001 — WorkItem commit is best-effort
+                logger.warning(
+                    "_update_task_status: WorkItem commit failed for %s (%s): %s",
+                    job_id,
+                    work_item_id,
+                    e,
+                )
+                result = "committed"  # fall through to the legacy mirror write
+            if result == "fenced":
+                logger.info(
+                    "_update_task_status: %s fenced — a newer claim holder "
+                    "already settled %s; skipping the legacy status write "
+                    "so we never clobber it.",
+                    job_id,
+                    work_item_id,
+                )
+                return
+
         encoded = _encode_metadata(metadata)
         self._control_cypher(
             "MATCH (t:Task {id: $id}) SET t.status = $status, t.metadata = $meta",
@@ -5038,12 +5335,25 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> None:
         """Handle an application-level task failure with retry/backoff/dead-letter.
 
-        A task that *raises* (vs. a host crash, which the reaper handles via
-        ``reaper_resets``) is retried with exponential backoff by re-scheduling
-        it for a future minute (``status='scheduled'`` + ``due_bucket``), then
-        dead-lettered once it exhausts ``max_attempts``. The two counters are
-        deliberately separate: ``attempts`` answers "does this task reliably
-        throw?", ``reaper_resets`` answers "did its host die?". (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
+        AU-P1-CL: when the task carries a claim-time WorkItem shadow, the
+        retry-vs-dead-letter decision AND the backoff delay are now computed
+        by :func:`~agent_utilities.orchestration.work_item.commit_result` —
+        the SAME attempt/backoff/DLQ machinery ``:AgentTask`` already uses,
+        reused rather than reinvented. The numbers are unchanged:
+        ``backoff_base_s``/``max_attempts`` are seeded from THIS task's own
+        values at claim time, so ``base * 2**(attempt-1)`` is exactly the old
+        ``_TASK_RETRY_BASE_SEC * 2**(attempts-1)``. A task with no shadow
+        (pre-migration ``:Task`` rows — the non-destructive migration shim)
+        falls back to the ORIGINAL bespoke backoff/dead-letter math,
+        unchanged.
+
+        A task that *raises* (vs. a host crash, which the reaper handles) is
+        retried with exponential backoff by re-scheduling it for a future
+        minute (``status='scheduled'`` + ``due_bucket``), then dead-lettered
+        once it exhausts ``max_attempts``. The two counters are deliberately
+        separate: ``attempts``/the WorkItem's ``attempt`` answers "does this
+        task reliably throw?", ``reaper_resets`` answers "did its host die?".
+        (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         """
         if not self.backend:
             return
@@ -5054,10 +5364,90 @@ class TaskManagerMixin(GraphEngineProtocol):
         meta = _decode_metadata(rows[0]["meta"]) if rows and rows[0].get("meta") else {}
         if details:
             meta.update(details)
+        meta["error"] = error
+
+        work_item_id = meta.get("work_item_id")
+        if work_item_id:
+            from agent_utilities.orchestration import work_item as _wi
+
+            claim = {"fence_token": meta.get("work_item_epoch")}
+            try:
+                result = _wi.commit_result(
+                    self._work_item_engine,
+                    work_item_id,
+                    claim,
+                    outcome="failed",
+                    retryable=True,
+                    error_ref=f"ingest_task:{job_id}:{error}",
+                )
+            except Exception as e:  # noqa: BLE001 — WorkItem commit is best-effort
+                logger.warning(
+                    "_fail_or_retry_task: WorkItem commit failed for %s (%s): %s",
+                    job_id,
+                    work_item_id,
+                    e,
+                )
+                result = None
+
+            if result == "fenced":
+                logger.info(
+                    "_fail_or_retry_task: %s fenced — a newer claim holder "
+                    "already settled %s; skipping the legacy status write.",
+                    job_id,
+                    work_item_id,
+                )
+                return
+            if result in ("dead_letter", "retry_scheduled"):
+                item = _wi.get_work_item(self._work_item_engine, work_item_id)
+                attempts = int((item or {}).get("attempt") or 0)
+                max_attempts = int(
+                    (item or {}).get("max_attempts") or _TASK_MAX_ATTEMPTS
+                )
+                meta["attempts"] = attempts
+                meta["max_attempts"] = max_attempts
+                if result == "dead_letter":
+                    meta["dead_letter_at"] = datetime.now(UTC).isoformat()
+                    logger.warning(
+                        "Task %s dead-lettered after %d attempts: %s",
+                        job_id,
+                        attempts,
+                        error,
+                    )
+                    self._update_task_status(job_id, "dead_letter", meta)
+                    return
+                # retry_scheduled: mirror the WorkItem's OWN computed
+                # backoff/eta (no duplicate math) onto the delayed-
+                # visibility lane the promotion sweep already drains.
+                eta = float((item or {}).get("next_retry_at") or time.time())
+                meta["eta_unix"] = eta
+                meta.pop("claimed_by", None)
+                meta.pop("claim_unix", None)
+                due_bucket = int(eta // 60)
+                self._control_cypher(
+                    "MATCH (t:Task {id: $id}) "
+                    "SET t.status = 'scheduled', t.due_bucket = $due, t.metadata = $meta",
+                    {"id": job_id, "due": due_bucket, "meta": _encode_metadata(meta)},
+                )
+                logger.info(
+                    "Task %s retry %d/%d scheduled at %.0f (%s)",
+                    job_id,
+                    attempts,
+                    max_attempts,
+                    eta,
+                    error,
+                )
+                return
+            # result in (None, "committed", "noop", "missing") — WorkItem
+            # plumbing errored, already-terminal, or there was no shadow to
+            # commit against: fall through to the legacy bespoke path below
+            # as a safe default so a failure is never silently dropped.
+
+        # Legacy path — non-destructive migration shim for :Task rows that
+        # predate this migration (no work_item_id) and the WorkItem-errored
+        # fallback above.
         attempts = int(meta.get("attempts", 0)) + 1
         max_attempts = int(meta.get("max_attempts", _TASK_MAX_ATTEMPTS))
         meta["attempts"] = attempts
-        meta["error"] = error
         if attempts >= max_attempts:
             meta["dead_letter_at"] = datetime.now(UTC).isoformat()
             logger.warning(
@@ -5472,6 +5862,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         Removes it from the worker poll and the reaper's view without deleting the
         record (audit trail). A 'running' task's in-flight thread isn't interrupted,
         but the task is never re-claimed or requeued. (CONCEPT:AU-KG.coordination.embedder-breaker queue control)
+
+        AU-P1-CL: also best-effort cancels the claim-time WorkItem shadow (if
+        one exists), so a claimed-but-cancelled task's lease is not left to
+        the reaper — never blocking the legacy cancel on that outcome.
         """
         if not job_id:
             return {"status": "error", "error": "job_id required"}
@@ -5483,6 +5877,14 @@ class TaskManagerMixin(GraphEngineProtocol):
         self._control_cypher(
             "MATCH (t:Task {id: $id}) SET t.status = 'cancelled'", {"id": job_id}
         )
+        try:
+            from agent_utilities.orchestration import work_item as _wi
+
+            _wi.cancel_work_item(
+                self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
+            )
+        except Exception as e:  # noqa: BLE001 — WorkItem cancel is best-effort
+            logger.debug("cancel_task: WorkItem cancel skipped for %s: %s", job_id, e)
         return {"status": "success", "job_id": job_id, "prev_status": rows[0].get("s")}
 
     def clear_tasks(self, status: str = "completed") -> dict:

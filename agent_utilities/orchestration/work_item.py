@@ -45,19 +45,37 @@ see the AU-P1-1 report for the full enumeration; the short version:**
   routed through this backend flows through THIS module's state machine; the
   legacy ``:AgentTask.status``/``:AgentLease`` node are mirrored (never
   read) for the unmigrated readers (``fleet_reconciler``, dashboards).
-* SHIMMED (read-only): :func:`work_item_view_of_loop` (Goal/Loop) and
-  :func:`work_item_view_of_task` (the ``:Task`` ingestion queue) project
-  each subsystem's native status onto :class:`WorkItemStatus` for unified
-  observability WITHOUT touching either subsystem's write path
-  (``submit_loop``/``claim_loop``/``run_goal_loop`` and
-  ``submit_task``/``_claim_next_task``/``_fail_or_retry_task`` are all
-  UNCHANGED).
-* FOLLOW-UP (not touched): rewriting ``engine_tasks.py``'s ingestion queue
-  (lanes, admission gate, reaper, scheduled/blocked promotion sweep) onto
-  WorkItem as sole storage, and the simpler team-collaboration ``TaskNode``
-  (``pending|in_progress|completed``) — both out of scope for one session;
-  the KG-backend (``AGENT_CLAIM_BACKEND=kg``, still the default) and
-  engine-native backend (``AGENT_CLAIM_BACKEND=engine``) remain fully intact.
+* MIGRATED (AU-P1-CL — closing the AU-P1-1 follow-up): the ``:Task``
+  ingestion queue's claim/commit/reap arbitration
+  (:mod:`engine_tasks.TaskManagerMixin`) and the team-collaboration
+  ``:TaskNode`` (:mod:`agent_utilities.capabilities.teams.TeamCapability`). See
+  :func:`ensure_ingest_task_work_item`/:func:`claim_ingest_task_work_item`
+  (ingestion queue) and :func:`team_task_work_item_id` (team tasks). Both
+  follow the SAME bridge shape as the AgentTask path above: a deterministic
+  1:1 shadow WorkItem is the actual CAS/lease/attempt/backoff/DLQ authority;
+  the legacy ``:Task.status``/``:TaskNode.status`` fields are mirrored
+  (never read for arbitration) so unmigrated readers (lane_metrics,
+  dashboards, ``list_team_tasks``) keep working unchanged. Lanes, the
+  admission gate, and the fair-rotation candidate SELECTION
+  (``_select_pending_task``) stay on the ``:Task`` index — the WorkItem
+  shadow is created lazily at CLAIM time (mirroring
+  :func:`ensure_agent_task_work_item`'s own lazy-shadow pattern) and is what
+  decides whether a candidate is actually won, not what proposes it. See
+  ``engine_tasks.py``'s module docstring / the AU-P1-CL report for the full
+  reap-consolidation rationale (adopts the same single-claim-TTL
+  simplification :mod:`agent_dispatch_worker` already uses for AgentTask,
+  rather than the old bespoke dead-host-token heuristic — which remains, as
+  a documented non-destructive shim, for ``:Task``/``:TaskNode`` rows that
+  predate this migration and so never got a shadow).
+* SHIMMED (read-only): :func:`work_item_view_of_loop` (Goal/Loop) projects
+  Loop's native status onto :class:`WorkItemStatus` for unified
+  observability WITHOUT touching its write path (``submit_loop``/
+  ``claim_loop``/``run_goal_loop`` are all UNCHANGED — a full Loop-storage
+  migration is still a separate follow-up). :func:`work_item_view_of_task`
+  is kept as the fallback view for a ``:Task`` that has no shadow yet
+  (still ``pending``/pre-migration) — once a task is claimed it gets a real
+  shadow, queryable via :func:`get_work_item`.
+* FOLLOW-UP (not touched): the Loop/Goal storage migration described above.
 
 Reuses, never reinvents:
 
@@ -108,6 +126,13 @@ __all__ = [
     "agent_task_work_item_id",
     "ensure_agent_task_work_item",
     "claim_agent_task_via_work_item",
+    "ingest_task_work_item_id",
+    "ingest_task_job_id_from_work_item_id",
+    "ensure_ingest_task_work_item",
+    "claim_ingest_task_work_item",
+    "team_task_work_item_id",
+    "ensure_team_task_work_item",
+    "start_team_task_work_item",
     "work_item_view_of_loop",
     "work_item_view_of_task",
 ]
@@ -1236,6 +1261,208 @@ def commit_agent_task_work_item(
             "work_item bridge: commit_result failed for %s: %s", work_item_id, e
         )
         return None
+
+
+# ── ingestion :Task bridge — MIGRATED (AU-P1-CL) ───────────────────────
+#
+# Makes WorkItem authoritative for the ingestion queue's claim/commit/reap
+# arbitration (``engine_tasks.TaskManagerMixin``). Mirrors the SAME shape as
+# the AgentTask bridge above, with one deliberate difference: the shadow is
+# created LAZILY at claim time (not at submission time), because lane/
+# admission candidate SELECTION and the blocked/scheduled promotion sweep
+# stay entirely on the ``:Task`` index (unchanged — see the module
+# docstring) — a submitted-but-not-yet-pending task has nothing for a
+# WorkItem shadow to usefully arbitrate yet.
+
+
+_INGEST_TASK_WORK_ITEM_PREFIX = "workitem:ingest_task:"
+
+
+def ingest_task_work_item_id(job_id: str) -> str:
+    """Deterministic 1:1 WorkItem id for a legacy ingestion ``:Task`` id."""
+    return f"{_INGEST_TASK_WORK_ITEM_PREFIX}{job_id}"
+
+
+def ingest_task_job_id_from_work_item_id(work_item_id: str) -> str | None:
+    """Invert :func:`ingest_task_work_item_id`, or ``None`` if not one of ours.
+
+    Used by the reaper (:meth:`~engine_tasks.TaskManagerMixin._tick_task_reaper`)
+    to map a :func:`reap_expired_leases` result back to the legacy ``:Task``
+    id it needs to mirror the outcome onto.
+    """
+    if work_item_id.startswith(_INGEST_TASK_WORK_ITEM_PREFIX):
+        return work_item_id[len(_INGEST_TASK_WORK_ITEM_PREFIX) :]
+    return None
+
+
+def ensure_ingest_task_work_item(
+    engine: Any,
+    job_id: str,
+    *,
+    prio_bucket: int = 2,
+    resource_class: str = "default",
+    fairness_group: str = "",
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_base_s: float = DEFAULT_BACKOFF_BASE_S,
+    now: float | None = None,
+) -> str:
+    """Idempotently create/reuse the WorkItem shadowing ingestion ``:Task`` ``job_id``.
+
+    Called from ``_claim_next_task`` once ``_select_pending_task`` has
+    already proposed ``job_id`` as a candidate (i.e. it is unblocked and
+    due), so the shadow is submitted immediately ``ready`` — the ingestion
+    queue's OWN blocked/scheduled promotion sweep is what decided it was
+    time to try, not WorkItem's dependency machinery (never used here).
+    ``prio_bucket``/``resource_class``/``fairness_group`` mirror the
+    ``:Task``'s ``prio_bucket``/``lane``/``tkind`` at claim time, so the
+    lane/priority/admission the caller already resolved is visible on the
+    authoritative WorkItem too.
+    """
+    item_id = ingest_task_work_item_id(job_id)
+    return submit_work_item(
+        engine,
+        kind="ingest_task",
+        payload_ref=job_id,
+        priority=prio_bucket,
+        resource_class=resource_class,
+        fairness_group=fairness_group,
+        max_attempts=max_attempts,
+        backoff_base_s=backoff_base_s,
+        work_item_id=item_id,
+        idempotency_key=item_id,
+        now=now,
+    )
+
+
+def claim_ingest_task_work_item(
+    engine: Any,
+    job_id: str,
+    *,
+    prio_bucket: int = 2,
+    resource_class: str = "default",
+    fairness_group: str = "",
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_base_s: float = DEFAULT_BACKOFF_BASE_S,
+    token: str | None = None,
+    now: float | None = None,
+    lease_ttl_s: float = DEFAULT_LEASE_TTL_S,
+) -> dict[str, Any] | None:
+    """Claim one ingestion ``:Task`` through the WorkItem state machine.
+
+    Ensures the shadow exists (idempotent, ``ready``), then
+    :func:`claim_specific` + :func:`mark_running` it — same win/lose CAS
+    contract as :func:`claim_agent_task_via_work_item`: ``None`` means a peer
+    (or a stale-lease reclaim race) already has it, the caller moves on to
+    the next candidate. Returns the claim dict (with ``work_item_id``) on a
+    win, so the caller can stamp it into the ``:Task``'s own metadata for a
+    later fenced commit (:func:`commit_result`) without a second lookup.
+    """
+    now = now if now is not None else _now()
+    item_id = ensure_ingest_task_work_item(
+        engine,
+        job_id,
+        prio_bucket=prio_bucket,
+        resource_class=resource_class,
+        fairness_group=fairness_group,
+        max_attempts=max_attempts,
+        backoff_base_s=backoff_base_s,
+        now=now,
+    )
+    claim = claim_specific(
+        engine, item_id, token=token, now=now, lease_ttl_s=lease_ttl_s
+    )
+    if claim is None:
+        return None
+    mark_running(engine, item_id, claim, now=now)
+    return claim
+
+
+# ── team-collaboration :TaskNode bridge — MIGRATED (AU-P1-CL) ──────────
+#
+# Makes WorkItem authoritative for ``capabilities.teams.TeamCapability``'s
+# shared ``:TaskNode`` (``pending|in_progress|completed``). Unlike the
+# ingestion queue, there is no competitive multi-worker claim here — a team
+# task is driven by explicit ``update_task_status`` calls from whichever
+# agent is working it — so the bridge exposes the transitions directly
+# rather than a claim-pool wrapper.
+
+_TEAM_STATUS_TO_WORK_ITEM_VIEW: dict[str, str] = {
+    WorkItemStatus.SUBMITTED.value: "pending",
+    WorkItemStatus.READY.value: "pending",
+    WorkItemStatus.LEASED.value: "in_progress",
+    WorkItemStatus.RUNNING.value: "in_progress",
+    WorkItemStatus.SUCCEEDED.value: "completed",
+    WorkItemStatus.FAILED.value: "failed",
+    WorkItemStatus.CANCELLED.value: "cancelled",
+    WorkItemStatus.DEAD_LETTER.value: "failed",
+}
+
+
+def team_task_work_item_id(task_id: str) -> str:
+    """Deterministic 1:1 WorkItem id for a team-collaboration ``:TaskNode`` id."""
+    return f"workitem:team_task:{task_id}"
+
+
+def ensure_team_task_work_item(
+    engine: Any,
+    task_id: str,
+    *,
+    tenant: str = "",
+    now: float | None = None,
+) -> str:
+    """Idempotently create/reuse the WorkItem shadowing team ``:TaskNode`` ``task_id``.
+
+    Submitted immediately ``ready`` (team tasks have no dependency graph);
+    ``tenant`` carries the owning ``team_id`` for observability/quota.
+    """
+    item_id = team_task_work_item_id(task_id)
+    return submit_work_item(
+        engine,
+        kind="team_task",
+        payload_ref=task_id,
+        tenant=tenant,
+        work_item_id=item_id,
+        idempotency_key=item_id,
+        now=now,
+    )
+
+
+def start_team_task_work_item(
+    engine: Any,
+    task_id: str,
+    *,
+    tenant: str = "",
+    token: str | None = None,
+    now: float | None = None,
+) -> dict[str, Any] | None:
+    """Ensure + claim + run a team task's shadow in one call (``pending -> in_progress``).
+
+    Returns the claim dict on success, or ``None`` when the shadow is not
+    presently ``ready`` (already running/terminal elsewhere) — the caller
+    (``TeamCapability.update_task_status``) treats a ``None`` as "nothing to
+    transition" and still mirrors the caller's requested status onto the
+    legacy ``:TaskNode`` field (best-effort, non-blocking).
+    """
+    now = now if now is not None else _now()
+    item_id = ensure_team_task_work_item(engine, task_id, tenant=tenant, now=now)
+    claim = claim_specific(engine, item_id, token=token, now=now)
+    if claim is None:
+        return None
+    mark_running(engine, item_id, claim, now=now)
+    return claim
+
+
+def team_task_status_view(engine: Any, task_id: str) -> str | None:
+    """Canonical team-vocabulary status (``pending|in_progress|completed|
+    failed|cancelled``) for a team task's shadow WorkItem, or ``None`` if no
+    shadow exists yet (the task was never transitioned through the bridge —
+    the legacy field is authoritative in that case, the non-destructive
+    migration shim for pre-existing ``:TaskNode`` rows)."""
+    item_id = team_task_work_item_id(task_id)
+    item = get_work_item(engine, item_id)
+    if item is None:
+        return None
+    return _TEAM_STATUS_TO_WORK_ITEM_VIEW.get(str(item.get("status")))
 
 
 # ── Goal/Loop + ingestion :Task shims (read-only, SHIMMED not migrated) ─
