@@ -128,7 +128,7 @@ def _discover_domains() -> dict[str, list[str]]:
     """Introspect the engine client sub-client classes → ``{domain: [methods]}``.
 
     The ``epistemic_graph`` client mirrors the wire protocol 1:1, so its public
-    async methods ARE the engine's invokable capability surface. Discovering them
+    async methods ARE the engine's invocable capability surface. Discovering them
     (instead of hand-listing 200+ methods) keeps this surface drift-free: a new
     engine method shows up automatically once the client wraps it.
     """
