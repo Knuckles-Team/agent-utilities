@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 982
+total_concepts: 983
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4927,18 +4927,6 @@ concepts:
   - AU-KG.evolution.placement-mining-canary-loop
   canonical_pillar: AU-KG
   needs_curation: false
-- id: AU-KG.identity
-  name: AU-KG.identity
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/memory/media_store.py
-  doc: AU-KG.identity
-  dotted: AU-KG.identity
-  aliases:
-  - AU-KG.identity
-  canonical_pillar: AU-KG
-  needs_curation: false
 - id: AU-KG.identity.asset-occurrence
   name: migrate_legacy_assets_bulk progress callback failed
   pillar: AU-KG
@@ -9705,6 +9693,18 @@ concepts:
   - AU-ORCH.execution.focused-tools-altitude
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.execution.focused-tools-fail-closed
+  name: this branch is entered ONLY
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: this branch is entered ONLY
+  dotted: AU-ORCH.execution.focused-tools-fail-closed
+  aliases:
+  - AU-ORCH.execution.focused-tools-fail-closed
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.execution.global-workspace-attention
   name: ─────────────────────────────────
   pillar: AU-ORCH
@@ -10056,6 +10056,20 @@ concepts:
   dotted: AU-ORCH.execution.robust-multi-format-edit
   aliases:
   - AU-ORCH.execution.robust-multi-format-edit
+  canonical_pillar: AU-ORCH
+  needs_curation: false
+- id: AU-ORCH.execution.run-trace-status-tool
+  name: the node carrying the
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/agent_digital_twin.py
+  - agent_utilities/orchestration/manager.py
+  doc: the node carrying the
+  dotted: AU-ORCH.execution.run-trace-status-tool
+  aliases:
+  - AU-ORCH.execution.run-trace-status-tool
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.service-registry-initialization
