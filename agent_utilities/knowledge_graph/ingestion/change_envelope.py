@@ -49,10 +49,17 @@ IN from today's ``{"id", "type", **props}`` shape, mirroring
 ``GraphSession.from_ambient``'s "read today's ambient shape, produce the new
 explicit object" pattern) and :meth:`ChangeEnvelope.to_entity_dict` (bridge OUT,
 so a caller holding an envelope can still feed today's
-``engine.ingest_external_batch``/``write_entities`` unchanged). It does **not**
-rewrite ``source_sync``'s ~20 per-connector handlers onto it — that full
-ingestion-path consolidation is a later, separate workstream (tracked as a
-follow-up; every existing connector keeps working exactly as it does today).
+``engine.ingest_external_batch``/``write_entities`` unchanged).
+
+**AU-P1-5** (:mod:`~..ingestion.envelope_ingest`) is the ingestion-path
+consolidation this scope note originally deferred: one ``ingest_envelope(engine,
+envelope)`` atomic transaction (validate -> resolve identity -> write -> lineage
++checkpoint -> CDC -> watermark, crash-resume safe), a first wave of migrated
+``source_sync`` handlers (``leanix``, ``claude_memory``), and 5 brand-new
+envelope-native connectors closing the L27 mandatory-manifest gap. The
+remaining ``source_sync`` handlers are enumerated as still-legacy right in
+``source_sync``'s own module docstring — a scoped, stated follow-up, not a
+silent gap.
 """
 
 from __future__ import annotations
@@ -177,6 +184,12 @@ class ChangeEnvelope:
         trace_context: The W3C ``traceparent``/correlation id this change
             should be attributed to (mirrors
             ``GraphSession.trace_context``).
+        live_ids: For a ``snapshot_complete`` marker ONLY (AU-P1-5,
+            :mod:`~..ingestion.envelope_ingest`) — the authoritative set of
+            still-live upstream ids as of this snapshot, so the atomic ingest
+            transaction can tombstone any previously-known node absent from it
+            (the envelope-native counterpart of ``source_sync._reconcile``).
+            Empty for every other operation.
     """
 
     connector: str
@@ -210,6 +223,8 @@ class ChangeEnvelope:
     confidence: float = 1.0
     checkpoint: str | None = None
     trace_context: str | None = None
+
+    live_ids: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if self.operation not in OPERATIONS:
@@ -343,6 +358,8 @@ class ChangeEnvelope:
         tenant: str = "",
         source_instance: str = "",
         checkpoint: str | None = None,
+        live_ids: list[str] | tuple[str, ...] | set[str] | None = None,
+        fetch_ok: bool = True,
         **overrides: Any,
     ) -> ChangeEnvelope:
         """The reconcile-pass marker: "the authoritative live-id snapshot for
@@ -351,13 +368,33 @@ class ChangeEnvelope:
         ``source_sync._reconcile``'s ``fetch_ok=True`` branch. Carries no
         payload; a consumer sees this and knows any previously-seen object NOT
         re-asserted since the last ``snapshot_complete`` may be tombstoned.
+
+        ``live_ids`` (AU-P1-5) is the authoritative still-live id set this
+        snapshot asserts — :func:`~..ingestion.envelope_ingest.ingest_envelope`
+        feeds it straight to ``source_sync._reconcile`` so an envelope-native
+        connector gets the SAME fail-closed empty-snapshot handling as the
+        legacy handlers (``fetch_ok=False`` when the live-id fetch itself
+        failed/was skipped — never silently tombstone on an unverified empty
+        snapshot; see ``_reconcile``'s CONCEPT:AU-P0-4 docstring).
+
+        A marker carries no ``source_object_id`` (there's no single object), so
+        its idempotency key would otherwise be IDENTICAL across every reconcile
+        pass ever run for this connector — the second, third, ... pass would all
+        look like a replay of the first and be silently skipped by
+        ``ingest_envelope``'s dedup ledger. Defaulting ``source_version`` to
+        ``checkpoint`` (when the caller doesn't override it) makes each
+        DISTINCT pass (a new checkpoint/watermark cursor) get its own key while
+        a genuine retry of the SAME pass (same checkpoint) still dedupes.
         """
+        overrides.setdefault("source_version", checkpoint or "")
         return cls(
             connector=connector,
             operation="snapshot_complete",
             tenant=tenant,
             source_instance=source_instance,
             checkpoint=checkpoint,
+            live_ids=tuple(live_ids or ()),
+            provenance={**overrides.pop("provenance", {}), "fetch_ok": fetch_ok},
             **overrides,
         )
 
@@ -432,6 +469,7 @@ class ChangeEnvelope:
             "confidence": self.confidence,
             "checkpoint": self.checkpoint,
             "trace_context": self.trace_context,
+            "live_ids": list(self.live_ids),
         }
 
     def to_json(self) -> str:

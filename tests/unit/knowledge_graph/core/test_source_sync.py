@@ -808,3 +808,113 @@ def test_gramps_typed_owl_entities(monkeypatch):
     rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
     assert any(r["type"] == "member_of" for r in rels)  # person → family
     assert any(r["type"] == "part_of" for r in rels)  # person → event
+
+
+# ── L27: live sync_source call sites for the 5 mandatory-manifest ops connectors ──
+
+
+def _fake_mcp_config(server_name):
+    return lambda: {server_name: {"command": "true", "args": []}}
+
+
+def test_l27_connectors_all_registered_and_gate_checked():
+    """All 5 L27 connectors are dispatchable AND resolve a real, passing
+
+    connector_manifest.yml through the AU-P1-6 compile-before-sync gate (the
+    exact gap ``connector_manifest_gate``'s own docstring used to name)."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (
+        precheck_source,
+    )
+
+    l27 = {
+        "microsoft-agent",
+        "container-manager-mcp",
+        "documentdb-mcp",
+        "repository-manager",
+        "systems-manager",
+        "vector-mcp",
+    }
+    assert l27 <= set(ss._DELTA_HANDLERS)
+    for source in l27:
+        gate = precheck_source(source)
+        assert gate["checked"] is True, f"{source} has no discoverable manifest"
+        assert gate["ok"] is True, f"{source} manifest failed the gate: {gate['violations']}"
+
+
+def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
+    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+
+    monkeypatch.setattr(
+        mcp_pkg_mod, "_load_mcp_config", _fake_mcp_config("container-manager-mcp")
+    )
+
+    def fake_call_tool(tool_name, arguments):
+        assert tool_name == "cm_list_containers"
+        return {"containers": [{"id": "c1", "name": "web"}, {"id": "c2", "name": "db"}]}
+
+    backend = FakeBackend()
+    engine = FakeEngine(backend)
+    out = sync_source(engine, "container-manager-mcp", mode="full", client=fake_call_tool)
+
+    assert out["status"] == "ok"
+    assert out["source"] == "container-manager-mcp"
+    assert out["records_seen"] == 2
+    assert out["ingested"] == 2
+    assert out["failed"] == 0
+    domains = {d for d, _e, _r in engine.batches}
+    assert domains == {"container-manager-mcp"}
+    ids = {e["id"] for _d, es, _r in engine.batches for e in es}
+    assert ids == {"c1", "c2"}
+
+
+def test_container_manager_mcp_reconcile_tombstones(monkeypatch):
+    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+
+    monkeypatch.setattr(
+        mcp_pkg_mod, "_load_mcp_config", _fake_mcp_config("container-manager-mcp")
+    )
+
+    def fake_call_tool(tool_name, arguments):
+        return {"containers": [{"id": "c1", "name": "web"}]}
+
+    backend = FakeBackend(
+        leanix_nodes=[{"id": "n1", "guid": "c1"}, {"id": "n2", "guid": "gone"}]
+    )
+    engine = FakeEngine(backend)
+    out = sync_source(
+        engine, "container-manager-mcp", mode="reconcile", client=fake_call_tool
+    )
+
+    assert out["status"] == "completed"
+    assert out["tombstoned"] == 1
+    assert backend.archived == ["n2"]
+
+
+def test_documentdb_mcp_unconfigured_server_skips_not_errors(monkeypatch):
+    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+
+    monkeypatch.setattr(mcp_pkg_mod, "_load_mcp_config", lambda: {})
+
+    engine = FakeEngine(FakeBackend())
+    out = sync_source(engine, "documentdb-mcp", mode="full", client=None)
+
+    assert out["status"] == "skipped"
+    assert not engine.batches
+
+
+def test_systems_manager_sync_runs_via_generic_ops_handler(monkeypatch):
+    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+
+    monkeypatch.setattr(mcp_pkg_mod, "_load_mcp_config", _fake_mcp_config("systems-manager"))
+
+    def fake_call_tool(tool_name, arguments):
+        assert tool_name == "list_hosts"
+        return {"hosts": [{"id": "h1", "hostname": "r510"}]}
+
+    backend = FakeBackend()
+    engine = FakeEngine(backend)
+    out = sync_source(engine, "systems-manager", mode="full", client=fake_call_tool)
+
+    assert out["status"] == "ok"
+    assert out["ingested"] == 1

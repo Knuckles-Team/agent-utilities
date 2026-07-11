@@ -18,6 +18,19 @@ Sources opt into **delta** by registering a handler in :data:`_DELTA_HANDLERS`
 entrypoint — it just falls back to a **full hydrate** via the capability registry
 until it grows a delta handler. This keeps the surface uniform while being honest
 about which sources are incremental today.
+
+**AU-P1-5 ChangeEnvelope consolidation** (CONCEPT:AU-KG.ingest.envelope-atomic-
+transaction, :mod:`~..ingestion.envelope_ingest`): the single-object write inside
+a handler is being migrated, one at a time, from an ad hoc
+``engine.ingest_external_batch(domain, entities, relationships)`` call onto one
+``ChangeEnvelope`` per object routed through ``ingest_envelope`` — an atomic
+validate -> identity -> write -> lineage+checkpoint -> CDC -> watermark unit that
+is crash-resume safe at PER-RECORD granularity (a batch call is all-or-visible;
+a crash mid-batch under the old model could silently skip the watermark advance
+for objects that DID get written). :data:`ENVELOPE_NATIVE_SOURCES` /
+:data:`LEGACY_BATCH_SOURCES` enumerate exactly which handlers have made the
+move — every ``_DELTA_HANDLERS`` entry is accounted for in one of the two sets,
+so there is no silently-deferred handler.
 """
 
 from __future__ import annotations
@@ -459,6 +472,19 @@ def _sync_fleet(
 def _sync_leanix(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
+    """AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): object
+
+    writes route through :func:`~..ingestion.envelope_ingest.ingest_envelope` (one
+    ``ChangeEnvelope`` per fact sheet — validate/lineage/CDC/monotonic
+    per-entity watermark, atomically). Relationships are written through the
+    SAME single ``engine.ingest_external_batch`` call as before, decoupled from
+    the per-entity envelopes: a LeanIX relation's endpoints aren't guaranteed to
+    both be inside a given delta batch, so attaching them to one arbitrary
+    "owning" envelope would risk silently dropping edges whose source isn't in
+    this batch. Migrated first as the flagship delta connector (referenced by
+    name in ``ingestion.change_envelope``'s own module docstring) — zero
+    behavior change to the reconcile branch or to relationship writes.
+    """
     if client is None:
         from ...ecosystem.ea_clients import get_leanix_client
 
@@ -487,6 +513,8 @@ def _sync_leanix(
     since = None if mode == "full" else _read_watermark(backend, "leanix")
 
     from ..enrichment.extractors.leanix import extract as leanix_extract
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
 
     batch = leanix_extract(SimpleNamespace(client=client, since=since, ids=ids))
     entities = [{"id": n.id, "type": n.type, **n.props} for n in batch.nodes]
@@ -494,13 +522,30 @@ def _sync_leanix(
         {"source": e.source, "target": e.target, "type": e.rel_type, **e.props}
         for e in batch.edges
     ]
-    if entities:
-        engine.ingest_external_batch("leanix", entities, relationships)
+
+    failed = 0
+    for record in entities:
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector="leanix",
+            id_field="id",
+            version_field="updatedAt",
+            checkpoint=record.get("updatedAt"),
+        )
+        result = ingest_envelope(engine, env, backend=backend)
+        if result.get("status") == "failed":
+            failed += 1
+            logger.warning(
+                "leanix envelope %s failed: %s", env.idempotency_key, result.get("error")
+            )
+    if relationships:
+        engine.ingest_external_batch("leanix", [], relationships)
 
     seen = [e["updatedAt"] for e in entities if e.get("updatedAt")]
     new_watermark = max(seen) if seen else None
-    if new_watermark and (since is None or new_watermark > since):
-        _write_watermark(backend, "leanix", new_watermark)
+    # NOTE: the per-envelope watermark advance already happened atomically
+    # inside ingest_envelope (monotonic-guarded per entity, CONCEPT:AU-KG.ingest.envelope-atomic-transaction) —
+    # this is only the reported summary value, not a second write.
 
     return {
         "status": "ok",
@@ -509,6 +554,7 @@ def _sync_leanix(
         "delta_capable": True,
         "nodes_hydrated": len(entities),
         "relations_hydrated": len(relationships),
+        "failed": failed,
         "since": since,
         "watermark": new_watermark or since,
     }
@@ -706,6 +752,269 @@ def _sync_fleet_connectors(
             "errors": len(errors),
         },
     }
+
+
+# ── L27: live sync_source call sites for the 5 mandatory-manifest ops connectors ──
+#
+# ``connector_manifest_gate.MANDATORY_NAMED_CONNECTOR_SOURCES`` names 12 connectors
+# whose ``connector_manifest.yml`` is unconditionally required (AU-P1-6). 7 already
+# had a live ``sync_source`` call site; 5 did not (its own docstring said so
+# explicitly): ``microsoft-agent``, ``container-manager-mcp``, ``documentdb-mcp``,
+# ``repository-manager``, ``systems-manager``, ``vector-mcp`` — the compile-before-
+# sync gate was correct but reached no runtime path. This closes that ledger item
+# (L27): each gets a real, dispatchable ``_DELTA_HANDLERS`` entry, envelope-native
+# from day one (CONCEPT:AU-KG.ingest.envelope-atomic-transaction, AU-P1-5) — the
+# gate now actually runs whenever ``sync_source(<connector>)`` is called.
+#
+# These are action/ops MCP servers, not document-corpus sources — each gets a
+# MINIMAL snapshot pull (list the server's top-level managed entities) rather than
+# a full document-ingestion preset. The exact listing-tool name is a best-effort
+# assumption (these servers live in sibling repos this package doesn't check out);
+# an unreachable/renamed tool degrades to a `skipped` result, never an error, same
+# as an unconfigured fleet_connectors package — so onboarding the REAL tool name
+# later is a config change here, not a new code path.
+_OPS_CONNECTOR_PRESETS: dict[str, dict[str, str]] = {
+    "microsoft-agent": {
+        # PACKAGE_PRESETS already declares this one (email/Graph API), reused verbatim.
+        "server": "microsoft-mcp",
+        "tool": "list_messages",
+        "records_field": "value",
+        "id_field": "id",
+        "title_field": "subject",
+        "text_field": "body",
+        "updated_field": "lastModifiedDateTime",
+        "doc_type": "email",
+    },
+    "container-manager-mcp": {
+        "server": "container-manager-mcp",
+        "tool": "cm_list_containers",
+        "records_field": "containers",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "",
+        "doc_type": "container",
+    },
+    "documentdb-mcp": {
+        "server": "documentdb-mcp",
+        "tool": "list_collections",
+        "records_field": "collections",
+        "id_field": "name",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "",
+        "doc_type": "collection",
+    },
+    "repository-manager": {
+        "server": "repository-manager",
+        "tool": "rm_list_repositories",
+        "records_field": "repositories",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "updated_at",
+        "doc_type": "repository",
+    },
+    "systems-manager": {
+        "server": "systems-manager",
+        "tool": "list_hosts",
+        "records_field": "hosts",
+        "id_field": "id",
+        "title_field": "hostname",
+        "text_field": "hostname",
+        "updated_field": "",
+        "doc_type": "host",
+    },
+    "vector-mcp": {
+        "server": "vector-mcp",
+        "tool": "list_collections",
+        "records_field": "collections",
+        "id_field": "name",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "",
+        "doc_type": "vector_collection",
+    },
+}
+
+
+def _sync_ops_mcp_connector(
+    engine: Any,
+    *,
+    mode: str,
+    ids: list[str] | None,
+    client: Any,
+    package: str,
+) -> dict[str, Any]:
+    """L27 minimal snapshot pull for one action/ops MCP connector (CONCEPT:AU-KG.ontology.connector-manifest-gate).
+
+    Shared by the 5 thin ``_sync_<package>`` wrappers below. Reaches the
+    connector through the SAME generic ``mcp`` adapter
+    (:class:`~...protocols.source_connectors.connectors.mcp_package.MCPPackageConnector`)
+    ``_sync_fleet_connectors`` uses for the document-corpus fleet, drains its
+    listing tool, and routes each record through
+    :func:`~..ingestion.envelope_ingest.ingest_envelope` — envelope-native from
+    day one, unlike the 20 legacy handlers.
+    """
+    preset = _OPS_CONNECTOR_PRESETS[package]
+    server = preset["server"]
+
+    from ...protocols.source_connectors.connectors.mcp_package import _load_mcp_config
+
+    servers = _load_mcp_config() or {}
+    if server not in servers and package not in servers:
+        return {
+            "status": "skipped",
+            "source": package,
+            "reason": (
+                f"{server} not in mcp_config — the L27 sync_source call site and "
+                "connector_manifest.yml gate are both live; this connector just "
+                "isn't wired into the workspace mcp_config yet"
+            ),
+        }
+
+    backend = getattr(engine, "backend", None)
+    wm_key = package
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+
+    conn_config: dict[str, Any] = {
+        "package": package,
+        "server": server,
+        "tool": preset["tool"],
+        "records_field": preset["records_field"],
+        "id_field": preset["id_field"],
+        "title_field": preset["title_field"],
+        "text_field": preset["text_field"],
+        "updated_field": preset["updated_field"],
+        "doc_type": preset["doc_type"],
+    }
+    if callable(client):
+        conn_config["call_tool"] = client
+
+    from ...protocols.source_connectors.registry import build_connector
+
+    try:
+        conn = build_connector("mcp", conn_config)
+        if mode == "reconcile":
+            docs = list(conn.load())  # type: ignore[attr-defined]
+        else:
+            docs = _drain_incremental(conn, since)
+    except Exception as exc:  # noqa: BLE001 — an unreachable/renamed tool is a skip, not an error
+        return {
+            "status": "skipped",
+            "source": package,
+            "reason": f"connector unavailable: {str(exc)[:160]}",
+        }
+
+    if mode == "reconcile":
+        live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
+        return _reconcile(engine, package, live) | {"source": package}
+
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    processed = 0
+    failed = 0
+    watermark = since
+    for doc in docs:
+        # MCPPackageConnector (the "mcp" adapter, unlike the "mcp_tool" preset
+        # connectors _record_of was written for) stores the raw record under
+        # ``metadata["raw"]``, not ``metadata["record"]`` — read it directly.
+        raw = (getattr(doc, "metadata", None) or {}).get("raw")
+        record: dict[str, Any] = (
+            dict(raw)
+            if isinstance(raw, dict)
+            else {
+                "id": getattr(doc, "id", ""),
+                "name": getattr(doc, "title", ""),
+                "text": getattr(doc, "text", ""),
+            }
+        )
+        record.setdefault("id", getattr(doc, "id", ""))
+        updated_at = getattr(doc, "updated_at", None)
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector=package,
+            id_field="id",
+            version_field=preset["updated_field"] or "id",
+            checkpoint=updated_at,
+        )
+        result = ingest_envelope(engine, env, backend=backend)
+        if result.get("status") == "failed":
+            failed += 1
+            logger.warning(
+                "%s envelope %s failed: %s", package, env.idempotency_key, result.get("error")
+            )
+            continue
+        processed += 1
+        if updated_at and (watermark is None or str(updated_at) > str(watermark)):
+            watermark = updated_at
+
+    return {
+        "status": "ok",
+        "source": package,
+        "mode": mode,
+        "delta_capable": bool(preset["updated_field"]),
+        "records_seen": len(docs),
+        "ingested": processed,
+        "failed": failed,
+        "since": since,
+        "watermark": watermark,
+    }
+
+
+def _sync_microsoft_agent(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``microsoft-agent`` (Graph API messages/Teams/SharePoint)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="microsoft-agent"
+    )
+
+
+def _sync_container_manager_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``container-manager-mcp`` (docker/podman/k8s fleet)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="container-manager-mcp"
+    )
+
+
+def _sync_documentdb_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``documentdb-mcp``."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="documentdb-mcp"
+    )
+
+
+def _sync_repository_manager(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``repository-manager`` (git repo/worktree fleet)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="repository-manager"
+    )
+
+
+def _sync_systems_manager(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``systems-manager`` (host/systems inventory)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="systems-manager"
+    )
+
+
+def _sync_vector_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``vector-mcp`` (vector-store collections)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="vector-mcp"
+    )
 
 
 def _as_epoch(value: Any) -> int | None:
@@ -3174,10 +3483,19 @@ def _sync_claude_memory(
 
     Zero-infra + offline (reads local markdown, no network). The memory dir is
     ``CLAUDE_MEMORY_DIR`` when set, else every ``~/.claude/projects/*/memory`` is swept.
-    Delta is the content-hash write-delta in ``ingest_external_batch`` (unchanged topic
-    files are skipped even on a full sweep); ``ids`` narrows to specific slugs. The
-    ``MEMORY.md`` / ``MEMORY-ARCHIVE.md`` indexes themselves are skipped — only the
-    per-memory topic files are ingested.
+    Delta is the content-hash write-delta (unchanged topic files are skipped even
+    on a full sweep); ``ids`` narrows to specific slugs. The ``MEMORY.md`` /
+    ``MEMORY-ARCHIVE.md`` indexes themselves are skipped — only the per-memory
+    topic files are ingested.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction):
+    each topic file becomes one ``ChangeEnvelope`` (its ``RELATED_TO`` links
+    carried as ``_links``, since a memory's edges are always self-authored —
+    ``source`` is always this record's own id, so attaching them to its own
+    envelope is lossless) routed through
+    :func:`~..ingestion.envelope_ingest.ingest_envelope` — validate/lineage/CDC
+    per file, atomically. Migrated second (after ``leanix``) as the simplest,
+    self-contained, offline exemplar.
     """
     import glob
     import os
@@ -3206,50 +3524,62 @@ def _sync_claude_memory(
             "reason": "no Claude memory dir (set CLAUDE_MEMORY_DIR) or no *.md topic files",
         }
 
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    backend = getattr(engine, "backend", None)
     id_filter = set(ids or [])
-    entities: list[dict[str, Any]] = []
-    relationships: list[dict[str, Any]] = []
+    nodes = 0
+    edges = 0
+    failed = 0
     for f in files:
         slug, name, description, mtype, body, links = _parse_memory_file(f)
         if id_filter and slug not in id_filter:
             continue
         eid = f"claude_memory:{slug}"
-        entities.append(
-            {
-                "id": eid,
-                "type": "AgentMemory",
-                "name": name,
-                "slug": slug,
-                "memory_type": mtype,
-                "description": description,
-                "text": (f"{description}\n\n{body}").strip(),
-                "source_uri": str(f),
-            }
-        )
-        for tgt in dict.fromkeys(links):  # de-dup, preserve order
-            if tgt != slug:
-                relationships.append(
-                    {
-                        "source": eid,
-                        "target": f"claude_memory:{tgt}",
-                        "type": "RELATED_TO",
-                    }
-                )
+        record: dict[str, Any] = {
+            "id": eid,
+            "type": "AgentMemory",
+            "name": name,
+            "slug": slug,
+            "memory_type": mtype,
+            "description": description,
+            "text": (f"{description}\n\n{body}").strip(),
+            "source_uri": str(f),
+        }
+        rel_links = [
+            {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
+            for tgt in dict.fromkeys(links)  # de-dup, preserve order
+            if tgt != slug
+        ]
+        if rel_links:
+            record["_links"] = rel_links
 
-    result = (
-        engine.ingest_external_batch("claude_memory", entities, relationships)
-        if entities
-        else {}
-    )
+        env = ChangeEnvelope.from_connector_record(
+            record, connector="claude_memory", id_field="id", version_field="id"
+        )
+        result = ingest_envelope(engine, env, backend=backend)
+        if result.get("status") == "failed":
+            failed += 1
+            logger.warning(
+                "claude_memory envelope %s failed: %s",
+                env.idempotency_key,
+                result.get("error"),
+            )
+            continue
+        wr = result.get("write_result") or {}
+        nodes += wr.get("nodes", 0)
+        edges += wr.get("edges", 0)
+
     return {
         "status": "ok",
         "source": "claude_memory",
         "mode": mode,
         "delta_capable": True,
         "memories_seen": len(files),
-        "nodes": result.get("nodes", 0),
-        "edges": result.get("edges", 0),
-        "skipped_unchanged": result.get("skipped_unchanged", 0),
+        "nodes": nodes,
+        "edges": edges,
+        "failed": failed,
     }
 
 
@@ -3282,7 +3612,44 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "ard": _sync_ard,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
+    # L27 (AU-P1-5): live sync_source call sites for the 5 mandatory-manifest ops
+    # connectors that previously had none — see ``_OPS_CONNECTOR_PRESETS`` above.
+    # Envelope-native from day one (CONCEPT:AU-KG.ingest.envelope-atomic-transaction).
+    "microsoft-agent": _sync_microsoft_agent,
+    "container-manager-mcp": _sync_container_manager_mcp,
+    "documentdb-mcp": _sync_documentdb_mcp,
+    "repository-manager": _sync_repository_manager,
+    "systems-manager": _sync_systems_manager,
+    "vector-mcp": _sync_vector_mcp,
 }
+
+# AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction) — enumerated migration
+# status of every ``_DELTA_HANDLERS`` entry so there is no silent gap between "one
+# ChangeEnvelope, one atomic ingest_envelope transaction" (the target model) and
+# what actually runs today. ENVELOPE_NATIVE_SOURCES: object writes route through
+# ``ingest_envelope`` (validate/lineage/CDC/monotonic per-record watermark,
+# crash-resume safe). LEGACY_BATCH_SOURCES: unchanged — still a single
+# ``engine.ingest_external_batch(domain, entities, relationships)`` call per sync,
+# each with its own existing test coverage keyed to that batch shape. Migrating a
+# legacy handler is safe ONLY when either (a) its relationships are always
+# self-sourced (an entity's own edges — safe to attach per-envelope, as
+# ``claude_memory`` is) or (b) its relationships are written through a decoupled
+# direct batch call as before (as ``leanix`` does) — a handler whose edges cross
+# arbitrary entities OUTSIDE the current batch (e.g. ``gitlab``'s resolved
+# call-graph) needs a design pass before migrating, not a mechanical port.
+ENVELOPE_NATIVE_SOURCES: frozenset[str] = frozenset(
+    {
+        "leanix",
+        "claude_memory",
+        "microsoft-agent",
+        "container-manager-mcp",
+        "documentdb-mcp",
+        "repository-manager",
+        "systems-manager",
+        "vector-mcp",
+    }
+)
+LEGACY_BATCH_SOURCES: frozenset[str] = frozenset(_DELTA_HANDLERS) - ENVELOPE_NATIVE_SOURCES
 
 
 def sync_source(
