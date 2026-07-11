@@ -563,3 +563,131 @@ class TestAssuranceGateBlocksLiveExecution:
         # did not execute the action.
         assert actuator.applied == []
         assert "execution" not in entry
+
+
+# ---------------------------------------------------------------------------
+# ``get_action_policy`` process-wide cache (SCALE-P2-1 perf fix,
+# CONCEPT:AU-OS.governance.action-policy-decision-point).
+#
+# Before this fix, ``get_action_policy(engine)`` built a brand-new
+# ``ActionPolicy()`` on EVERY call — throwing away the mtime-guarded YAML
+# parse cache described in ``ActionPolicy``'s own docstring ("stateless apart
+# from an mtime-cached parse of the policy file") every single time. A fresh
+# instance never gets to reuse that cache, so every ``decide()`` call re-read
+# and re-parsed ``deploy/action-policy.default.yml`` from disk — measured at
+# ~300ms/call under load in the SCALE-P2-1 soak harness (see
+# ``scripts/scale/loadgen.py``'s ``_MAX_MESSAGE_EVENTS`` comment), two-plus
+# orders of magnitude above the AddNode anchor. These tests pin the fix's
+# contract: O(1) ``ActionPolicy`` construction + O(1) real YAML parses across
+# N ``decide()`` calls for the same engine, AND byte-identical governance
+# decisions to a freshly-constructed (pre-fix-shaped) instance — this is a
+# perf fix, not a policy change.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.concept("AU-OS.governance.action-policy-decision-point")
+class TestGetActionPolicyCache:
+    def setup_method(self, _method):
+        ap.reset_action_policy_cache_for_tests()
+
+    def teardown_method(self, _method):
+        ap.reset_action_policy_cache_for_tests()
+
+    def test_same_engine_returns_the_same_cached_instance(self, engine):
+        first = ap.get_action_policy(engine)
+        second = ap.get_action_policy(engine)
+        assert first is second
+
+    def test_different_engines_get_independent_policy_instances(self):
+        e1, e2 = FakeEngine(), FakeEngine()
+        p1 = ap.get_action_policy(e1)
+        p2 = ap.get_action_policy(e2)
+        assert p1 is not p2
+        assert p1.engine is e1
+        assert p2.engine is e2
+
+    def test_no_engine_returns_a_shared_singleton(self):
+        assert ap.get_action_policy() is ap.get_action_policy()
+        assert ap.get_action_policy(None).engine is None
+
+    def test_reset_forces_reconstruction(self, engine):
+        first = ap.get_action_policy(engine)
+        ap.reset_action_policy_cache_for_tests()
+        second = ap.get_action_policy(engine)
+        assert first is not second
+
+    def test_decide_constructs_the_policy_and_parses_the_yaml_at_most_once(
+        self, engine, monkeypatch
+    ):
+        """The perf regression test: N ``decide()`` calls through the factory
+        must build exactly ONE ``ActionPolicy`` and parse the on-disk policy
+        YAML at most once — not once per call (the SCALE-P2-1 bug)."""
+        construct_calls = 0
+        real_init = ActionPolicy.__init__
+
+        def counting_init(self, *a, **kw):
+            nonlocal construct_calls
+            construct_calls += 1
+            real_init(self, *a, **kw)
+
+        monkeypatch.setattr(ActionPolicy, "__init__", counting_init)
+
+        real_safe_load = yaml.safe_load
+        parse_calls = 0
+
+        def counting_safe_load(*a, **kw):
+            nonlocal parse_calls
+            parse_calls += 1
+            return real_safe_load(*a, **kw)
+
+        monkeypatch.setattr(yaml, "safe_load", counting_safe_load)
+
+        # Same (kind, target) every call so the default rate-limit/blast-radius
+        # budget (max=3/window) doesn't itself change the *decision* partway
+        # through — irrelevant to what this test is pinning (construction/parse
+        # counts), but keeping the decision itself well-defined throughout.
+        num_calls = 50
+        decisions = [
+            ap.get_action_policy(engine)
+            .decide(ActionRequest(kind="bus.send", target="peer-1", source="bus"))
+            .decision
+            for _ in range(num_calls)
+        ]
+        assert all(d in ap._ALLOWING | {ap.DECISION_QUEUE, ap.DECISION_DENY} for d in decisions)
+
+        assert construct_calls == 1, (
+            f"expected ActionPolicy constructed once across {num_calls} "
+            f"decide() calls, constructed {construct_calls} times"
+        )
+        assert parse_calls <= 1, (
+            f"expected the policy YAML parsed at most once across "
+            f"{num_calls} decide() calls (mtime cache should absorb the "
+            f"rest), parsed {parse_calls} times"
+        )
+
+    @pytest.mark.parametrize(
+        "kind,target,source",
+        [
+            ("bus.send", "peer-1", "bus"),
+            ("restart_service", "caddy-mcp", "reconciler"),
+            ("diagnose", "anything", "manual"),
+            ("secret.delete", "db-creds", "reconciler"),
+        ],
+    )
+    def test_cached_decision_matches_a_freshly_constructed_instance(
+        self, kind, target, source
+    ):
+        """Same governance verdict whether ``ActionPolicy`` is cached (new) or
+        rebuilt from scratch (old) — the fix changes allocation, not
+        semantics. Each side gets its OWN fresh engine so ledger/rate-limit
+        accounting can't leak between them and skew the comparison."""
+        request = ActionRequest(kind=kind, target=target, source=source)
+        cached_decision = ap.get_action_policy(FakeEngine()).decide(request)
+
+        fresh_request = ActionRequest(kind=kind, target=target, source=source)
+        fresh_decision = ActionPolicy(engine=FakeEngine()).decide(fresh_request)
+
+        assert cached_decision.decision == fresh_decision.decision
+        assert cached_decision.tier == fresh_decision.tier
+        assert cached_decision.rule_origin == fresh_decision.rule_origin
+        assert cached_decision.reason == fresh_decision.reason
