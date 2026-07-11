@@ -169,6 +169,7 @@ flowchart TD
 | Concern | Where |
 |---|---|
 | Core service | `agent_utilities/messaging/bus.py` (`AgentBus`) |
+| Delivery/wakeup plane (AU-P1-2) | `agent_utilities/messaging/bus_log.py` (`resolve_bus_log_backend`, `EngineBrokerBusLog`, `KafkaBusLog`) |
 | MCP tool + REST twin | `agent_utilities/mcp/tools/bus_tools.py` (`graph_bus`) → `/graph/bus` |
 | Native agent tools (universal) | `tools/agent_tools.py` (`bus_join`/`bus_peers`/`bus_send`/`bus_check`) + `tools/tool_registry.py` |
 | Capability awareness | `bus_capability_prompt()` (`messaging/bus.py`) injected at `agent/factory.py` |
@@ -183,6 +184,80 @@ flowchart TD
 | Load harness | `scripts/bench_bus.py` |
 | Capacity model | `docs/scaling/capacity_model.py` (`bus_plan_for`) |
 | Health | `system_doctor` `bus` check (`deployment/doctor.py`) |
+
+## Delivery/wakeup plane: partitioned log, not graph fan-out (AU-P1-2)
+
+The registry above — `:BusAgent`/`:Topic`/`:BusSubscription` — stays exactly as described: it is
+small, low-churn metadata, and belongs in the KG. What does **not** belong there is the
+high-volume message BODIES. Before AU-P1-2, `send()` wrote one `:BusMessage` graph node PER
+RECIPIENT (fan-out — O(agents) writes) and `receive()` read the mailbox via a property-scoped
+`MATCH (m:BusMessage {recipient/topic:...})` scan (O(history) reads) — a graph store pressed
+into service as a queue.
+
+`messaging/bus_log.py` is the fix: `send`/`receive` now resolve a **durable partitioned log** as
+the hot delivery/wakeup plane, with real offsets/consumer cursors instead of a graph `MATCH`, a
+DLQ for poison messages, and backpressure via queue depth. Three backends, resolved by
+`resolve_bus_log_backend()` in preference order:
+
+```mermaid
+flowchart LR
+    SEND["AgentBus.send()"] --> RESOLVE{"resolve_bus_log_backend()"}
+    RESOLVE -->|"engine broker\nreachable"| ENG["EngineBrokerBusLog\n(AMQP-style exchange+queue per recipient)"]
+    RESOLVE -->|"else, Kafka\nconfigured"| KAF["KafkaBusLog\n(keyed topics + per-subscriber consumer group)"]
+    RESOLVE -->|"else"| GRAPH["graph fallback (None)\noriginal :BusMessage model — dev only"]
+    ENG --> RECV["AgentBus.receive()"]
+    KAF --> RECV
+    GRAPH --> RECV
+```
+
+1. **engine** — the epistemic-graph engine's NATIVE AMQP-style message broker (the same surface
+   the `graph_broker` MCP tool exposes: `declare_exchange`/`declare_queue`/`bind`/`publish`/
+   `consume`/`stats`). A `direct` exchange per tenant with ONE durable queue per recipient
+   (`bus.inbox.<tenant>.<agent_id>`) gives native per-recipient delivery with no client-side
+   filtering; a `fanout` exchange per (tenant, topic) with one queue per subscriber
+   (`bus.subq.<tenant>.<agent_id>.<topic>`) means ONE `publish` call reaches every subscriber —
+   the broker owns fan-out, never application code. Reached through the same
+   `SyncEpistemicGraphClient` every `engine_<domain>` tool already uses (or directly via an
+   `engine.broker` attribute — the injectable test seam).
+2. **kafka** — `KafkaQueueBackend`'s keyed-partition conventions, reused: two topics
+   (`agent_bus_direct`/`agent_bus_topic`), tenant-qualified partition keys
+   (`bus_partition_key(tenant, target)` = `"<tenant>:<target>"`), one dedicated consumer group
+   per subscriber tracking its own committed offset. The one Kafka trade-off vs the engine's
+   native per-recipient queues: a subscriber's consumer is assigned every partition of the
+   shared keyed topic (Kafka has no routing-key-to-queue binding), so it reads — and discards —
+   traffic addressed to other recipients/tenants sharing that topic. That cost scales with total
+   bus TRAFFIC, never with the number of registered agents — it is not the O(agents) fan-out
+   this workstream removed.
+3. **graph** (`None` from the resolver) — the ORIGINAL `:BusMessage` model, kept as the
+   zero-infra dev fallback exactly as it worked before AU-P1-2. `AgentBus` runs its unchanged
+   graph-node code path whenever the resolver returns `None` — never the default once a broker
+   is configured.
+
+Selection is `AGENT_BUS_LOG_BACKEND` (`engine|kafka|graph`, mirrors `TASK_QUEUE_BACKEND`): unset
+= auto (engine when `ENGINE_ENDPOINT` signals a configured engine, else Kafka when
+`TASK_QUEUE_BACKEND=kafka`/`KAFKA_BOOTSTRAP_SERVERS` is set, else the graph fallback — auto mode
+never attempts a real network connection with nothing configured, so zero-infra deployments and
+unit tests never pay a connect-timeout cost); an EXPLICIT value is a hard contract — `engine`/
+`kafka` raise `BusLogUnavailable` when unreachable, never a silent degrade.
+
+**DLQ + backpressure:** a message that fails to decode (poison) is routed to a DLQ
+queue/topic (`bus.dlq.<tenant>` / `agent_bus_dlq`) instead of blocking the consumer, and is
+never handed to the caller; `read_dlq()` lets an operator inspect it. `receive()` caps the drain
+at `BUS_LOG_MAX_MESSAGES_PER_RECEIVE` per call (backpressure on the hot path); `stats()` reports
+queue/consumer depth for both backends.
+
+**Dev fallback:** `ack()` and `status()["log_backend"]` both branch the same way — `ack` is a
+best-effort success when log-backed (the message was already committed/acked at receive time;
+there is no per-message graph node left to mark), and `status` reports which plane is active
+(`"engine"` / `"kafka"` / `"graph"`).
+
+**Known follow-up:** `replay_recent` (bounded-window backfill for a late topic subscriber) is
+fully honored on Kafka (an explicit `offsets_for_times` seek) but not yet on the engine broker
+(AMQP fanout only reaches queues bound at publish time — there is no time-indexed replay without
+a queue already existing); federation dedup (`group_messages`/`group_exists`) still reads
+`:BusMessage` nodes and is unaffected by log-backed delivery — a future workstream should move
+that bookkeeping to one lightweight per-`msg_group` marker node so ECO-4.86 works identically on
+every delivery plane.
 
 ## Backend note (live-validated)
 
