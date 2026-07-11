@@ -187,6 +187,15 @@ class ModelDefinition(BaseModel):
             "is a CA-bundle path used to verify this endpoint."
         ),
     )
+    reasoning_effort: str | None = Field(
+        default="inherit",
+        description=(
+            "Per-model reasoning/thinking-effort override. The sentinel 'inherit' (default) "
+            "keeps the caller's setting; an explicit level ('none'/'low'/'medium'/'high'/"
+            "'xhigh') pins it for this model; null opts the model back into its native "
+            "reasoning (no reasoning_effort sent)."
+        ),
+    )
     tier: ModelTier = Field(
         default="medium",
         description=(

@@ -71,6 +71,10 @@ class EmbeddingEndpoint:
     oauth2: dict[str, object] | None
     gpu_group: str | None
     is_fallback: bool
+    #: Static per-endpoint HTTP headers + TLS policy (CONCEPT:AU-KG.enrichment.each-call-resolves-active),
+    #: so a failed-over embedder carries its OWN gateway headers / CA while active.
+    headers: dict[str, str] | None = None
+    ssl_verify: bool | str | None = None
 
 
 # --- observability: track + log endpoint transitions ------------------------
@@ -133,6 +137,8 @@ def _endpoint_from_cfg(
         oauth2=getattr(cfg, "oauth2", None),
         gpu_group=gpu_group,
         is_fallback=is_fallback,
+        headers=getattr(cfg, "headers", None) or None,
+        ssl_verify=getattr(cfg, "ssl_verify", None),
     )
 
 

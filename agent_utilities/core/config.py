@@ -363,6 +363,14 @@ class ChatModelConfig(BaseModel):
     only (e.g. an internal self-signed vLLM) without loosening TLS globally; a string is
     a path to a CA bundle / cert used to verify this endpoint. Honored by
     :func:`agent_utilities.core.model_factory.create_model`."""
+    reasoning_effort: str | None = "inherit"
+    """Per-model reasoning/thinking-effort override for the OpenAI-compatible request.
+    The default sentinel ``"inherit"`` means *don't override* — use the caller's
+    ``reasoning_effort`` (``create_model`` defaults to ``"none"`` = thinking OFF, so utility
+    calls return content directly). Pin an explicit level (``"none"``/``"low"``/``"medium"``/
+    ``"high"``/``"xhigh"``) to fix it for THIS model, or set it to ``null`` (None) to opt this
+    model back into its NATIVE reasoning — no ``reasoning_effort`` is sent, so the model uses
+    its own default. Honored by :func:`agent_utilities.core.model_factory.create_model`."""
     supports_json: bool = False
     vision: bool = False
     reasoning: bool = False
@@ -429,6 +437,17 @@ class EmbeddingModelConfig(BaseModel):
     oauth2: dict[str, Any] | None = None
     """OAuth2 ``client_credentials`` block — same shape/semantics as :pyattr:`ChatModelConfig.oauth2`
     (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle); mutually exclusive with :pyattr:`api_key`."""
+    headers: dict[str, str] = Field(default_factory=dict)
+    """Static HTTP headers sent on every request to this embedder's endpoint (e.g. a
+    gateway client-id header ``{"X-Client-Id": "..."}``) — same semantics as
+    :pyattr:`ChatModelConfig.headers`. Honored by
+    :func:`agent_utilities.core.embedding_utilities.create_embedding_model` (openai-compatible
+    provider)."""
+    ssl_verify: bool | str | None = None
+    """Per-model TLS verification — same semantics as :pyattr:`ChatModelConfig.ssl_verify`.
+    ``None`` inherits the caller/global setting; ``False`` disables verification for THIS
+    embedder endpoint only; a string is a CA-bundle path. Honored by
+    :func:`agent_utilities.core.embedding_utilities.create_embedding_model`."""
     parallel_instances: int = 1
     """Number of parallel vLLM instances behind this embedding model's
     ``base_url``. Total parallel-call capacity is ``parallel_instances *

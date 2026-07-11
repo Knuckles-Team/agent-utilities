@@ -69,7 +69,7 @@ def create_embedding_model(
     base_url: str | None = None,
     api_key: str | None = None,
     oauth2: dict[str, Any] | None = None,
-    ssl_verify: bool = to_boolean(string=setting("SSL_VERIFY", "true")),
+    ssl_verify: bool | str = to_boolean(string=setting("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
     """Initialize an embedding model based on provider and environment.
@@ -115,6 +115,13 @@ def create_embedding_model(
     _active_base_url = _embed_cfg.base_url if _embed_cfg else None
     _active_api_key = _embed_cfg.api_key if _embed_cfg else None
     _active_oauth2 = _embed_cfg.oauth2 if _embed_cfg else None
+    # Per-model static headers + TLS (mirrors ChatModelConfig): honored natively for the
+    # openai-compatible embedder — a gateway client-id header / a self-signed internal
+    # embedder endpoint work without any global change. ``None`` ssl_verify ⇒ inherit.
+    _active_headers = (
+        dict(_embed_cfg.headers) if _embed_cfg and _embed_cfg.headers else {}
+    )
+    _active_ssl_verify = _embed_cfg.ssl_verify if _embed_cfg else None
     if provider is None and model is None and base_url is None:
         try:
             from agent_utilities.core.embedding_failover import (
@@ -127,8 +134,15 @@ def create_embedding_model(
             _active_base_url = _ep.base_url or _active_base_url
             _active_api_key = _ep.api_key or _active_api_key
             _active_oauth2 = _ep.oauth2 or _active_oauth2
+            # A failed-over embedder carries its OWN headers / TLS while active.
+            if _ep.headers:
+                _active_headers = dict(_ep.headers)
+            if _ep.ssl_verify is not None:
+                _active_ssl_verify = _ep.ssl_verify
         except Exception:  # noqa: BLE001 — failover is best-effort; keep static defaults
             pass
+    # Per-model TLS (when configured) overrides the caller/global ssl_verify for THIS endpoint.
+    ssl_verify = _active_ssl_verify if _active_ssl_verify is not None else ssl_verify
     provider_str = (
         provider
         or _active_provider
@@ -172,13 +186,18 @@ def create_embedding_model(
     # instead of constructing a new one on every call. Key on every input that
     # changes the client's identity/behaviour.
     oauth2_key = json.dumps(oauth2_val, sort_keys=True) if oauth2_val else None
+    headers_key = (
+        json.dumps(_active_headers, sort_keys=True) if _active_headers else None
+    )
     cache_key: tuple[Any, ...] = (
         provider_str,
         model_str,
         base_url_str,
         api_key_str,
         oauth2_key,
-        bool(ssl_verify),
+        headers_key,
+        # Raw value (bool or CA-bundle path str) so a path and `True` cache distinctly.
+        ssl_verify,
         float(timeout),
     )
     cached = _EMBED_MODEL_CACHE.get(cache_key)
@@ -198,6 +217,7 @@ def create_embedding_model(
             ssl_verify=ssl_verify,
             timeout=timeout,
             provider=provider,
+            headers=_active_headers or None,
         )
         _EMBED_MODEL_CACHE[cache_key] = model_obj
         return model_obj
@@ -209,10 +229,11 @@ def _build_embedding_model(
     model_str: str,
     base_url_str: str,
     api_key_str: str | None,
-    ssl_verify: bool,
+    ssl_verify: bool | str,
     timeout: float,
     provider: str | None,
     oauth2_cfg: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> "BaseEmbedding":
     """Construct a fresh embedding client (the un-cached path, CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
@@ -232,21 +253,23 @@ def _build_embedding_model(
         oauth2_auth = httpx_auth_from_config(oauth2_cfg)
 
     # TLS verification is ON unless the deployment's SSL_VERIFY flag (or an
-    # explicit ssl_verify=False argument) opts out — the canonical factory
-    # keeps verify=True the default; insecure stays a per-call decision. An oauth2-configured
-    # endpoint always gets a real client (sync + async) so the bearer is injected on every
-    # request regardless of the ssl_verify setting.
+    # explicit ssl_verify=False/CA-path argument) opts out — the canonical factory
+    # keeps verify=True the default; insecure stays a per-call decision. A custom client
+    # (sync + async) is also built when an oauth2 bearer must be injected per-request, or
+    # when static per-model ``headers`` must ride on every request.
     http_client: httpx.Client | None = None
     async_http_client: httpx.AsyncClient | None = None
-    if not ssl_verify or oauth2_auth is not None:
+    if not ssl_verify or oauth2_auth is not None or headers:
         http_client = create_http_client(
-            verify=ssl_verify, timeout=timeout, auth=oauth2_auth
+            verify=ssl_verify, timeout=timeout, auth=oauth2_auth, headers=headers
         )  # nosec B501
-        if oauth2_auth is not None:
+        # The async embed path needs the same per-request injection (bearer + headers);
+        # the insecure-only case keeps its prior sync-only client (unchanged behaviour).
+        if oauth2_auth is not None or headers:
             from agent_utilities.core.http_client import create_async_http_client
 
             async_http_client = create_async_http_client(
-                verify=ssl_verify, timeout=timeout, auth=oauth2_auth
+                verify=ssl_verify, timeout=timeout, auth=oauth2_auth, headers=headers
             )
 
     if provider_str == "openai":
