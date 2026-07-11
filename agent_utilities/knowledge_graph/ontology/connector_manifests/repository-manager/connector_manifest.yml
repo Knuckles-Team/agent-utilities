@@ -1,0 +1,175 @@
+connector: repository-manager
+ontology_source: repository
+schema_version: '1'
+resources:
+- name: GitRepository
+  label: Git Repository
+  id_prefix: gitrepository
+  relations: []
+- name: Project
+  label: Project
+  id_prefix: project
+  relations:
+  - name: projectOfRepository
+    label: project of repository
+    target: GitRepository
+    lpg_rel_type: ''
+- name: Worktree
+  label: Worktree
+  id_prefix: worktree
+  relations:
+  - name: worktreeOf
+    label: worktree of
+    target: GitRepository
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    repository: path
+  title_field:
+    repository: branch
+  text_field:
+    repository: repo
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  GitRepository:
+    ontology_class: SoftwareProject
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+  Project:
+    ontology_class: SoftwareProject
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+  Worktree:
+    ontology_class: null
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+sync:
+- preset: repository-worktrees
+  server: repository-manager
+  tool: rm_worktree
+  action: list
+  records_path: worktrees
+  id_field: path
+  title_field: branch
+  text_field: repo
+  updated_field: null
+  pagination: null
+  doc_type: repository
+  raw:
+    server: repository-manager
+    tool: rm_worktree
+    action: list
+    records_path: worktrees
+    id_field: path
+    title_field: branch
+    text_field: repo
+    doc_type: repository
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - repository_manager/connectors/mcp_source_presets.json
+  - repository_manager/ontology/repository.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
+    triple_count: 71
+  signer: ontology-manifest-generator
+  signature: 721483d95a37ea174f5801cd4e4000d94fc32a2c4c6904c9b3888c5be68010e9
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'authoredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.GitRepository.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Project.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Worktree.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- 'auth: API token/PAT per provider. Env: GITLAB_TOKEN/GITLAB_PRIVATE_TOKEN (legacy alias), GITLAB_URL/GITLAB_HOST,
+  GITHUB_TOKEN/GH_TOKEN (legacy alias). GitLab sent as ''PRIVATE-TOKEN'' header; GitHub sent as ''Authorization:
+  Bearer''. required_scopes: none documented (no required PAT scope like ''repo''/''read_api'' declared).
+  Shape: single shared service-wide token per provider, not per-user (a separate AUTH_TYPE=bearer/OIDC/Eunomia
+  layer governs the MCP tool surface itself, not the VCS provider credential).'
+- "change_support: none \u2014 this connector is NOT wired into any source_sync delta/hydrate/materialize\
+  \ ingestion path today (see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory,\
+  \ which omits it entirely); it is an action/ops MCP connector (control-plane calls), not a KG data-ingestion\
+  \ source. cdc: none. webhook: none (any 'webhook' hits in this package's source manage webhooks/admission-hooks\
+  \ IN THE REMOTE SYSTEM \u2014 they are not an inbound push-ingestion receiver into this KG)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."

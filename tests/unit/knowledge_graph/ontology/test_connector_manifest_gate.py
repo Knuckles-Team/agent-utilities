@@ -132,18 +132,58 @@ def test_sync_source_refuses_on_failed_gate(tmp_path: Path, monkeypatch):
 
 
 def test_manifest_required_empty_by_default():
-    """No ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` set -> nothing is opted in."""
-    assert gate.enterprise_required_sources() == set()
-    assert gate.manifest_required("servicenow") is False
+    """No ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` set -> only the AU-P1-6 mandatory
+
+    12 named connectors are required (baked in unconditionally); nothing else is
+    opted in.
+    """
+    assert gate.enterprise_required_sources() == set(gate.MANDATORY_NAMED_CONNECTOR_SOURCES)
+    # servicenow/jira are in the mandatory 12 -> required with no env var at all.
+    assert gate.manifest_required("servicenow") is True
+    assert gate.manifest_required("jira") is True
+    # a source outside the mandatory 12 and not opted in stays permissive.
+    assert gate.manifest_required("archivebox") is False
 
 
 def test_manifest_required_reads_allowlist(monkeypatch):
-    monkeypatch.setenv("CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE", "ServiceNow, Twenty ,")
-    assert gate.enterprise_required_sources() == {"servicenow", "twenty"}
-    assert gate.manifest_required("servicenow") is True
-    assert gate.manifest_required("SERVICENOW") is True
+    monkeypatch.setenv("CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE", "ArchiveBox, Twenty ,")
+    assert gate.enterprise_required_sources() == set(gate.MANDATORY_NAMED_CONNECTOR_SOURCES) | {
+        "archivebox",
+        "twenty",
+    }
+    assert gate.manifest_required("archivebox") is True
+    assert gate.manifest_required("ARCHIVEBOX") is True
     assert gate.manifest_required("twenty") is True
-    assert gate.manifest_required("jira") is False
+    # the AU-P1-6 mandatory 12 are required regardless of the env var.
+    assert gate.manifest_required("servicenow") is True
+    assert gate.manifest_required("jira") is True
+    # something in neither the mandatory 12 nor the env var stays permissive.
+    assert gate.manifest_required("plane") is False
+
+
+def test_mandatory_named_connector_sources_is_the_au_p1_6_twelve():
+    """The AU-P1-6 mandatory set is exactly the 12 named connectors (by their
+
+    resolvable ``sync_source``/package identifiers) — atlassian contributes two
+    (jira, confluence).
+    """
+    assert gate.MANDATORY_NAMED_CONNECTOR_SOURCES == frozenset(
+        {
+            "jira",
+            "confluence",
+            "gitlab",
+            "servicenow",
+            "leanix",
+            "langfuse",
+            "tunnel_manager",
+            "microsoft-agent",
+            "container-manager-mcp",
+            "documentdb-mcp",
+            "repository-manager",
+            "systems-manager",
+            "vector-mcp",
+        }
+    )
 
 
 def test_precheck_source_fails_closed_when_enterprise_gated_manifest_missing(

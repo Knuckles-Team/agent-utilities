@@ -1,0 +1,163 @@
+connector: documentdb-mcp
+ontology_source: documentdb
+schema_version: '1'
+resources:
+- name: Collection
+  label: Collection
+  id_prefix: collection
+  relations: []
+- name: Database
+  label: Database
+  id_prefix: database
+  relations:
+  - name: hostedOnServer
+    label: hosted on server
+    target: DatabaseServer
+    lpg_rel_type: ''
+- name: DatabaseServer
+  label: Database Server
+  id_prefix: databaseserver
+  relations: []
+- name: DatabaseUser
+  label: Database User
+  id_prefix: databaseuser
+  relations:
+  - name: authorizedOn
+    label: authorized on
+    target: Database
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    documentdb_document: _id
+  title_field:
+    documentdb_document: _id
+  text_field:
+    documentdb_document: text
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Collection:
+    ontology_class: null
+    fields:
+      collectionName: xsd:string
+      databaseName: xsd:string
+      documentCount: xsd:integer
+      serverVersion: xsd:string
+      userRoles: xsd:string
+  Database:
+    ontology_class: null
+    fields:
+      collectionName: xsd:string
+      databaseName: xsd:string
+      documentCount: xsd:integer
+      serverVersion: xsd:string
+      userRoles: xsd:string
+  DatabaseServer:
+    ontology_class: Server
+    fields:
+      collectionName: xsd:string
+      databaseName: xsd:string
+      documentCount: xsd:integer
+      serverVersion: xsd:string
+      userRoles: xsd:string
+  DatabaseUser:
+    ontology_class: Person
+    fields:
+      collectionName: xsd:string
+      databaseName: xsd:string
+      documentCount: xsd:integer
+      serverVersion: xsd:string
+      userRoles: xsd:string
+sync:
+- preset: documentdb-collection-documents
+  server: documentdb-mcp
+  tool: documentdb_crud
+  action: find
+  records_path: ''
+  id_field: _id
+  title_field: _id
+  text_field: text
+  updated_field: null
+  pagination: null
+  doc_type: documentdb_document
+  raw:
+    server: documentdb-mcp
+    tool: documentdb_crud
+    action: find
+    params:
+      database_name: app
+      collection_name: documents
+      filter: {}
+      limit: 100
+    records_path: ''
+    id_field: _id
+    title_field: _id
+    text_field: text
+    doc_type: documentdb_document
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - documentdb_mcp/connectors/mcp_source_presets.json
+  - documentdb_mcp/ontology/documentdb.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: a1bfde343fa2d6d3712ede2d1aea31bdded7424c3268dbee32f12023ba81b8c9
+    triple_count: 41
+  signer: ontology-manifest-generator
+  signature: b2cb009a5d06e0cf43f4edafd3bacc868bc7c12685283752ff29125d2de0f8e0
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'inCollection' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'inDatabase' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Collection.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Database.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseServer.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseUser.ontology_class = 'Person' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "auth: connection-string credentials (Mongo/DocumentDB driver) \u2014 no separate user/pass env vars;\
+  \ credentials must be embedded in the URI. Env: MONGODB_URI, MONGODB_HOST, MONGODB_PORT, AUTH_TYPE (scram-sha-1/256/standard/none\
+  \ \u2014 selects SASL mechanism, not a credential). required_scopes: none for connector auth itself\
+  \ (Mongo 'roles' only appear as a tool feature for creating DB users, not this connector's own auth).\
+  \ Shape: single shared connection string for the whole server process (system-to-system)."
+- "change_support: none \u2014 this connector is NOT wired into any source_sync delta/hydrate/materialize\
+  \ ingestion path today (see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory,\
+  \ which omits it entirely); it is an action/ops MCP connector (control-plane calls), not a KG data-ingestion\
+  \ source. cdc: none. webhook: none (any 'webhook' hits in this package's source manage webhooks/admission-hooks\
+  \ IN THE REMOTE SYSTEM \u2014 they are not an inbound push-ingestion receiver into this KG)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."
