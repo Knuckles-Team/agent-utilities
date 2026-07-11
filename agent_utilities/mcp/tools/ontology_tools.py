@@ -392,7 +392,10 @@ def register_ontology_tools(mcp):
     def graph_ontology(
         action: str = Field(
             default="list",
-            description="load | list | get | update | delete | validate | activate | deactivate | sync_packages.",
+            description=(
+                "load | list | get | update | delete | validate | activate | deactivate | "
+                "sync_packages | publish_stardog | import_stardog."
+            ),
         ),
         source: str = Field(
             default="",
@@ -422,8 +425,27 @@ def register_ontology_tools(mcp):
             default=False,
             description="For action='delete': also attempt to drop materialized inferences (engine-gap aware).",
         ),
+        named_graph: str = Field(
+            default="",
+            description=(
+                "For publish_stardog/import_stardog: the Stardog named-graph URI to write "
+                "to / read from (omit for the default graph)."
+            ),
+        ),
+        overwrite: bool = Field(
+            default=True,
+            description=(
+                "For publish_stardog: REPLACE the target graph (clear-then-add) so an "
+                "updated ontology updates the catalog instead of accumulating stale triples."
+            ),
+        ),
+        activate: bool = Field(
+            default=True,
+            description="For import_stardog: activate the imported ontology for reasoning.",
+        ),
     ) -> str:
-        """Load / list / inspect / version / unload / validate hosted ontologies."""
+        """Load / list / inspect / version / unload / validate hosted ontologies, and
+        publish/import the ontology catalog to/from a Stardog triplestore."""
         from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
 
         try:
@@ -486,6 +508,38 @@ def register_ontology_tools(mcp):
                 )
             if action == "sync_packages":
                 return json.dumps(_sync_package_ontologies(lc), default=str)
+            if action == "publish_stardog":
+                # Push the platform's authoritative bundled TBox to Stardog, overwriting
+                # the target graph by default (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+                from agent_utilities.knowledge_graph.core.ontology_publisher import (
+                    OntologyPublisher,
+                    collect_bundled_ontology_graph,
+                )
+
+                graph = collect_bundled_ontology_graph()
+                return json.dumps(
+                    OntologyPublisher().push_to_stardog(
+                        graph,
+                        named_graph=named_graph or None,
+                        overwrite=bool(overwrite),
+                    ),
+                    default=str,
+                )
+            if action == "import_stardog":
+                # Consume the TBox already in Stardog back into the engine, activating it
+                # for reasoning (CONCEPT:AU-KG.ontology.stardog-catalog-import).
+                from agent_utilities.knowledge_graph.core.ontology_publisher import (
+                    import_ontology_from_stardog,
+                )
+
+                return json.dumps(
+                    import_ontology_from_stardog(
+                        named_graph=named_graph or None,
+                        engine=engine,
+                        activate=bool(activate),
+                    ),
+                    default=str,
+                )
             if action in ("activate", "deactivate"):
                 if not iri:
                     return json.dumps({"error": f"{action} requires `iri`"})
