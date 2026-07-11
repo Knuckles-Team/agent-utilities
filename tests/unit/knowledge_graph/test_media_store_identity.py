@@ -132,9 +132,18 @@ class _FakeClient:
 
 
 class _FakeCompute:
-    def __init__(self, client: _FakeClient | None = None, graph_name: str = "__commons__"):
+    def __init__(
+        self, client: _FakeClient | None = None, graph_name: str = "__commons__"
+    ):
         self._client = client or _FakeClient()
         self.graph_name = graph_name
+
+    def nodes(self, data: bool = False):
+        """Fallback node-enumeration surface ``iter_nodes_by_types`` uses when a
+        graph exposes no ``get_nodes_by_label`` (this fake has none) — exercises
+        that local/test-graph path for :meth:`MediaStore.migrate_legacy_assets_bulk`."""
+        items = list(self._client.txn.nodes.items())
+        return items if data else [nid for nid, _ in items]
 
 
 def _session(tenant: str, actor_id: str = "user:1") -> GraphSession:
@@ -413,7 +422,11 @@ def test_migrate_legacy_asset_creates_distinct_occurrence_without_mutating_legac
     assert new_props["source"] == "legacy-platform"
     assert new_props["message_id"] == "mem:old1"
 
-    assert (res.occurrence_id, legacy_id, {"type": "migratedFrom"}) in client.edges.edges
+    assert (
+        res.occurrence_id,
+        legacy_id,
+        {"type": "migratedFrom"},
+    ) in client.edges.edges
 
 
 def test_migrate_legacy_asset_missing_node_returns_none():
@@ -426,6 +439,130 @@ def test_migrate_legacy_asset_without_digest_returns_none():
     client.txn.nodes["media:bad"] = {"type": "MediaAsset"}
     store = MediaStore(_FakeCompute(client))
     assert store.migrate_legacy_asset("media:bad") is None
+
+
+# --------------------------------------------------------------------------- #
+# Bulk migration sweep (AU-P1-4 follow-up)                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _seed_legacy_asset(
+    client: _FakeClient, data: bytes, *, source: str = "legacy-platform"
+) -> str:
+    """Seed a pre-AU-P1-4 digest-keyed ``media:<digest>`` node + its blob node
+    directly into the fake backing store (as the OLD ``store_media`` used to
+    write it)."""
+    digest = _digest(data)
+    legacy_id = f"media:{digest}"
+    client.txn.nodes[f"blob:{digest}"] = {
+        "type": "Blob",
+        "content_digest": digest,
+        "file_size_bytes": len(data),
+        "created_at": "2025-01-01T00:00:00Z",
+    }
+    client.txn.nodes[legacy_id] = {
+        "type": "MediaAsset",
+        "content_digest": digest,
+        "media_type": "image",
+        "mime_type": "image/png",
+        "source": source,
+        "created_at": "2025-01-01T00:00:00Z",
+        "file_size_bytes": len(data),
+    }
+    return legacy_id
+
+
+def test_migrate_legacy_assets_bulk_migrates_all_and_rerun_is_noop():
+    client = _FakeClient()
+    legacy1 = _seed_legacy_asset(client, b"legacy-bulk-bytes-one")
+    legacy2 = _seed_legacy_asset(client, b"legacy-bulk-bytes-two")
+    store = MediaStore(_FakeCompute(client))
+
+    result = store.migrate_legacy_assets_bulk(session=_session("acme"))
+
+    assert result.scanned == 2
+    assert result.migrated == 2
+    assert result.skipped_already_migrated == 0
+    assert result.failed == 0
+    assert len(result.occurrence_ids) == 2
+
+    occurrences = {
+        nid: data
+        for nid, data in client.txn.nodes.items()
+        if data.get("type") == "AssetOccurrence"
+    }
+    assert len(occurrences) == 2
+    legacy_ids_seen = {props["legacy_asset_id"] for props in occurrences.values()}
+    assert legacy_ids_seen == {legacy1, legacy2}
+
+    # Legacy nodes are completely untouched (non-destructive).
+    assert client.txn.nodes[legacy1]["type"] == "MediaAsset"
+    assert client.txn.nodes[legacy2]["type"] == "MediaAsset"
+    assert "legacy_asset_id" not in client.txn.nodes[legacy1]
+
+    # Re-running the sweep is a full no-op: idempotent, no new occurrences minted.
+    result2 = store.migrate_legacy_assets_bulk(session=_session("acme"))
+    assert result2.scanned == 2
+    assert result2.migrated == 0
+    assert result2.skipped_already_migrated == 2
+    assert result2.failed == 0
+    assert result2.occurrence_ids == []
+
+    occurrences_after = [
+        data
+        for _nid, data in client.txn.nodes.items()
+        if data.get("type") == "AssetOccurrence"
+    ]
+    assert len(occurrences_after) == 2  # unchanged by the re-run
+
+
+def test_migrate_legacy_assets_bulk_batches_and_reports_progress():
+    client = _FakeClient()
+    for i in range(5):
+        _seed_legacy_asset(client, f"legacy-bulk-batch-{i}".encode())
+    store = MediaStore(_FakeCompute(client))
+
+    progress_calls: list[dict] = []
+    result = store.migrate_legacy_assets_bulk(
+        batch_size=2, session=_session("acme"), progress=progress_calls.append
+    )
+
+    assert result.scanned == 5
+    assert result.migrated == 5
+    # 5 items / batch_size 2 -> batches of [2, 2, 1] -> 3 progress calls.
+    assert len(progress_calls) == 3
+    assert [c["processed"] for c in progress_calls] == [2, 4, 5]
+    assert progress_calls[-1]["migrated"] == 5
+    assert progress_calls[-1]["scanned"] == 5
+
+
+def test_migrate_legacy_assets_bulk_counts_failures_without_aborting():
+    client = _FakeClient()
+    legacy_ok = _seed_legacy_asset(client, b"legacy-bulk-good-bytes")
+    client.txn.nodes["media:bad"] = {"type": "MediaAsset"}  # no content_digest
+    store = MediaStore(_FakeCompute(client))
+
+    result = store.migrate_legacy_assets_bulk(session=_session("acme"))
+
+    assert result.scanned == 2
+    assert result.migrated == 1
+    assert result.failed == 1
+    assert "media:bad" in result.failed_ids
+    occurrences = [
+        data
+        for _nid, data in client.txn.nodes.items()
+        if data.get("type") == "AssetOccurrence"
+    ]
+    assert len(occurrences) == 1
+    assert occurrences[0]["legacy_asset_id"] == legacy_ok
+
+
+def test_migrate_legacy_assets_bulk_empty_graph_is_a_noop():
+    store = MediaStore(_FakeCompute())
+    result = store.migrate_legacy_assets_bulk()
+    assert result.scanned == 0
+    assert result.migrated == 0
+    assert result.as_dict()["scanned"] == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -446,4 +583,7 @@ def test_fetch_bytes_and_fetch_asset_roundtrip():
 def test_empty_bytes_is_noop():
     store = MediaStore(_FakeCompute())
     assert store.store_media(b"") is None
-    assert store.store_rendition(b"", source_digest="x", rendition_type="thumbnail") is None
+    assert (
+        store.store_rendition(b"", source_digest="x", rendition_type="thumbnail")
+        is None
+    )

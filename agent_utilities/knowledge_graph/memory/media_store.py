@@ -50,13 +50,21 @@ conflicts (so a failed write never leaks a permanent reference). See
 **Migration.** Pre-AU-P1-4 digest-keyed ``media:<digest>`` nodes (``type ==
 "MediaAsset"``) are left exactly as they are — nothing reads or rewrites them
 automatically, so any existing consumer still querying ``type = 'MediaAsset'``
-keeps working unchanged. :meth:`MediaStore.migrate_legacy_asset` is the opt-in
-upgrade path: given a legacy asset id, it reads its ``content_digest`` (no bytes
-re-fetch — the blob already exists) and mints a NEW, distinct ``:AssetOccurrence``
-pointing at that same blob, carrying the legacy node's fields forward as
-provenance and stamping ``legacy_asset_id`` for audit. It is intentionally NOT
-idempotent/bulk — each call mints one new occurrence, matching the "never
-digest-collapsed" invariant; a bulk sweep is a follow-up (see AGENTS.md).
+keeps working unchanged. :meth:`MediaStore.migrate_legacy_asset` is the opt-in,
+per-id upgrade path: given a legacy asset id, it reads its ``content_digest`` (no
+bytes re-fetch — the blob already exists) and mints a NEW, distinct
+``:AssetOccurrence`` pointing at that same blob, carrying the legacy node's
+fields forward as provenance and stamping ``legacy_asset_id`` for audit. Calling
+it twice for the SAME legacy id mints two occurrences — consistent with (not a
+violation of) the "never digest-collapsed" invariant.
+
+:meth:`MediaStore.migrate_legacy_assets_bulk` is the bulk follow-up: it sweeps
+EVERY ``type == 'MediaAsset'`` node and migrates each through that same per-id
+shim, batched and idempotent — it skips legacy ids that already have a migrated
+``:AssetOccurrence`` (detected by scanning existing occurrences' stamped
+``legacy_asset_id``), so re-running the sweep after a partial run (or just for
+safety) only migrates what's left. Legacy nodes are never mutated or deleted by
+either path.
 
 This is a CORE capability (per "Universal capability — one core, thin entrypoints"):
 the messaging stack, the webui, the terminal — every entrypoint persists media through
@@ -68,7 +76,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -143,6 +152,42 @@ class StoredRendition:
     blob_id: str
     derived_from_digest: str
     rendition_type: str
+
+
+@dataclass(frozen=True)
+class BulkMigrationResult:
+    """Outcome of a :meth:`MediaStore.migrate_legacy_assets_bulk` sweep.
+
+    Attributes:
+        scanned: Total legacy ``type == 'MediaAsset'`` nodes found this run.
+        migrated: NEW ``:AssetOccurrence`` nodes minted this run (excludes
+            skips/failures).
+        skipped_already_migrated: Legacy ids that already had a migrated
+            occurrence from a prior run — the idempotency no-op count.
+        failed: Legacy ids :meth:`MediaStore.migrate_legacy_asset` could not
+            migrate (e.g. missing/no ``content_digest`` — never raises, just
+            counted here).
+        occurrence_ids: The newly minted ``:AssetOccurrence`` ids, in migration
+            order.
+        failed_ids: The legacy ids that failed to migrate, for retry/audit.
+    """
+
+    scanned: int = 0
+    migrated: int = 0
+    skipped_already_migrated: int = 0
+    failed: int = 0
+    occurrence_ids: list[str] = field(default_factory=list)
+    failed_ids: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "scanned": self.scanned,
+            "migrated": self.migrated,
+            "skipped_already_migrated": self.skipped_already_migrated,
+            "failed": self.failed,
+            "occurrence_ids": list(self.occurrence_ids),
+            "failed_ids": list(self.failed_ids),
+        }
 
 
 class MediaStore:
@@ -552,9 +597,7 @@ class MediaStore:
                 rendition_id, f"{_BLOB_PREFIX}{source_digest}", {"type": "derivedFrom"}
             )
             if occurrence_id:
-                client.edges.add(
-                    occurrence_id, rendition_id, {"type": "hasRendition"}
-                )
+                client.edges.add(occurrence_id, rendition_id, {"type": "hasRendition"})
         except Exception as e:  # noqa: BLE001
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] rendition edge link skipped: %s",
@@ -663,12 +706,11 @@ class MediaStore:
         ``mime_type``/``message_id``/``created_at`` forward as ``provenance`` and
         stamping ``legacy_asset_id`` for audit.
 
-        This is intentionally NOT idempotent and NOT a bulk migration: each call
-        mints one new occurrence for one legacy asset (a bulk sweep over every
-        ``type = 'MediaAsset'`` node is a follow-up — see AGENTS.md). Calling it
-        twice for the same legacy id creates two occurrences, which is consistent
-        with (not a violation of) the "occurrence identity is never digest-
-        collapsed" invariant.
+        This per-id call is intentionally NOT idempotent: calling it twice for the
+        same legacy id creates two occurrences, which is consistent with (not a
+        violation of) the "occurrence identity is never digest-collapsed"
+        invariant. :meth:`migrate_legacy_assets_bulk` is the idempotent BULK sweep
+        built on top of this shim (it skips legacy ids already migrated).
 
         Returns the new :class:`StoredMedia` (or ``None`` when the legacy node is
         missing/has no digest, or the write fails — never raises).
@@ -755,9 +797,7 @@ class MediaStore:
 
         try:
             client.edges.add(occurrence_id, blob_id, {"type": "hasBlob"})
-            client.edges.add(
-                occurrence_id, legacy_asset_id, {"type": "migratedFrom"}
-            )
+            client.edges.add(occurrence_id, legacy_asset_id, {"type": "migratedFrom"})
             if legacy.get("message_id"):
                 client.edges.add(
                     occurrence_id,
@@ -777,6 +817,133 @@ class MediaStore:
             size_bytes=int(legacy.get("file_size_bytes", 0) or 0),
             blob_id=blob_id,
         )
+
+    # -- bulk migration --------------------------------------------------------
+    def _migrated_legacy_ids(self) -> set[str]:
+        """Legacy asset ids that already have a migrated ``:AssetOccurrence``.
+
+        The idempotency check for :meth:`migrate_legacy_assets_bulk`: scans
+        existing ``:AssetOccurrence`` nodes (a bounded per-type fetch via
+        :func:`~..core.bounded_read.iter_nodes_by_types` — never a whole-graph
+        scan) for the ``legacy_asset_id`` :meth:`migrate_legacy_asset` stamps onto
+        every occurrence it mints, so a bulk sweep never mints a second occurrence
+        for an already-migrated legacy asset. Best-effort: a scan failure yields an
+        empty set (worst case a re-run mints one duplicate occurrence for the
+        affected ids, rather than raising).
+        """
+        from ..core.bounded_read import iter_nodes_by_types
+
+        migrated: set[str] = set()
+        try:
+            for _nid, data in iter_nodes_by_types(self._compute, "AssetOccurrence"):
+                legacy_id = (
+                    data.get("legacy_asset_id") if isinstance(data, dict) else None
+                )
+                if legacy_id:
+                    migrated.add(str(legacy_id))
+        except Exception as e:  # noqa: BLE001 — best-effort idempotency check
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] scan for already-migrated legacy assets failed: %s",
+                e,
+            )
+        return migrated
+
+    def migrate_legacy_assets_bulk(
+        self,
+        *,
+        batch_size: int = 100,
+        session: GraphSession | None = None,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> BulkMigrationResult:
+        """Sweep EVERY legacy ``type == 'MediaAsset'`` node and migrate it.
+
+        CONCEPT:AU-KG.identity.asset-occurrence — the bulk follow-up to the
+        per-id :meth:`migrate_legacy_asset` shim (AU-P1-4):
+
+        * **Idempotent** — a legacy asset that already has a migrated
+          ``:AssetOccurrence`` (per :meth:`_migrated_legacy_ids`) is skipped, so
+          re-running the sweep (after a partial run, or just for safety) migrates
+          only what's left and mints no duplicates.
+        * **Batched** — processes ``batch_size`` legacy ids at a time, invoking
+          ``progress`` (if given) with a running summary after each batch, so a
+          caller can report progress on a large sweep without waiting for it to
+          finish.
+        * **Non-destructive** — every migration goes through the existing per-id
+          :meth:`migrate_legacy_asset` shim, which never mutates or deletes the
+          legacy node; the sweep itself never touches legacy nodes either.
+
+        Args:
+            batch_size: Legacy ids processed per batch before a ``progress`` call.
+            session: Optional explicit session forwarded to every
+                :meth:`migrate_legacy_asset` call (actor/tenant default from the
+                ambient session when omitted, as usual).
+            progress: Optional callback invoked after each batch with a running
+                summary dict (``scanned``/``processed``/``migrated``/
+                ``skipped_already_migrated``/``failed``). A raising callback is
+                logged and ignored — it never aborts the sweep.
+
+        Returns a :class:`BulkMigrationResult` summarizing the whole sweep.
+        """
+        from ..core.bounded_read import iter_nodes_by_types
+
+        already_migrated = self._migrated_legacy_ids()
+        legacy_ids = [
+            nid for nid, _data in iter_nodes_by_types(self._compute, "MediaAsset")
+        ]
+        scanned = len(legacy_ids)
+        migrated_occurrence_ids: list[str] = []
+        failed_ids: list[str] = []
+        skipped = 0
+
+        batch_size = max(1, int(batch_size))
+        for start in range(0, scanned, batch_size):
+            batch = legacy_ids[start : start + batch_size]
+            for legacy_id in batch:
+                if legacy_id in already_migrated:
+                    skipped += 1
+                    continue
+                migration = self.migrate_legacy_asset(legacy_id, session=session)
+                if migration is None:
+                    failed_ids.append(legacy_id)
+                else:
+                    migrated_occurrence_ids.append(migration.occurrence_id)
+                    # Guard against a duplicate within this same run (defensive;
+                    # legacy_ids has no repeats in practice).
+                    already_migrated.add(legacy_id)
+
+            if progress is not None:
+                try:
+                    progress(
+                        {
+                            "scanned": scanned,
+                            "processed": min(start + batch_size, scanned),
+                            "migrated": len(migrated_occurrence_ids),
+                            "skipped_already_migrated": skipped,
+                            "failed": len(failed_ids),
+                        }
+                    )
+                except Exception as e:  # noqa: BLE001 — a bad progress callback never aborts the sweep
+                    logger.debug(
+                        "[CONCEPT:AU-KG.identity.asset-occurrence] migrate_legacy_assets_bulk progress callback failed: %s",
+                        e,
+                    )
+
+        result = BulkMigrationResult(
+            scanned=scanned,
+            migrated=len(migrated_occurrence_ids),
+            skipped_already_migrated=skipped,
+            failed=len(failed_ids),
+            occurrence_ids=migrated_occurrence_ids,
+            failed_ids=failed_ids,
+        )
+        logger.info(
+            "[CONCEPT:AU-KG.identity.asset-occurrence] bulk migration: scanned=%d migrated=%d skipped=%d failed=%d",
+            result.scanned,
+            result.migrated,
+            result.skipped_already_migrated,
+            result.failed,
+        )
+        return result
 
     # -- fetch ---------------------------------------------------------------
     def fetch_bytes(self, digest: str) -> bytes | None:
