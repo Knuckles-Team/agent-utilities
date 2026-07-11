@@ -54,6 +54,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent_utilities.observability.audit_logger import AuditLogger
 
+from ..core.session import GraphSession, current_session
 from .functions.runtime import DEFAULT_FUNCTION_RUNTIME, FunctionRuntime
 from .property_types import PropertyType, parse_type_ref
 
@@ -257,6 +258,38 @@ def _object_props(obj: Any) -> dict[str, Any]:
     return {}
 
 
+def _cache_scope_key(session: GraphSession | None) -> tuple[str, str, str, str, str]:
+    """The tenant/actor/policy/schema/graph tuple a cache key must carry (AU-P0-5).
+
+    A derived-property value is an authorization-sensitive read: it can be
+    CYPHER/SPARQL-backed and reflect data an actor's tenant scope controls, or
+    FUNCTION-backed and reflect a policy-gated computation. Caching it keyed
+    only by ``(property, object)`` (the pre-P0-5 shape) would happily hand
+    tenant A's computed value to tenant B on the next unscoped call. Every
+    field here defaults to ``""`` for an unscoped/system session, so an
+    unscoped caller's cache key is unchanged from before this fix — only
+    genuinely distinct sessions get distinct entries.
+    """
+    if session is None:
+        return "", "", "", "", ""
+    tenant = session.tenant or ""
+    actor_id = (session.actor.actor_id if session.actor is not None else "") or ""
+    policy_version = str(session.policy_version or "")
+    schema_version = str(session.catalog_epoch if session.catalog_epoch is not None else "")
+    graph = session.graph or ""
+    return tenant, actor_id, policy_version, schema_version, graph
+
+
+def _resolve_cache_session(session: GraphSession | None) -> GraphSession | None:
+    """Resolve the session a cache lookup scopes to: explicit > ambient > from_ambient."""
+    if session is not None:
+        return session
+    ambient = current_session()
+    if ambient is not None:
+        return ambient
+    return GraphSession.from_ambient()
+
+
 def _first_scalar(rows: list[dict[str, Any]]) -> Any:
     """Pull a single scalar value from the first row of a query result.
 
@@ -373,8 +406,12 @@ class DerivedPropertyEngine:
         self.audit = audit or AuditLogger()
         self._embedding_fn = embedding_fn
         self._embed_model: Any = None
-        # cache: (property_name, sig, object_id) -> value
-        self._cache: dict[tuple[str, str, str], Any] = {}
+        # cache: (property_name, sig, object_id, tenant, actor_id,
+        # policy_version, schema_version, graph) -> value. The last five
+        # elements are the AU-P0-5 tenant/actor/policy/schema/graph scope key
+        # (see _cache_scope_key) so one tenant's value can never be served to
+        # another's cache lookup.
+        self._cache: dict[tuple[str, str, str, str, str, str, str, str], Any] = {}
 
     # ── embedding model (lazy, offline-tolerant) ───────────────────────
     def _embed(self, text: str) -> list[float]:
@@ -396,6 +433,7 @@ class DerivedPropertyEngine:
         *,
         object_type: str | None = None,
         actor_id: str = "system",
+        session: GraphSession | None = None,
         use_cache: bool = True,
     ) -> DerivedPropertyResult:
         """Compute one derived property for ``obj`` live (never stored).
@@ -410,6 +448,13 @@ class DerivedPropertyEngine:
                 graph context). When ``None`` those backings degrade to ``None``.
             object_type: Object type used to resolve a name-only declaration.
             actor_id: Recorded in the audit entry.
+            session: The :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+                this compute runs under (AU-P0-5 — the tenant/actor/policy
+                currency the cache is keyed against). When omitted, the ambient
+                session (:func:`current_session`) is used, falling back to
+                :meth:`GraphSession.from_ambient`, so existing unscoped callers
+                behave exactly as before (empty tenant → one shared cache
+                bucket, same as pre-P0-5).
             use_cache: Read-through cache (honoured only when the declaration is
                 ``cacheable``).
 
@@ -430,7 +475,11 @@ class DerivedPropertyEngine:
             )
 
         oid = _object_id(obj)
-        cache_key = (prop.name, prop.cache_signature(), oid)
+        scope_key = _cache_scope_key(_resolve_cache_session(session))
+        # AU-P0-5: tenant/actor/policy/schema/graph are part of the cache key so
+        # a value computed under one tenant/actor/policy can NEVER be served to
+        # a different one — see :func:`_cache_scope_key`.
+        cache_key = (prop.name, prop.cache_signature(), oid, *scope_key)
         if use_cache and prop.cacheable and cache_key in self._cache:
             value = self._cache[cache_key]
             res = DerivedPropertyResult(
@@ -474,19 +523,30 @@ class DerivedPropertyEngine:
         *,
         object_type: str | None = None,
         actor_id: str = "system",
+        session: GraphSession | None = None,
     ) -> dict[str, Any]:
         """Compute every derived property applicable to ``obj``'s type.
 
         Returns a ``{name: value}`` map (values may be ``None`` for degraded
         backings). The live read-path consumer for materialising a fully-derived
-        view of an object.
+        view of an object. ``session`` (AU-P0-5) is threaded through to every
+        :meth:`compute` call so the whole batch shares one tenant/actor/policy
+        cache scope.
         """
         otype = object_type
         if otype is None and isinstance(obj, dict):
             otype = obj.get("type") or obj.get("object_type")
+        resolved_session = _resolve_cache_session(session)
         out: dict[str, Any] = {}
         for prop in self.registry.for_object_type(otype):
-            res = self.compute(obj, prop, graph, object_type=otype, actor_id=actor_id)
+            res = self.compute(
+                obj,
+                prop,
+                graph,
+                object_type=otype,
+                actor_id=actor_id,
+                session=resolved_session,
+            )
             out[prop.name] = res.value
         return out
 
@@ -716,6 +776,7 @@ def compute_derived(
     *,
     object_type: str | None = None,
     actor_id: str = "system",
+    session: GraphSession | None = None,
 ) -> DerivedPropertyResult:
     """Module-level convenience: compute one derived property via the default engine.
 
@@ -727,6 +788,7 @@ def compute_derived(
         graph,
         object_type=object_type,
         actor_id=actor_id,
+        session=session,
     )
 
 
@@ -736,10 +798,11 @@ def compute_all_derived(
     *,
     object_type: str | None = None,
     actor_id: str = "system",
+    session: GraphSession | None = None,
 ) -> dict[str, Any]:
     """Module-level convenience: compute all applicable derived properties for ``obj``."""
     return DEFAULT_DERIVED_ENGINE.compute_all(
-        obj, graph, object_type=object_type, actor_id=actor_id
+        obj, graph, object_type=object_type, actor_id=actor_id, session=session
     )
 
 
