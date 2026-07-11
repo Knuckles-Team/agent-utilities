@@ -110,8 +110,8 @@ the remaining steps so the same workflow scales from a laptop to a full swarm:
 | Profile | Scope | Engine | Steps run |
 |---|---|---|---|
 | **tiny** | One host, **zero external infra** — the engine is the only moving part. | **`pi-max` tier, auto-started** from a prebuilt wheel (OS-5.63) — a durable, redb-authoritative binary, NOT in-process and NOT a cache. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
-| **single-node-prod** | One host, durable: the engine container + gateway + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm. | **`node` tier** (or `full`) — the engine-as-a-DB **container**. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
-| **enterprise** | Full multi-node swarm + all integrations + the entire `*-mcp` fleet. | **`cluster` tier** — the engine-as-a-DB container reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`; mirrors fan out. | All steps (1–16 + A1–A6). |
+| **single-node-prod** | One host, durable: the engine container + gateway + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm — plain `docker compose`. | **`node` tier** (or `full`) — the engine-as-a-DB **container**. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
+| **enterprise** | Full multi-node **Kubernetes (RKE2)** + all integrations + the entire `*-mcp` fleet — the reference homelab's live topology (its Swarm→RKE2 cutover is `inventory/k8s-migration/`; Docker Swarm remains available as an `orchestrator` choice for operators who haven't migrated). | **`cluster` tier** — the engine-as-a-DB container reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`; mirrors fan out. | All steps (1–16 + A1–A6). |
 
 > **The engine is the ONE store at every scale** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision / AU-KG.backend.backend-modes). The
 > Rust `epistemic-graph` engine (≥1.0.0) is a full multi-model master-of-all —
@@ -246,8 +246,11 @@ sub-step is bypassed and only its wiring runs.
 
 **0c. Orchestrator** (for `deploy-container` items) — first-class choice of
 `docker-compose` · `docker-swarm` · `podman` · `podman-compose` · `kubernetes`
-(**default kubernetes for enterprise**, swarm for single-node, compose/podman for
-tiny). Drives Steps 5/6/11 to the matching provisioner
+(**default kubernetes for enterprise**, **compose for single-node** — that recipe
+is explicitly no-swarm — compose/podman for tiny). `docker-swarm` remains a valid
+choice for operators mid-migration or standardized on Swarm; the reference homelab
+itself has largely completed its Swarm→RKE2 cutover (`inventory/k8s-migration/`).
+Drives Steps 5/6/11 to the matching provisioner
 (`swarm-mesh-provisioner` | `kubernetes-mesh-provisioner` | `podman-mesh-provisioner`
 | `docker-compose-operator`). Podman supports **rootful or rootless** (asked when
 podman is chosen). Mutually exclusive per node.
@@ -272,8 +275,12 @@ self-signed CA. If supplied, the cert-trust step (Step 1b) bakes it in everywher
 no self-signed errors occur.
 
 **0g. Ontology host** — where the OWL ontology is hosted: `stardog` · `apache-jena`
-(Fuseki) · `local` (in-process SPARQL). Default stardog for enterprise, local for
-tiny. Drives the ontology-host step (Step A4b).
+(Fuseki) · `local` (in-process SPARQL, the engine's own RDF/SPARQL/OWL support).
+Default **local for every profile, including enterprise** — the engine is the
+ontology authority/SoR at every scale (see `docs/recipes/enterprise.md`); `stardog`
+is a mirror an operator can still opt into (see the Stardog boundary/graph-naming
+program: ontology now flows *from* Stardog *into* the engine, not the reverse).
+Drives the ontology-host step (Step A4b).
 
 **0h. Messaging channels** — which channel(s) the agent uses to reach the end user
 (agent-utilities has a native multi-channel messaging subsystem, CONCEPT:AU-ECO.messaging.native-backend-abstraction):

@@ -84,7 +84,11 @@ PROFILES_META = {
         "secrets": "openbao-or-engine-encrypted",
         "servers": "core",
         "skill": "agent-utilities-deployment",
-        "orchestrator": "docker-swarm",
+        # Plain `docker compose` — this recipe is explicitly "no swarm" (see
+        # docs/recipes/single-node-prod.md). Was mis-set to docker-swarm (a
+        # profile it never uses); the real orchestrator ladder is
+        # docker-compose (this tier) -> kubernetes (enterprise, RKE2).
+        "orchestrator": "docker-compose",
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "local",
@@ -96,16 +100,35 @@ PROFILES_META = {
         "engine_tier": "node",
     },
     "enterprise": {
-        "summary": "multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)",
+        # This homelab's own live topology (the reference deployment genesis
+        # targets by default): RKE2/Kubernetes, ratified + ~complete per
+        # inventory/k8s-migration/ (ROADMAP.md, MIGRATION-PLAN.md,
+        # HANDOFF.md, STAGE1-FINDINGS.md, CUTOVER-LOG.md are the SoR for that
+        # migration's live state — genesis points at them, does not fork them).
+        "summary": "multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak SSO/DNS/ingress/observability + all connectors)",
         "docker": True,
         "secrets": "openbao",
         "servers": "all",
         "skill": "agent-os-genesis",
-        # Enterprises default to Kubernetes (Step 0 note).
+        # Enterprises default to Kubernetes (Step 0 note); this homelab's
+        # Swarm->RKE2 cutover (inventory/k8s-migration/) is the reference
+        # migration for that default.
         "orchestrator": "kubernetes",
         "install_mode": "deploy-container",
+        # Keycloak is the verified, deployed SSO IdP in the reference
+        # environment (homelab realm, in-cluster JWKS at keycloak.arpa;
+        # see feedback-keycloak-sso-must-work). `okta` / `other-oidc` remain
+        # first-class `idp` run_plan options for an operator wiring an
+        # existing external IdP instead (Step 0 "use-existing").
         "idp": "keycloak",
-        "ontology_host": "stardog",
+        # The engine (epistemic-graph) is the ontology authority/SoR at every
+        # scale, including enterprise (see docs/recipes/enterprise.md "Engine"
+        # row) — Stardog is a downstream mirror being imported INTO the engine,
+        # not the primary ontology host (see stardog-boundary-graph-naming-
+        # program). Was stale at "stardog"; `stardog`/`apache-jena` remain
+        # valid `ontology_hosts` options for an operator who wants an external
+        # triple store instead.
+        "ontology_host": "local",
         # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS; the `cluster`
         # tier (node + multi-Raft replication + pgwire + distributed Pregel /
         # cross-shard 2PC) runs as the engine-as-a-DB container; mirrors fan out.

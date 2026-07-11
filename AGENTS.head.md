@@ -47,9 +47,10 @@ you loop over). The whole thing is built to need only this repo URL.
    `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh`.
 4. **Run the right skill to finish wiring.** `single-node-prod`/`tiny` →
    **`agent-utilities-deployment`** (self-setup: full config → secrets → databases →
-   launch). `enterprise` → **`agent-os-genesis`** (bare-host swarm → Vault/DNS/SSO/
-   ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the `servers`
-   and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
+   launch). `enterprise` → **`agent-os-genesis`** (bare-host Kubernetes/RKE2 — or
+   Swarm, if that `orchestrator` is chosen — → Vault-protocol(OpenBao)/DNS/Keycloak-
+   SSO/ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the
+   `servers` and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
 5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
@@ -66,7 +67,7 @@ you loop over). The whole thing is built to need only this repo URL.
 |---|---|---|---|---|
 | `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
 | `single-node-prod` | Postgres/pg-age mirror (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
-| `enterprise` | Swarm · Vault · SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
+| `enterprise` | Kubernetes(RKE2)/Swarm · Vault(OpenBao) · Keycloak SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
 
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
