@@ -146,6 +146,17 @@ Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,
 forward-chaining reasoning in the Rust engine (`reason()` over the
 `epistemic-graph` client).
 
+**Enterprise operations causal graph** (Codex X-2) is a separate, more specific
+tool: `graph_ops_causal` (`join`/`root_cause`/`blast_radius`/`change_risk`/
+`control_evidence` actions, `mcp/tools/ops_causal_tools.py`) joins the connector
+fleet's own entities (Langfuse trace/generation → agent/tool/model → service →
+deployment → commit/merge-request → incident/change → LeanIX capability →
+policy/control/evidence) into one causal chain and reasons over it with the
+existing causal-reasoning engine — distinct from `graph_analyze`'s
+general-purpose `causal`/`blast_radius` actions above, which operate on
+arbitrary graph structure rather than this specific ops entity chain. See the
+`kg-ops-causal` skill.
+
 ## Coding & task management (harness)
 
 Beyond the graph-os surface, the agent harness gives coding agents the machinery to
