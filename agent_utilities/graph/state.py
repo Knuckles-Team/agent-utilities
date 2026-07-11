@@ -203,6 +203,11 @@ class GraphState:
     query_parts: list[dict[str, Any]] = field(default_factory=list)
     """Rich multi-modal parts of the user query (text, images, etc.)."""
 
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    """Per-tool-call provenance accumulated across every node agent run in this graph
+    execution (CONCEPT:AU-KG.temporal.message-history-read). Surfaced on the GraphResponse so run_agent
+    persists :ToolCall nodes for the multi-agent path, not just the single-server loop."""
+
     # Pro Mode State
     topology: str = "basic"  # "basic" or "pro"
     mode: str = "ask"  # "ask", "plan", or "execute"
