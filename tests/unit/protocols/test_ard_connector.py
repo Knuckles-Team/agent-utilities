@@ -137,6 +137,12 @@ class _FakeEngine:
 
 
 def test_sync_ard_live_path_writes_typed_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AU-P1-5: ``_sync_ard`` is envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction)
+    — one ``ingest_envelope`` call per resource/registry/capability entity, so
+    ``engine.batches`` now holds one entry per entity instead of a single
+    all-resources batch. Aggregate across every call; the underlying intent
+    (typed nodes + registeredIn/providesCapability links) is unchanged.
+    """
     from agent_utilities.knowledge_graph.core.source_sync import _sync_ard
 
     monkeypatch.setenv(
@@ -150,9 +156,9 @@ def test_sync_ard_live_path_writes_typed_nodes(monkeypatch: pytest.MonkeyPatch) 
 
     assert res["status"] == "ok"
     assert res["nodes_hydrated"] > 0
-    assert engine.batches and engine.batches[0][0] == "ard"
-    entities = engine.batches[0][1]
+    assert engine.batches and all(domain == "ard" for domain, _, _ in engine.batches)
+    entities = [e for _domain, es, _rels in engine.batches for e in es]
     labels = {e["type"] for e in entities}
     assert {"ResourceRegistry", "MCPServer", "Skill", "ServiceCapability"} <= labels
-    rel_types = {r["type"] for r in engine.batches[0][2]}
+    rel_types = {r["type"] for _domain, _es, rels in engine.batches for r in rels}
     assert {"registeredIn", "providesCapability"} <= rel_types
