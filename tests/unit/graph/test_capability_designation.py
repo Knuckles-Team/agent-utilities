@@ -108,7 +108,14 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
     calls: dict[str, Any] = {}
 
     def fake_engine_search(
-        _engine, _embedding, *, k, required_caps, tenant, policy_tags
+        _engine,
+        _embedding,
+        *,
+        k,
+        required_caps,
+        tenant,
+        policy_tags,
+        capability_hierarchy=None,
     ):
         calls["called"] = True
         calls["k"] = k
