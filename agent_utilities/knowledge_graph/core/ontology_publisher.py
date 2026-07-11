@@ -115,6 +115,7 @@ class OntologyPublisher:
         username: str | None = None,
         password: str | None = None,
         named_graph: str | None = None,
+        overwrite: bool = False,
     ) -> dict[str, Any]:
         """Push ontology to a Stardog triplestore.
 
@@ -125,6 +126,10 @@ class OntologyPublisher:
             username: Auth username (default: env STARDOG_USER).
             password: Auth password (default: env STARDOG_PASSWORD).
             named_graph: Optional named graph URI for the upload.
+            overwrite: When True, REPLACE the target graph — clear it first, then add —
+                so re-publishing an updated ontology UPDATES the catalog instead of
+                accumulating duplicate/stale triples (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+                Scoped to ``named_graph`` when given; otherwise clears the DEFAULT graph.
 
         Returns:
             Dict with push status and metadata.
@@ -158,6 +163,16 @@ class OntologyPublisher:
             conn = stardog.Connection(database, **conn_details)
             try:
                 conn.begin()
+                # Overwrite = clear-then-add so an updated ontology REPLACES the prior
+                # catalog slice rather than accumulating (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+                if overwrite:
+                    if named_graph:
+                        try:
+                            conn.clear(graph_uri=named_graph)
+                        except TypeError:  # older pystardog: clear() takes no kwarg
+                            conn.update(f"CLEAR GRAPH <{named_graph}>")
+                    else:
+                        conn.update("CLEAR DEFAULT")
                 content = stardog.content.Raw(ttl_data, content_type="text/turtle")
                 if named_graph:
                     conn.add(content, graph_uri=named_graph)
@@ -261,6 +276,73 @@ class OntologyPublisher:
         except Exception as e:
             logger.error("Fuseki push failed: %s", e)
             return {"status": "error", "error": str(e)}
+
+
+def import_ontology_from_stardog(
+    *,
+    endpoint: str | None = None,
+    database: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    named_graph: str | None = None,
+    engine: Any = None,
+    activate: bool = True,
+) -> dict[str, Any]:
+    """Consume an ontology FROM Stardog INTO epistemic-graph (CONCEPT:AU-KG.ontology.stardog-catalog-import).
+
+    The reverse of :meth:`OntologyPublisher.push_to_stardog`: export the TBox that already
+    lives in a Stardog database / named graph as Turtle and, when an ``engine`` is given,
+    parse → validate → register → activate it through the ontology lifecycle so the engine
+    reasons over the catalog we already have there. Without an ``engine`` it just returns the
+    pulled Turtle (offline inspection / round-trip).
+
+    Returns a status dict; ``load`` carries the lifecycle report when loaded into an engine.
+    """
+    try:
+        import stardog
+    except ImportError:
+        return {
+            "status": "error",
+            "error": "pystardog not installed. Install with: pip install pystardog",
+        }
+
+    endpoint = endpoint or setting("STARDOG_ENDPOINT", "http://localhost:5820")
+    database = database or setting("STARDOG_DATABASE", "agent_kg")
+    username = username or setting("STARDOG_USER", "admin")
+    password = password or setting("STARDOG_PASSWORD", "admin")
+    conn_details = {"endpoint": endpoint, "username": username, "password": password}
+
+    try:
+        conn = stardog.Connection(database, **conn_details)
+        try:
+            ttl = conn.export(content_type="text/turtle", graph_uri=named_graph)
+        finally:
+            conn.close()
+        if isinstance(ttl, bytes):
+            ttl = ttl.decode("utf-8")
+    except Exception as e:
+        logger.error("Stardog ontology import failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+    result: dict[str, Any] = {
+        "status": "success",
+        "endpoint": endpoint,
+        "database": database,
+        "named_graph": named_graph,
+        "bytes": len(ttl or ""),
+    }
+    if engine is not None and ttl:
+        try:
+            from ..ontology.lifecycle import OntologyLifecycle
+
+            result["load"] = OntologyLifecycle(engine).load(
+                ttl, source_type="turtle", activate=activate, force=True
+            )
+        except Exception as e:  # noqa: BLE001 — engine load is best-effort
+            result["load"] = {"status": "error", "error": str(e)}
+    else:
+        result["turtle"] = ttl
+    return result
 
 
 def collect_bundled_ontology_graph() -> Any:

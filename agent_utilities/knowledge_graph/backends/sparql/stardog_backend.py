@@ -50,7 +50,7 @@ from urllib.parse import quote
 from agent_utilities.core.config import setting
 
 from .base import SparqlAdapter
-from .source_partition import graph_uri_for
+from .source_partition import graph_uri_for, route_graph_uri
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +379,9 @@ class StardogSparqlBackend(SparqlAdapter):
         if node_id is None:
             return
         s = self._iri(node_id)
-        g = graph_uri_for(params)
+        # Guarded routing: records a default-graph landing by label (leak observability) and,
+        # under strict mode, refuses an un-sourced external entity (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
+        g = route_graph_uri(params, label)
         go, gc = self._graph_open(g), self._graph_close(g)
         ops: list[str] = [f"INSERT DATA {{ {go}{s} a {self._iri(label)} .{gc} }}"]
         for key, val in params.items():
