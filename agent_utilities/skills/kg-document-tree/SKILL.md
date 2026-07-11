@@ -19,6 +19,9 @@ metadata:
 
 # kg-document-tree
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_document_tree` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_document_tree"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_document_tree` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Fronts the **`graph_document_tree`** verb — reasoning-tree (vectorless) retrieval over a
 document's section tree (CONCEPT:AU-KG.retrieval.section-tree /
 CONCEPT:AU-KG.retrieval.tree-navigation; distills PageIndex). Where `kg-search` is

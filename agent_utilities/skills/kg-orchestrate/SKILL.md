@@ -16,6 +16,9 @@ metadata:
 
 # kg-orchestrate
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_orchestrate` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_orchestrate"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_orchestrate` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_orchestrate` is the fleet execution entrypoint. Key actions: `dispatch`, `swarm` (goal→decompose→parallel-waves→verify→synthesize), `execute_agent`, `execute_workflow`/`compile_workflow`, `status`, `request_approval`/`grant_approval`, `consensus`/`start_debate`, `computer_use` (GUI agent on a gui-sandbox), `optimize_component` (DSPy pass), `distill_skills`, `loop_cycle`, `publish_proposal`, `failure_ingest`.
 
 ## Invoke

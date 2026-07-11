@@ -17,6 +17,9 @@ metadata:
 
 # KG Modality — Transactions (server-side ACID / OCC)
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `engine_txn` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["engine_txn"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `engine_txn` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Fronts the epistemic-graph engine's **`txn`** domain: server-side ACID
 transactions using optimistic concurrency control (OCC). A transaction can span
 modalities — graph nodes/edges, tabular, time-series, blob — and commits

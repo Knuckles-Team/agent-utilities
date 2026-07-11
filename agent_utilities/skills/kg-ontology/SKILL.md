@@ -19,6 +19,9 @@ metadata:
 
 # kg-ontology
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_ontology`, `ontology_property_types`, `ontology_value_types`, `ontology_interface`, `ontology_sampling_profile`, `ontology_function`, `ontology_derive`, `ontology_link_materialize`, `ontology_leanix_sync`, `object_edits`, `object_index`, `object_permissioning`, `object_set` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_ontology"])` once per session (as below), then proceed exactly as documented; or (2) call the `write` intent verb with the same natural-language request — the resolver routes to `graph_ontology` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 This skill fronts the whole ontology/object surface:
 - **`graph_ontology`** — hosted-ontology lifecycle CRUD (`load`/`list`/`get`/`update`/`delete`/`validate`/`activate`/`deactivate`/`sync_packages`; SHACL-validated, versioned, native-reasoner-loaded).
 - **`ontology_property_types`** / **`ontology_value_types`** — the type registry (list/describe/validate/coerce).

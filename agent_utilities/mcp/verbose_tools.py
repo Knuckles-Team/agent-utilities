@@ -46,8 +46,21 @@ from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 
 logger = logging.getLogger(__name__)
 
-VALID_TOOL_MODES = ("condensed", "verbose", "both")
+VALID_TOOL_MODES = ("condensed", "verbose", "both", "intent")
 _DEFAULT_MODE = "condensed"
+
+#: Tag stamped on EVERY condensed/verbose tool (any mode) so a deployment can
+#: statically shrink the LLM-visible surface via the pre-existing
+#: ``MCP_DISABLED_TAGS``/``DynamicVisibilityTransform`` knob (no new env var —
+#: CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) without touching REGISTERED_TOOLS/REST.
+GRANULAR_TAG = "granular"
+
+#: Tag stamped ONLY when ``MCP_TOOL_MODE=intent`` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse):
+#: marks a tool as held back from the DEFAULT session view. It stays fully
+#: registered (REST + ``_execute_tool`` + REGISTERED_TOOLS unaffected) — the
+#: fleet ``load_tools`` meta-tool reveals it per-session (see
+#: :func:`agent_utilities.mcp.multiplexer.attach_fleet_loader`).
+GATED_TAG = "gated"
 
 #: OpenAPI/JSON-schema primitive -> Python type for synthesized typed signatures.
 _PY_TYPES: dict[str, type] = {
@@ -126,12 +139,23 @@ def _is_destructive(method_name: str, op: dict | None) -> bool:
 
 
 def tool_mode() -> str:
-    """Return the configured MCP tool surface: ``condensed`` | ``verbose`` | ``both``.
+    """Return the configured MCP tool surface: ``condensed``|``verbose``|``both``|``intent``.
 
     Reads ``MCP_TOOL_MODE`` through the shared config layer (so it is driven by
     the one XDG ``config.json``). Defaults to ``condensed`` — the small,
     action-routed surface — so existing deployments are unchanged. An
     unrecognized value falls back to ``condensed`` with a warning.
+
+    ``intent`` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — Seam 8) is the
+    "small/cheap-LLM" profile: the condensed action-routed tools still register
+    (REST + ``_execute_tool`` + REGISTERED_TOOLS are unaffected — nothing is
+    lost), but they are additionally tagged :data:`GATED_TAG` and held back from
+    a session's default tool list; a handful of thin ``ask``/``find``/``write``/
+    ``act``/``manage``/``why`` intent-verb tools (``mcp/tools/intent_tools.py``)
+    become the default surface instead, resolving a natural-language intent to
+    the right granular tool and dispatching through the SAME ``_execute_tool``
+    core. ``load_tools`` (the fleet meta-tool) remains the escape hatch to any
+    exact granular tool, gated or not.
     """
     # Imported lazily: config pulls in the whole settings stack, and tool_mode is
     # also called from module-load paths in the agents.
@@ -428,7 +452,7 @@ def register_verbose_tools(
 
         tool_fn.__name__ = tool_name
         tool_fn.__doc__ = doc or f"Invoke the {method_name} operation."
-        mcp.tool(name=tool_name, tags={"verbose", domain})(tool_fn)
+        mcp.tool(name=tool_name, tags={"verbose", domain, GRANULAR_TAG})(tool_fn)
         registered.append(tool_name)
 
     logger.debug(
@@ -684,6 +708,20 @@ def _condensed_entries(
     return entries
 
 
+def gated_tool_names(mcp: Any) -> set[str]:
+    """Tool names held back from the default session view by ``MCP_TOOL_MODE=intent``.
+
+    Populated by :func:`register_tool_surface` as it stamps :data:`GATED_TAG`;
+    empty in every other mode. The graph-os entry point
+    (``mcp/kg_server.py::mcp_server``) reads this after building the server to
+    seed the fleet multiplexer's local-tool gate
+    (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse), so ``load_tools`` can reveal one of
+    these exact granular tools for a session without mounting anything (they are
+    already registered locally — just hidden by default).
+    """
+    return set(getattr(mcp, "_intent_gated_tools", ()) or ())
+
+
 def register_tool_surface(
     mcp: Any,
     *,
@@ -759,11 +797,18 @@ def register_tool_surface(
         ]
     has_verbose = bool(targets) or verbose_register is not None
 
-    # Condensed registers in condensed/both — and ALSO in verbose mode when the
-    # agent has no verbose surface at all, so a condensed-only server is never
+    # Condensed registers in condensed/both/intent — and ALSO in verbose mode when
+    # the agent has no verbose surface at all, so a condensed-only server is never
     # left empty by a deployment-wide MCP_TOOL_MODE=verbose meant for connectors.
-    if mode in ("condensed", "both") or (mode == "verbose" and not has_verbose):
+    # ``intent`` registers the SAME condensed tools (REST/_execute_tool/
+    # REGISTERED_TOOLS are unaffected — they are the backing surface the intent
+    # verbs dispatch into) but additionally gates them from the default session
+    # view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
+    if mode in ("condensed", "both", "intent") or (
+        mode == "verbose" and not has_verbose
+    ):
         toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
+        gated: set[str] = getattr(mcp, "_intent_gated_tools", set())
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
@@ -780,10 +825,16 @@ def register_tool_surface(
                 tags_attr = getattr(after[name], "tags", None)
                 if isinstance(tags_attr, set):
                     tags_attr.add(tag)
+                    tags_attr.add(GRANULAR_TAG)
+                    if mode == "intent":
+                        tags_attr.add(GATED_TAG)
+                        gated.add(name)
                 toggles[name] = env_var
             registered_tags.append(tag)
         if toggles:
             mcp._condensed_tool_toggles = toggles
+        if gated:
+            mcp._intent_gated_tools = gated
 
     if mode in ("verbose", "both"):
         for target in targets or []:

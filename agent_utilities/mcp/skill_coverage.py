@@ -60,6 +60,18 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         # dedicated one) in the epistemic-graph repo.
         "engine_rbac",
         "engine_admin",
+        # Seam 8 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) intent verbs — only present in
+        # REGISTERED_TOOLS under MCP_TOOL_MODE=intent. They are not per-CAPABILITY
+        # wrappers (a kg-<verb> skill implies ONE granular tool) — they wrap the
+        # WHOLE resolver, and every granular tool they route to already has its
+        # own kg-* skill. A dedicated "how to use the intent surface" skill is
+        # tracked as Seam 8 follow-up rather than shipped in this kickoff slice.
+        "ask",
+        "find",
+        "write",
+        "act",
+        "manage",
+        "why",
     }
 )
 

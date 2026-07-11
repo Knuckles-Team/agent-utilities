@@ -16,6 +16,9 @@ metadata:
 
 # kg-query
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_query`, `nl_query` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_query"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_query` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_query` executes a **read-only** Cypher statement against the unified KG and returns the result rows. It is the primary read path for graph structure — traversals, property reads, relationship exploration. (Mutations go through `kg-write`.)
 
 ## Invoke
