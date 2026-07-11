@@ -1,14 +1,16 @@
 #!/usr/bin/python
-"""Real-engine proof for durable multimodal memory (CONCEPT:AU-KG.ingest.list-durable-media).
+"""Real-engine proof for durable multimodal memory (CONCEPT:AU-KG.identity.asset-occurrence).
 
 Against the ACTUAL ephemeral engine (KG-2.238, pi-max tier so blob+tsdb are served):
 
 * a small image/audio payload stored via :class:`MediaStore` round-trips back byte-
   for-byte from the engine BLOB substrate;
-* content-addressed DEDUP — the same bytes stored twice yield ONE blob (deduped),
-  the same digest, and a single :MediaAsset per content (idempotent);
-* the node + blob-ref (+ embedding) land in ONE cross-modal ACID commit — a reader
-  sees the :MediaAsset with its content_digest, the :Blob node, and the :hasBlob edge.
+* content-addressed DEDUP at the :Blob layer ONLY — the same bytes stored twice
+  yield ONE blob (deduped, same digest) but TWO DISTINCT :AssetOccurrence nodes
+  (AU-P1-4 — occurrence identity is never digest-collapsed);
+* the occurrence node + blob-ref (+ embedding) land in ONE cross-modal ACID commit —
+  a reader sees the :AssetOccurrence with its content_digest, the :Blob node, and the
+  :hasBlob edge.
 
 These exercise the engine's blob feature; if the resolved test binary lacked it the
 fixture would have rebuilt pi-max (tests/_test_engine.py).
@@ -18,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.ingest.list-durable-media")]
+pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.identity.asset-occurrence")]
 
 
 # A tiny but non-trivial payload: includes 0x0A (newline) and 0xFF bytes so we prove
@@ -41,27 +43,31 @@ def test_media_blob_roundtrip(engine_graph):
     assert res.size_bytes == len(_IMG)
     assert res.deduped is False  # first time these bytes are seen
 
-    # Fetch back by digest AND by asset id — both recover the exact bytes.
+    # Fetch back by digest AND by occurrence id (``.asset_id`` back-compat alias
+    # too) — both recover the exact bytes.
     assert store.fetch_bytes(res.digest) == _IMG
+    assert store.fetch_asset(res.occurrence_id) == _IMG
     assert store.fetch_asset(res.asset_id) == _IMG
 
 
 def test_media_content_addressed_dedup(engine_graph):
-    """The same bytes stored twice → one blob, same digest, deduped=True the 2nd time."""
+    """The same bytes stored twice → one blob (deduped) but TWO distinct occurrences."""
     store = _store(engine_graph)
     first = store.store_media(_AUDIO, media_type="audio", mime_type="audio/ogg")
     second = store.store_media(_AUDIO, media_type="audio", mime_type="audio/ogg")
     assert first is not None and second is not None
-    # Content-addressed: identical bytes ⇒ identical digest ⇒ identical asset id.
+    # Content-addressed: identical bytes ⇒ identical digest ⇒ identical blob.
     assert first.digest == second.digest
-    assert first.asset_id == second.asset_id
+    assert first.blob_id == second.blob_id
+    # AU-P1-4: occurrence identity is NEVER digest-collapsed — two calls, two ids.
+    assert first.occurrence_id != second.occurrence_id
     # The second store saw the blob already present (dedup — no new chunks).
     assert second.deduped is True
     assert store.fetch_bytes(first.digest) == _AUDIO
 
 
 def test_media_cross_modal_acid_node_and_blob(engine_graph):
-    """The :MediaAsset node + :Blob node + :hasBlob edge land atomically + are readable."""
+    """The :AssetOccurrence node + :Blob node + :hasBlob edge land atomically + are readable."""
     compute = engine_graph
     store = _store(compute)
     res = store.store_media(
@@ -73,12 +79,12 @@ def test_media_cross_modal_acid_node_and_blob(engine_graph):
     )
     assert res is not None
 
-    # The asset node committed with its content digest (the ACID node write).
-    asset = compute._client.nodes.properties(res.asset_id)
-    assert asset is not None
-    assert asset.get("type") == "MediaAsset"
-    assert asset.get("content_digest") == res.digest
-    assert asset.get("message_id") == "mem:msg1"
+    # The occurrence node committed with its content digest (the ACID node write).
+    occurrence = compute._client.nodes.properties(res.occurrence_id)
+    assert occurrence is not None
+    assert occurrence.get("type") == "AssetOccurrence"
+    assert occurrence.get("content_digest") == res.digest
+    assert occurrence.get("message_id") == "mem:msg1"
 
     # The :Blob handle node committed too (same txn).
     blob = compute._client.nodes.properties(f"blob:{res.digest}")
@@ -86,8 +92,8 @@ def test_media_cross_modal_acid_node_and_blob(engine_graph):
     assert blob.get("type") == "Blob"
     assert blob.get("content_digest") == res.digest
 
-    # The :hasBlob edge links asset → blob.
-    assert compute.has_edge(res.asset_id, f"blob:{res.digest}") is True
+    # The :hasBlob edge links occurrence → blob.
+    assert compute.has_edge(res.occurrence_id, f"blob:{res.digest}") is True
 
 
 def test_media_isolation_per_test(engine_graph):
@@ -100,9 +106,9 @@ def test_media_isolation_per_test(engine_graph):
     store = _store(compute)
     res = store.store_media(b"unique-iso-bytes-\x00\x01\x0a", media_type="image")
     assert res is not None
-    assert compute.has_node(res.asset_id) is True
+    assert compute.has_node(res.occurrence_id) is True
     # Assets from the dedup/roundtrip tests must NOT leak into this graph.
     import hashlib
 
-    other = "media:" + hashlib.sha256(_AUDIO).hexdigest()  # not the engine digest
+    other = "blob:" + hashlib.sha256(_AUDIO).hexdigest()  # not this test's blob
     assert compute.has_node(other) is False
