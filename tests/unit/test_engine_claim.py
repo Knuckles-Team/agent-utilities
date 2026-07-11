@@ -106,6 +106,8 @@ def test_engine_backend_uses_live_result_exclusively_never_touches_kg(
     result = engine_claim.claim_agent_task(
         object(), "task-1", backend=engine_claim.AGENT_CLAIM_BACKEND_ENGINE
     )
+    fence_token = result.pop("fence_token")
+    assert fence_token is not None  # AU-P0-3: synthesized when the engine omits one
     assert result == {
         "task_id": "task-1",
         "lease_id": "lease:engine:1",

@@ -79,7 +79,17 @@ class AgentTurnEnvelope(BaseModel):
     (at-least-once delivery, idempotent claims).
     """
 
-    job_id: str = Field(default_factory=lambda: f"dispatch-{uuid.uuid4().hex[:8]}")
+    #: Full-width 128-bit id (AU-P0-3): the prior ``.hex[:8]`` truncation kept
+    #: only 32 bits of entropy — at ~77k dispatched jobs the birthday bound
+    #: crosses 50% collision probability, and a collided ``job_id`` is silently
+    #: treated as the SAME idempotency key (a redelivery skip) by the queue's
+    #: claim check, dropping a distinct turn. ``uuid.uuid4().hex`` is the full
+    #: 128-bit value; no truncation. A future upgrade to a time-ordered
+    #: UUIDv7/ULID would additionally make ``job_id`` sort chronologically,
+    #: but neither ships in this repo's dependencies yet (stdlib ``uuid7`` only
+    #: lands in Python 3.14, and this package supports >=3.11) — tracked as
+    #: follow-up, not blocking this fix.
+    job_id: str = Field(default_factory=lambda: f"dispatch-{uuid.uuid4().hex}")
     session_id: str
     kind: str = KIND_GOAL_LOOP
     payload_ref: str = ""
