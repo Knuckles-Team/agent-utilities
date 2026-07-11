@@ -116,6 +116,139 @@ async def test_update_task_status_persists(ctx_with_graph: FakeRunContext) -> No
     assert "updated_at" in g.nodes["task_001"]
 
 
+# ---------------------------------------------------------------------------
+# AU-P1-CL: TaskNode migrated onto the WorkItem state machine
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.concept("team-coordination")
+@pytest.mark.asyncio
+async def test_add_task_creates_ready_shadow_workitem(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    """add_task creates BOTH the legacy TaskNode and a 'ready' shadow WorkItem
+    — the SAME state machine :AgentTask/the ingestion queue use, reused."""
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item as wi
+
+    cap = TeamCapability(team_id="team_x")
+    task_id = await cap.add_task(ctx_with_graph, "do the thing")
+
+    g = ctx_with_graph.deps.graph_engine.graph
+    assert g.nodes[task_id]["status"] == "pending"  # legacy field unchanged
+
+    view = _GraphComputeWorkItemView(g)
+    item = wi.get_work_item(view, wi.team_task_work_item_id(task_id))
+    assert item is not None
+    assert item["status"] == "ready"
+    assert item["kind"] == "team_task"
+    assert item["tenant"] == "team_x"
+
+
+@pytest.mark.concept("team-coordination")
+@pytest.mark.asyncio
+async def test_update_task_status_drives_workitem_lifecycle(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    """'in_progress' then 'completed' drive the shadow WorkItem through
+    ready -> running -> succeeded, while the legacy field mirrors the
+    caller's literal strings unchanged (API stability)."""
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item as wi
+
+    cap = TeamCapability(team_id="team_x")
+    task_id = await cap.add_task(ctx_with_graph, "do the thing")
+    g = ctx_with_graph.deps.graph_engine.graph
+    view = _GraphComputeWorkItemView(g)
+    item_id = wi.team_task_work_item_id(task_id)
+
+    assert await cap.update_task_status(ctx_with_graph, task_id, "in_progress")
+    assert g.nodes[task_id]["status"] == "in_progress"
+    assert wi.get_work_item(view, item_id)["status"] == "running"
+
+    assert await cap.update_task_status(ctx_with_graph, task_id, "completed")
+    assert g.nodes[task_id]["status"] == "completed"
+    assert wi.get_work_item(view, item_id)["status"] == "succeeded"
+
+
+@pytest.mark.concept("team-coordination")
+@pytest.mark.asyncio
+async def test_update_task_status_jump_to_done_without_in_progress(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    """A caller that jumps straight from 'pending' to 'done' (skipping
+    'in_progress') still lands the shadow WorkItem in 'succeeded' — the
+    ready->running transition happens transparently."""
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item as wi
+
+    cap = TeamCapability(team_id="team_x")
+    task_id = await cap.add_task(ctx_with_graph, "do the thing")
+    g = ctx_with_graph.deps.graph_engine.graph
+    view = _GraphComputeWorkItemView(g)
+
+    assert await cap.update_task_status(ctx_with_graph, task_id, "done")
+    assert g.nodes[task_id]["status"] == "done"  # literal caller string kept
+    item = wi.get_work_item(view, wi.team_task_work_item_id(task_id))
+    assert item["status"] == "succeeded"
+
+
+@pytest.mark.concept("team-coordination")
+@pytest.mark.asyncio
+async def test_update_task_status_cancel_transitions_workitem(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item as wi
+
+    cap = TeamCapability(team_id="team_x")
+    task_id = await cap.add_task(ctx_with_graph, "do the thing")
+    g = ctx_with_graph.deps.graph_engine.graph
+    view = _GraphComputeWorkItemView(g)
+
+    assert await cap.update_task_status(ctx_with_graph, task_id, "cancelled")
+    assert g.nodes[task_id]["status"] == "cancelled"
+    item = wi.get_work_item(view, wi.team_task_work_item_id(task_id))
+    assert item["status"] == "cancelled"
+
+
+@pytest.mark.concept("team-coordination")
+@pytest.mark.asyncio
+async def test_update_task_status_free_form_word_skips_workitem_transition(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    """A status word outside the canonical mapping (e.g. 'blocked') is still
+    mirrored onto the legacy field (API leniency preserved) but leaves the
+    shadow WorkItem untouched (still 'ready')."""
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item as wi
+
+    cap = TeamCapability(team_id="team_x")
+    task_id = await cap.add_task(ctx_with_graph, "do the thing")
+    g = ctx_with_graph.deps.graph_engine.graph
+    view = _GraphComputeWorkItemView(g)
+
+    assert await cap.update_task_status(ctx_with_graph, task_id, "blocked")
+    assert g.nodes[task_id]["status"] == "blocked"
+    item = wi.get_work_item(view, wi.team_task_work_item_id(task_id))
+    assert item["status"] == "ready"
+
+
 @pytest.mark.concept("team-coordination")
 @pytest.mark.asyncio
 async def test_get_team_members_from_graph(ctx_with_graph: FakeRunContext) -> None:
