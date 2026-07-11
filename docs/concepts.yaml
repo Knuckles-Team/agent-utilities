@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 965
+total_concepts: 969
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4998,6 +4998,18 @@ concepts:
   dotted: AU-KG.ingest.capability-writeback
   aliases:
   - AU-KG.ingest.capability-writeback
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.change-envelope
+  name: AU-P1-6
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+  doc: AU-P1-6
+  dotted: AU-KG.ingest.change-envelope
+  aliases:
+  - AU-KG.ingest.change-envelope
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.chunk-overlap-stage
@@ -12256,6 +12268,7 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/bus_tools.py
   - agent_utilities/observability/correlation.py
+  - agent_utilities/observability/self_ingest.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
@@ -12382,6 +12395,20 @@ concepts:
   dotted: AU-OS.observability.deterministic-replay
   aliases:
   - AU-OS.observability.deterministic-replay
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.observability.durable-telemetry-pipeline
+  name: durable, non-lossy telemetry via bounded-retry requeue, durable spill-buffer backpressure, and
+    per-tenant stamping
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/self_ingest.py
+  doc: durable, non-lossy telemetry via bounded-retry requeue, durable spill-buffer backpressure, and
+    per-tenant stamping
+  dotted: AU-OS.observability.durable-telemetry-pipeline
+  aliases:
+  - AU-OS.observability.durable-telemetry-pipeline
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.observability.embed-stage-profile
