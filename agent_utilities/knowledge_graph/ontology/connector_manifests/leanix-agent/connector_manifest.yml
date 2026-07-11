@@ -1,0 +1,238 @@
+connector: leanix-agent
+ontology_source: leanix
+schema_version: '1'
+resources:
+- name: Application
+  label: Application
+  id_prefix: application
+  relations:
+  - name: dependsOn
+    label: depends on
+    target: ITComponent
+    lpg_rel_type: ''
+  - name: supports
+    label: supports
+    target: BusinessCapability
+    lpg_rel_type: ''
+- name: BusinessCapability
+  label: Business Capability
+  id_prefix: businesscapability
+  relations: []
+- name: DataObject
+  label: Data Object
+  id_prefix: dataobject
+  relations: []
+- name: FactSheet
+  label: Fact Sheet
+  id_prefix: factsheet
+  relations:
+  - name: relatesTo
+    label: relates to
+    target: FactSheet
+    lpg_rel_type: ''
+- name: ITComponent
+  label: IT Component
+  id_prefix: itcomponent
+  relations: []
+- name: Interface
+  label: Interface
+  id_prefix: interface
+  relations: []
+- name: Project
+  label: Project
+  id_prefix: project
+  relations: []
+- name: Provider
+  label: Provider
+  id_prefix: provider
+  relations: []
+- name: TechnologyStack
+  label: Technology Stack
+  id_prefix: technologystack
+  relations: []
+actions: []
+events:
+- name: leanix-factsheets.updated
+  resource: factsheet
+  description: "Watermark event for 'leanix-factsheets' \u2014 advances on updatedAt (mcp_source_presets.json)."
+identity:
+  id_field:
+    factsheet: id
+  title_field:
+    factsheet: name
+  text_field:
+    factsheet: description
+  updated_field:
+    factsheet: updatedAt
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Application:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  BusinessCapability:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  DataObject:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  FactSheet:
+    ontology_class: null
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  ITComponent:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  Interface:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  Project:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  Provider:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+  TechnologyStack:
+    ontology_class: FactSheet
+    fields:
+      externalId: xsd:string
+      factsheetDescription: xsd:string
+      factsheetName: xsd:string
+      factsheetStatus: xsd:string
+      factsheetType: xsd:string
+sync:
+- preset: leanix-factsheets
+  server: leanix-agent
+  tool: leanix_ingest_factsheets
+  action: get_factsheets
+  records_path: data.data
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: updatedAt
+  pagination: cursor
+  doc_type: factsheet
+  raw:
+    server: leanix-agent
+    tool: leanix_ingest_factsheets
+    action: get_factsheets
+    records_path: data.data
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: updatedAt
+    pagination: cursor
+    page_kind: cursor
+    page_param: cursor
+    page_size_param: pageSize
+    doc_type: factsheet
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - leanix_agent/connectors/mcp_source_presets.json
+  - leanix_agent/ontology/leanix.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 4ece7b7daed1c977a2f4a3eefc00f825fcc74a477a3da9a2dd72d6c241167354
+    triple_count: 66
+  signer: ontology-manifest-generator
+  signature: 13d9f5d3cd8bcc18d2a940228ef72996e19c257989d331ba8e3f37f9c30c8099
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.Application.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessCapability.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataObject.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.FactSheet.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ITComponent.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Interface.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Project.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Provider.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyStack.ontology_class = 'FactSheet' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "auth: 3 interchangeable paths \u2014 browser OAuth2/PKCE (auth-code + refresh via offline_access),\
+  \ OIDC delegated-token exchange, or LeanIX 'technical user' bearer token. Env: LEANIX_AUTH_METHOD, LEANIX_WORKSPACE,\
+  \ LEANIX_TECHNICAL_USER, LEANIX_TECHNICAL_USER_PASSWORD, LEANIX_TOKEN/LEANIX_API_TOKEN, LEANIX_BROWSER_LOGIN,\
+  \ LEANIX_OAUTH_CLIENT_ID/SCOPE/REDIRECT_PORT, AUDIENCE, DELEGATED_SCOPES. required_scopes: LEANIX_OAUTH_SCOPE\
+  \ default 'openid offline_access'; DELEGATED_SCOPES default 'api'; no fact-sheet-level LeanIX permission\
+  \ scope found in code. Shape: default (LEANIX_AUTH_METHOD=technical) is a single shared technical-user\
+  \ credential; browser OAuth is the per-user delegated fallback."
+- "change_support: snapshot/poll only, via mcp_source_presets.json (delta+hydrate+writeback \u2014 see\
+  \ docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory for the real, already-shipped\
+  \ wiring). cdc: none (no change-data-capture/replication-log path). webhook: none (any 'webhook' hits\
+  \ in this package's source manage webhooks IN THE REMOTE SYSTEM as a tool capability \u2014 there is\
+  \ no inbound webhook RECEIVER wired to source_sync ingestion for this connector today)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."
+- "cross-connector note: atlassian-agent, gitlab-api, servicenow-api, microsoft-agent, and leanix-agent\
+  \ all layer a common OIDC_CLIENT_ID/SECRET + ENABLE_DELEGATION + DELEGATED_SCOPES + AUDIENCE RFC-8693-style\
+  \ token-exchange path on top of each connector's own native credential (a shared auth.py pattern across\
+  \ these agent-packages) \u2014 this is the per-user delegated-identity opt-in; the native credential\
+  \ above remains the system-to-system default."

@@ -21,6 +21,7 @@ from typing import Any
 
 __all__ = [
     "SOURCE_TO_CONNECTOR_PACKAGE",
+    "MANDATORY_NAMED_CONNECTOR_SOURCES",
     "resolve_agents_root",
     "resolve_connector_package",
     "find_connector_manifest",
@@ -67,6 +68,53 @@ SOURCE_TO_CONNECTOR_PACKAGE: dict[str, str] = {
 # naming convention (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
 _GUESS_SUFFIXES: tuple[str, ...] = ("-mcp", "-agent", "-api", "-manager")
 
+# AU-P1-6: the 12 high-value named connectors whose ``connector_manifest.yml`` is
+# now MANDATORY — baked into :func:`enterprise_required_sources` unconditionally
+# (unlike the opt-in ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` env var, an operator
+# does NOT need to name these for the fail-closed policy to apply). Each entry is
+# whatever string :func:`precheck_source`/:func:`manifest_required` will actually
+# receive as ``source`` — the ``sync_source`` source key where one is registered
+# (``jira``/``confluence``/``gitlab``/``servicenow``/``leanix``/``langfuse``/
+# ``tunnel_manager``), else the ``agents/<pkg>`` directory name itself (which
+# :func:`resolve_connector_package` resolves via its own-name exact-match branch).
+#
+# Honest scope note: 5 of these 12 (``microsoft-agent``, ``container-manager-mcp``,
+# ``documentdb-mcp``, ``repository-manager``, ``systems-manager``, ``vector-mcp`` —
+# ``microsoft`` is materialize-only, the other 5 have no ``source_sync``/hydration
+# call site at all) are NOT currently dispatched through ``sync_source`` with any of
+# these identifiers, so listing them here does not yet gate a live code path — it
+# makes the enforcement correct and ready the moment such a call site is added,
+# rather than leaving a silent gap that would need discovering later. The 7 real
+# ``sync_source`` sources (``jira``/``confluence``/``gitlab``/``servicenow``/
+# ``leanix``/``langfuse``/``tunnel_manager``) ARE gated live today.
+MANDATORY_NAMED_CONNECTOR_SOURCES: frozenset[str] = frozenset(
+    {
+        # atlassian-agent — two source_sync source keys share one connector package
+        "jira",
+        "confluence",
+        # gitlab-api
+        "gitlab",
+        # servicenow-api
+        "servicenow",
+        # leanix-agent
+        "leanix",
+        # langfuse-agent
+        "langfuse",
+        # tunnel-manager
+        "tunnel_manager",
+        # microsoft-agent — no sync_source source key registered yet (materialize-only)
+        "microsoft-agent",
+        # container-manager-mcp, documentdb-mcp, repository-manager, systems-manager,
+        # vector-mcp — action/ops MCP connectors, no sync_source wiring at all;
+        # gated here by their own agents/<pkg> directory name.
+        "container-manager-mcp",
+        "documentdb-mcp",
+        "repository-manager",
+        "systems-manager",
+        "vector-mcp",
+    }
+)
+
 
 def resolve_agents_root() -> Path:
     """The ``agent-packages/agents`` fleet root (``AGENTS_ROOT`` override, else
@@ -109,16 +157,48 @@ def resolve_connector_package(
     return None
 
 
+def bundled_manifests_root() -> Path:
+    """The in-repo staging root for manifests bundled WITH agent-utilities itself
+    (``agent_utilities/knowledge_graph/ontology/connector_manifests/<pkg>/``).
+
+    AU-P1-6: the fleet's live ``agents/<pkg>`` checkouts are a *separate* set of
+    repos this package doesn't own/write — this bundled copy is the pinned,
+    committed-in-agent-utilities fallback that makes the 12
+    :data:`MANDATORY_NAMED_CONNECTOR_SOURCES` manifests resolvable even when
+    :func:`resolve_agents_root` (the live fleet checkout) isn't present, e.g. a
+    standalone agent-utilities checkout or CI runner. A live fleet checkout, if
+    present, always wins (checked first in :func:`find_connector_manifest`) —
+    this is the pinned floor, not an override.
+    """
+    return Path(__file__).resolve().parent / "connector_manifests"
+
+
 def find_connector_manifest(
     source: str, *, agents_root: Path | None = None
 ) -> Path | None:
-    """The ``connector_manifest.yml`` path for ``source``'s connector package, if any."""
+    """The ``connector_manifest.yml`` path for ``source``'s connector package, if any.
+
+    Checks the live fleet root first (``agents_root``/:func:`resolve_agents_root`),
+    then falls back to :func:`bundled_manifests_root` (AU-P1-6) — so the 12
+    mandatory named connectors resolve even without the sibling ``agent-packages``
+    checkout present.
+    """
     pkg = resolve_connector_package(source, agents_root=agents_root)
-    if pkg is None:
-        return None
-    root = agents_root if agents_root is not None else resolve_agents_root()
-    path = root / pkg / "connector_manifest.yml"
-    return path if path.exists() else None
+    if pkg is not None:
+        root = agents_root if agents_root is not None else resolve_agents_root()
+        path = root / pkg / "connector_manifest.yml"
+        if path.exists():
+            return path
+
+    bundled_pkg = resolve_connector_package(
+        source, agents_root=bundled_manifests_root()
+    )
+    if bundled_pkg is not None:
+        bundled_path = bundled_manifests_root() / bundled_pkg / "connector_manifest.yml"
+        if bundled_path.exists():
+            return bundled_path
+
+    return None
 
 
 def check_manifest_bytes(path: Path) -> list[str]:
@@ -169,20 +249,27 @@ def check_manifest_bytes(path: Path) -> list[str]:
 def enterprise_required_sources() -> set[str]:
     """Source keys whose sync MUST refuse without a compiled+verified manifest.
 
-    Populated from ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` — a comma-separated
-    list of ``sync_source`` source keys (e.g. ``"servicenow,twenty,egeria"``),
-    lower-cased and stripped. This is an explicit, per-deployment **opt-in**
-    (CONCEPT:AU-P0-4 fail-closed connector permissions): an operator activating
-    a connector for enterprise use names it here so its sync provably refuses
-    without manifest coverage, WITHOUT retroactively blocking the ~40 fleet
-    sources that have no ``connector_manifest.yml`` yet and were never meant to
-    require one for dev/local use. Empty by default — unchanged pass-through
-    behavior for every source until an operator opts one in.
+    ``MANDATORY_NAMED_CONNECTOR_SOURCES`` (AU-P1-6) is baked in **unconditionally**
+    — the 12 high-value named connectors (atlassian/jira+confluence, gitlab,
+    servicenow, microsoft, leanix, langfuse, tunnel-manager, container-manager,
+    documentdb, repository-manager, systems-manager, vector) always require a
+    passing manifest, with no operator opt-in needed.
+
+    On top of that baseline, ``CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE`` — a
+    comma-separated list of additional ``sync_source`` source keys (e.g.
+    ``"twenty,egeria"``), lower-cased and stripped — remains an explicit,
+    per-deployment **opt-in** (CONCEPT:AU-P0-4 fail-closed connector
+    permissions): an operator activating any OTHER connector for enterprise use
+    names it here so its sync provably refuses without manifest coverage,
+    WITHOUT retroactively blocking the ~40 fleet sources that have no
+    ``connector_manifest.yml`` yet and were never meant to require one for
+    dev/local use. Empty env var -> only the AU-P1-6 mandatory 12 are required.
     """
     from ...core.config import setting
 
     raw = setting("CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE", default="") or ""
-    return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
+    opted_in = {s.strip().lower() for s in str(raw).split(",") if s.strip()}
+    return set(MANDATORY_NAMED_CONNECTOR_SOURCES) | opted_in
 
 
 def manifest_required(source: str) -> bool:

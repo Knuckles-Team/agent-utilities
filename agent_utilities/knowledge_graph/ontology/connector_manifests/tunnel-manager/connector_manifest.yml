@@ -1,0 +1,253 @@
+connector: tunnel-manager
+ontology_source: tunnel
+schema_version: '1'
+resources:
+- name: CommandExecution
+  label: Command Execution
+  id_prefix: commandexecution
+  relations: []
+- name: FileTransfer
+  label: File Transfer
+  id_prefix: filetransfer
+  relations: []
+- name: Host
+  label: Host
+  id_prefix: host
+  relations:
+  - name: accessedBy
+    label: accessed by
+    target: Person
+    lpg_rel_type: ''
+  - name: inGroup
+    label: in group
+    target: HostGroup
+    lpg_rel_type: ''
+  - name: proxiesThrough
+    label: proxies through
+    target: Host
+    lpg_rel_type: ''
+- name: HostGroup
+  label: Host Group
+  id_prefix: hostgroup
+  relations: []
+- name: Operation
+  label: Operation
+  id_prefix: operation
+  relations: []
+- name: SecurityAudit
+  label: Security Audit
+  id_prefix: securityaudit
+  relations: []
+- name: SshKey
+  label: SSH Key
+  id_prefix: sshkey
+  relations: []
+- name: Tunnel
+  label: Tunnel
+  id_prefix: tunnel
+  relations:
+  - name: tunnelsTo
+    label: tunnels to
+    target: Host
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    Host: hostname
+  title_field:
+    Host: hostname
+  text_field:
+    Host: hostname
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  CommandExecution:
+    ontology_class: null
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  FileTransfer:
+    ontology_class: File
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  Host:
+    ontology_class: Server
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  HostGroup:
+    ontology_class: Server
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  Operation:
+    ontology_class: null
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  SecurityAudit:
+    ontology_class: null
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  SshKey:
+    ontology_class: null
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+  Tunnel:
+    ontology_class: null
+    fields:
+      auditStandard: xsd:string
+      connectionStatus: xsd:string
+      exitStatus: xsd:string
+      hostname: xsd:string
+      identityFile: xsd:string
+      proxyCommand: xsd:string
+      sshPort: xsd:integer
+      sshUser: xsd:string
+sync:
+- preset: tunnel-hosts
+  server: tunnel-manager-mcp
+  tool: tm_hosts
+  action: list
+  records_path: hosts
+  id_field: hostname
+  title_field: hostname
+  text_field: hostname
+  updated_field: null
+  pagination: null
+  doc_type: Host
+  raw:
+    server: tunnel-manager-mcp
+    tool: tm_hosts
+    action: list
+    params:
+      action: list
+    records_path: hosts
+    records_is_mapping: true
+    id_field: hostname
+    title_field: hostname
+    text_field: hostname
+    updated_field: null
+    doc_type: Host
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - tunnel_manager/connectors/mcp_source_presets.json
+  - tunnel_manager/ontology/tunnel.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 940e14de158b4cedef693e0e9672ac6c974441fbfa91ceb8e98d424e7340f4bc
+    triple_count: 71
+  signer: ontology-manifest-generator
+  signature: 21b46ebedfeb57466dd2f5b78eacae96f04ae916406d418676d346f9cb43ee90
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'ranOnHost' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'usesKey' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.CommandExecution.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.FileTransfer.ontology_class = 'File' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Host.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.HostGroup.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Operation.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SecurityAudit.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SshKey.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Tunnel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "auth: SSH key (default; ed25519/RSA via paramiko/asyncssh), with SSH password and Teleport short-lived\
+  \ cert as alternatives \u2014 an SSH tunnel manager, not Cloudflare/ngrok. Env: TUNNEL_IDENTITY_FILE\
+  \ (default ~/.ssh/id_ed25519), TUNNEL_REMOTE_HOST/PORT, TUNNEL_USERNAME, TUNNEL_PASSWORD, TUNNEL_CERTIFICATE,\
+  \ TUNNEL_PROXY_COMMAND, TUNNEL_INVENTORY; per-host creds also in inventory.example.yaml (ansible_user,\
+  \ ansible_ssh_private_key_file, ansible_ssh_pass). required_scopes: none explicit; optional Teleport/Bastion\
+  \ mode (tsh) is the closest to scoped/short-lived credentials. Shape: per-host/per-user delegated \u2014\
+  \ each inventory host can carry its own identity/key/password."
+- "change_support: snapshot/poll only, via mcp_source_presets.json (hydrate \u2014 see docs/architecture/kg_connectors_and_ingestion.md\
+  \ section 8 connector inventory for the real, already-shipped wiring). cdc: none (no change-data-capture/replication-log\
+  \ path). webhook: none (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM\
+  \ as a tool capability \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for\
+  \ this connector today)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."

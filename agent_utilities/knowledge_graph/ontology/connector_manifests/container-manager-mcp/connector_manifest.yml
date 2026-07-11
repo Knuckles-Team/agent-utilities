@@ -1,0 +1,610 @@
+connector: container-manager-mcp
+ontology_source: container
+schema_version: '1'
+resources:
+- name: ContainerNetwork
+  label: Container Network
+  id_prefix: containernetwork
+  relations: []
+- name: ContainerVolume
+  label: Container Volume
+  id_prefix: containervolume
+  relations: []
+- name: DaemonSet
+  label: Kubernetes DaemonSet
+  id_prefix: daemonset
+  relations: []
+- name: Deployment
+  label: Kubernetes Deployment
+  id_prefix: deployment
+  relations: []
+- name: Ingress
+  label: Kubernetes Ingress
+  id_prefix: ingress
+  relations: []
+- name: K8sNode
+  label: Kubernetes Node
+  id_prefix: k8snode
+  relations: []
+- name: K8sService
+  label: Kubernetes Service
+  id_prefix: k8sservice
+  relations:
+  - name: exposedByIngress
+    label: exposed by ingress
+    target: Ingress
+    lpg_rel_type: ''
+- name: Namespace
+  label: Kubernetes Namespace
+  id_prefix: namespace
+  relations: []
+- name: Pod
+  label: Kubernetes Pod
+  id_prefix: pod
+  relations:
+  - name: managedByDeployment
+    label: managed by deployment
+    target: Deployment
+    lpg_rel_type: ''
+  - name: scheduledOnK8sNode
+    label: scheduled on k8s node
+    target: K8sNode
+    lpg_rel_type: ''
+- name: StatefulSet
+  label: Kubernetes StatefulSet
+  id_prefix: statefulset
+  relations: []
+- name: SwarmNode
+  label: Swarm Node
+  id_prefix: swarmnode
+  relations: []
+- name: SwarmService
+  label: Swarm Service
+  id_prefix: swarmservice
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: container-containers.updated
+  resource: container
+  description: "Watermark event for 'container-containers' \u2014 advances on created (mcp_source_presets.json)."
+- name: container-images.updated
+  resource: container-image
+  description: "Watermark event for 'container-images' \u2014 advances on created (mcp_source_presets.json)."
+- name: k8s-deployments.updated
+  resource: k8s-deployment
+  description: "Watermark event for 'k8s-deployments' \u2014 advances on created (mcp_source_presets.json)."
+- name: k8s-namespaces.updated
+  resource: k8s-namespace
+  description: "Watermark event for 'k8s-namespaces' \u2014 advances on created (mcp_source_presets.json)."
+- name: k8s-pods.updated
+  resource: k8s-pod
+  description: "Watermark event for 'k8s-pods' \u2014 advances on created (mcp_source_presets.json)."
+- name: k8s-services.updated
+  resource: k8s-service
+  description: "Watermark event for 'k8s-services' \u2014 advances on created (mcp_source_presets.json)."
+identity:
+  id_field:
+    container: id
+    container-image: id
+    k8s-deployment: id
+    k8s-namespace: name
+    k8s-pod: name
+    k8s-service: name
+  title_field:
+    container: name
+    container-image: repository
+    k8s-deployment: name
+    k8s-namespace: name
+    k8s-pod: name
+    k8s-service: name
+  text_field:
+    container: image
+    container-image: tag
+    k8s-deployment: image
+    k8s-namespace: status
+    k8s-pod: status
+    k8s-service: type
+  updated_field:
+    container: created
+    container-image: created
+    k8s-deployment: created
+    k8s-namespace: created
+    k8s-pod: created
+    k8s-service: created
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ContainerNetwork:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  ContainerVolume:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  DaemonSet:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  Deployment:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  Ingress:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  K8sNode:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  K8sService:
+    ontology_class: System
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  Namespace:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  Pod:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  StatefulSet:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  SwarmNode:
+    ontology_class: null
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+  SwarmService:
+    ontology_class: System
+    fields:
+      containerStatus: xsd:string
+      deploymentReadyReplicas: xsd:integer
+      deploymentReplicas: xsd:integer
+      externalToolId: xsd:string
+      imageRepository: xsd:string
+      imageSize: xsd:string
+      imageTag: xsd:string
+      mountpoint: xsd:string
+      namespaceStatus: xsd:string
+      networkDriver: xsd:string
+      networkScope: xsd:string
+      nodeAllocatable: xsd:string
+      nodeAvailability: xsd:string
+      nodeCapacity: xsd:string
+      nodeRole: xsd:string
+      podPhase: xsd:string
+      portMappings: xsd:string
+      serviceReplicas: xsd:integer
+      serviceType: xsd:string
+      volumeDriver: xsd:string
+sync:
+- preset: container-containers
+  server: container-manager-mcp
+  tool: cm_container_operations
+  action: list_containers
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: image
+  updated_field: created
+  pagination: null
+  doc_type: container
+  raw:
+    server: container-manager-mcp
+    tool: cm_container_operations
+    action: list_containers
+    params:
+      all_containers: true
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: image
+    updated_field: created
+    doc_type: container
+- preset: container-images
+  server: container-manager-mcp
+  tool: cm_image_operations
+  action: list_images
+  records_path: ''
+  id_field: id
+  title_field: repository
+  text_field: tag
+  updated_field: created
+  pagination: null
+  doc_type: container-image
+  raw:
+    server: container-manager-mcp
+    tool: cm_image_operations
+    action: list_images
+    records_path: ''
+    id_field: id
+    title_field: repository
+    text_field: tag
+    updated_field: created
+    doc_type: container-image
+- preset: k8s-deployments
+  server: container-manager-mcp
+  tool: cm_k8s_workloads
+  action: list_services
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: image
+  updated_field: created
+  pagination: null
+  doc_type: k8s-deployment
+  raw:
+    server: container-manager-mcp
+    tool: cm_k8s_workloads
+    action: list_services
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: image
+    updated_field: created
+    doc_type: k8s-deployment
+- preset: k8s-namespaces
+  server: container-manager-mcp
+  tool: cm_k8s_config
+  action: list_namespaces
+  records_path: ''
+  id_field: name
+  title_field: name
+  text_field: status
+  updated_field: created
+  pagination: null
+  doc_type: k8s-namespace
+  raw:
+    server: container-manager-mcp
+    tool: cm_k8s_config
+    action: list_namespaces
+    records_path: ''
+    id_field: name
+    title_field: name
+    text_field: status
+    updated_field: created
+    doc_type: k8s-namespace
+- preset: k8s-pods
+  server: container-manager-mcp
+  tool: cm_k8s_workloads
+  action: list_pods
+  records_path: ''
+  id_field: name
+  title_field: name
+  text_field: status
+  updated_field: created
+  pagination: null
+  doc_type: k8s-pod
+  raw:
+    server: container-manager-mcp
+    tool: cm_k8s_workloads
+    action: list_pods
+    records_path: ''
+    id_field: name
+    title_field: name
+    text_field: status
+    updated_field: created
+    doc_type: k8s-pod
+- preset: k8s-services
+  server: container-manager-mcp
+  tool: cm_k8s_networking
+  action: list_k8s_services
+  records_path: ''
+  id_field: name
+  title_field: name
+  text_field: type
+  updated_field: created
+  pagination: null
+  doc_type: k8s-service
+  raw:
+    server: container-manager-mcp
+    tool: cm_k8s_networking
+    action: list_k8s_services
+    records_path: ''
+    id_field: name
+    title_field: name
+    text_field: type
+    updated_field: created
+    doc_type: k8s-service
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-11T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - container_manager_mcp/connectors/mcp_source_presets.json
+  - container_manager_mcp/ontology/container.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 97169902bf7ed616fa48999907841f6a9a38b68d8443513613fd700dcfec4da1
+    triple_count: 114
+  signer: ontology-manifest-generator
+  signature: dc36a855e6ae508454de0243ff91ee5bc6439c31d426089f025954391afed730
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'attachedToNetwork' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hostsResource' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'mountsVolume' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'runsInNamespace' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'scheduledOnNode' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'usesImage' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.ContainerNetwork.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContainerVolume.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DaemonSet.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Deployment.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Ingress.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.K8sNode.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.K8sService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Namespace.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Pod.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.StatefulSet.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SwarmNode.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SwarmService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "auth: local socket/kubeconfig \u2014 no remote API credential of its own. Docker via docker.from_env()/unix\
+  \ or tcp socket; K8s via in-cluster config or ~/.kube/config. Env: CONTAINER_MANAGER_TYPE/HOST, CONTAINER_MANAGER_PODMAN_BASE_URL,\
+  \ CONTAINER_MANAGER_KUBECONTEXT, KUBECONFIG, KUBERNETES_SERVICE_HOST, K8S_CONTEXTS/DOCKER_CONTEXTS/SWARM_CONTEXTS.\
+  \ required_scopes: none \u2014 access is whatever the local socket/kubeconfig RBAC identity already\
+  \ grants; remote hosts are reached via an SSH tunnel from tunnel-manager, not an exposed Docker TCP\
+  \ port. Shape: shared host/cluster credential per named context, not per-user."
+- "change_support: none \u2014 this connector is NOT wired into any source_sync delta/hydrate/materialize\
+  \ ingestion path today (see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory,\
+  \ which omits it entirely); it is an action/ops MCP connector (control-plane calls), not a KG data-ingestion\
+  \ source. cdc: none. webhook: none (any 'webhook' hits in this package's source manage webhooks/admission-hooks\
+  \ IN THE REMOTE SYSTEM \u2014 they are not an inbound push-ingestion receiver into this KG)."
+- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
+  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
+  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
+  \ above for the one heuristic that IS populated)."
+- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
+  \ SLA is authored and referenced here."
+- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
+  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
+  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
+  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
+  \ manifest should be treated as fully authoritative."
