@@ -5,9 +5,44 @@ All notable changes to agent-utilities will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (1.18.0-dev) — P0 hardening Wave 1 (session currency, native Cypher, fail-closed connectors)
+## [1.20.0] - 2026-07-11 — Trustworthy Core (Phase 0)
 
-### Added
+Assimilates the Codex 5.6 audit's P0 findings for the control plane: one session currency, native
+query authority, fail-closed connectors, atomic work claiming, end-to-end tenant isolation, and
+scoped admin tooling. (Versioned 1.20.0 — `main` advanced to 1.19.0 via concurrent delegation-hardening
+work; this release stacks on it. Staged locally, not yet pushed.)
+
+### Added (Phase-0 Wave 2)
+- **Engine-native work claiming + fencing (AU-P0-3).** Dispatch ids are now full 128-bit (was an
+  8-hex/32-bit truncation with ~50% collision near 77k ids). The previously-unwired
+  `orchestration/engine_claim.py` `ClaimNext`/CAS/lease is wired into the live worker
+  (`AGENT_CLAIM_BACKEND=engine`; the KG best-effort claim stays the dev default), with a monotonic
+  fencing token (`lease_epoch`) threaded through execution and a commit-time CAS. A task with no bound
+  executor now resolves `unroutable`/`failed` — never `completed` with reward 1.0. (Known follow-up: the
+  commit-time fence check fails open on engine-query error; the engine-native path should fail closed.)
+- **Scoped low-level engine tools + bounded pools (AU-P0-6).** Admin-family engine domains
+  (tenants/resharding/consensus/rbac/admin) now require the `kg:admin` scope or an admin role,
+  enforced fail-closed (`PermissionError` raised before dispatch, checking both `ActorContext` and
+  `GraphSession` scopes); reads and normal writes stay open. The previously-missing namespaces
+  (graph-learning, broker, rbac, admin) are exposed — with the admin ones gated *before* exposure —
+  and the unbounded per-graph client cache is replaced by a bounded LRU endpoint/session pool.
+
+### Fixed (Phase-0 Wave 2)
+- **Tenant isolation end-to-end (AU-P0-5).** Authorization-sensitive caches (derived-property
+  read-through, marking registry) are re-keyed by tenant + actor + policy-version + graph so one
+  tenant's derived value/permission decision can never be returned to another (fixing a latent
+  registry-bypass bug). The dead `set_request_tenant` GUC hook is wired into every Postgres and
+  state-store connection checkout — **fail-closed** for a real tenant (a failed `SET` aborts the
+  checkout rather than serving an unscoped/stale connection; `SET LOCAL` auto-resets on return);
+  `sessions` gained a real `tenant_id` column with the predicate pushed into SQL.
+- **Deployment defaults reconciled to the live environment (OPS-P0-1).** `genesis.yaml` /
+  `gen_genesis_manifest.py` no longer default to Docker Swarm / Stardog for the wrong profiles:
+  single-node-prod → docker-compose, enterprise ontology host → the engine (`local`), enterprise
+  prose → Kubernetes (RKE2). Okta/Vault/Swarm/Stardog remain valid adaptive options for external
+  operators; the live homelab stack (Keycloak + OpenBao + RKE2) is documented as the resolved default,
+  pointing at `inventory/k8s-migration/` rather than duplicating it.
+
+### Added (Phase-0 Wave 1)
 - **`GraphSession` — one explicit session currency (AU-P0-1).** New
   `knowledge_graph/core/session.py`: a frozen dataclass (`actor`, `tenant`, `scopes`, `graph`,
   `endpoint`, `catalog_epoch`, `txn`, `policy_version`, `trace_context`) that *wraps* — not
