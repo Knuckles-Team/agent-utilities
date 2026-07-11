@@ -2902,13 +2902,13 @@ def _build_server(bootstrap: bool = True):
         register_state_tools,
         register_write_ingest_tools,
     )
-    from agent_utilities.mcp.verbose_tools import register_tool_surface
+    from agent_utilities.mcp.verbose_tools import register_tool_surface, tool_mode
 
     # graph-os is an action-routed wrapper over the API gateway's action core. The
     # condensed surface is the per-domain action tools (gated by `<DOMAIN>TOOL`); the
     # verbose surface is one 1:1 tool per gateway CRUD action, both dispatching through
     # the same `_execute_tool` core. register_tool_surface owns the MCP_TOOL_MODE
-    # selection (condensed default / verbose / both) for both.
+    # selection (condensed default / verbose / both / intent) for both.
     register_tool_surface(
         mcp,
         service="graph-os",
@@ -2928,6 +2928,17 @@ def _build_server(bootstrap: bool = True):
         ],
         verbose_register=register_graphos_verbose_tools,
     )
+
+    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8, Phases 2-3) — the ADDITIONAL, small
+    # "ask/find/write/act/manage/why" intent surface, opt-in via MCP_TOOL_MODE=intent
+    # (the condensed default above is completely unaffected). Every granular tool the
+    # condensed surface just registered stays reachable via load_tools (verbose_tools
+    # tagged them GATED_TAG); the intent verbs dispatch through the SAME
+    # REGISTERED_TOOLS/_execute_tool core.
+    if tool_mode() == "intent":
+        from agent_utilities.mcp.tools.intent_tools import register_intent_tools
+
+        register_intent_tools(mcp)
 
     return args, mcp, middlewares
 
@@ -2979,6 +2990,8 @@ def register_graphos_verbose_tools(mcp) -> None:
 
         return _verbose_op
 
+    from agent_utilities.mcp.verbose_tools import GRANULAR_TAG
+
     for op in GRAPHOS_ACTIONS:
         if op["action"] is None and skip_single_op:
             continue
@@ -2990,7 +3003,7 @@ def register_graphos_verbose_tools(mcp) -> None:
             if op["action"]
             else f"graph-os {op['tool']} (single operation)."
         )
-        mcp.tool(name=op["name"], tags={"verbose", op["tool"]})(fn)
+        mcp.tool(name=op["name"], tags={"verbose", op["tool"], GRANULAR_TAG})(fn)
 
 
 # ══════════════════════════════════════════════════════════════════

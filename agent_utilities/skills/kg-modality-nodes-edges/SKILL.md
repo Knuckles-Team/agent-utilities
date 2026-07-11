@@ -18,6 +18,9 @@ metadata:
 
 # KG Modality — Nodes / Edges / Graph / Lifecycle (core CRUD)
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `engine_nodes`, `engine_edges`, `engine_graph`, `engine_lifecycle` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["engine_nodes"])` once per session (as below), then proceed exactly as documented; or (2) call the `write` intent verb with the same natural-language request — the resolver routes to `engine_nodes` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Fronts the four epistemic-graph engine domains that make up **core graph CRUD**
 at the wire level:
 

@@ -17,6 +17,9 @@ metadata:
 
 # KG Modality — Time Series (native TSDB)
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `engine_timeseries` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["engine_timeseries"])` once per session (as below), then proceed exactly as documented; or (2) call the `write` intent verb with the same natural-language request — the resolver routes to `engine_timeseries` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Fronts the epistemic-graph engine's **`timeseries`** domain: a native
 time-series database co-located with the graph. Supports append, range and
 window scans, as-of (point-in-time) lookups, and gap-filling — so temporal

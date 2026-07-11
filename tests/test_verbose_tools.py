@@ -375,6 +375,41 @@ def test_surface_both_adds_verbose(monkeypatch):
     assert "servicenow_get_cmdb_instance" in names  # verbose
 
 
+def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
+    """CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — MCP_TOOL_MODE=intent still
+    registers the condensed tools (nothing lost — REST/_execute_tool reach them
+    exactly as before) but tags them GATED_TAG + GRANULAR_TAG for the
+    session-visibility gate, surfaced via gated_tool_names()."""
+    from agent_utilities.mcp.verbose_tools import (
+        GATED_TAG,
+        GRANULAR_TAG,
+        gated_tool_names,
+    )
+
+    monkeypatch.setenv("MCP_TOOL_MODE", "intent")
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    assert set(tags) == {"cmdb", "change_management"}
+    names = {t.name for t in _tools_list(mcp)}
+    # Condensed tools ARE registered (backing surface for the intent verbs +
+    # REST/_execute_tool) — just gated from the default session view.
+    assert "svc_cmdb" in names
+    assert (
+        "servicenow_get_cmdb_instance" not in names
+    )  # no verbose surface in intent mode
+
+    gated = gated_tool_names(mcp)
+    assert gated == {"svc_cmdb", "svc_change_management"}
+    tool = _get(mcp, "svc_cmdb")
+    assert {GATED_TAG, GRANULAR_TAG, "cmdb"} <= set(tool.tags)
+
+
 def test_surface_tool_registry(monkeypatch):
     monkeypatch.setenv("MCP_TOOL_MODE", "verbose")  # condensed registry skipped
     calls = []

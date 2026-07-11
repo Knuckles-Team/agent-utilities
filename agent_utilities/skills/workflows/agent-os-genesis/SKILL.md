@@ -922,8 +922,14 @@ verifying multiplexer reachability after each wave.
 vars: each connector's generated compose `environment:` block and its
 `mcp_config*.json` `env` block match exactly the variable set the connector actually
 reads (no dead/undocumented vars), and **every MCP server's `env`/compose carries
-`MCP_TOOL_MODE`** (`condensed` | `verbose` | `both`, default `condensed`) so the
-condensed/verbose surface is discoverable. Genesis-provisioned/scaffolded packages
+`MCP_TOOL_MODE`** (`condensed` | `verbose` | `both` | `intent`, default `condensed`) so
+the condensed/verbose/intent surface is discoverable. `intent`
+(CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse, Seam 8) is graph-os's small/cheap-LLM
+profile — it collapses the ~95-tool condensed surface to six `ask`/`find`/`write`/
+`act`/`manage`/`why` verbs (a resolver routes each natural-language intent to the
+right granular tool, dispatched via the same `_execute_tool` core — nothing lost,
+`load_tools` still reaches any exact tool); pick it for a Haiku/local-model
+deployment where a 100-tool schema list hurts selection accuracy. Genesis-provisioned/scaffolded packages
 ship the shared guard `python -m agent_utilities.mcp.check_env_var_drift --check` as
 their `env-var-drift` pre-commit hook (from the `agent-package-builder` scaffold),
 which flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE drift across `.env.example`,
