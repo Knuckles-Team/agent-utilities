@@ -81,7 +81,7 @@ wheels = [
 
 [[package]]
 name = "agent-utilities"
-version = "1.12.0"
+version = "1.20.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
