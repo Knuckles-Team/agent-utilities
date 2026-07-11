@@ -558,6 +558,12 @@ async def synthesizer_step(
         system_prompt=final_system_prompt,
     )
 
+    # CONCEPT:AU-ORCH.execution.degraded-no-data-outcome — track whether the graph gathered
+    # ZERO results. A fall-through to the "no data" sentinel below is a DEGRADED outcome,
+    # not a success: counting it as success poisoned the reward/Self-Model/TeamConfig
+    # learning (rewarding a non-answer 1.0) and hid the failure from the RunTrace. The flag
+    # is surfaced on the GraphResponse so every entrypoint records the run truthfully.
+    no_data = False
     try:
         logger.debug(f"Synthesizer: Prompt summary length: {len(results_summary)}")
         async with synthesizer.run_stream(
@@ -596,6 +602,7 @@ async def synthesizer_step(
                 f"### RAW EXECUTION RESULTS\n{results_summary}"
             )
         else:
+            no_data = True
             result_text = (
                 "The agent completed its analysis but was unable to find specific data matching your request. "
                 "Please verify the query or target system status."
@@ -626,7 +633,12 @@ async def synthesizer_step(
 
     # CONCEPT:AU-KG.maintenance.post-execution-feedback — Post-execution feedback loop
     # Record execution outcome into Self-Model and TeamConfig for learning.
-    execution_success = bool(result_text and result_text.lower() != "none")
+    # A run that fell through to the "no data" sentinel produced no results — NOT a
+    # success (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome). Excluding it here keeps the
+    # Self-Model / TeamConfig / distillation feedback from rewarding a non-answer.
+    execution_success = (
+        bool(result_text and result_text.lower() != "none") and not no_data
+    )
     if ctx.deps.knowledge_engine:
         # Self-Model session feedback
         try:
@@ -697,6 +709,10 @@ async def synthesizer_step(
             metadata={
                 "domain": ctx.state.routed_domain,
                 "verification_attempts": ctx.state.verification_attempts,
+                # Surface the degradation so run_agent records the RunTrace status
+                # truthfully and feeds the failure back (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome).
+                "degraded": no_data,
+                "outcome": "no_data" if no_data else "ok",
             },
         )
     )

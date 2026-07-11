@@ -451,16 +451,23 @@ async def run_agent(
         )
         return f"Agent execution failed: {err_msg}"
 
-    # Step 5: Record success provenance
+    # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
+    # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
+    # returning a confident-empty "completed" is the failure this fixes. Detect it so the
+    # RunTrace status is truthful, the reward/shape learning is not poisoned by a
+    # non-answer, and the failure is fed back so routing self-corrects next time
+    # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
+    degraded = _delegation_degraded(result)
     duration_ms = (time.monotonic() - start_time) * 1000
     _record_execution_trace(
         engine,
         run_id,
         agent_name,
         task,
-        status="completed",
+        status="degraded" if degraded else "completed",
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
+        error="delegation produced no usable data (degraded)" if degraded else None,
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -469,18 +476,23 @@ async def run_agent(
         _persist_tool_calls(
             engine, run_id, agent_name, agent_name, result["tool_calls"]
         )
+    # Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded run teaches the
+    # reward-EMA that this agent/task-class produced a non-answer, so routing prefers
+    # actions that actually achieve the goal. Best-effort; never breaks the run.
+    if degraded:
+        _record_degraded_feedback(engine, agent_name, task, result)
     # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the intermediate agent-steps of
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
-    _write_step_credit(engine, run_id, agent_name, result, success=True)
-    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy this archetype SUCCEEDED for this task-class,
-    # rewarded by speed (success × how little of the budget it spent).
+    _write_step_credit(engine, run_id, agent_name, result, success=not degraded)
+    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy whether this archetype
+    # SUCCEEDED for this task-class, rewarded by speed (success × how little of the budget it spent).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
     record_shape_outcome(
         task,
         execution_profile,
-        success=True,
+        success=not degraded,
         latency_s=duration_ms / 1000.0,
         shape=shape,
     )
@@ -1144,9 +1156,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -1744,6 +1756,88 @@ def _record_execution_trace(
             )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Internal: degraded-outcome detection + self-healing feedback
+# (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome / AU-AHE.evaluation.action-outcome-feedback)
+# ---------------------------------------------------------------------------
+
+_DELEGATION_DEGRADED_SENTINELS = (
+    "unable to find specific data",
+    "could not be generated",
+)
+
+
+def _delegation_degraded(result: Any) -> bool:
+    """True when a delegation produced a non-answer (no data / empty / sentinel).
+
+    CONCEPT:AU-ORCH.execution.degraded-no-data-outcome — the trust-critical signal: a run that
+    routed through the graph and gathered zero results returns a plausible-but-empty
+    "…unable to find specific data…" sentinel that was previously recorded as
+    ``status="completed"``. Reads the structured ``degraded`` flag the graph
+    synthesizer stamps into ``GraphResponse.metadata``; falls back to an output-text
+    sentinel / empty-output check so the single-server and focused-tools paths (which
+    don't build a GraphResponse) are covered too. Never raises.
+    """
+    try:
+        output = ""
+        if isinstance(result, dict):
+            meta = result.get("metadata")
+            if isinstance(meta, dict) and meta.get("degraded"):
+                return True
+            res = result.get("results")
+            if isinstance(res, dict):
+                output = str(res.get("output") or "")
+            if not output:
+                output = str(result.get("output") or "")
+        else:
+            output = str(result or "")
+        low = output.strip().lower()
+        if not low:
+            return True
+        return any(s in low for s in _DELEGATION_DEGRADED_SENTINELS)
+    except Exception:  # noqa: BLE001 — a detector must never break the run path
+        return False
+
+
+def _record_degraded_feedback(
+    engine: IntelligenceGraphEngine | None,
+    agent_name: str,
+    task: str,
+    result: Any,
+) -> None:
+    """Feed a degraded delegation back as a negative action-outcome.
+
+    CONCEPT:AU-AHE.evaluation.action-outcome-feedback — the self-healing half of fail-loud: a run
+    that produced no usable data records ``success=False`` on the ``agent:<name>``
+    reward-EMA, so routing/optimization learns to prefer delegations that actually
+    achieve the goal instead of silently repeating a non-answer. Best-effort.
+    """
+    if not engine:
+        return
+    try:
+        from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
+
+        feedback = FeedbackService.from_engine(engine)
+    except Exception:  # noqa: BLE001 — feedback is optional
+        return
+    if feedback is None:
+        return
+    output = ""
+    if isinstance(result, dict):
+        res = result.get("results")
+        if isinstance(res, dict):
+            output = str(res.get("output") or "")
+    with contextlib.suppress(Exception):
+        feedback.record_action_outcome(
+            f"agent:{agent_name}",
+            success=False,
+            observed=output[:200],
+            query=task[:200],
+            reason="delegation_degraded_no_data",
+            agent_id=agent_name,
+        )
 
 
 # ---------------------------------------------------------------------------

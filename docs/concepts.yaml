@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 951
+total_concepts: 952
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -148,13 +148,14 @@ concepts:
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.evaluation.action-outcome-feedback
-  name: AU-AHE.evaluation.action-outcome-feedback
+  name: the self-healing half of fail-loud
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: AU-AHE.evaluation.action-outcome-feedback
+  - agent_utilities/orchestration/agent_runner.py
+  doc: the self-healing half of fail-loud
   dotted: AU-AHE.evaluation.action-outcome-feedback
   aliases:
   - AU-AHE.evaluation.action-outcome-feedback
@@ -9164,6 +9165,19 @@ concepts:
   - AU-ORCH.execution.coordination-protocol-metadata
   canonical_pillar: AU-ORCH
   needs_curation: false
+- id: AU-ORCH.execution.degraded-no-data-outcome
+  name: / AU-AHE.evaluation.action-outcome-feedback
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/graph/verification.py
+  - agent_utilities/orchestration/agent_runner.py
+  doc: / AU-AHE.evaluation.action-outcome-feedback
+  dotted: AU-ORCH.execution.degraded-no-data-outcome
+  aliases:
+  - AU-ORCH.execution.degraded-no-data-outcome
+  canonical_pillar: AU-ORCH
+  needs_curation: false
 - id: AU-ORCH.execution.developer-workspace-runtime
   name: the developer-workspace runtime
   pillar: AU-ORCH
@@ -9724,14 +9738,14 @@ concepts:
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.shape-policy-learning
-  name: teach the shape policy this archetype SUCCEEDED for this task-class
+  name: teach the shape policy whether this archetype
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
   - agent_utilities/orchestration/outcome_router.py
-  doc: teach the shape policy this archetype SUCCEEDED for this task-class
+  doc: teach the shape policy whether this archetype
   dotted: AU-ORCH.execution.shape-policy-learning
   aliases:
   - AU-ORCH.execution.shape-policy-learning
@@ -10377,12 +10391,12 @@ concepts:
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.routing.functional-role-resolution
-  name: resolve a functional role
+  name: when NO explicit/role model was
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/core/model_factory.py
-  doc: resolve a functional role
+  doc: when NO explicit/role model was
   dotted: AU-ORCH.routing.functional-role-resolution
   aliases:
   - AU-ORCH.routing.functional-role-resolution
