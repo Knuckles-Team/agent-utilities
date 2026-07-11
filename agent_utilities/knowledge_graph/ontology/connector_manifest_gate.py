@@ -78,15 +78,13 @@ _GUESS_SUFFIXES: tuple[str, ...] = ("-mcp", "-agent", "-api", "-manager")
 # ``tunnel_manager``), else the ``agents/<pkg>`` directory name itself (which
 # :func:`resolve_connector_package` resolves via its own-name exact-match branch).
 #
-# Honest scope note: 5 of these 12 (``microsoft-agent``, ``container-manager-mcp``,
-# ``documentdb-mcp``, ``repository-manager``, ``systems-manager``, ``vector-mcp`` —
-# ``microsoft`` is materialize-only, the other 5 have no ``source_sync``/hydration
-# call site at all) are NOT currently dispatched through ``sync_source`` with any of
-# these identifiers, so listing them here does not yet gate a live code path — it
-# makes the enforcement correct and ready the moment such a call site is added,
-# rather than leaving a silent gap that would need discovering later. The 7 real
-# ``sync_source`` sources (``jira``/``confluence``/``gitlab``/``servicenow``/
-# ``leanix``/``langfuse``/``tunnel_manager``) ARE gated live today.
+# L27 CLOSED (AU-P1-5, CONCEPT:AU-KG.ingest.envelope-atomic-transaction): the 5 that
+# used to have no ``source_sync`` call site at all (``microsoft-agent``,
+# ``container-manager-mcp``, ``documentdb-mcp``, ``repository-manager``,
+# ``systems-manager``, ``vector-mcp``) now each have a live, dispatchable
+# ``_DELTA_HANDLERS`` entry (``source_sync._sync_ops_mcp_connector`` + its 5 thin
+# wrappers) — envelope-native from day one. All 12 named connectors below are now
+# gated on a LIVE ``sync_source`` code path, not just a name in this set.
 MANDATORY_NAMED_CONNECTOR_SOURCES: frozenset[str] = frozenset(
     {
         # atlassian-agent — two source_sync source keys share one connector package
@@ -102,11 +100,12 @@ MANDATORY_NAMED_CONNECTOR_SOURCES: frozenset[str] = frozenset(
         "langfuse",
         # tunnel-manager
         "tunnel_manager",
-        # microsoft-agent — no sync_source source key registered yet (materialize-only)
+        # microsoft-agent — Graph API (email/Teams/SharePoint) minimal snapshot pull
         "microsoft-agent",
         # container-manager-mcp, documentdb-mcp, repository-manager, systems-manager,
-        # vector-mcp — action/ops MCP connectors, no sync_source wiring at all;
-        # gated here by their own agents/<pkg> directory name.
+        # vector-mcp — action/ops MCP connectors; each a minimal snapshot-pull
+        # handler (source_sync._sync_ops_mcp_connector), gated by their own
+        # agents/<pkg> directory name.
         "container-manager-mcp",
         "documentdb-mcp",
         "repository-manager",
