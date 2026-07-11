@@ -33,7 +33,7 @@ class _RecordingConn:
 def _backend_with(conn: _RecordingConn) -> SimpleNamespace:
     pool = _SingleConnPool(conn)
     # AU-P0-5: `_conn` now scopes every checkout to the ambient tenant via
-    # `self._scope_tenant(conn)` before yielding — stub it as a no-op so this
+    # `self._scope_tenant(conn)` before yielding — fake it as a no-op so this
     # test stays focused on the commit/rollback contract it's regressing on.
     return SimpleNamespace(_ensure_pool=lambda: pool, _scope_tenant=lambda conn: None)
 

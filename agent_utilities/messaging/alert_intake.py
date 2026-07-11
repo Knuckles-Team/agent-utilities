@@ -43,7 +43,11 @@ def _extract_text(body: Any) -> str:
                 lab = a.get("labels", {}) or {}
                 lines.append(
                     f"[{a.get('status', '?')}] "
-                    + (ann.get("summary") or ann.get("description") or lab.get("alertname", "alert"))
+                    + (
+                        ann.get("summary")
+                        or ann.get("description")
+                        or lab.get("alertname", "alert")
+                    )
                 )
             if lines:
                 return "\n".join(lines)
@@ -62,7 +66,10 @@ async def _handle(request: web.Request) -> web.Response:
     channel = setting("MESSAGING_DEFAULT_CHANNEL", "")
     if not channel:
         return web.json_response(
-            {"ok": False, "error": "MESSAGING_DEFAULT_CHANNEL is unset — cannot route the alert"},
+            {
+                "ok": False,
+                "error": "MESSAGING_DEFAULT_CHANNEL is unset — cannot route the alert",
+            },
             status=503,
         )
 
@@ -72,14 +79,21 @@ async def _handle(request: web.Request) -> web.Response:
     backend = await svc.get_backend(platform)
     if backend is None:
         return web.json_response(
-            {"ok": False, "error": f"no connected messaging backend for platform {platform!r}"},
+            {
+                "ok": False,
+                "error": f"no connected messaging backend for platform {platform!r}",
+            },
             status=503,
         )
     try:
         await backend.send_message(channel, text)
     except Exception as exc:  # noqa: BLE001 — surface the delivery failure to the caller
-        logger.warning("alert-intake delivery failed (%s/%s): %s", platform, channel, exc)
-        return web.json_response({"ok": False, "error": f"delivery failed: {exc}"}, status=502)
+        logger.warning(
+            "alert-intake delivery failed (%s/%s): %s", platform, channel, exc
+        )
+        return web.json_response(
+            {"ok": False, "error": f"delivery failed: {exc}"}, status=502
+        )
     return web.json_response({"ok": True, "platform": platform, "channel": channel})
 
 

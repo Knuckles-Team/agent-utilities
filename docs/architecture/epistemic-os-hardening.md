@@ -501,7 +501,7 @@ whole state machine internally. This module is **not** listed in
 `scripts/surface_parity_baseline.txt`, but that is because the static
 surface-parity checker's reachability scan considers it reachable (its importer,
 `loop_controller.py`, is itself reachable from the `graph_loops` surface root) —
-not because its individual lifecycle methods are each independently invokable.
+not because its individual lifecycle methods are each independently invocable.
 
 ### 4.3 X-4 — Ontology-driven tool/agent routing
 

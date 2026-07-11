@@ -11,11 +11,15 @@ from pathlib import Path
 # overrides.txt is the sanctioned uv dependency-override file (UV_OVERRIDE in
 # docker/Dockerfile, mirroring [tool.uv] override-dependencies) shipped by the
 # pydantic-ai v2 migration — a canonical packaging input, not scratch.
+# .security-audit-allow.txt is the OSV dependency-audit risk-acceptance ledger
+# (scripts/audit_dependencies.py, wired into the dependency-audit pre-commit hook)
+# — a committed, actively-read governance input, not scratch/garbage.
 ALLOWED_TXT_NAMES = {
     "requirements.txt",
     "requirements-dev.txt",
     "llms.txt",
     "overrides.txt",
+    ".security-audit-allow.txt",
 }
 TRANSIENT_PY_PATTERNS = [
     re.compile(r"^test_.*\.py$"),

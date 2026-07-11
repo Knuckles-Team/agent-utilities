@@ -42,14 +42,14 @@ fully additive: only an explicitly `BACKGROUND_INGESTION`-scoped call ever yield
 ```mermaid
 flowchart LR
   subgraph shared[Shared qwen vLLM generator — the contended resource]
-    GATE[PriorityModelGate<br/>reserved headroom + yield]
+    GATE["PriorityModelGate<br/>reserved headroom + yield"]
   end
-  ORCH[Orchestration generation<br/>INTERACTIVE / ORCHESTRATION / HYDRATION] -->|reserved headroom, never yields| GATE
-  ENRICH[Ingestion enrichment generation<br/>BACKGROUND_INGESTION] -->|uses spare, yields under contention| GATE
+  ORCH["Orchestration generation<br/>INTERACTIVE / ORCHESTRATION / HYDRATION"] -->|reserved headroom, never yields| GATE
+  ENRICH["Ingestion enrichment generation<br/>BACKGROUND_INGESTION"] -->|uses spare, yields under contention| GATE
   subgraph separate[bge-m3 embeddings — SEPARATE endpoint]
     EGATE[its own gate key]
   end
-  EMB[Embedding fan-out<br/>model=embedding] --> EGATE
+  EMB["Embedding fan-out<br/>model=embedding"] --> EGATE
 ```
 
 - **qwen vLLM generator** — SHARED by orchestration generation **and** ingestion

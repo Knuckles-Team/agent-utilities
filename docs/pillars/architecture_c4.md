@@ -584,7 +584,7 @@ flowchart LR
             IS_WORKER -->|"idempotent job_id claims"| IS_ENGINE["KG-2.7: epistemic-graph engine"]
             IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["AU-OS.observability.no-op-without-metrics: /metrics"]
             IS_WORKER -->|"contextvar IngestProfile: stages_ms + tokens/cost"| IS_PROFILE["AU-OS.observability.ingestion-profile-report/70/71: graph_ingest action=profile → profile_report (p50/p95, parallelism_factor, dead_letter)"]
-            IS_ENGINE -.->|"GetNodes count > 50000"| IS_GUARD["EG-KG.ingest.resets-socket-so-assimilation: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
+            IS_ENGINE -.->|"GetNodes count exceeds 50000"| IS_GUARD["EG-KG.ingest.resets-socket-so-assimilation: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
             IS_ENGINE -->|"per-graph write lock contention"| IS_COAL["EG-KG.sharding.per-graph-write-coalescer: write-coalescer (N writes → 1 txn) + __control__ split"]
         end
 

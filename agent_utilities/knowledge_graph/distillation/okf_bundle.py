@@ -247,7 +247,7 @@ def write_okf_conformance(
 # Thin-overlay concept mode (CONCEPT:AU-KG.research.okf-overlay-mode)
 # ═══════════════════════════════════════════════════════════════════════════
 # openalgo's pattern: index an *existing* repo's markdown into the KG without
-# forking its content. An overlay concept is a tiny stub — ``type`` + ``resource``
+# forking its content. An overlay concept is a thin pointer record — ``type`` + ``resource``
 # (the source URI) + cross-links — whose body defers to the source ("edit the
 # source, not this file"). This lets the 80+ fleet repos' markdown be catalogued
 # as OKF concepts with ZERO content duplication: the KG holds the map, the repo

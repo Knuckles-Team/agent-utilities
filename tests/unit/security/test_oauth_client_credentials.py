@@ -337,7 +337,7 @@ class TestSecretResolution:
             OAuth2ClientCredentialsConfig(
                 token_url="https://idp/token",
                 client_id="a",
-                client_secret="this-is-a-plaintext-secret",
+                client_secret="example-plaintext-secret",  # not a ref -> must reject
             )
 
     def test_literal_client_id_not_resolved(self):
