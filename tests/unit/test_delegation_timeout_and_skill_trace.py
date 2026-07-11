@@ -72,6 +72,7 @@ def test_runtrace_records_skill_and_bound_server_and_edge():
         status="completed",
         skill_used="container-manager-kubernetes-operations",
         bound_server="container-manager-mcp",
+        skill_id="skill:container-manager-kubernetes-operations",
     )
     trace = eng.nodes["trace:run:abc"]
     assert trace["skill_used"] == "container-manager-kubernetes-operations"
@@ -79,9 +80,19 @@ def test_runtrace_records_skill_and_bound_server_and_edge():
     # EXECUTED_ON links to the BOUND server (not srv:<skill>, which doesn't exist)
     exec_on = [c for c in eng.backend.calls if "EXECUTED_ON" in c[0]]
     assert exec_on and exec_on[0][1]["sid"] == "srv:container-manager-mcp"
-    # and a USES_SKILL edge records which skill drove the run
+    # USES_SKILL edge matches the skill by ID (the engine can't match by name in a write)
     uses = [c for c in eng.backend.calls if "USES_SKILL" in c[0]]
-    assert uses and uses[0][1]["skill"] == "container-manager-kubernetes-operations"
+    assert uses and uses[0][1]["rid"] == "skill:container-manager-kubernetes-operations"
+    assert "{id: $rid}" in uses[0][0]  # matched by id, not name
+
+
+def test_uses_skill_edge_falls_back_to_skill_prefix_id():
+    eng = _CapturingEngine()
+    ar._record_execution_trace(
+        eng, "run:def", "some-skill", "t", status="completed", skill_used="some-skill"
+    )
+    uses = [c for c in eng.backend.calls if "USES_SKILL" in c[0]]
+    assert uses and uses[0][1]["rid"] == "skill:some-skill"  # fallback id
 
 
 def test_runtrace_no_skill_edge_for_plain_server_run():
