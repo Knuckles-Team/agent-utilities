@@ -77,7 +77,7 @@ Full GitLab recipe + the four `discovery:false` gotchas live in
 [`plane-provisioning-and-connector-auth.md`](plane-provisioning-and-connector-auth.md). Key
 operational adds:
 - **JWKS rotation** breaks `discovery:false` SSO (the embedded `client_jwk_signing_key` goes stale).
-  Automated by `/home/apps/scripts/gitlab-jwks-refresh.py` + a daily cron on R820 (re-fetches the
+  Automated by `<scripts-dir>/gitlab-jwks-refresh.py` + a daily cron on <control-plane-node> (re-fetches the
   keycloak JWKS and `docker service update`s gitlab only when it changed).
 - **Keycloak client secret divergence:** the live client secret (Keycloak admin) can differ from
   what's injected into the swarm service env / `~/.claude.json` → `401 invalid_client` mints. Always
@@ -137,8 +137,8 @@ presigned endpoint must be resolvable+reachable from the browser, not just the b
 
 ## 6. Swarm deploy mechanics (the operational gotchas)
 
-- **`RW710` is a swarm WORKER; `R820` is the manager.** Service-level commands (`docker service
-  create/update`, `stack deploy`) must run on **R820**. `docker restart` of a swarm task on a
+- **`<node>` is a swarm WORKER; `<control-plane-node>` is the manager.** Service-level commands (`docker service
+  create/update`, `stack deploy`) must run on **<control-plane-node>**. `docker restart` of a swarm task on a
   worker spawns a **stray sibling** in the slot → reconcile from the manager with
   `docker service update --force <svc>`.
 - **`docker service update --env-add` persists across `--force`** (it's in the service spec) but a
@@ -152,7 +152,7 @@ presigned endpoint must be resolvable+reachable from the browser, not just the b
   go__ tools then refuse — **reconnect the MCP session** to reset the breaker (the deployed fleet is
   unaffected). Avoid churn that racks up restarts.
 - **Deploying a small new stack from a worker:** if the manager can't read the workspace compose,
-  `docker service create` the single service directly on R820 (e.g. fuseki:
+  `docker service create` the single service directly on <control-plane-node> (e.g. fuseki:
   `secoresearch/fuseki:latest` on the `caddy` net) rather than `stack deploy`.
 
 ## 7. Secrets
@@ -177,7 +177,7 @@ Swarm-era playbook; these are the k8s-native equivalents.
   with `crictl`, NOT docker: `sudo /var/lib/rancher/rke2/bin/crictl --runtime-endpoint
   unix:///run/k3s/containerd/containerd.sock ps` (the bare `crictl` grabs the dead `cri-dockerd.sock`).
 - **Private registry trust per node.** Each node needs `/etc/rancher/rke2/registries.yaml`
-  (mirror `registry.arpa` → `http://<r820>:5000` primary + `https://registry.arpa` fallback) **and**
+  (mirror `registry.arpa` → `http://<<control-plane-node>>:5000` primary + `https://registry.arpa` fallback) **and**
   the CA at `/etc/rancher/rke2/registry.arpa-ca.pem`, then an `rke2-agent`/`rke2-server` restart.
   A node missing these hits `x509: certificate signed by unknown authority` on private pulls (a
   late-joined GPU node hit exactly this). To move a locally-built image onto a node without pushing:
@@ -193,13 +193,13 @@ Swarm-era playbook; these are the k8s-native equivalents.
 
 ## 9. DNS + edge model on k8s — and the "wildcard points at the dead edge" trap ★
 
-The homelab keeps its `*.arpa` (internal) + `*.heavenhomestead.com` (public) hostnames across the
+The homelab keeps its `*.arpa` (internal) + `*.<public-domain>` (public) hostnames across the
 Swarm→k8s move so nothing reconfigures. How resolution + routing works now:
 
 - **technitium** is the `.arpa` DNS authority (the site router points DNS at it). **Every k8s
-  Ingress host gets an explicit `A → 10.0.0.240`** record (the Cilium LoadBalancer VIP for
+  Ingress host gets an explicit `A → <ingress-VIP>`** record (the Cilium LoadBalancer VIP for
   ingress-nginx). ingress-nginx then routes by `Host` header to the right Service.
-- **caddy** (hostNetwork on the control-plane node) is the **public** edge (`*.heavenhomestead.com`)
+- **caddy** (hostNetwork on the control-plane node) is the **public** edge (`*.<public-domain>`)
   + a few host-service routes.
 - **★ THE TRAP (cost us a confusing outage):** the `.arpa` zone had a **wildcard `*.arpa → <old
   swarm edge IP>`** left over from the Swarm era. After migration, that old caddy ran a STALE
@@ -209,7 +209,7 @@ Swarm→k8s move so nothing reconfigures. How resolution + routing works now:
   wildcard answer** before the explicit record existed — fell through to the dead edge and 502'd.
   Symptom: "some `.arpa` services load, some don't, seemingly at random."
   - **FIX:** repoint the wildcard to the **ingress VIP**, not the old edge:
-    `POST /api/zones/records/add?zone=arpa&domain=*.arpa&type=A&ipAddress=10.0.0.240&ttl=60&overwrite=true`
+    `POST /api/zones/records/add?zone=arpa&domain=*.arpa&type=A&ipAddress=<ingress-VIP>&ttl=60&overwrite=true`
     (technitium API; creds in `services/technitium-dns-mcp/.env`). Now unmatched names hit
     ingress-nginx (served if an ingress exists for that Host, else a clean 404 — never the dead 502).
   - **Name mismatches:** add the expected hostname as an extra `host` on that service's Ingress
