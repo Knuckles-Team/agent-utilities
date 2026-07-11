@@ -260,29 +260,40 @@ New Feature Request
 ## Concept ID Completeness (registry reconciliation)
 
 > This section keeps the curated narrative map's ID space **contiguous** (the
-> `check-concept-gaps` governance gate requires `0..max` with no holes). It reconciles two cases that
-> previously left gaps: (a) concepts that **exist** in `docs/concepts.yaml` / code but were never
-> written into the narrative tables above, and (b) ID numbers that were **never assigned** (skipped
-> during early numbering) — documented here as **Reserved** so the number is accounted for rather than
-> silently missing. `docs/concepts.yaml` remains the machine source of truth.
+> `check-concept-gaps` governance gate requires `0..max` with no holes). It reconciles three cases
+> that previously left gaps: (a) concepts that **exist** in `docs/concepts.yaml` / code but were
+> never written into the narrative tables above; (b) ID numbers that were **never assigned**
+> (skipped during early numbering) — documented here as **Reserved** so the number is accounted for
+> rather than silently missing; and (c) old numeric ids that were **migrated** to a new OKF-CIS
+> dotted `<PILLAR>.<domain>.<concept>` id (the Concept-ID standard migration, see `docs/okf-cis.md` —
+> the narrative tables above already carry the dotted replacement in the retired numeric id's
+> position) — the retired numeric id is recorded here as **Migrated to `<dotted-id>`** purely so the
+> gate's numeric sequence stays contiguous; the dotted id in the tables above is the live reference.
+> `docs/concepts.yaml` remains the machine source of truth.
 
 ### Pillar 1 — Graph Orchestration (ORCH) — reconciled IDs
 
 | ID | Canonical Name | Status |
 |----|---------------|--------|
+| `ORCH-1.5` | DSTDD Pipeline | Migrated to `AU-ORCH.planning.legal-automation-roadmap` |
+| `ORCH-1.6` | Prediction Linkage Layer | Migrated to `AU-ORCH.planning.spec-driven-pipeline` |
+| `ORCH-1.7` | RecursiveMAS Latent Orchestrator | Migrated to `AU-ORCH.planning.journey-milestone` |
+| `ORCH-1.9` | Autonomous Department Orchestration | Migrated to `AU-ORCH.execution.autonomous-department-orchestration` |
+| `ORCH-1.11` | WASM Micro-Agent Execution | Migrated to `AU-ORCH.sandbox.compiled-orchestration-kernel` |
+| `ORCH-1.13` | GEPA Reflective Prompt Optimizer | Migrated to `AU-ORCH.optimization.optimize-skill-prompt-gepa` |
 | `ORCH-1.14` | — | Reserved (never assigned) |
 | `ORCH-1.15` | — | Reserved (never assigned) |
 | `ORCH-1.16` | — | Reserved (never assigned) |
 | `ORCH-1.17` | — | Reserved (never assigned) |
 | `ORCH-1.18` | — | Reserved (never assigned) |
 | `ORCH-1.19` | — | Reserved (never assigned) |
-| `AU-ORCH.execution.service-registry-initialization` | Service Registry Initialization | Active |
+| `ORCH-1.20` | Service Registry Initialization | Migrated to `AU-ORCH.execution.service-registry-initialization` |
 | `ORCH-1.21` | Execution Provenance Tracking | Active |
 | `ORCH-1.22` | Workflow Persistence & Replay | Active |
 | `ORCH-1.23` | Semantic Workflow Retrieval | Active |
 | `ORCH-1.24` | Workflow Lifecycle Management | Active |
 | `ORCH-1.25` | — | Reserved (never assigned) |
-| `AU-ORCH.execution.rlm-synthesis-failed-falling` | RLM Synthesis Fallback | Active |
+| `ORCH-1.26` | RLM Synthesis Fallback | Migrated to `AU-ORCH.execution.rlm-synthesis-failed-falling` |
 
 ### Pillar 2 — Epistemic Knowledge Graph (KG) — reconciled IDs
 
@@ -290,5 +301,34 @@ New Feature Request
 |----|---------------|--------|
 | `KG-2.8` | Ingestion & Enrichment Engine | Active |
 | `KG-2.9` | Universal DataConnector | Active |
-| `AU-KG.enrichment.a2a-capability-extraction` | Orchestration Synthesis | Active |
+| `KG-2.10` | Orchestration Synthesis | Migrated to `AU-KG.enrichment.a2a-capability-extraction` |
+| `KG-2.14` | Ground-Truth Context Authority | Migrated to `AU-KG.memory.ground-truth-preamble-declaring` |
 | `KG-2.16` | Memory Consolidation Stability | Active |
+| `KG-2.23` | Rust-Accelerated Reasoning | Migrated to `AU-KG.domains.legal-automation` |
+| `KG-2.27` | Agent Calibration and Reputation Tracking | Migrated to `AU-KG.domains.agent-calibration-reputation-tracking` |
+| `KG-2.28` | Persona Decision-Heuristic Enrichment | Migrated to `AU-KG.domains.persona-decision-heuristic-enrichment` |
+| `KG-2.29` | Sentiment Fusion Signals | Migrated to `AU-KG.domains.sentiment-fusion-signals` |
+| `KG-2.30` | Geopolitical Risk Scoring | Migrated to `AU-KG.domains.geopolitical-risk-scoring` |
+| `KG-2.31` | Dividend Sustainability & Credit/Fixed-Income Quality | Migrated to `AU-KG.domains.dividend-sustainability-credit-fixed` |
+| `KG-2.32` | Multi-Market Composite Backtester | Migrated to `AU-KG.domains.multi-market-composite-backtester` |
+| `KG-2.33` | Zero-LLM Pack-Driven Link Inference | Migrated to `AU-KG.research.zero-llm-pack-link` |
+| `KG-2.34` | Relational-Intent Retrieval | Migrated to `AU-KG.retrieval.relational-intent-retrieval` |
+| `KG-2.35` | Schema-Pack Lifecycle and Audit | Migrated to `AU-KG.ontology.schema-pack-lifecycle-audit` |
+
+### Pillar 3 — Agentic Harness Engineering (AHE) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `AHE-3.5` | Heavy Thinking & Background Intelligence | Migrated to `AU-AHE.harness.self-evolution-narrative` |
+| `AHE-3.6` | Backtest & Curriculum | Migrated to `AU-AHE.harness.evolution-checkpoint` |
+| `AHE-3.7` | KG-Native Task Detection | Migrated to `AU-AHE.harness.concept-2` |
+| `AHE-3.8` | Interpretability & Model Evolution | Migrated to `AU-AHE.harness.self-improvement-overview` |
+| `AHE-3.11` | GitOps Commit & Evolution Boundary Traceability | Migrated to `AU-AHE.optimization.gitops-commit-automation` |
+
+### Pillar 5 — Agent OS Infrastructure (OS) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `OS-5.3` | OS Guardrails & Safety Boundaries | Migrated to `AU-OS.governance.reactive-multi-axis-budget` |
+| `OS-5.4` | Telemetry & Observability | Migrated to `AU-OS.governance.wasm-micro-agent-sandbox` |
+| `OS-5.7` | OS-Level Hardened Tool Sandbox Executor | Migrated to `AU-OS.deployment.platform-journey` |
