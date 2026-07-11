@@ -2511,9 +2511,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[futures[fut]] = (
-            f"timed out after {timeout:.0f}s (target slow/unreachable)"
-        )
+        errors[
+            futures[fut]
+        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -2895,6 +2895,7 @@ def _build_server(bootstrap: bool = True):
         register_engine_surface_tools,
         register_engine_tools,
         register_ontology_tools,
+        register_ops_causal_tools,
         register_query_tools,
         register_reach_tools,
         register_secret_tools,
@@ -2923,6 +2924,7 @@ def _build_server(bootstrap: bool = True):
             register_secret_tools,
             register_engine_tools,
             register_engine_surface_tools,
+            register_ops_causal_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
