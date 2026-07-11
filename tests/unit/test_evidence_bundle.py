@@ -234,7 +234,7 @@ def test_from_nl_query_error_path():
 
 
 # ---------------------------------------------------------------------------
-# from_engine_wire (stub / forward-compat passthrough)
+# from_engine_wire (legacy shape / forward-compat passthrough)
 # ---------------------------------------------------------------------------
 
 

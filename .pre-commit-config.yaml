@@ -238,12 +238,28 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # ADVISORY: the cross-UI parity matrix (per CONTRIBUTING-guardrails.md at the
+  # agent-packages workspace root) compares feature "Full"/"Absent" status across
+  # the 3 UI frontends (agent-webui, agent-terminal-ui, geniusbot) via a
+  # workspace-level `scripts/check_parity.py` + `design-system/parity_matrix.yaml`.
+  # Neither has ever been implemented (confirmed absent from every repo's git
+  # history workspace-wide, not merely moved/renamed) — building it is real
+  # multi-repo product work (a genuine feature-parity audit across 3 frontends
+  # this repo's worktree cannot touch), not a mechanical path fix, and
+  # .github/workflows/guardrails.yml already documents this exact gate as
+  # un-runnable in isolated per-repo CI for the same reason. Kept as a visible,
+  # non-blocking advisory (rather than hard-failing every commit, in every
+  # checkout, on a hardcoded host-specific absolute path that cannot exist
+  # anywhere else). Flip back to blocking once the workspace-level script +
+  # parity_matrix.yaml are actually built.
   - id: guardrail-parity
-    name: Guardrail — cross-UI parity matrix
-    entry: python3 /home/apps/workspace/agent-packages/scripts/check_parity.py
+    name: Guardrail — cross-UI parity matrix (ADVISORY, script not yet implemented)
+    entry: |-
+      bash -c 'script=/home/apps/workspace/agent-packages/scripts/check_parity.py; if [ -f "$script" ]; then python3 "$script"; else echo "SKIP -- workspace-level scripts/check_parity.py + design-system/parity_matrix.yaml do not exist yet (see CONTRIBUTING-guardrails.md); advisory, not blocking"; fi'
     language: system
     pass_filenames: false
     always_run: true
+    verbose: true
   - id: guardrail-retrieval-quality
     name: Guardrail — retrieval quality (Recall@k / MRR floor)
     entry: python3 scripts/check_retrieval_quality.py

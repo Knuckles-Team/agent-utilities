@@ -51,6 +51,7 @@ import logging
 import threading
 import time
 import uuid
+from abc import ABC, abstractmethod
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -143,11 +144,12 @@ def decode_envelope(raw: Any) -> dict[str, Any] | None:
         return None
 
 
-class BusLogBackend:
+class BusLogBackend(ABC):
     """Interface every bus-log backend implements. Never instantiated directly."""
 
     name: str = "abstract"
 
+    @abstractmethod
     def publish_direct(
         self,
         *,
@@ -159,8 +161,9 @@ class BusLogBackend:
         meta_json: str,
         created: float,
     ) -> bool:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def publish_topic(
         self,
         *,
@@ -172,16 +175,19 @@ class BusLogBackend:
         meta_json: str,
         created: float,
     ) -> bool:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def bind_subscriber(
         self, *, tenant: str, agent_id: str, topic: str, from_ts: float | None = None
     ) -> None:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def unbind_subscriber(self, *, tenant: str, agent_id: str, topic: str) -> None:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def receive(
         self,
         *,
@@ -190,13 +196,15 @@ class BusLogBackend:
         topics: list[str],
         max_messages: int = 200,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def read_dlq(self, *, tenant: str, max_messages: int = 50) -> list[dict[str, Any]]:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
+    @abstractmethod
     def stats(self) -> dict[str, Any]:
-        raise NotImplementedError  # ABSTRACT-OK
+        ...
 
 
 # ══════════════════════════════════════════════════════════════════════════

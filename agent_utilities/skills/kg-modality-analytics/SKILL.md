@@ -12,10 +12,10 @@ description: >-
 license: MIT
 tags: [graph-os, engine, modality, analytics, datascience, pagerank, ml, graphlearn]
 tier: modality
-wraps: [engine_analytics, engine_datascience, engine_graphlearn]
+wraps: [engine_analytics, engine_datascience, engine_graphlearn, graph_learn]
 metadata:
   author: Genius
-  version: '0.2.0'
+  version: '0.3.0'
 ---
 
 # KG Modality — Analytics & Data Science
@@ -37,17 +37,29 @@ each action-routed 1:1 over the `epistemic_graph` client (`AnalyticsClient`,
 client, so it never drifts — call with an empty `action` to list what the live
 engine exposes.
 
+- **`graph_learn`** (CONCEPT:EG-KG.graphlearn.link-predictor) — the friendlier,
+  fixed-action wrapper over the same KAN link-predictor as raw `engine_graphlearn`.
+  Actions: `fit` (learn a model over a graph-derived subgraph — every node with
+  `node_label` is a vertex, edges among them are positives, non-edges are
+  sampled negatives; `writeback: true` ⇒ `:EdgeFunction` nodes) and `predict`
+  (score candidate links or the `top_k` highest-probability missing links with
+  a fitted `model`; `writeback: true` ⇒ `:PredictedEdge` nodes). Structural
+  features: common-neighbors, Jaccard, Adamic-Adar, preferential attachment,
+  PageRank-product, neighbor-cosine, 1-hop-aggregated node-feature dot.
+  Degrades cleanly on a no-graphlearn engine build.
+
 ## How to reach it
 
 **Via the multiplexer:**
-1. `load_tools(tools=["engine_analytics", "engine_datascience", "engine_graphlearn"])`.
+1. `load_tools(tools=["engine_analytics", "engine_datascience", "engine_graphlearn"])`
+   (or `graph_learn` for the friendlier fixed-action wrapper).
 2. `engine_analytics(action="", params_json="{}")` — list actions.
 3. `engine_analytics(action="pagerank", params_json="{...}", graph="")` — invoke.
 4. `unload_tools(...)` when done.
 
 **Direct MCP on graph-os:** `engine_analytics` / `engine_datascience` /
-`engine_graphlearn` are registered tools; per-method verbose tools appear under
-`MCP_TOOL_MODE=verbose|both`.
+`engine_graphlearn` / `graph_learn` are registered tools; per-method verbose
+tools appear under `MCP_TOOL_MODE=verbose|both`.
 
 **REST twins:** `POST /engine/analytics`, `POST /engine/datascience`, and
 `POST /engine/graphlearn` with body

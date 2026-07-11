@@ -363,7 +363,7 @@ class MemoryLifecycle:
 
     def _signature(self, cluster: list[dict[str, Any]]) -> str:
         joined = "|".join(sorted(self._cluster_ids(cluster)))
-        return hashlib.sha1(joined.encode()).hexdigest()  # noqa: S324 — not security
+        return hashlib.sha1(joined.encode(), usedforsecurity=False).hexdigest()
 
     def _cluster_text(self, cluster: list[dict[str, Any]]) -> str:
         parts: list[str] = []

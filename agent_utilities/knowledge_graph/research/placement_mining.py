@@ -1076,7 +1076,8 @@ def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
     if "reshard" in methods:
         # The REAL online-move RPC (wire ``Method::Reshard`` ->
         # ``RedbBackend::reshard_graph``): copies the graph's rows onto
-        # ``shard`` and flips its catalog route — not a routing-only stub.
+        # ``shard`` and flips its catalog route — a full data move, not just a
+        # routing-table update.
         try:
             raw = engine_tools._dispatch(
                 "resharding",

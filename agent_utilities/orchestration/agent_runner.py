@@ -1257,7 +1257,7 @@ def _build_execution_config(
     # Tag prompts: the agent itself + any capabilities. CONCEPT:AU-ORCH.dispatch.seeded-agent-template — when
     # resolution recovered the agent's real system prompt (e.g. a seeded
     # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
-    # that full persona instead of the bare "Specialized agent" stub.
+    # that full persona instead of the bare generic "Specialized agent" placeholder.
     resolved_prompt = str(agent_meta.get("system_prompt") or "").strip()
     tag_prompts = {
         agent_name: resolved_prompt or f"Specialized agent: {agent_name}",
