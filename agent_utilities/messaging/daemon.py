@@ -184,15 +184,28 @@ def main() -> None:
         except NotImplementedError:  # pragma: no cover — non-Unix
             pass
 
-    serve_task = loop.create_task(_serve(engine, platforms))
+    tasks = [loop.create_task(_serve(engine, platforms))]
+    # Optional HTTP alert-intake (CONCEPT:AU-ECO.messaging.alert-intake): route external
+    # webhooks (uptime-kuma, Alertmanager, …) THROUGH the messaging stack so alerts inherit
+    # the one unified Telegram/Mattermost/… delivery instead of each tool wiring its own
+    # notifier. Opt-in via MESSAGING_ALERT_INTAKE_PORT; runs as an INDEPENDENT task so a
+    # failure here never affects the inbound listeners.
+    from agent_utilities.core.config import setting
+
+    _intake_port = setting("MESSAGING_ALERT_INTAKE_PORT", "")
+    if _intake_port:
+        from agent_utilities.messaging.alert_intake import serve_alert_intake
+
+        tasks.append(loop.create_task(serve_alert_intake(engine, int(_intake_port))))
     logger.info(
         "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started."
     )
     try:
         loop.run_until_complete(stop)
     finally:
-        serve_task.cancel()
-        loop.run_until_complete(asyncio.gather(serve_task, return_exceptions=True))
+        for _t in tasks:
+            _t.cancel()
+        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
         loop.close()
 
 
