@@ -61,9 +61,36 @@ calls the engine's ``search_hybrid`` / a ``HybridRetriever`` — CONCEPT:AU-KG.c
 and it does not gate permissions itself (it calls ``permissioning.enforce`` —
 CONCEPT:AU-KG.ontology.redact-object-materialize-restricted). It composes both, plus the epistemic columns, into
 one benchmarkable pass.
+
+**Seam 6 (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam)** — the compiled bundle can
+optionally be routed through the SAME shared, content-addressed KV-cache layer the
+engine's ``/kv`` HTTP surface exposes for LMCache/vLLM token-block reuse
+(``agent_utilities.kvcache.EpistemicGraphKVBackend`` — CONCEPT:AU-KG.backend.kvcache-vllm-connector,
+also driven by the ``graph_kvcache`` MCP tool). Passing ``kv_backend=`` to
+:meth:`ContextCompiler.compile` (any duck-typed object exposing
+``get(key) -> bytes | None`` / ``put(key, bytes) -> bool``, exactly the shape
+``EpistemicGraphKVBackend`` implements) makes :meth:`compile` compute a stable
+cache key from the bundle's *evidence identity* — the sorted, policy-filtered
+candidate ids ("evidence ids") the bundle would be assembled from, plus the
+session's ``policy_version`` and the caller's ``token_budget`` (folding in the
+remaining assembly parameters — ``top_k``, ``diversity_lambda``, ``weights``,
+``freshness_half_life_days``, ``as_of``, ``mask_redactions`` — so no two
+inputs that could produce a *different* bundle ever collide) — and, on a hit,
+returns the previously-assembled bundle instead of re-running MMR diversity
+scoring, evidence/freshness scoring, budget-fitting, and proof-graph
+construction. On a miss it assembles as normal and stores the result under
+that key for the next caller. This is opt-in (``kv_backend=None`` — the
+default — leaves :meth:`compile` byte-for-byte unchanged) and reuses the
+EXISTING KV surface as a generic content-addressed store; it does not
+reimplement KV caching, and it is a distinct namespace from the raw
+token-block bytes LMCache stores under the same backend (see the module
+docstring note below on how the two relate).
 """
 
+import hashlib
+import json
 import logging
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -82,6 +109,7 @@ __all__ = [
     "ContextItem",
     "ContextBundle",
     "ContextCompiler",
+    "compute_bundle_cache_key",
 ]
 
 # Neutral evidence-quality prior — matches retrieval_quality.TRUST_PRIOR so an
@@ -115,6 +143,17 @@ class Citation:
             "confidence": self.confidence,
         }
 
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Citation:
+        return cls(
+            node_id=str(data.get("node_id", "")),
+            kind=str(data.get("kind", "")),
+            evidence_kind=data.get("evidence_kind"),
+            source_refs=tuple(data.get("source_refs") or ()),
+            span=str(data.get("span", "")),
+            confidence=float(data.get("confidence", _NEUTRAL_CONFIDENCE)),
+        )
+
 
 @dataclass(frozen=True)
 class ProofEdge:
@@ -126,6 +165,14 @@ class ProofEdge:
 
     def to_dict(self) -> dict[str, Any]:
         return {"src": self.src, "dst": self.dst, "relation": self.relation}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ProofEdge:
+        return cls(
+            src=str(data.get("src", "")),
+            dst=str(data.get("dst", "")),
+            relation=str(data.get("relation", "")),
+        )
 
 
 @dataclass
@@ -157,6 +204,21 @@ class ContextItem:
             "citation": self.citation.to_dict(),
         }
 
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ContextItem:
+        return cls(
+            id=str(data.get("id", "")),
+            kind=str(data.get("kind", "")),
+            text=str(data.get("text", "")),
+            tokens=int(data.get("tokens", 0)),
+            relevance=float(data.get("relevance", 0.0)),
+            evidence_quality=float(data.get("evidence_quality", 0.0)),
+            freshness=float(data.get("freshness", 0.0)),
+            diversity_penalty=float(data.get("diversity_penalty", 0.0)),
+            composite_score=float(data.get("composite_score", 0.0)),
+            citation=Citation.from_dict(data.get("citation") or {}),
+        )
+
 
 @dataclass
 class ContextBundle:
@@ -175,6 +237,12 @@ class ContextBundle:
     session_tenant: str = ""
     session_actor: str = ""
     policy_version: str | int = ""
+    # Seam 6 (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) — populated only when
+    # ``compile(..., kv_backend=...)`` is used. ``cache_key`` is the stable identity
+    # this bundle was stored/looked-up under; ``kv_cache_hit`` is True iff this
+    # bundle was reconstructed from the KV layer rather than freshly assembled.
+    cache_key: str = ""
+    kv_cache_hit: bool = False
 
     def as_text(self) -> str:
         """Render the bundle to a citation-annotated text block for an LLM prompt.
@@ -225,6 +293,65 @@ class ContextBundle:
             "session_actor": self.session_actor,
             "policy_version": self.policy_version,
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ContextBundle:
+        """Reconstruct a bundle from :meth:`to_dict` (the KV-cache round-trip shape).
+
+        ``cache_key``/``kv_cache_hit`` are NOT part of the serialized payload — the
+        caller (:meth:`ContextCompiler.compile`) sets them on the returned instance
+        after deserializing, since they describe THIS lookup, not the stored bundle.
+        """
+        return cls(
+            query=str(data.get("query", "")),
+            items=[ContextItem.from_dict(it) for it in data.get("items") or []],
+            citations=[Citation.from_dict(c) for c in data.get("citations") or []],
+            proof_graph=[ProofEdge.from_dict(e) for e in data.get("proof_graph") or []],
+            decisions=list(data.get("decisions") or []),
+            token_budget=int(data.get("token_budget", 0)),
+            tokens_used=int(data.get("tokens_used", 0)),
+            dropped_policy=int(data.get("dropped_policy", 0)),
+            dropped_redundant=int(data.get("dropped_redundant", 0)),
+            dropped_budget=int(data.get("dropped_budget", 0)),
+            session_tenant=str(data.get("session_tenant", "")),
+            session_actor=str(data.get("session_actor", "")),
+            policy_version=data.get("policy_version", ""),
+        )
+
+
+def compute_bundle_cache_key(
+    evidence_ids: Iterable[str],
+    *,
+    policy_version: str | int,
+    token_budget: int,
+    extra: Mapping[str, Any] | None = None,
+) -> str:
+    """Stable cache key for a :class:`ContextBundle` — CONCEPT:AU-KG.retrieval.context-compiler-kv-seam.
+
+    The identity is the SORTED (order-independent — retrieval doesn't guarantee a
+    stable candidate order, only a stable *set* for an unchanged corpus) tuple of
+    evidence-node ids the bundle would be assembled from, plus the session's
+    ``policy_version`` and the caller's ``token_budget`` — the three axes Seam 6
+    calls out: a different evidence set, a different policy version, or a
+    different token budget must each mint a different key (no false reuse).
+    ``extra`` folds in the remaining assembly parameters (``top_k``,
+    ``diversity_lambda``, ``weights``, ``freshness_half_life_days``, ``as_of``,
+    ``mask_redactions``) that also change the assembled result, so those can't
+    collide either — the three named axes are the documented contract, ``extra``
+    is the correctness belt-and-suspenders around it.
+
+    Pure function of its inputs — no I/O, no engine/session object — so it is
+    trivially unit-testable and reusable outside :meth:`ContextCompiler.compile`.
+    """
+    payload = {
+        "evidence_ids": sorted(str(e) for e in evidence_ids),
+        "policy_version": policy_version,
+        "token_budget": int(token_budget),
+        "extra": extra or {},
+    }
+    canonical = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"ctxbundle:{digest}"
 
 
 def _node_id(node: dict[str, Any]) -> str:
@@ -403,6 +530,7 @@ class ContextCompiler:
         weights: tuple[float, float, float] = (0.5, 0.3, 0.2),
         as_of: str | None = None,
         mask_redactions: bool = True,
+        kv_backend: Any | None = None,
     ) -> ContextBundle:
         """Assemble a policy-aware, budgeted, cited context bundle for ``query``.
 
@@ -424,10 +552,24 @@ class ContextCompiler:
             mask_redactions: Redact policy-denied columns (``MASK_TOKEN``) rather
                 than dropping them outright — passed straight to
                 :func:`~agent_utilities.knowledge_graph.ontology.permissioning.enforce`.
+            kv_backend: OPT-IN (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) — a duck-typed
+                object exposing ``get(key) -> bytes | None`` / ``put(key, bytes) -> bool``
+                (the exact shape ``agent_utilities.kvcache.EpistemicGraphKVBackend``
+                implements). When supplied, ``compile`` computes a stable cache key
+                from the post-policy evidence-id set + ``session.policy_version`` +
+                ``token_budget`` (see :func:`compute_bundle_cache_key`); a hit
+                returns the previously-assembled bundle WITHOUT re-running
+                relevance/evidence/freshness scoring, MMR diversity selection,
+                budget-fitting, or proof-graph construction, and a miss assembles
+                normally then stores the result for the next caller. ``None``
+                (the default) leaves this method's behavior byte-for-byte
+                unchanged from before Seam 6.
 
         Returns:
             A :class:`ContextBundle` — items with per-axis scores, citations,
-            proof graph, and a full ``decisions`` log.
+            proof graph, and a full ``decisions`` log. When ``kv_backend`` is
+            used, also ``cache_key`` (the identity it was stored/looked-up under)
+            and ``kv_cache_hit`` (True iff served from the KV layer).
         """
         session = session or GraphSession.from_ambient()
         pool = max(candidate_pool, top_k)
@@ -450,6 +592,56 @@ class ContextCompiler:
                         "reason": "policy_denied",
                     }
                 )
+
+        # ---- Seam 6: KV-cache lookup, keyed on the post-policy evidence-id set
+        # (the pool this bundle would be assembled from) + policy_version +
+        # token_budget — see compute_bundle_cache_key. Computed here (after
+        # retrieval+policy, BEFORE the expensive scoring/MMR/budget/proof-graph
+        # work below) so a hit can skip straight past all of it.
+        cache_key = ""
+        if kv_backend is not None:
+            cache_key = compute_bundle_cache_key(
+                allowed_ids,
+                policy_version=session.policy_version,
+                token_budget=token_budget,
+                extra={
+                    "top_k": top_k,
+                    "diversity_lambda": diversity_lambda,
+                    "freshness_half_life_days": freshness_half_life_days,
+                    "weights": list(weights),
+                    "as_of": as_of,
+                    "mask_redactions": mask_redactions,
+                },
+            )
+            cached_bytes = kv_backend.get(cache_key)
+            if cached_bytes is not None:
+                try:
+                    cached_bundle = ContextBundle.from_dict(
+                        json.loads(cached_bytes.decode("utf-8"))
+                    )
+                except (
+                    json.JSONDecodeError,
+                    UnicodeDecodeError,
+                    TypeError,
+                    ValueError,
+                    KeyError,
+                ) as exc:
+                    logger.debug(
+                        "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] cache hit for "
+                        "key=%s failed to deserialize, recomputing: %s",
+                        cache_key,
+                        exc,
+                    )
+                else:
+                    cached_bundle.cache_key = cache_key
+                    cached_bundle.kv_cache_hit = True
+                    logger.info(
+                        "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache hit "
+                        "key=%s items=%d (assembly skipped)",
+                        cache_key,
+                        len(cached_bundle.items),
+                    )
+                    return cached_bundle
 
         # ---- 1/3/4. RELEVANCE (normalized) + EVIDENCE QUALITY + FRESHNESS.
         raw_scores = [self._raw_relevance(n) for n in allowed]
@@ -601,6 +793,7 @@ class ContextCompiler:
             session_tenant=session.tenant,
             session_actor=session.actor.actor_id if session.actor else "",
             policy_version=session.policy_version,
+            cache_key=cache_key,
         )
         logger.info(
             "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query=%r items=%d tokens=%d/%d "
@@ -613,6 +806,31 @@ class ContextCompiler:
             bundle.dropped_redundant,
             dropped_budget,
         )
+
+        # ---- Seam 6: register the freshly-assembled bundle with the KV-cache
+        # layer under the SAME key just computed, so the next caller with an
+        # identical evidence set/policy_version/token_budget gets the reuse
+        # path above. Best-effort — a failed store never fails compilation.
+        if kv_backend is not None and cache_key:
+            try:
+                stored = kv_backend.put(
+                    cache_key,
+                    json.dumps(bundle.to_dict(), default=str).encode("utf-8"),
+                )
+            except Exception as exc:  # noqa: BLE001 — store is best-effort
+                logger.debug(
+                    "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
+                    "for key=%s failed, continuing without caching: %s",
+                    cache_key,
+                    exc,
+                )
+            else:
+                logger.debug(
+                    "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
+                    "key=%s stored=%s",
+                    cache_key,
+                    stored,
+                )
         return bundle
 
     # ------------------------------------------------------------------
