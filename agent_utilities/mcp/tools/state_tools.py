@@ -550,24 +550,94 @@ def register_state_tools(mcp):
             "label), 'revert' (restore a run's files+process+messages to a commit — pass "
             "commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent "
             "untouched — pass commit_id), 'discard' (drop the uncommitted event delta), "
-            "'replay' (deterministically replay the run's event log — a recorded exchange "
-            "stands in for the model — and verify reproduction). Retained-output accept/discard "
-            "of a finished run is governed by the run.select action-policy gate."
+            "'replay' (deterministically replay the CURRENT live run's event log — a recorded "
+            "exchange stands in for the model — and verify reproduction). Retained-output "
+            "accept/discard of a finished run is governed by the run.select action-policy gate. "
+            "Agent Digital Twin actions (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8) — a "
+            "durable, replayable projection of a PAST run kept independently of any live "
+            "session: 'twin_capture' (best-effort hydrate a twin for run_id from the KG's "
+            "already-recorded :ToolCall/:WorkItem rows, optionally persist it as a "
+            ":AgentDigitalTwin node, and return the full serialized twin JSON — pass that JSON "
+            "back in as `twin` to the actions below), 'twin_replay' (regression-replay a "
+            "captured twin — pass `twin`), 'twin_counterfactual' (re-drive a captured twin "
+            "under a swapped policy/model version — pass `twin` plus `policy_overrides` and/or "
+            "`model_responses`, and optionally `versions` for reporting), 'twin_incident' "
+            "(ordered, human-inspectable step-through of a captured twin's recorded run — pass "
+            "`twin`)."
         ),
-        tags=["graph-os", "runvcs", "fork", "revert"],
+        tags=["graph-os", "runvcs", "fork", "revert", "twin"],
     )
     async def graph_runvcs(
         action: str = Field(
             default="list",
-            description="list|status|commit|revert|fork|discard|replay",
+            description=(
+                "list|status|commit|revert|fork|discard|replay|twin_capture|twin_replay|"
+                "twin_counterfactual|twin_incident"
+            ),
         ),
-        run_id: str = Field(default="", description="Target run session id."),
+        run_id: str = Field(
+            default="",
+            description="Target run session id (live-run actions) or run id to hydrate a twin from (twin_capture).",
+        ),
         commit_id: str = Field(
             default="", description="Target commit id (revert|fork)."
         ),
         label: str = Field(default="", description="Commit label (commit)."),
+        twin: str = Field(
+            default="",
+            description=(
+                "JSON-serialized AgentDigitalTwin (CONCEPT:AU-ORCH.twin.agent-digital-twin) — "
+                "the output of action='twin_capture'. Required by twin_replay/"
+                "twin_counterfactual/twin_incident."
+            ),
+        ),
+        agent_name: str = Field(
+            default="", description="Agent name to stamp on the twin (twin_capture)."
+        ),
+        task: str = Field(
+            default="",
+            description="Task description to stamp on the twin (twin_capture).",
+        ),
+        versions: str = Field(
+            default="{}",
+            description=(
+                "JSON VersionPins fields (model_id, model_provider, prompt_version_id, "
+                "tool_versions, skill_versions, policy_version, policy_digest, catalog_epoch). "
+                "For twin_capture: the pins this run executed under. For twin_counterfactual: "
+                "the swapped pins to diff against the twin's recorded pins (reporting only — "
+                "pass policy_overrides/model_responses to actually change the replay outcome)."
+            ),
+        ),
+        outcome: str = Field(
+            default="",
+            description="Outcome status to stamp on the twin (twin_capture; default 'succeeded').",
+        ),
+        persist: bool = Field(
+            default=True,
+            description=(
+                "twin_capture: best-effort persist the twin as a durable :AgentDigitalTwin "
+                "KG node (no-op without a live engine)."
+            ),
+        ),
+        policy_overrides: str = Field(
+            default="",
+            description=(
+                "JSON policy ruleset {version, defaults, rules} for twin_counterfactual — "
+                "recompute every recorded decision under this swapped policy version and "
+                "diff against what was originally decided."
+            ),
+        ),
+        model_responses: str = Field(
+            default="",
+            description=(
+                "JSON {request: alternate_response} for twin_counterfactual — substitute an "
+                "alternate model/prompt response for a recorded model exchange and surface the "
+                "resulting stream divergence."
+            ),
+        ),
     ) -> str:
-        """List / inspect / commit / revert / fork / discard / replay a live run (run-VCS)."""
+        """List / inspect / commit / revert / fork / discard / replay a live run (run-VCS);
+        capture / replay / counterfactual-replay / step through an Agent Digital Twin (X-8)."""
         import json as _json
 
         from agent_utilities.runtime.run_vcs.replay import replay_run
@@ -577,6 +647,108 @@ def register_state_tools(mcp):
         try:
             if action == "list":
                 return _json.dumps({"action": "list", "runs": registry.list_ids()})
+
+            # ── Agent Digital Twin actions (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8) ──
+            # Twins project a PAST run independently of any live RunSessionRegistry entry,
+            # so these branch out before the live-session guard below.
+            if action == "twin_capture":
+                from agent_utilities.orchestration.agent_digital_twin import (
+                    VersionPins,
+                    capture_twin_from_kg,
+                    persist_twin,
+                )
+
+                if not run_id:
+                    return _json.dumps({"error": "twin_capture requires run_id"})
+                engine = kg_server._get_engine()
+                pins = VersionPins.from_dict(_json.loads(versions) if versions else {})
+                twin_obj = capture_twin_from_kg(
+                    engine,
+                    run_id,
+                    agent_name=agent_name,
+                    task=task,
+                    versions=pins,
+                    outcome=outcome,
+                )
+                node_id = persist_twin(engine, twin_obj) if persist else None
+                return _json.dumps(
+                    {
+                        "action": "twin_capture",
+                        "twin_id": twin_obj.twin_id,
+                        "node_id": node_id,
+                        "twin": twin_obj.to_dict(),
+                    },
+                    default=str,
+                )
+            if action in ("twin_replay", "twin_counterfactual", "twin_incident"):
+                from agent_utilities.orchestration.agent_digital_twin import (
+                    AgentDigitalTwin,
+                    VersionPins,
+                    counterfactual_replay,
+                    replay_twin,
+                    twin_incident_steps,
+                )
+
+                if not twin:
+                    return _json.dumps(
+                        {
+                            "error": f"{action} requires `twin` (JSON from action='twin_capture')"
+                        }
+                    )
+                twin_obj = AgentDigitalTwin.from_dict(_json.loads(twin))
+
+                if action == "twin_replay":
+                    report = replay_twin(twin_obj)
+                    return _json.dumps(
+                        {
+                            "action": "twin_replay",
+                            "run_id": report.run_id,
+                            "twin_id": report.twin_id,
+                            "deterministic": report.deterministic,
+                            "steps": report.regression.steps,
+                            "model_calls": report.regression.model_calls,
+                        }
+                    )
+                if action == "twin_counterfactual":
+                    versions_override = (
+                        VersionPins.from_dict(_json.loads(versions))
+                        if versions and versions != "{}"
+                        else None
+                    )
+                    overrides = (
+                        _json.loads(policy_overrides) if policy_overrides else None
+                    )
+                    responses = (
+                        _json.loads(model_responses) if model_responses else None
+                    )
+                    report = counterfactual_replay(
+                        twin_obj,
+                        versions=versions_override,
+                        policy_overrides=overrides,
+                        model_responses=responses,
+                    )
+                    return _json.dumps(
+                        {
+                            "action": "twin_counterfactual",
+                            "run_id": report.run_id,
+                            "twin_id": report.twin_id,
+                            "diverged": report.diverged,
+                            "deterministic": report.deterministic,
+                            "version_delta": report.version_delta,
+                            "decision_delta": report.decision_delta,
+                        },
+                        default=str,
+                    )
+                # action == "twin_incident"
+                steps = twin_incident_steps(twin_obj)
+                return _json.dumps(
+                    {
+                        "action": "twin_incident",
+                        "run_id": twin_obj.run_id,
+                        "steps": steps,
+                    },
+                    default=str,
+                )
 
             session = registry.acquire(run_id) if run_id else None
             if action != "list" and session is None:
