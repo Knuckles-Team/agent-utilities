@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 963
+total_concepts: 964
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -3596,12 +3596,12 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.compute.engine-surface-manifest
-  name: Engine surface manifest
+  name: Every method under one of
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/mcp/tools/engine_tools.py
-  doc: Engine surface manifest
+  doc: Every method under one of
   dotted: AU-KG.compute.engine-surface-manifest
   aliases:
   - AU-KG.compute.engine-surface-manifest
@@ -8434,6 +8434,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
+  - agent_utilities/knowledge_graph/core/session.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
@@ -12202,6 +12203,7 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/bus_tools.py
   - agent_utilities/observability/correlation.py
+  - agent_utilities/observability/self_ingest.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
@@ -12328,6 +12330,20 @@ concepts:
   dotted: AU-OS.observability.deterministic-replay
   aliases:
   - AU-OS.observability.deterministic-replay
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.observability.durable-telemetry-pipeline
+  name: durable, non-lossy telemetry via bounded-retry requeue, durable spill-buffer backpressure, and
+    per-tenant stamping
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/self_ingest.py
+  doc: durable, non-lossy telemetry via bounded-retry requeue, durable spill-buffer backpressure, and
+    per-tenant stamping
+  dotted: AU-OS.observability.durable-telemetry-pipeline
+  aliases:
+  - AU-OS.observability.durable-telemetry-pipeline
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.observability.embed-stage-profile

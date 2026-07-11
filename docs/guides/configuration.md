@@ -101,8 +101,11 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `AGENT_UTILITIES_SELF_INGEST_LEVEL` | `INFO` | Minimum log level shipped by the handler |
 | `AGENT_UTILITIES_SELF_INGEST_BATCH` | `100` | Max records per batch |
 | `AGENT_UTILITIES_SELF_INGEST_INTERVAL` | `2.0` | Background flush interval (seconds) |
-| `AGENT_UTILITIES_SELF_INGEST_QUEUE_MAX` | `10000` | Bounded queue size; overflow is dropped (never blocks) |
+| `AGENT_UTILITIES_SELF_INGEST_QUEUE_MAX` | `10000` | Bounded in-process queue size; overflow spills to the durable buffer (never blocks, never silently drops) |
 | `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | `3.0` | Per-request HTTP timeout (seconds) |
+| `AGENT_UTILITIES_SELF_INGEST_MAX_RETRIES` | `3` | In-process resend attempts for a failed batch before it moves to the durable spill buffer |
+| `AGENT_UTILITIES_SELF_INGEST_SPILL_PATH` | *XDG data dir* | Durable sqlite (WAL) overflow buffer path — survives process restarts; drained automatically once the endpoint recovers |
+| `AGENT_UTILITIES_SELF_INGEST_SPILL_MAX` | `50000` | Max records held in the durable buffer; beyond this the record is finally counted `dropped` + logged at ERROR (the only true-loss case) |
 
 ### MCP Tooling
 | Variable | Default | Description |
