@@ -1844,91 +1844,16 @@ def _record_degraded_feedback(
 # Internal: per-tool-call provenance (CONCEPT:AU-KG.temporal.message-history-read)
 # ---------------------------------------------------------------------------
 
-_TOOL_ARG_SECRET_KEYS = (
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "authorization",
-    "bearer",
-    "credential",
-    "private_key",
+# Per-tool-call provenance extraction lives in the shared leaf module
+# (orchestration/tool_provenance.py) so the multi-agent graph executor can surface the
+# SAME :ToolCall provenance as this direct loop without a circular import
+# (CONCEPT:AU-KG.temporal.message-history-read).
+from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
+    extract_tool_calls as _extract_tool_calls,
 )
-
-
-def _sanitize_tool_args(args: Any) -> str:
-    """Render tool-call args as a compact, secret-redacted JSON string.
-
-    CONCEPT:AU-KG.temporal.message-history-read — the args are persisted for visibility ("what did the local
-    LLM call, with what"), so redact obvious secret-shaped keys and bound the size.
-    """
-    try:
-        import json as _json
-
-        if isinstance(args, str):
-            try:
-                args = _json.loads(args)
-            except Exception:
-                return args[:2000]
-        if isinstance(args, dict):
-            red = {
-                k: (
-                    "***"
-                    if any(s in str(k).lower() for s in _TOOL_ARG_SECRET_KEYS)
-                    else v
-                )
-                for k, v in args.items()
-            }
-            return _json.dumps(red, default=str)[:2000]
-        return _json.dumps(args, default=str)[:2000]
-    except Exception:  # noqa: BLE001
-        return str(args)[:2000]
-
-
-def _extract_tool_calls(run_result: Any) -> list[dict[str, Any]]:
-    """Pull the (tool_name, args, result/error) of every tool call from a run.
-
-    CONCEPT:AU-KG.temporal.message-history-read — reads the pydantic-ai message history
-    (``all_messages()``): a ``ToolCallPart`` opens a call, its paired
-    ``ToolReturnPart`` (matched by ``tool_call_id``) carries the result, and a
-    ``RetryPromptPart`` carries a tool error. Returns one ordered record per call.
-    Best-effort and version-tolerant (matches on part class name / ``part_kind``)
-    so a pydantic-ai bump can never break the run path.
-    """
-    calls: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    try:
-        messages = run_result.all_messages()
-    except Exception:  # noqa: BLE001 — not every result exposes a history
-        return []
-    # Only a real materialized history is iterable here; a mock/coroutine is not.
-    if not isinstance(messages, list | tuple):
-        return []
-    for msg in messages or []:
-        for part in getattr(msg, "parts", None) or []:
-            kind = str(getattr(part, "part_kind", "") or part.__class__.__name__)
-            lk = kind.lower()
-            if "toolcall" in lk or lk == "tool-call":
-                tcid = str(getattr(part, "tool_call_id", "") or f"tc{len(order)}")
-                rec = {
-                    "tool_call_id": tcid,
-                    "tool_name": str(getattr(part, "tool_name", "") or ""),
-                    "args": _sanitize_tool_args(getattr(part, "args", None)),
-                    "result": "",
-                    "error": "",
-                }
-                calls[tcid] = rec
-                order.append(tcid)
-            elif "toolreturn" in lk or lk == "tool-return":
-                tcid = str(getattr(part, "tool_call_id", "") or "")
-                if tcid in calls:
-                    calls[tcid]["result"] = str(getattr(part, "content", ""))[:2000]
-            elif "retryprompt" in lk or lk == "retry-prompt":
-                tcid = str(getattr(part, "tool_call_id", "") or "")
-                if tcid in calls:
-                    calls[tcid]["error"] = str(getattr(part, "content", ""))[:500]
-    return [calls[t] for t in order]
+from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
+    sanitize_tool_args as _sanitize_tool_args,  # noqa: F401  (re-exported for callers/tests)
+)
 
 
 def _persist_tool_calls(

@@ -208,9 +208,9 @@ class AgentOrchestrationEngine:
         legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for team synthesis"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for team synthesis"
+        )
 
         import uuid
 
@@ -311,9 +311,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for node determination"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for node determination"
+        )
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 
@@ -745,6 +745,11 @@ class AgentOrchestrationEngine:
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
             result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
+            # Surface the graph run's accumulated tool calls so run_agent persists them
+            # as :ToolCall provenance (CONCEPT:AU-KG.temporal.message-history-read) — the multi-agent path
+            # previously wrote none, unlike the direct single-server loop.
+            if not result.tool_calls and getattr(state, "tool_calls", None):
+                result.tool_calls = list(state.tool_calls)
             return result.model_dump()
 
         # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
@@ -773,6 +778,7 @@ class AgentOrchestrationEngine:
                     "domain": state.routed_domain,
                     "terminated_at": result,
                 },
+                tool_calls=list(getattr(state, "tool_calls", []) or []),
             ).model_dump()
 
         return GraphResponse(
@@ -780,6 +786,7 @@ class AgentOrchestrationEngine:
             results={"output": str(result)},
             mermaid=mermaid_prefix if mermaid_prefix else None,
             metadata={"run_id": run_id, "domain": state.routed_domain},
+            tool_calls=list(getattr(state, "tool_calls", []) or []),
         ).model_dump()
 
     async def stream_graph(
