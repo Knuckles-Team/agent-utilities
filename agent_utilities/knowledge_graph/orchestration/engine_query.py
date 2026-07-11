@@ -11,6 +11,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
+    from ..core.session import GraphSession
 
     _Base = _EngineProtocol
 else:
@@ -63,6 +64,8 @@ class QueryMixin(_Base):
         params: dict[str, Any] | None = None,
         clearance_level: int = 999,
         as_of: str | None = None,
+        *,
+        session: GraphSession | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the persistent Graph store.
 
@@ -75,9 +78,21 @@ class QueryMixin(_Base):
         (``valid_from <= as_of < valid_to``) contains that instant. Rows without temporal
         metadata pass through unchanged. This answers "what was true as of date T" — something
         Quarq's flat storage-ordered files cannot do.
+
+        Args:
+            session: Explicit :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+                this read runs under (CONCEPT:AU-P0-1 — the one currency: identity + policy +
+                trace in one object). When omitted, one is derived from today's
+                ambient actor via ``GraphSession.from_ambient()`` so existing
+                callers are unaffected.
         """
         if params is None:
             params = {}
+
+        from agent_utilities.knowledge_graph.core.session import GraphSession
+
+        if session is None:
+            session = GraphSession.from_ambient()
 
         # Inject clearance level for the backend parser to utilize
         params["_clearance_level"] = clearance_level
@@ -95,7 +110,7 @@ class QueryMixin(_Base):
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import scope
 
-            scoped_query = scope(query)
+            scoped_query = scope(query, session.actor)
         except Exception as exc:  # pragma: no cover - never break a read
             logger.debug("query scope() skipped: %s", exc)
 
@@ -132,7 +147,7 @@ class QueryMixin(_Base):
                 visible,
             )
 
-            rows = visible(filter_rows(rows))
+            rows = visible(filter_rows(rows, session.actor), session.actor)
         except Exception as exc:  # pragma: no cover - never break a read
             logger.debug("query row filtering skipped: %s", exc)
 
