@@ -1172,6 +1172,17 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 )
                 ctx.state._update_usage(getattr(res, "usage", None))
 
+                # Accumulate this expert's tool calls for :ToolCall provenance on the
+                # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI
+                # event block below is gated on ``event_queue`` and skipped for headless
+                # (MCP/telegram) delegations, which is exactly where provenance was lost.
+                try:
+                    from ..orchestration.tool_provenance import extract_tool_calls
+
+                    ctx.state.tool_calls.extend(extract_tool_calls(res))
+                except Exception as _tc_exc:  # noqa: BLE001 — never break a run
+                    logger.debug("expert tool-call provenance skipped: %s", _tc_exc)
+
                 # Cache message history for potential re-dispatch
                 try:
                     ctx.deps.message_history_cache[cache_key] = res.all_messages()
