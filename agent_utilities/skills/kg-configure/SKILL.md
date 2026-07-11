@@ -16,6 +16,9 @@ metadata:
 
 # kg-configure
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_configure` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_configure"])` once per session (as below), then proceed exactly as documented; or (2) call the `manage` intent verb with the same natural-language request — the resolver routes to `graph_configure` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_configure` manages backend configuration and abstract credentials. Actions include `register_mcp`, `set_secret`/`vault_sync`, `add_connection`/`remove_connection`/`list_connections`/`set_default_connection` (named external graph backends, KG-2.63), `schema_pack`/`schema_candidates`, `harness_fence` (Claude Code permission fence), `install_hooks`, `get_config`/`set_config`/`list_config`, `system_doctor`/`config_doctor`/`preflight`, `setup_databases`/`verify_databases`, `generate_config`.
 
 ## Invoke

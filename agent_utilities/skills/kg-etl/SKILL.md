@@ -16,6 +16,9 @@ metadata:
 
 # kg-etl
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_etl` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_etl"])` once per session (as below), then proceed exactly as documented; or (2) call the `write` intent verb with the same natural-language request — the resolver routes to `graph_etl` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_etl` (CONCEPT:AU-KG.ontology.one-source) composes ingestion + write-back + graph-store machinery. `action='run'`: pull `source` into the KG (any registered ingestion source; `mode` delta|full|reconcile) and/or load `sink` from the KG — sink is a write-back SoR (dry-run + approval, pass `ops_json`), a graph store (`stardog/neo4j/age/jena_fuseki` or a registered connection), or the native engine SQL table (`sink='table'`). `action='list'` shows sources/sinks/backends; `action='lineage'` shows recorded runs (AU-KG.ontology.kg-3).
 
 ## Invoke

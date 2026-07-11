@@ -17,6 +17,9 @@ metadata:
 
 # KG RunVCS — fork / revert / replay a live agent run
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_runvcs` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_runvcs"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_runvcs` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_runvcs` (CONCEPT:AU-ORCH.runvcs.run-commit) is agent-native version control
 for a *live* run: it snapshots a run's conversation, filesystem, and
 process/event frontier together into one content-addressed `RunCommit`, so you

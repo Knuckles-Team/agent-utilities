@@ -269,6 +269,19 @@ class MCPMultiplexer:
         # share a namespace however the fleet scales. Built lazily from catalog.
         self._prefix_map: dict[str, str] | None = None
         self._prefix_reverse: dict[str, str] = {}
+        # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — the HOST server's OWN
+        # granular tools held back by ``MCP_TOOL_MODE=intent`` (seeded from
+        # ``verbose_tools.gated_tool_names`` post-build). Unlike ``_exposed``
+        # (fleet forwarders that must be MOUNTED) these are already registered
+        # local FastMCP tools that only need a session-visibility flip — no
+        # child process, no ``resolve_and_mount``. ``load_tools`` reveals them
+        # the same way it reveals a fleet tool: add to ``_session_loaded``.
+        self._local_gated: set[str] = set()
+        # CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle (Seam 8) — session -> tool names
+        # ``load_tools(..., auto_unload=True)`` marked for automatic retraction the
+        # NEXT time they're called (one-shot: load -> use -> auto-unload), so a
+        # long session's tool surface doesn't monotonically grow.
+        self._auto_unload: dict[str, set[str]] = {}
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -1316,16 +1329,26 @@ class SessionVisibilityMiddleware(Middleware):
     with the Eunomia principal filter (both must allow a tool to appear).
     """
 
-    def __init__(self, mux: MCPMultiplexer) -> None:
+    def __init__(self, mux: MCPMultiplexer, mcp: Any = None) -> None:
         self.mux = mux
+        self._mcp = mcp
+
+    def _gated(self, name: str) -> bool:
+        """Whether ``name`` is subject to session-scoped visibility at all.
+
+        Two independent populations are gated the same way: fleet forwarders
+        (``_exposed`` — must be mounted via ``load_tools``) and the host
+        server's OWN granular tools held back under ``MCP_TOOL_MODE=intent``
+        (``_local_gated`` — already registered locally, just hidden by
+        default; CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse). Everything else (native
+        tools in neither set, meta-tools) is ungated — always visible.
+        """
+        return name in self.mux._exposed or name in self.mux._local_gated
 
     def _visible(self, name: str) -> bool:
         if name in self.mux._global_visible:
             return True
-        # The host server's OWN native tools (and the meta-tools) are NOT fleet
-        # forwarders — they live outside ``_exposed`` and are always visible. Only
-        # actual fleet forwarders are gated to the sessions that load_tools-ed them.
-        if name not in self.mux._exposed:
+        if not self._gated(name):
             return True
         return name in self.mux._session_loaded.get(_session_key(), set())
 
@@ -1335,11 +1358,12 @@ class SessionVisibilityMiddleware(Middleware):
 
     async def on_call_tool(self, context, call_next):
         name = getattr(context.message, "name", None)
-        # Only gate child forwarders (registered but not globally visible); a tool
-        # this session hasn't loaded behaves as "unknown" until load_tools.
+        # Only gate tools that are actually gated (registered but not globally
+        # visible); a tool this session hasn't loaded behaves as "unknown" until
+        # load_tools.
         if (
             name
-            and name in self.mux._exposed
+            and self._gated(name)
             and name not in self.mux._global_visible
             and name not in self.mux._session_loaded.get(_session_key(), set())
         ):
@@ -1347,15 +1371,139 @@ class SessionVisibilityMiddleware(Middleware):
                 f"Tool '{name}' is not loaded in this session. "
                 f"Call load_tools(tools=['{name}']) first."
             )
-        return await call_next(context)
+        result = await call_next(context)
+        # CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle — a tool loaded with
+        # auto_unload=True is retracted right after this (successful) call so a
+        # one-shot task doesn't linger in the session's tool list.
+        session_key = _session_key()
+        auto = self.mux._auto_unload.get(session_key)
+        if name and auto and name in auto:
+            auto.discard(name)
+            self.mux._session_loaded.get(session_key, set()).discard(name)
+            if self._mcp is not None:
+                await _notify_tools_changed(self._mcp)
+        return result
+
+
+def _tools_with_tag(mcp, tags: list[str] | None) -> set[str]:
+    """Names of every registered local FastMCP tool carrying ANY of ``tags``.
+
+    Reuses the same tag vocabulary ``DynamicVisibilityTransform``
+    (``server_factory.py``) reads for ``MCP_DISABLED_TAGS`` — a bulk
+    "toolset"/domain unload selector (CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle) alongside single-tool
+    and whole-server unload.
+    """
+    if not tags:
+        return set()
+    wanted = {str(t) for t in tags}
+    from agent_utilities.mcp.verbose_tools import _provider_tools
+
+    out: set[str] = set()
+    for name, tool in _provider_tools(mcp).items():
+        tool_tags = getattr(tool, "tags", None)
+        if isinstance(tool_tags, set) and tool_tags & wanted:
+            out.add(name)
+    return out
+
+
+async def load_session_tools(
+    mcp,
+    mux: MCPMultiplexer,
+    *,
+    tools: list[str] | None = None,
+    servers: list[str] | None = None,
+    auto_unload: bool = False,
+) -> dict[str, Any]:
+    """Core of the ``load_tools`` meta-tool (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog,
+    CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle) — standalone so both the meta-tool itself and the
+    intent surface's ``manage`` verb can drive it.
+
+    ``auto_unload=True`` marks every name this call newly exposes for automatic
+    retraction the NEXT time it is called (load -> use -> auto-unload), so a
+    tool pulled in for one task doesn't linger in a long session's surface —
+    call again anytime to reload it (nothing is lost, just not kept around).
+    """
+    # Split out the host server's OWN gated tools (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) —
+    # already registered locally under MCP_TOOL_MODE=intent, they only need a
+    # session-visibility flip, never fleet mounting/resolution.
+    requested = list(tools or [])
+    local_names = [n for n in requested if n in mux._local_gated]
+    fleet_tools = [n for n in requested if n not in mux._local_gated]
+
+    mounted_servers, to_expose, failed = await mux.resolve_and_mount(
+        tools=fleet_tools, servers=servers
+    )
+    # Register forwarders process-globally (once); visibility is per-session.
+    for name in to_expose:
+        tool_obj = mux.tool_object(name)
+        if tool_obj is not None:
+            _register_forwarder(mcp, mux, tool_obj)
+    # Make the full resolved set visible to THIS session (incl. tools another
+    # session already registered).
+    session_names = mux.requested_prefixed(fleet_tools, servers) + local_names
+    loaded = mux.session_loaded(_session_key())
+    newly = [n for n in session_names if n not in loaded]
+    loaded.update(session_names)
+    if auto_unload and newly:
+        mux._auto_unload.setdefault(_session_key(), set()).update(newly)
+    if newly:
+        await _notify_tools_changed(mcp)
+    return {
+        "mounted_servers": mounted_servers,
+        "newly_exposed": newly,
+        "failed": failed,
+        "session_total": len(loaded),
+        "total_registered": len(mux._exposed) + len(mux._local_gated),
+        "auto_unload": bool(auto_unload) and newly,
+    }
+
+
+async def unload_session_tools(
+    mcp,
+    mux: MCPMultiplexer,
+    *,
+    tools: list[str] | None = None,
+    servers: list[str] | None = None,
+    toolsets: list[str] | None = None,
+) -> dict[str, Any]:
+    """Core of the ``unload_tools`` meta-tool (CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle).
+
+    Three unload granularities, unioned: ``tools`` (exact names), ``servers``
+    (every tool of a fleet server, OR every one of the HOST's own gated tools
+    when a server name matches ``mux._skip_servers``/the host itself — e.g.
+    ``servers=["graph-os"]`` unloads the whole condensed surface at once), and
+    ``toolsets`` (every tool carrying one of these tags — a domain/toolset
+    bulk-unload). Retracts from THIS session only; the forwarder/registration
+    stays process-global so another session (or a future ``load_tools`` call
+    in this one) is unaffected/instant.
+    """
+    loaded = mux.session_loaded(_session_key())
+    names: set[str] = set(tools or [])
+    for server in servers or []:
+        if server in (mux._skip_servers or ()):
+            names.update(mux._local_gated)
+        else:
+            names.update(t.name for t in mux.prefixed_tools_for_server(server))
+    names.update(_tools_with_tag(mcp, toolsets))
+
+    removed = [n for n in sorted(names) if n in loaded]
+    auto = mux._auto_unload.get(_session_key())
+    for name in removed:
+        loaded.discard(name)
+        if auto:
+            auto.discard(name)
+    if removed:
+        await _notify_tools_changed(mcp)
+    return {"unloaded": removed, "session_total": len(loaded)}
 
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     """Register the dynamic-gateway meta-tools (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
     ``find_tools`` (semantic discovery over the whole fleet), ``list_catalog``
     (flat browse of every server + its tools), ``load_tools`` / ``unload_tools``
-    (mount/expose and retract tools at runtime, notifying the client each time),
-    plus the status tool."""
+    (mount/expose and retract tools at runtime — with a load->use->auto-unload
+    lifecycle, CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle — notifying the client each time), plus
+    the status tool."""
 
     async def _find_tools(query: str, top_k: int = 0) -> ToolResult:
         loaded = mux.session_loaded(_session_key())
@@ -1375,31 +1523,13 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         )
 
     async def _load_tools(
-        tools: list[str] | None = None, servers: list[str] | None = None
+        tools: list[str] | None = None,
+        servers: list[str] | None = None,
+        auto_unload: bool = False,
     ) -> ToolResult:
-        mounted_servers, to_expose, failed = await mux.resolve_and_mount(
-            tools=tools, servers=servers
+        payload = await load_session_tools(
+            mcp, mux, tools=tools, servers=servers, auto_unload=auto_unload
         )
-        # Register forwarders process-globally (once); visibility is per-session.
-        for name in to_expose:
-            tool_obj = mux.tool_object(name)
-            if tool_obj is not None:
-                _register_forwarder(mcp, mux, tool_obj)
-        # Make the full resolved set visible to THIS session (incl. tools another
-        # session already registered).
-        session_names = mux.requested_prefixed(tools, servers)
-        loaded = mux.session_loaded(_session_key())
-        newly = [n for n in session_names if n not in loaded]
-        loaded.update(session_names)
-        if newly:
-            await _notify_tools_changed(mcp)
-        payload = {
-            "mounted_servers": mounted_servers,
-            "newly_exposed": newly,
-            "failed": failed,
-            "session_total": len(loaded),
-            "total_registered": len(mux._exposed),
-        }
         return ToolResult(
             content=[
                 mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
@@ -1407,16 +1537,14 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             structured_content=payload,
         )
 
-    async def _unload_tools(tools: list[str] | None = None) -> ToolResult:
-        # Retract from THIS session only — the forwarder stays registered (other
-        # sessions may still have it loaded); the middleware just stops listing it.
-        loaded = mux.session_loaded(_session_key())
-        removed = [n for n in list(tools or []) if n in loaded]
-        for name in removed:
-            loaded.discard(name)
-        if removed:
-            await _notify_tools_changed(mcp)
-        payload = {"unloaded": removed, "session_total": len(loaded)}
+    async def _unload_tools(
+        tools: list[str] | None = None,
+        servers: list[str] | None = None,
+        toolsets: list[str] | None = None,
+    ) -> ToolResult:
+        payload = await unload_session_tools(
+            mcp, mux, tools=tools, servers=servers, toolsets=toolsets
+        )
         return ToolResult(
             content=[
                 mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
@@ -1503,10 +1631,16 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "Mount and expose tools at runtime so they become directly "
                 "callable. Pass prefixed tool names (from find_tools) via "
                 "'tools', and/or whole server names via 'servers' to load all "
-                "of a server's tools. Spawns the owning child servers on first "
-                "use and notifies the client that the tool list changed. Any "
-                "server that can't be reached is reported in the 'failed' map "
-                "(with the reason) instead of erroring the whole call."
+                "of a server's tools (also works for graph-os's OWN granular "
+                "tools held back under the condensed intent-surface profile — "
+                "pass their bare name, e.g. 'graph_query'). Spawns the owning "
+                "child servers on first use and notifies the client that the "
+                "tool list changed. Any server that can't be reached is "
+                "reported in the 'failed' map instead of erroring the whole "
+                "call. Set auto_unload=true for a ONE-SHOT tool: it is "
+                "automatically retracted the next time it's called, so a task "
+                "you only need once doesn't linger in your tool list — call "
+                "load_tools again anytime to bring it back."
             ),
             parameters={
                 "type": "object",
@@ -1521,6 +1655,11 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                         "items": {"type": "string"},
                         "description": "Server names whose every tool should be exposed (e.g. 'container-manager-mcp').",
                     },
+                    "auto_unload": {
+                        "type": "boolean",
+                        "description": "Auto-retract these tools after their NEXT call (one-shot use). Default false (stays loaded until unload_tools).",
+                        "default": False,
+                    },
                 },
             },
             fn=_load_tools,
@@ -1530,9 +1669,16 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         FunctionTool(
             name="unload_tools",
             description=(
-                "Retract previously loaded tools to reclaim context. Pass the "
-                "prefixed tool names to remove; the client is notified that the "
-                "tool list changed. Meta-tools and always-on tools are kept."
+                "Retract previously loaded tools to reclaim context — the other "
+                "half of the load->use->unload lifecycle (CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle). "
+                "Three granularities, freely combined: 'tools' (exact names), "
+                "'servers' (every tool of a fleet server, or graph-os's WHOLE "
+                "condensed surface at once via servers=['graph-os']), and "
+                "'toolsets' (every tool carrying one of these tags, e.g. a "
+                "domain name — a bulk domain unload). The client is notified "
+                "that the tool list changed. Meta-tools and always-on tools are "
+                "kept regardless. Nothing is deleted — load_tools brings any of "
+                "it straight back."
             ),
             parameters={
                 "type": "object",
@@ -1540,10 +1686,19 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                     "tools": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Prefixed tool names to unload.",
-                    }
+                        "description": "Exact prefixed/local tool names to unload.",
+                    },
+                    "servers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Server names to unload entirely (fleet server, or 'graph-os' for the whole condensed surface).",
+                    },
+                    "toolsets": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tag/domain names — unload every currently-loaded tool carrying one of these tags.",
+                    },
                 },
-                "required": ["tools"],
             },
             fn=_unload_tools,
         )
@@ -1601,7 +1756,19 @@ def attach_fleet_loader(
         "unload_tools",
         "multiplexer_status",
     }
-    mcp.add_middleware(SessionVisibilityMiddleware(mux))
+    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — under MCP_TOOL_MODE=intent,
+    # register_tool_surface has already tagged the host's own condensed/verbose
+    # tools GATED_TAG; seed the session-visibility gate with those names so
+    # load_tools reveals them exactly like a fleet tool (no mounting needed —
+    # they are already registered local FastMCP tools, just hidden by default).
+    from agent_utilities.mcp.verbose_tools import gated_tool_names
+
+    mux._local_gated = gated_tool_names(mcp)
+    # Stash the mux on the server so a local tool (e.g. the ``find`` intent verb,
+    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) can best-effort widen its search to the
+    # whole fleet catalog without a second multiplexer instance.
+    mcp._fleet_mux = mux
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
     logger.info(
         "graph-os fleet loader ready: %d MCP server(s) mountable on demand via "
         "find_tools/load_tools.",

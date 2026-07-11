@@ -15,6 +15,9 @@ metadata:
 
 # kg-kvcache
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_kvcache` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_kvcache"])` once per session (as below), then proceed exactly as documented; or (2) call the `manage` intent verb with the same natural-language request — the resolver routes to `graph_kvcache` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_kvcache` (CONCEPT:AU-KG.coordination.engine-message-broker, via the KG-2.306 EpistemicGraphKVBackend) is the engine's content-addressed KV-cache. Actions: `get` (`key`→base64 block bytes or miss), `put` (`key`+`value_b64`→stored bool), `contains`/`exists` (`key`→bool), `stats` (occupancy + dedup counters). The connector degrades every transport error to a cache miss, so it never raises.
 
 ## Invoke
