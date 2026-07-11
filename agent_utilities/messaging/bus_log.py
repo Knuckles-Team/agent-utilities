@@ -220,7 +220,7 @@ class EngineBrokerBusLog(BusLogBackend):
       internally, never the KG.
 
     Declarations are idempotent and cached per-process so a hot ``send``/
-    ``receive`` does not re-declare infrastructure on every call.
+    ``receive`` does not redeclare infrastructure on every call.
     """
 
     name = "engine"
