@@ -1,16 +1,32 @@
 # Capacity Model (Plan 07: Path to Scale)
 
-> **Status: MODELED, with measured anchors.** Three things are now *measured*
-> (not asserted): the epistemic-graph single-connection transport latency,
-> **per-shard linear write throughput** (1→4 shards ≈ 6.6× at constant wall-time,
-> no shared-state cliff), and the **per-agent working-set footprint (~52 kB)** for
-> a bounded subgraph — all in `epistemic-graph/docs/benchmarks.md` (reproduce with
-> `scripts/bench_scale.py`). Every resident-population sizing figure (10k+) is a
-> **linear extrapolation** from those anchors plus the per-unit constants below.
-> The 100M target follows as a measured projection (~78 hosts @ 64 GB / 52 kB per
-> agent) — **we do not claim 100M has been *run***; it has not. The arithmetic
-> lives in [`capacity_model.py`](./capacity_model.py), unit-tested in
-> `tests/scale/test_capacity_model.py`.
+> **Status (SCALE-P2-1): 1M is now a DEFINED workload contract, measured by a
+> harness — not a linear-arithmetic claim.** This page used to say "the 100M
+> target follows as a measured projection" and stop there; Codex's SCALE-P2-1
+> review correctly called that out — a modeled shard/worker/node COUNT is not
+> a demonstrated CAPACITY. The linear arithmetic below (`capacity_model.py`)
+> is still here and still useful as a **first-order infrastructure-sizing
+> tool** (how many PG shards/L0 shards/nodes to provision), but it is no
+> longer what "1M" MEANS. What "1M residents, sustained" means now is defined
+> precisely by [`workload_contract.yml`](./workload_contract.yml) +
+> [`workload_contract.py`](./workload_contract.py) — registered agents,
+> concurrent sessions/turns, turns/tool-calls/graph-mutations/messages/tokens
+> per second, tenant count + skew (incl. one elephant tenant), per-agent
+> working-set/history/media footprint, interactive/background mix,
+> availability + RPO/RTO, and p50/p95/p99/p99.9 SLO targets for
+> queue/query/write/end-to-end latency — and it is GENERATED and MEASURED
+> against those SLOs by [`scripts/scale/loadgen.py`](../../scripts/scale/loadgen.py)
+> (a real driver, not more arithmetic), asserted by the soak/chaos harness in
+> [`tests/scale/soak/`](../../tests/scale/soak/). See **"What is CI-measured vs
+> hardware-pending"** below for the honest current status: the CI-runnable
+> subset actually runs and asserts invariants today; the real-scale/real-duration/
+> real-multi-node scenarios are documented and skip-marked, not faked.
+>
+> The measured anchors below (transport latency, per-shard write throughput,
+> per-agent working-set) still stand and now ALSO anchor several
+> `workload_contract.yml` fields directly (see that file's `# anchor:` comments)
+> so the contract and this model cannot silently drift apart —
+> `tests/scale/test_workload_contract.py` cross-checks them.
 
 ## The measured anchor
 
@@ -152,6 +168,67 @@ Deployment shape per row of the summary table: stateless gateways + N
 dispatch workers + M `kg-ingest-worker` processes + the listed engine/PG
 shards and Kafka partitions. Design, ordering and idempotency guarantees:
 [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md).
+
+## The workload contract + load generator + soak/chaos harness (SCALE-P2-1)
+
+The acceptance criterion for "1,000,000 residents" is now: **sustained SLOs
+with bounded resource use, and no lost/duplicate/cross-tenant/falsely-completed
+side effects** — not an infrastructure-count formula. Three artifacts implement
+that:
+
+1. **The contract** ([`workload_contract.yml`](./workload_contract.yml) +
+   [`workload_contract.py`](./workload_contract.py)) — a machine-readable,
+   validated (`WorkloadContractError` on any malformed/inconsistent field)
+   definition of the workload: population, concurrency, five independent rate
+   axes (turns/tool-calls/graph-mutations/messages/tokens per second), tenant
+   count + Zipf skew + one deliberately oversized elephant tenant, per-agent
+   working-set/history/media footprint, interactive/background mix,
+   availability target + RPO/RTO, and the four SLO axes (queue/query/write/
+   end-to-end latency) each with p50/p95/p99/p99.9 targets. `ScaledWorkload`
+   scales the population/rate axes by a `scale` factor for a small CI run or
+   the full `scale=1.0` — the SLO targets and per-unit sizes never scale.
+2. **The load generator** ([`scripts/scale/loadgen.py`](../../scripts/scale/loadgen.py))
+   — actually GENERATES that workload: submits `WorkItem`s (turns) through the
+   real engine-native CAS/lease/fencing state machine
+   (`orchestration/work_item.py`), publishes `AgentBus` messages with tenant
+   namespacing, drives independent mutation/tool-call producers, and measures
+   the four SLO axes' percentiles for real. Two engine modes:
+   `--engine mock` (an in-memory `FakeScaleEngine`, driven by a deterministic
+   single-threaded discrete-event simulation — immune to host CPU jitter and
+   near-instant in real wall time, since nothing genuinely sleeps) and
+   `--engine live` (the process-active epistemic-graph engine, genuine
+   concurrent asyncio tasks against real wall-clock time — the real-hardware
+   soak path).
+3. **The soak/chaos harness** ([`tests/scale/soak/`](../../tests/scale/soak/)) —
+   asserts the acceptance criterion's invariants against the CI-runnable
+   subset (see the table below), and documents-but-skips the scenarios that
+   need real multi-node hardware, with the harness call each would make
+   written out (`test_hardware_pending.py`).
+
+### What is CI-measured vs hardware-pending
+
+| Scenario | CI-runnable today | Notes |
+|---|---|---|
+| Steady-state SLO + invariant check (scaled) | **Yes** — `test_steady_burst.py::test_steady_phase_slos_and_invariants_hold` | Scaled-down population/rates; SLO *targets* are the full-scale ones (per-operation, not population-dependent) |
+| Burst-on-steady + bounded backlog | **Yes** — `test_steady_burst.py::test_burst_phase_bounded_backlog_and_slos_hold` | Asserts the worker pool drains the burst, not an ever-growing queue |
+| Worker/host loss mid-lease + crash-recovery reclaim | **Yes** — `test_chaos_worker_and_delivery.py` | Exact CAS/lease state built directly against `work_item.py`, not rate-based |
+| Duplicate/redelivered claim + idempotent re-ack | **Yes** — `test_chaos_worker_and_delivery.py` | At-least-once redelivery modeled at the claim/commit level |
+| Timeout → retry (backoff) → DLQ | **Yes** — `test_chaos_lifecycle_and_dlq.py` | Exercises `max_attempts`/backoff/dead-letter exactly |
+| Cancel mid-flight (never falsely-completes) | **Yes** — `test_chaos_lifecycle_and_dlq.py` | |
+| Hot-tenant/noisy-neighbor quota isolation | **Yes** — `test_chaos_tenant_and_restart.py` | Elephant tenant hits `max_tenant_in_flight`; other tenants unaffected |
+| Full restart / cold activation (state-machine semantics) | **Yes** — `test_chaos_tenant_and_restart.py` | Engine snapshot/restore models the durable-store guarantee; NOT a claim about real 1M-scale cold-hydrate latency (see below) |
+| Rolling upgrade (worker-pool replacement) | **Yes** — `test_chaos_tenant_and_restart.py` | Old-generation leases expire/reclaim; fencing rejects stale acks |
+| 24-72h steady + burst soak at the REAL 1M population | **Hardware-pending** — `test_hardware_pending.py` | Needs a deployed fleet + that much wall-clock time; the exact `loadgen.py --engine live --scale 1.0` invocation is written in the test |
+| Broker rebalance / live Kafka partition expansion | **Hardware-pending** | Needs a real Kafka cluster |
+| Shard split/move under concurrent writes | **Hardware-pending** | Needs a real multi-shard engine deployment |
+| Worker/gateway/broker/leader/node/zone loss (REAL infra) | **Hardware-pending** | Needs real multi-node/multi-zone infra + a kill-injection tool |
+| Rolling upgrade + schema migration across REAL hosts | **Hardware-pending** | Needs a real multi-host rolling-deploy pipeline |
+| Cold activation of the ACTUAL 1,000,000 residents | **Hardware-pending** | Needs the real population on real L0/PG shards — the CI test only proves the state-machine semantics, not real-scale hydrate latency |
+
+Guardrail this table exists to enforce: a modeled capacity is never reported
+as a demonstrated result. Every "Hardware-pending" row is a real, currently
+`pytest.mark.skip`-marked test with the manual run recipe in its docstring —
+not a silently-omitted scenario.
 
 ## Production guard
 
