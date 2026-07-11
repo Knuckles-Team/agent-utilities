@@ -1334,7 +1334,15 @@ class IngestionEngine:
 
         # CONCEPT:AU-KG.ingest.capability-writeback — build the capability writeback callable (EA tools) for injection. Gated
         # by KG_EA_WRITEBACK; returns None (no-op) unless EA writeback is enabled + clients exist.
+        # Canonical per-repo source id (CONCEPT:AU-KG.ingest.code-source-partition): every code node the
+        # pipeline writes is stamped ``source_system = code:<repo>`` so it lands in its own
+        # ``urn:source:code:<repo>`` named graph, not the SPARQL default graph. Keyed on the
+        # REPO (source dir name), not the per-shard routing key, so all shards of one repo
+        # share one source partition.
+        from ..backends.sparql.source_partition import make_source_id
         from ..enrichment.writeback import resolve_writeback_fn
+
+        code_source_id = make_source_id("code", Path(source_path).name)
 
         pipe = EnrichmentPipeline(
             backend,
@@ -1350,6 +1358,7 @@ class IngestionEngine:
             # Cross-file type/scope resolver (one RPC = parse + resolution) when the
             # engine advertises IndexRepository; the PRIMARY code path. (CONCEPT:EG-KG.compute.type-scope-resolved-call)
             index_fn=make_index_fn(parse_gc),
+            source_system=code_source_id,
         )
 
         # Git-aware delta (CONCEPT:AU-KG.ingest.capability-writeback): when the source is a git work-tree we
@@ -1542,19 +1551,30 @@ class IngestionEngine:
         import asyncio as _asyncio
         import hashlib as _hashlib
 
+        from ..backends.sparql.source_partition import make_source_id
         from ..core.engine_tasks import compute_ingest_worker_count
         from .repo_classifier import classify_repo
 
         plan = classify_repo(source_path)
         repo_name = Path(source_path).name
         repo_id = f"repo:{repo_name}"
+        # Same per-repo source partition the enrichment pipeline stamps, so the Repo/Spec
+        # nodes co-locate with their code in ``urn:source:code:<repo>`` (CONCEPT:AU-KG.ingest.code-source-partition).
+        code_source_id = make_source_id("code", repo_name)
         write_graph, backend = self._routed_write(kind="code", repo=repo_name)
 
         add_edge = getattr(backend, "add_edge", None)
         add_node = getattr(backend, "add_node", None)
         if callable(add_node):
             try:
-                add_node(repo_id, type="Repo", name=repo_name, file_path=source_path)
+                add_node(
+                    repo_id,
+                    type="Repo",
+                    name=repo_name,
+                    file_path=source_path,
+                    source_system=code_source_id,
+                    domain=code_source_id,
+                )
             except Exception:  # noqa: BLE001
                 pass
 
@@ -1583,6 +1603,8 @@ class IngestionEngine:
                     file_path=str(fc.path),
                     ast_hash=_hashlib.sha256(text.encode()).hexdigest(),
                     summary=text[:500],
+                    source_system=code_source_id,
+                    domain=code_source_id,
                 )
                 specs += 1
                 _link(sid)
