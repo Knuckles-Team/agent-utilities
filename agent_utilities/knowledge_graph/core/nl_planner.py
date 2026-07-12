@@ -53,11 +53,14 @@ _SYSTEM_PROMPT = (
     "|> RANK BY ~[1.0, 0.0, 0.0, 0.0] |> LIMIT k. Use it for graph traversal + "
     "filtering + vector ranking in one query.\n"
     "  - cypher: read-only Cypher over the property graph (MATCH ... RETURN ...).\n"
-    "  - sql:    read-only SQL over the KG (SELECT ... FROM nodes ...). Node table is "
-    "`nodes`.\n"
+    "  - sql:    read-only SQL over the KG (SELECT ... FROM nodes ...). See the SQL "
+    "schema note in the prompt for the real `nodes`/`edges` columns (label questions "
+    "filter on `type`, not `label`; edges use `src`/`dst`/`rel`, not invented column "
+    "names).\n"
     "  - sparql: SPARQL 1.1 SELECT/ASK over the RDF projection.\n"
     "Rules: emit ONLY one query, NEVER a mutation (no CREATE/MERGE/DELETE/INSERT/DROP/"
-    "SET/UPDATE). Ground every label / table you reference in the provided schema. "
+    "SET/UPDATE). Ground every label / table / column you reference in the provided "
+    "schema — never invent a column name. "
     'Respond with ONLY a JSON object: {"dialect": "...", "query": "..."}.'
 )
 
@@ -203,6 +206,7 @@ def _render_schema(schema: dict[str, Any], extra_hint: str = "") -> str:
     lines = [
         f"Schema (node labels): {', '.join(schema.get('node_labels') or []) or '(unknown)'}",
         f"Schema (SQL tables): {', '.join(schema.get('tables') or []) or '(none)'}",
+        f"Schema (SQL columns): {schema.get('sql_columns') or '(unknown)'}",
     ]
     if extra_hint:
         lines.append(f"Hint: {extra_hint}")
