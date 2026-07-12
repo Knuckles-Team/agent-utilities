@@ -195,3 +195,91 @@ def test_shutdown_is_safe_to_call_when_never_configured() -> None:
     """``shutdown()`` on a never-configured engine must never raise."""
     telemetry = TelemetryEngine()
     telemetry.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# annotate_epistemic — the light epistemic layer's OTel projection
+# (CONCEPT:AU-KB-CURRENCY, `04-five-intersections.md` item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_annotate_epistemic_is_a_noop_with_no_recording_span() -> None:
+    """No exporter, no active span (the default suite posture, SDK disabled
+    by ``tests/conftest.py``) ⇒ clean no-op, never raises."""
+    telemetry = TelemetryEngine()
+    telemetry.annotate_epistemic(confidence=0.5, status="confirmed")
+
+
+def test_annotate_epistemic_never_requires_its_own_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``annotate_epistemic`` reads the AMBIENT current span via the OTel API
+    — it must widen a span opened by a DIFFERENT pipeline (e.g. the separate
+    Logfire/``custom_observability.setup_otel()`` pipeline this package also
+    ships) without requiring `self._otel_configured` (this engine's OWN
+    provider) to be true. A never-configured ``TelemetryEngine`` instance
+    must still annotate a span some OTHER tracer opened."""
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer("external-pipeline")
+
+    telemetry = TelemetryEngine()  # NEVER configured — is_otel_configured() stays False
+    assert telemetry.is_otel_configured() is False
+
+    with tracer.start_as_current_span("kg.query") as span:
+        telemetry.annotate_epistemic(
+            confidence=0.3,
+            status="contested",
+            contradiction_count=1,
+            policy_labels=["epistemic:contested"],
+            source_count=2,
+            model="test-model",
+        )
+        assert span.attributes["epistemic.confidence"] == 0.3
+        assert span.attributes["epistemic.status"] == "contested"
+        assert span.attributes["epistemic.contradiction_count"] == 1
+        assert span.attributes["epistemic.policy_labels"] == ("epistemic:contested",)
+        assert span.attributes["gen_ai.response.source_count"] == 2
+        assert span.attributes["gen_ai.request.model"] == "test-model"
+
+
+def test_annotate_epistemic_omits_unset_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the fields the caller actually passed are set — no fabricated
+    zero/empty defaults for fields the caller left ``None``."""
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer("external-pipeline")
+
+    telemetry = TelemetryEngine()
+    with tracer.start_as_current_span("kg.query") as span:
+        telemetry.annotate_epistemic(confidence=0.9)
+        assert span.attributes["epistemic.confidence"] == 0.9
+        assert "epistemic.status" not in span.attributes
+        assert "epistemic.contradiction_count" not in span.attributes
+        assert "gen_ai.request.model" not in span.attributes
+
+
+def test_get_telemetry_engine_returns_a_process_wide_singleton() -> None:
+    from agent_utilities.observability import get_telemetry_engine
+
+    first = get_telemetry_engine()
+    second = get_telemetry_engine()
+    assert first is second
