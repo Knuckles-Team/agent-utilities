@@ -677,7 +677,11 @@ class WorkflowRunner:
 
         if prior_result is not None:
             prior_completed = {
-                r.node_id: {"output": r.output, "status": r.status, "node_id": r.node_id}
+                r.node_id: {
+                    "output": r.output,
+                    "status": r.status,
+                    "node_id": r.node_id,
+                }
                 for r in prior_result.step_results
             }
             prior_satisfied = {
@@ -690,7 +694,9 @@ class WorkflowRunner:
 
         trimmed = {
             "completed": {
-                sid: rec for sid, rec in prior_completed.items() if sid not in invalidated
+                sid: rec
+                for sid, rec in prior_completed.items()
+                if sid not in invalidated
             },
             "satisfied": {sid for sid in prior_satisfied if sid not in invalidated},
         }

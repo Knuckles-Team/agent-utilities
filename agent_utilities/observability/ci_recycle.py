@@ -306,7 +306,9 @@ def propose_ci_repair(
     }
 
 
-def _write_proposal(proposal: dict[str, Any], pipeline_id: str) -> dict[str, int] | None:
+def _write_proposal(
+    proposal: dict[str, Any], pipeline_id: str
+) -> dict[str, int] | None:
     from agent_utilities.knowledge_graph.memory.native_ingest import ingest_entities
 
     relationships = (
@@ -337,9 +339,7 @@ def sweep_failed_pipelines(
         for node_id, props in reader.nodes_by_label(label):
             if not isinstance(props, dict):
                 continue
-            status = str(
-                props.get("status") or props.get("conclusion") or ""
-            ).lower()
+            status = str(props.get("status") or props.get("conclusion") or "").lower()
             if status not in ("failed", "failure", "red", "error"):
                 continue
             scanned += 1
