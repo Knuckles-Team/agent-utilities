@@ -173,9 +173,7 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     identity = normalize_identity(claims)
     group_map = getattr(config, "identity_group_capability_map", None)
 
-    actor_type = (
-        ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
-    )
+    actor_type = ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
     return ActorContext(
         actor_id=identity.subject,
         actor_type=actor_type,

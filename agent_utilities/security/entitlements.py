@@ -104,11 +104,8 @@ def entitled_resources(
         # A resource is entitled if the caller holds either the namespaced
         # capability ``ns:<resource>`` or a bare capability equal to its name.
         cap_set = set(caps)
-        namespaced = {f"{namespace}:{r}" for r in available_list}
         return tuple(
-            r
-            for r in available_list
-            if f"{namespace}:{r}" in cap_set or r in cap_set
+            r for r in available_list if f"{namespace}:{r}" in cap_set or r in cap_set
         )
 
     # No catalog: derive the named resources directly from the capabilities.
@@ -161,9 +158,7 @@ def identity_scoped_resources(
 
     ctx = actor if actor is not None else current_actor()
     capabilities = getattr(ctx, "roles", ()) or ()
-    return entitled_resources(
-        capabilities, namespace, available, super_caps=super_caps
-    )
+    return entitled_resources(capabilities, namespace, available, super_caps=super_caps)
 
 
 __all__ = [
