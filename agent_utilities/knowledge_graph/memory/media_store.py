@@ -251,6 +251,30 @@ class DocumentEvidenceLocus:
     claim_id: str | None = None
 
 
+@dataclass(frozen=True)
+class EvidenceLocus:
+    """The result of any of the ``store_<locus>_evidence`` through-writes for the
+    ten ``eg_modality::EvidenceSpan`` locus kinds beyond ``PageBox``
+    (``DocumentSpan``/``TableCellRange``/``ImageRegion``/``AudioSegment``/
+    ``VideoShot``/``VideoFrameRange``/``MetricWindow``/``RowVersion``/
+    ``CodeSymbol``/``TraceSpan`` — CONCEPT:AU-KG.identity.evidence-spine-convergence, EG-X1).
+
+    Identical shape to :class:`DocumentEvidenceLocus` (kept separate rather than
+    reused so the page-box seam's own return type/tests are untouched); see that
+    class's docstring for what each field means. ``source_object_id`` here is
+    ``sourceobject:<about_id>`` where ``about_id`` is whichever locus field
+    identifies the owning artifact (``image_id``, ``audio_id``, ``file_path``,
+    ``trace_id``, ...).
+    """
+
+    source_object_id: str
+    occurrence_id: str
+    blob_id: str
+    evidence_id: str
+    digest: str
+    claim_id: str | None = None
+
+
 class MediaStore:
     """Persist + retrieve media as durable, content-addressed, KG-linked blobs.
 
@@ -714,6 +738,525 @@ class MediaStore:
             evidence_id=evidence_id,
             digest=stored.digest,
             claim_id=claim_id,
+        )
+
+    # -- evidence-spine through-write: the other ten loci (Seam 2 completion) --
+    def _store_located_evidence(
+        self,
+        data: bytes,
+        *,
+        about_id: str,
+        evidence_span: dict[str, Any],
+        media_type: str,
+        mime_type: str,
+        source: str,
+        claim_id: str | None,
+        confidence: float,
+        session: GraphSession | None,
+        store_media_kwargs: dict[str, Any],
+    ) -> EvidenceLocus | None:
+        """Shared through-write skeleton for every ``store_<locus>_evidence``
+        method below — the SAME ``:SourceObject -> :AssetOccurrence -> :Blob`` +
+        ``:Evidence`` chain :meth:`store_document_page_evidence` writes for
+        ``PageBox`` (CONCEPT:AU-KG.identity.evidence-spine-convergence), generalized over
+        ``evidence_span`` (the caller-built externally-tagged locus dict) and
+        ``about_id`` (whichever locus field identifies the owning artifact).
+        Not itself part of the public API — see the per-locus wrappers.
+        """
+        stored = self.store_media(
+            data,
+            media_type=media_type,
+            mime_type=mime_type,
+            source=source,
+            session=session,
+            **store_media_kwargs,
+        )
+        if stored is None:
+            return None
+
+        client = self._client
+        now = self._now()
+        source_object_id = f"sourceobject:{about_id}"
+        try:
+            if not bool(client.nodes.has(source_object_id)):
+                client.nodes.add(
+                    source_object_id,
+                    {
+                        "type": "SourceObject",
+                        "object_id": about_id,
+                        "mime_type": mime_type,
+                        "created_at": now,
+                    },
+                )
+            client.edges.add(
+                source_object_id, stored.occurrence_id, {"type": "hasOccurrence"}
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort, mirrors the module's posture
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.evidence-spine-convergence] SourceObject write failed for %s: %s",
+                about_id,
+                e,
+            )
+            return None
+
+        evidence_id = f"evidence:{uuid.uuid4().hex}"
+        evidence_props: dict[str, Any] = {
+            "type": "Evidence",
+            "about": about_id,
+            "confidence": float(confidence),
+            "evidence_span": evidence_span,
+            "occurrence_id": stored.occurrence_id,
+            "blob_ref": stored.blob_id,
+            "created_at": now,
+        }
+        try:
+            client.nodes.add(evidence_id, evidence_props)
+            client.edges.add(
+                evidence_id, stored.occurrence_id, {"type": "extractedFrom"}
+            )
+            if claim_id:
+                client.edges.add(
+                    evidence_id, claim_id, {"relationship_type": "SUPPORTS"}
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.evidence-spine-convergence] Evidence write failed for occurrence %s: %s",
+                stored.occurrence_id,
+                e,
+            )
+            return None
+
+        logger.info(
+            "[CONCEPT:AU-KG.identity.evidence-spine-convergence] wrote evidence-graph chain "
+            "%s -> %s -> %s -> evidence %s (locus=%s, claim=%s)",
+            source_object_id,
+            stored.occurrence_id,
+            stored.blob_id,
+            evidence_id,
+            next(iter(evidence_span)),
+            claim_id or "-",
+        )
+        return EvidenceLocus(
+            source_object_id=source_object_id,
+            occurrence_id=stored.occurrence_id,
+            blob_id=stored.blob_id,
+            evidence_id=evidence_id,
+            digest=stored.digest,
+            claim_id=claim_id,
+        )
+
+    def store_document_span_evidence(
+        self,
+        data: bytes,
+        *,
+        document_id: str,
+        start: int,
+        end: int,
+        mime_type: str = "text/plain",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``DocumentSpan`` locus — a character range ``[start, end)``
+        inside a text document — for the extracted bytes ``data`` (e.g. the exact
+        text slice), following :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Opt-in: a natural producer is a text/
+        document extraction path that already knows character offsets; no such
+        path exists in AU today, so callers wire this in themselves.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=document_id,
+            evidence_span={
+                "DocumentSpan": {
+                    "document_id": document_id,
+                    "start": int(start),
+                    "end": int(end),
+                }
+            },
+            media_type="document_span",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_table_cell_evidence(
+        self,
+        data: bytes,
+        *,
+        table_id: str,
+        row_start: int,
+        row_end: int,
+        col_start: int,
+        col_end: int,
+        mime_type: str = "text/csv",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``TableCellRange`` locus — an inclusive row/column cell
+        range inside a tabular source — for the extracted bytes ``data`` (e.g. the
+        cell range serialized as CSV/JSON), following
+        :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Opt-in: wire this into a spreadsheet/table
+        extraction path once one lands in AU.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=table_id,
+            evidence_span={
+                "TableCellRange": {
+                    "table_id": table_id,
+                    "row_start": int(row_start),
+                    "row_end": int(row_end),
+                    "col_start": int(col_start),
+                    "col_end": int(col_end),
+                }
+            },
+            media_type="table_cell_range",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_image_region_evidence(
+        self,
+        data: bytes,
+        *,
+        image_id: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        mime_type: str = "image/png",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write an ``ImageRegion`` locus — a pixel-space rectangular region
+        of an image — for the cropped region's bytes ``data``, following
+        :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Opt-in: no image-ingestion path in AU
+        today derives a region box; wire this in wherever one does (e.g. an
+        OCR/vision pipeline that already computes a bounding box).
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=image_id,
+            evidence_span={
+                "ImageRegion": {
+                    "image_id": image_id,
+                    "x": float(x),
+                    "y": float(y),
+                    "width": float(width),
+                    "height": float(height),
+                }
+            },
+            media_type="image_region",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_audio_segment_evidence(
+        self,
+        data: bytes,
+        *,
+        audio_id: str,
+        start_ms: int,
+        end_ms: int,
+        mime_type: str = "audio/wav",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write an ``AudioSegment`` locus — a millisecond time range inside
+        an audio recording — for the segment's bytes ``data``, following
+        :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: an ASR/transcription path
+        that already has ``start_ms``/``end_ms`` for the segment it transcribed
+        (e.g. a voice-message handler in the messaging layer) — wire this in
+        alongside the transcript write.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=audio_id,
+            evidence_span={
+                "AudioSegment": {
+                    "audio_id": audio_id,
+                    "start_ms": int(start_ms),
+                    "end_ms": int(end_ms),
+                }
+            },
+            media_type="audio_segment",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_video_shot_evidence(
+        self,
+        data: bytes,
+        *,
+        video_id: str,
+        start_ms: int,
+        end_ms: int,
+        mime_type: str = "video/mp4",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``VideoShot`` locus — a shot-boundary millisecond time
+        range inside a video — for the shot's bytes ``data`` (e.g. a keyframe or
+        clip), following :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Opt-in: no shot-detection path exists in
+        AU today; wire this in wherever one lands.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=video_id,
+            evidence_span={
+                "VideoShot": {
+                    "video_id": video_id,
+                    "start_ms": int(start_ms),
+                    "end_ms": int(end_ms),
+                }
+            },
+            media_type="video_shot",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_video_frame_range_evidence(
+        self,
+        data: bytes,
+        *,
+        video_id: str,
+        start_frame: int,
+        end_frame: int,
+        mime_type: str = "video/mp4",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``VideoFrameRange`` locus — an inclusive decoded-frame
+        index range inside a video — for the frames' bytes ``data``, following
+        :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Opt-in: no frame-accurate video path exists
+        in AU today; wire this in wherever one lands (distinct from
+        :meth:`store_video_shot_evidence`'s wall-clock time range).
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=video_id,
+            evidence_span={
+                "VideoFrameRange": {
+                    "video_id": video_id,
+                    "start_frame": int(start_frame),
+                    "end_frame": int(end_frame),
+                }
+            },
+            media_type="video_frame_range",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_metric_window_evidence(
+        self,
+        data: bytes,
+        *,
+        metric: str,
+        start_ms: int,
+        end_ms: int,
+        mime_type: str = "application/json",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``MetricWindow`` locus — a millisecond time window on a
+        named metric series — for a serialized snapshot of that window's readings
+        (``data``), following :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: a timeseries/anomaly-detection
+        path that already has the ``metric``/``start_ms``/``end_ms`` it flagged —
+        wire this in wherever an anomaly's supporting window is materialized.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=metric,
+            evidence_span={
+                "MetricWindow": {
+                    "metric": metric,
+                    "start_ms": int(start_ms),
+                    "end_ms": int(end_ms),
+                }
+            },
+            media_type="metric_window",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_row_version_evidence(
+        self,
+        data: bytes,
+        *,
+        table: str,
+        row_id: str,
+        version: int,
+        mime_type: str = "application/json",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``RowVersion`` locus — a specific version of a row in a
+        relational/SQL source — for a serialized snapshot of that row version
+        (``data``), following :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: a database/SQL source
+        connector (``agent_utilities/protocols/source_connectors``) that already
+        tracks row identity + a transaction/version stamp — wire this in
+        alongside that connector's row-change capture.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=f"{table}:{row_id}",
+            evidence_span={
+                "RowVersion": {
+                    "table": table,
+                    "row_id": row_id,
+                    "version": int(version),
+                }
+            },
+            media_type="row_version",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_code_symbol_evidence(
+        self,
+        data: bytes,
+        *,
+        file_path: str,
+        symbol: str,
+        start_line: int,
+        end_line: int,
+        mime_type: str = "text/plain",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``CodeSymbol`` locus — a named symbol (function/class/
+        etc.) inside a source file, by line range — for the symbol's source bytes
+        ``data``, following :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: the AST/code-intelligence
+        path (``eg-compute``'s ``ast``/``eg_compute::algorithms`` symbol
+        extraction reached via ``client.graph``/``kg-code``) already resolves
+        ``file_path``/``symbol``/line ranges — wire this in alongside that
+        symbol extraction to make a code-derived claim cite its exact
+        function/class.
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=file_path,
+            evidence_span={
+                "CodeSymbol": {
+                    "file_path": file_path,
+                    "symbol": symbol,
+                    "start_line": int(start_line),
+                    "end_line": int(end_line),
+                }
+            },
+            media_type="code_symbol",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
+        )
+
+    def store_trace_span_evidence(
+        self,
+        data: bytes,
+        *,
+        trace_id: str,
+        span_id: str,
+        mime_type: str = "application/json",
+        source: str = "",
+        claim_id: str | None = None,
+        confidence: float = 1.0,
+        session: GraphSession | None = None,
+        **store_media_kwargs: Any,
+    ) -> EvidenceLocus | None:
+        """Through-write a ``TraceSpan`` locus — a distributed-tracing span — for a
+        serialized snapshot of that span (``data``), following
+        :meth:`store_document_page_evidence`'s pattern
+        (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: any caller that already
+        carries a ``GraphSession.trace_context`` (every session-bound write in this
+        module does) — wire this in wherever a claim is derived from an
+        observed trace span rather than a static artifact (e.g. an
+        observability/RunTrace ingestion path).
+        """
+        return self._store_located_evidence(
+            data,
+            about_id=trace_id,
+            evidence_span={
+                "TraceSpan": {
+                    "trace_id": trace_id,
+                    "span_id": span_id,
+                }
+            },
+            media_type="trace_span",
+            mime_type=mime_type,
+            source=source,
+            claim_id=claim_id,
+            confidence=confidence,
+            session=session,
+            store_media_kwargs=store_media_kwargs,
         )
 
     # -- store: rendition -------------------------------------------------------

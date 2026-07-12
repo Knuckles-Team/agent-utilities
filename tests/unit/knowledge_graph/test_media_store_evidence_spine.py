@@ -288,6 +288,210 @@ def test_repeat_calls_for_the_same_document_reuse_one_source_object():
     assert source_nodes == [r1.source_object_id]
 
 
+# --------------------------------------------------------------------------- #
+# The other ten loci (Seam 2 completion) — one parametrized proof that every
+# ``store_<locus>_evidence`` method writes the SAME chain shape as the shipped
+# `PageBox` seam above, just with a different externally-tagged `evidence_span`
+# variant. See ``docs/architecture/evidence_spine_convergence.md``.
+# --------------------------------------------------------------------------- #
+
+LOCUS_BYTES = b"locus-evidence-bytes" + bytes(range(32))
+
+LOCUS_CASES: list[tuple[str, dict, str, dict]] = [
+    (
+        "store_document_span_evidence",
+        {"document_id": "doc-span-1", "start": 10, "end": 42},
+        "doc-span-1",
+        {"DocumentSpan": {"document_id": "doc-span-1", "start": 10, "end": 42}},
+    ),
+    (
+        "store_table_cell_evidence",
+        {
+            "table_id": "table-1",
+            "row_start": 1,
+            "row_end": 3,
+            "col_start": 0,
+            "col_end": 2,
+        },
+        "table-1",
+        {
+            "TableCellRange": {
+                "table_id": "table-1",
+                "row_start": 1,
+                "row_end": 3,
+                "col_start": 0,
+                "col_end": 2,
+            }
+        },
+    ),
+    (
+        "store_image_region_evidence",
+        {"image_id": "img-1", "x": 1.0, "y": 2.0, "width": 30.0, "height": 40.0},
+        "img-1",
+        {
+            "ImageRegion": {
+                "image_id": "img-1",
+                "x": 1.0,
+                "y": 2.0,
+                "width": 30.0,
+                "height": 40.0,
+            }
+        },
+    ),
+    (
+        "store_audio_segment_evidence",
+        {"audio_id": "audio-1", "start_ms": 1000, "end_ms": 4500},
+        "audio-1",
+        {"AudioSegment": {"audio_id": "audio-1", "start_ms": 1000, "end_ms": 4500}},
+    ),
+    (
+        "store_video_shot_evidence",
+        {"video_id": "vid-1", "start_ms": 2000, "end_ms": 5000},
+        "vid-1",
+        {"VideoShot": {"video_id": "vid-1", "start_ms": 2000, "end_ms": 5000}},
+    ),
+    (
+        "store_video_frame_range_evidence",
+        {"video_id": "vid-1", "start_frame": 48, "end_frame": 96},
+        "vid-1",
+        {
+            "VideoFrameRange": {
+                "video_id": "vid-1",
+                "start_frame": 48,
+                "end_frame": 96,
+            }
+        },
+    ),
+    (
+        "store_metric_window_evidence",
+        {"metric": "cpu.load", "start_ms": 0, "end_ms": 60000},
+        "cpu.load",
+        {"MetricWindow": {"metric": "cpu.load", "start_ms": 0, "end_ms": 60000}},
+    ),
+    (
+        "store_row_version_evidence",
+        {"table": "orders", "row_id": "42", "version": 7},
+        "orders:42",
+        {"RowVersion": {"table": "orders", "row_id": "42", "version": 7}},
+    ),
+    (
+        "store_code_symbol_evidence",
+        {
+            "file_path": "agent_utilities/foo.py",
+            "symbol": "_fence_still_valid",
+            "start_line": 210,
+            "end_line": 245,
+        },
+        "agent_utilities/foo.py",
+        {
+            "CodeSymbol": {
+                "file_path": "agent_utilities/foo.py",
+                "symbol": "_fence_still_valid",
+                "start_line": 210,
+                "end_line": 245,
+            }
+        },
+    ),
+    (
+        "store_trace_span_evidence",
+        {"trace_id": "trace-1", "span_id": "span-1"},
+        "trace-1",
+        {"TraceSpan": {"trace_id": "trace-1", "span_id": "span-1"}},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "method_name,kwargs,about_id,expected_span",
+    LOCUS_CASES,
+    ids=[c[0] for c in LOCUS_CASES],
+)
+def test_store_locus_evidence_writes_the_full_identity_chain(
+    method_name, kwargs, about_id, expected_span
+):
+    """Every non-PageBox locus method writes the exact same
+    `:SourceObject -> :AssetOccurrence -> :Blob -> :Evidence` chain shape
+    `eg_epistemic::BeliefGraph::from_graph_view` decodes, keyed off its own
+    externally-tagged `evidence_span` variant."""
+    client = _FakeClient()
+    store = MediaStore(_FakeCompute(client))
+    method = getattr(store, method_name)
+
+    result = method(LOCUS_BYTES, session=_session(), **kwargs)
+
+    assert result is not None
+    assert result.source_object_id == f"sourceobject:{about_id}"
+    assert result.occurrence_id.startswith("occurrence:")
+    assert result.blob_id.startswith("blob:")
+    assert result.evidence_id.startswith("evidence:")
+    assert result.claim_id is None
+
+    source_props = client.nodes.properties(result.source_object_id)
+    assert source_props is not None
+    assert source_props["type"] == "SourceObject"
+    assert source_props["object_id"] == about_id
+
+    ev_props = client.nodes.properties(result.evidence_id)
+    assert ev_props is not None
+    assert ev_props["type"] == "Evidence"
+    assert ev_props["confidence"] == 1.0
+    assert ev_props["occurrence_id"] == result.occurrence_id
+    assert ev_props["blob_ref"] == result.blob_id
+    assert ev_props["evidence_span"] == expected_span
+
+    occ_props = client.nodes.properties(result.occurrence_id)
+    assert occ_props is not None
+    assert occ_props["type"] == "AssetOccurrence"
+    assert occ_props["blob_id"] == result.blob_id
+
+    assert (
+        result.source_object_id,
+        result.occurrence_id,
+        {"type": "hasOccurrence"},
+    ) in client.edges.edges
+    assert (
+        result.evidence_id,
+        result.occurrence_id,
+        {"type": "extractedFrom"},
+    ) in client.edges.edges
+    assert (
+        result.occurrence_id,
+        result.blob_id,
+        {"type": "hasBlob"},
+    ) in client.edges.edges
+    assert not any(
+        props.get("relationship_type") == "SUPPORTS"
+        for _s, _t, props in client.edges.edges
+    )
+
+
+@pytest.mark.parametrize(
+    "method_name,kwargs,about_id,expected_span",
+    LOCUS_CASES,
+    ids=[c[0] for c in LOCUS_CASES],
+)
+def test_store_locus_evidence_links_supports_edge_when_claim_given(
+    method_name, kwargs, about_id, expected_span
+):
+    """Same `relationship_type: "SUPPORTS"` convention as the PageBox seam, for
+    every other locus kind."""
+    client = _FakeClient()
+    store = MediaStore(_FakeCompute(client))
+    method = getattr(store, method_name)
+
+    result = method(
+        LOCUS_BYTES, claim_id="claim:evidence-1", session=_session(), **kwargs
+    )
+
+    assert result is not None
+    assert result.claim_id == "claim:evidence-1"
+    assert (
+        result.evidence_id,
+        "claim:evidence-1",
+        {"relationship_type": "SUPPORTS"},
+    ) in client.edges.edges
+
+
 def test_returns_none_and_never_raises_on_underlying_store_media_failure():
     """`store_media` failing (e.g. blob store error) propagates as `None`, never
     a raised exception — matching every other write in this module."""
