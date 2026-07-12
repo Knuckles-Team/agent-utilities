@@ -1684,6 +1684,12 @@ async def _execute_single_server(
         enable_universal_tools=False,
         name=agent_name,
         system_prompt=system_prompt,
+        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — this is a deterministic
+        # "call the bound tool(s), report the result" loop; chain-of-thought is pure
+        # overhead here and, at ~18x per-turn latency on the reasoning model, stacks
+        # across the model→tool→model turns until the run blows the wall-clock budget
+        # and is mis-attributed to a blocked tool. Switch thinking OFF for the loop.
+        reasoning_effort="none",
     )
 
     prompt = task
