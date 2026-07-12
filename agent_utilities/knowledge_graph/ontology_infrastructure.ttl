@@ -630,6 +630,93 @@ BFO:GenericallyDependentContinuant — an information entity.""" ;
 
 :summary a owl:DatatypeProperty ;
     rdfs:label "summary" ;
-    rdfs:comment "Human-readable synthesis of an :Incident's cross-layer cause." ;
+    rdfs:comment "Human-readable synthesis of an :Incident's cross-layer cause, or a :RemediationProposal's rationale." ;
+    rdfs:range xsd:string .
+
+# --------------------------------------------------------------------------- #
+# Incident → ticket → remediation — the Phase D/E payoff (reports/unified-
+# infra-intelligence-plan.md). A correlated :Incident is routed to a ticketing
+# system-of-record (:Ticket) and paired with a REPORT-ONLY :RemediationProposal
+# — closing the loop "asset -> incident -> ticket -> remediation", all tracked
+# in the graph end to end. Producer: agent_utilities.observability.incidents /
+# incident_router (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation,
+# CONCEPT:AU-KG.enrichment.incident-ticket-routing).
+
+:Ticket a owl:Class ;
+    rdfs:label "Ticket" ;
+    rdfs:comment "A ticket filed (or proposed) in an external ticketing system of record (ServiceNow/ERPNext/Jira/Plane) for an :Incident, linked via :hasTicket. Produced by agent_utilities.observability.incident_router.route_incident — report-only/dry-run unless INCIDENT_TICKET_ENABLE is set." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:RemediationProposal a owl:Class ;
+    rdfs:label "Remediation Proposal" ;
+    rdfs:comment "A REPORT-ONLY proposed remediation action for an :Incident's root cause (e.g. disk cleanup, pod restart/cordon, fan-policy change, tunnel failover), linked via :proposesRemediation. Never auto-executed — produced by agent_utilities.observability.incidents.propose_remediation for later operator/graph_loops dispatch." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:correlatesAnomaly a owl:ObjectProperty ;
+    rdfs:label "correlates anomaly" ;
+    rdfs:comment "Links an :Incident to each contributing :HealthAnomaly it was synthesized from." ;
+    rdfs:domain :Incident ;
+    rdfs:range :HealthAnomaly .
+
+:hasTicket a owl:ObjectProperty ;
+    rdfs:label "has ticket" ;
+    rdfs:comment "Links an :Incident to the :Ticket filed (or proposed) for it in a ticketing system of record." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Ticket .
+
+:proposesRemediation a owl:ObjectProperty ;
+    rdfs:label "proposes remediation" ;
+    rdfs:comment "Links a :RemediationProposal to the :Incident it addresses." ;
+    rdfs:domain :RemediationProposal ;
+    rdfs:range :Incident .
+
+:layers a owl:DatatypeProperty ;
+    rdfs:label "layers" ;
+    rdfs:comment "The distinct unified-infra-model layers (hardware/os/orchestration/service/network) an :Incident's contributing anomalies span." ;
+    rdfs:range xsd:string .
+
+:signals a owl:DatatypeProperty ;
+    rdfs:label "signals" ;
+    rdfs:comment "The distinct named signals an :Incident's contributing anomalies were observed on." ;
+    rdfs:range xsd:string .
+
+:severity a owl:DatatypeProperty ;
+    rdfs:label "severity" ;
+    rdfs:comment "An :Incident's synthesized severity (e.g. warning, critical — critical when it spans more than one layer)." ;
+    rdfs:range xsd:string .
+
+:rootCauseLayer a owl:DatatypeProperty ;
+    rdfs:label "root cause layer" ;
+    rdfs:comment "The deepest unified-infra-model layer among an :Incident's contributing anomalies (hardware < os < orchestration < service < network) — the presumed root cause." ;
+    rdfs:range xsd:string .
+
+:signature a owl:DatatypeProperty ;
+    rdfs:label "signature" ;
+    rdfs:comment "Stable dedupe key (asset + contributing layers/signals) an :Incident is keyed on, so a re-run of the correlation loop does not duplicate an already-open incident." ;
+    rdfs:range xsd:string .
+
+:status a owl:DatatypeProperty ;
+    rdfs:label "status" ;
+    rdfs:comment "Lifecycle status of an :Incident (open/resolved) or :RemediationProposal (proposed/dispatched)." ;
+    rdfs:range xsd:string .
+
+:proposedAction a owl:DatatypeProperty ;
+    rdfs:label "proposed action" ;
+    rdfs:comment "The remediation action a :RemediationProposal recommends (e.g. disk_cleanup, restart_or_cordon_pod, apply_fan_policy, tunnel_failover) — report-only, never auto-executed." ;
+    rdfs:range xsd:string .
+
+:ticketRef a owl:DatatypeProperty ;
+    rdfs:label "ticket ref" ;
+    rdfs:comment "The :Ticket's identifier in its ticketing system of record (or a synthetic 'proposed:<incident id>' when report-only/no SoR is reachable)." ;
+    rdfs:range xsd:string .
+
+:ticketUrl a owl:DatatypeProperty ;
+    rdfs:label "ticket url" ;
+    rdfs:comment "A browsable URL for a :Ticket in its ticketing system of record, when the adapter can construct one." ;
+    rdfs:range xsd:string .
+
+:ticketStatus a owl:DatatypeProperty ;
+    rdfs:label "ticket status" ;
+    rdfs:comment "A :Ticket's status (proposed/created/failed, or the system-of-record's own status after an update)." ;
     rdfs:range xsd:string .
 

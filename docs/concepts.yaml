@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 988
+total_concepts: 991
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4745,6 +4745,18 @@ concepts:
   - AU-KG.enrichment.contextual-retrieval-enrichment
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.enrichment.cross-layer-incident-correlation
+  name: Reads recent
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/observability/incidents.py
+  doc: Reads recent
+  dotted: AU-KG.enrichment.cross-layer-incident-correlation
+  aliases:
+  - AU-KG.enrichment.cross-layer-incident-correlation
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.enrichment.direction-repair
   name: AU-KG.enrichment.direction-repair
   pillar: AU-KG
@@ -4811,6 +4823,18 @@ concepts:
   dotted: AU-KG.enrichment.http-route-extraction
   aliases:
   - AU-KG.enrichment.http-route-extraction
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.enrichment.incident-ticket-routing
+  name: A small pluggable-adapter
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/observability/incident_router.py
+  doc: A small pluggable-adapter
+  dotted: AU-KG.enrichment.incident-ticket-routing
+  aliases:
+  - AU-KG.enrichment.incident-ticket-routing
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.enrichment.multimodal-readers
@@ -12460,6 +12484,18 @@ concepts:
   dotted: AU-OS.host.remediation-playbooks
   aliases:
   - AU-OS.host.remediation-playbooks
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.host.report-only-remediation-proposal
+  name: meant for a CronJob /
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/incidents.py
+  doc: meant for a CronJob /
+  dotted: AU-OS.host.report-only-remediation-proposal
+  aliases:
+  - AU-OS.host.report-only-remediation-proposal
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.host.so-they-are-idle
