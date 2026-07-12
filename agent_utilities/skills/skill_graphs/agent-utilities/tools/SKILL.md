@@ -9,6 +9,21 @@ tags: [tools, mcp, kg, x-search, workflows, graph-os]
 
 # agent-utilities Tools Reference
 
+## Condensed intent-surface note (Seam 8)
+
+The granular tools below (`graph_query`/`graph_search`/`graph_write`/... — the
+`MCP_TOOL_MODE=condensed` default, still ~95 tools) are ALWAYS reachable exactly
+as documented here — nothing in this reference changes. For a small/cheap-LLM
+deployment, `MCP_TOOL_MODE=intent` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) additionally
+collapses them behind six tiny verbs — `ask`/`find`/`write`/`act`/`manage`/`why` —
+that take a natural-language intent (+ optional structured `hints`), resolve it
+to the right tool below via a lexical capability index, dispatch through the
+SAME `_execute_tool` core, and return the result plus a routing justification
+(which tool, why, alternatives considered). `load_tools(tools=["graph_query"])`
+(or `hints={"tool": "graph_query"}` on any verb) always reaches an EXACT tool —
+the granular surface is never removed, just not eagerly listed by default under
+that profile. See `docs/architecture/intent-surface.md`.
+
 ## 🔍 Knowledge Graph Tools (graph-os MCP)
 
 The KG is exposed via the `graph-os` MCP server with these actions:

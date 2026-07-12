@@ -97,16 +97,22 @@ def _isolate_os_environ():
 
 @pytest.fixture(autouse=True)
 def _isolate_registered_tools():
-    """Restore ``kg_server.REGISTERED_TOOLS`` to its pre-test contents.
+    """Restore ``kg_server.REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` to their pre-test contents.
 
-    ``_build_server()`` populates this process-wide dict as a side effect, binding
-    tool callables to the engine resolved at build time. A test that builds the
-    server (e.g. via a ``server_tools``/``registered_tools`` fixture) therefore
-    leaves stale tool bindings in the global registry that corrupt a later test's
-    tool calls (a ``graph_query`` returning ``[]`` from the wrong engine).
-    Snapshotting and restoring the registry at the test boundary keeps tool
-    registration order-independent. Only guards a flag is needless — the dict IS
-    the state. Lazy import so conftest stays cheap.
+    ``_build_server()`` populates these two process-wide dicts as a side effect,
+    binding tool callables to the engine resolved at build time (and — for a
+    handful of tools, e.g. ``nl_query``/the Seam 8 intent verbs,
+    CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — registering their REST-route twin
+    dynamically). A test that builds the server (e.g. via a
+    ``server_tools``/``registered_tools`` fixture, or a test that exercises
+    ``MCP_TOOL_MODE=intent``) therefore leaves stale tool bindings AND route
+    entries in the global registries that corrupt a later test's tool calls (a
+    ``graph_query`` returning ``[]`` from the wrong engine) or the MCP⇄REST
+    parity contract (an ``ACTION_TOOL_ROUTES`` entry surviving into a test whose
+    ``REGISTERED_TOOLS`` snapshot doesn't have the matching tool — a false
+    "phantom route"). Snapshotting and restoring both registries at the test
+    boundary keeps tool registration order-independent. Only guards a flag is
+    needless — the dicts ARE the state. Lazy import so conftest stays cheap.
     """
     try:
         from agent_utilities.mcp import kg_server
@@ -119,12 +125,15 @@ def _isolate_registered_tools():
         yield
         return
 
-    snapshot = dict(kg_server.REGISTERED_TOOLS)
+    tools_snapshot = dict(kg_server.REGISTERED_TOOLS)
+    routes_snapshot = dict(kg_server.ACTION_TOOL_ROUTES)
     try:
         yield
     finally:
         kg_server.REGISTERED_TOOLS.clear()
-        kg_server.REGISTERED_TOOLS.update(snapshot)
+        kg_server.REGISTERED_TOOLS.update(tools_snapshot)
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(routes_snapshot)
         # The named-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry) is a process-wide
         # singleton seeded from config; a test that registers a backend (e.g. a
         # Stardog mirror via setup_environment) leaves it pointing at that

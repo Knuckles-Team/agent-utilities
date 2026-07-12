@@ -17,6 +17,9 @@ metadata:
 
 # kg-code
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_code`, `graph_code_nav` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_code"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_code` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 This skill fronts two code verbs:
 - **`graph_code`** (`action`): `code_context` (cited how|usage|impact via `target`), `cross_repo_usages`, `call_graph` (callees|callers|inherits), `similar_code`, `routes`, `change_coupling`, `code_evolution`, `blast_radius`, `code_metrics`, `arch_report`, `adr`.
 - **`graph_code_nav`** (`action`): `find_definition`, `find_references`, `trace_call_graph`, `impact_of_change`, `connects` (shortest path between two symbols). Start from a `symbol` or exact `node_id`; optionally scope by `source_system`.

@@ -16,6 +16,9 @@ metadata:
 
 # kg-reach
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_reach` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_reach"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_reach` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_reach` (CONCEPT:AU-ECO.mcp.graph-reach-mcp-tool) sends outbound messages to the user. Actions: `reach_user` (`text` [+`user_id`] → the user's LAST-ACTIVE channel, else the configured default), `send` (explicit `platform`+`channel_id`+`text`), `list_channels` (`platform`), `last_channel` ([`user_id`]→resolved channel), `status`. Every send is governed by the ActionPolicy gate and mirrored into conversational memory.
 
 ## Invoke

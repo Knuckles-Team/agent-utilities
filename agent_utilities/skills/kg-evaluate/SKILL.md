@@ -16,6 +16,9 @@ metadata:
 
 # kg-evaluate
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_evaluate` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_evaluate"])` once per session (as below), then proceed exactly as documented; or (2) call the `why` intent verb with the same natural-language request — the resolver routes to `graph_evaluate` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_evaluate` covers evaluation, gates and world-model reasoning. Actions: `evaluate`/`evaluate_alpha` (score outputs), `evaluate_harness`, `guard_corpus`, `harness_gate` (formal no-regression SHACL gate, AHE-3.53), `check_constraints`, `specialize` (SAI specialization cycle, AU-AHE.harness.sai-controller), `world_model_rollout` (KG-2.73b), `latent_efficiency_benchmark`, `evolve_model`, `forecast`, `causal`, `invariant`.
 
 ## Invoke

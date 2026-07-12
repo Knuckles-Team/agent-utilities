@@ -471,8 +471,16 @@ def capture_twin_from_kg(
     query = getattr(engine, "query_cypher", None)
     if callable(query):
         with contextlib.suppress(Exception):
+            # NOTE (CONCEPT:AU-ORCH.execution.run-trace-status-tool): the node carrying the
+            # ``{id: $tid}`` property-map filter MUST be bound to a variable
+            # (``t:RunTrace``) — the epistemic-graph backend's fast-path Cypher parser
+            # silently under-matches (zero rows, no error) an ANONYMOUS node with an
+            # inline property map, even though the identical pattern with a
+            # bound-but-otherwise-unused variable matches correctly. This twin's
+            # tool_calls were silently empty for every run until this was found + fixed
+            # (verified live alongside the same bug in ``orchestration/manager.py``).
             rows = query(
-                "MATCH (:RunTrace {id: $tid})-[:MADE_TOOL_CALL]->(tc:ToolCall) "
+                "MATCH (t:RunTrace {id: $tid})-[:MADE_TOOL_CALL]->(tc:ToolCall) "
                 "RETURN tc.id AS id, tc.tool_name AS tool_name, tc.args AS args, "
                 "tc.result_preview AS result, tc.error AS error "
                 "ORDER BY tc.sequence",

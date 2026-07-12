@@ -16,6 +16,9 @@ metadata:
 
 # kg-bus
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_bus` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_bus"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_bus` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_bus` (CONCEPT:AU-ECO.bus.agent-to-agent-bus) is the durable, cross-host agent bus (state lives in the KG). Actions: `register`/`heartbeat`/`leave`/`status`, `roster` (discover peers + presence), `send` (`sender`+`payload`+`to|topic`), `receive` (+`since` cursor), `subscribe`/`unsubscribe`, `ack`, `dispatch` (hand an objective to the fleet as a Loop). Mesh/federation: `register_hub`/`list_hubs`/`federate`/`federate_in`. Store-and-forward + auto-presence: any action keeps you online and rosterable.
 
 ## Invoke

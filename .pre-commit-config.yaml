@@ -222,6 +222,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-cpd-drift
+    name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
+    entry: python3 scripts/check_cpd.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-kg-skill-coverage
     name: Guardrail — every graph-os verb has a kg-* skill
     # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: the operator-facing kg-* skill suite must

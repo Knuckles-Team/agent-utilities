@@ -18,6 +18,9 @@ requires:
 
 # KG Report Persister Skill
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `research_artifact` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["research_artifact"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `research_artifact` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Stateless atomic operation to parse workflow execution outputs, extract core execution metrics/logs, and persist them as typed `ExecutionSummary` and `PerformanceAnomaly` nodes/edges inside the Graph-OS Knowledge Graph.
 
 ## Prerequisites
