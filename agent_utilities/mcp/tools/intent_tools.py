@@ -264,9 +264,9 @@ _REWARD_EPOCH: int = 0
 #: Bounded LRU of ranked (non-pinned) resolutions (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache) — see
 #: :func:`_cache_key`. A pinned (``hints={"tool": ...}``) resolution is O(1)
 #: already and is never cached.
-_RESOLUTION_CACHE: OrderedDict[tuple[Any, ...], list[CapabilityCandidate]] = (
-    OrderedDict()
-)
+_RESOLUTION_CACHE: OrderedDict[
+    tuple[Any, ...], list[CapabilityCandidate]
+] = OrderedDict()
 _RESOLUTION_CACHE_MAX = 256
 
 #: Soft weight of the learned reward-EMA blend into the lexical score (mirrors
@@ -278,7 +278,7 @@ _LEARNED_REWARD_WEIGHT = 0.2
 
 #: Lazily-constructed shared learner (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) — ``None`` until first
 #: touched so importing this module never pays ``OutcomeRouter``'s (numeric
-#: package) import cost; degrades to a no-op neutral stub if that optional
+#: package) import cost; degrades to a no-op neutral fallback if that optional
 #: dependency is unavailable (lean/headless install), never breaking routing.
 _OUTCOME_ROUTER: Any = None
 

@@ -56,7 +56,11 @@ def test_ingest_health_trend_writes_typed_node_and_edge(monkeypatch):
     assert trend_node["entity"] == "sys:host:r510"
     assert trend_node["signal"] == "cpu_temp_c"
     assert trend_node["layer"] == "os"
-    assert trend_node["avg"] == 50.0 and trend_node["min"] == 40.0 and trend_node["max"] == 60.0
+    assert (
+        trend_node["avg"] == 50.0
+        and trend_node["min"] == 40.0
+        and trend_node["max"] == 60.0
+    )
     assert trend_node["avgControl"] == 30.0
     assert trend_node["samples"] == 120 and trend_node["windowS"] == 3600
     assert trend_node["host"] == "r510"
@@ -100,7 +104,12 @@ def test_ingest_health_anomaly_linked_affects_entity(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(native_ingest, "ingest_entities", cap)
 
-    anomaly = {"kind": "above-baseline", "zscore": 4.2, "observed": 80.0, "expected": 55.0}
+    anomaly = {
+        "kind": "above-baseline",
+        "zscore": 4.2,
+        "observed": 80.0,
+        "expected": 55.0,
+    }
     hi.ingest_health_anomaly("cm:node:r820", "load1", anomaly, entity_type="Node")
     call = cap.calls[0]
     _, node = call["entities"]
@@ -129,6 +138,45 @@ def test_ingest_incident_links_every_entity(monkeypatch):
     assert all(rel["type"] == "affectsEntity" for rel in call["relationships"])
 
 
+def test_ingest_incident_carries_rich_correlation_fields_and_anomaly_edges(monkeypatch):
+    """Phase D (agent_utilities.observability.incidents) populates the richer
+    shape the original Phase-A docstring flagged as a later phase."""
+    cap = _Capture()
+    monkeypatch.setattr(native_ingest, "ingest_entities", cap)
+
+    incident = {
+        "id": "health:incident:r820:sig1",
+        "summary": "r820 under thermal/compute stress",
+        "entities": ["fan:host:r820", "cm:node:r820"],
+        "anomalies": ["health:anomaly:fan:host:r820:cpu_temp_c:t1"],
+        "layers": ["hardware", "orchestration"],
+        "signals": ["cpu_temp_c", "restart_count"],
+        "severity": "critical",
+        "root_cause_layer": "hardware",
+        "signature": "sig1",
+        "status": "open",
+        "opened_at": "2026-07-11T00:00:00Z",
+    }
+    hi.ingest_incident(incident)
+    call = cap.calls[0]
+    node = call["entities"][0]
+    assert node["layers"] == ["hardware", "orchestration"]
+    assert node["signals"] == ["cpu_temp_c", "restart_count"]
+    assert node["severity"] == "critical"
+    assert node["rootCauseLayer"] == "hardware"
+    assert node["signature"] == "sig1"
+    assert node["status"] == "open"
+    assert node["observedAt"] == "2026-07-11T00:00:00Z"
+
+    by_type = {}
+    for rel in call["relationships"]:
+        by_type.setdefault(rel["type"], set()).add(rel["target"])
+    assert by_type["affectsEntity"] == {"fan:host:r820", "cm:node:r820"}
+    assert by_type["correlatesAnomaly"] == {
+        "health:anomaly:fan:host:r820:cpu_temp_c:t1"
+    }
+
+
 def test_ingest_functions_are_engine_guarded_no_op(monkeypatch):
     """With no reachable engine, ingest_entities returns None and nothing raises."""
     monkeypatch.setattr(native_ingest, "ingest_entities", lambda *a, **k: None)
@@ -150,11 +198,51 @@ class _FakeEngine:
 
 def test_read_health_trends_filters_entity_signal_and_days():
     rows = [
-        ("t1", {"entity": "e1", "signal": "cpu", "observedAt": "2026-07-10T00:00:00Z", "avg": 1}),
-        ("t2", {"entity": "e1", "signal": "disk", "observedAt": "2026-07-10T00:00:00Z", "avg": 2}),
-        ("t3", {"entity": "e2", "signal": "cpu", "observedAt": "2026-07-10T00:00:00Z", "avg": 3}),
-        ("t4", {"entity": "e1", "signal": "cpu", "observedAt": "2020-01-01T00:00:00Z", "avg": 4}),
-        ("t5", {"entity": "e1", "signal": "cpu", "observedAt": "2026-07-11T00:00:00Z", "avg": 5}),
+        (
+            "t1",
+            {
+                "entity": "e1",
+                "signal": "cpu",
+                "observedAt": "2026-07-10T00:00:00Z",
+                "avg": 1,
+            },
+        ),
+        (
+            "t2",
+            {
+                "entity": "e1",
+                "signal": "disk",
+                "observedAt": "2026-07-10T00:00:00Z",
+                "avg": 2,
+            },
+        ),
+        (
+            "t3",
+            {
+                "entity": "e2",
+                "signal": "cpu",
+                "observedAt": "2026-07-10T00:00:00Z",
+                "avg": 3,
+            },
+        ),
+        (
+            "t4",
+            {
+                "entity": "e1",
+                "signal": "cpu",
+                "observedAt": "2020-01-01T00:00:00Z",
+                "avg": 4,
+            },
+        ),
+        (
+            "t5",
+            {
+                "entity": "e1",
+                "signal": "cpu",
+                "observedAt": "2026-07-11T00:00:00Z",
+                "avg": 5,
+            },
+        ),
     ]
     eng = _FakeEngine(rows)
     out = hi.read_health_trends("e1", "cpu", days=3650, engine=eng)

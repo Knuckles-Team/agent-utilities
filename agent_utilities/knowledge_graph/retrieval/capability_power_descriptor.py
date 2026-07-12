@@ -87,6 +87,7 @@ __all__ = [
     "render_markdown",
     "render_json",
     "strip_generation_timestamp",
+    "truncate_at_word",
 ]
 
 _ISO_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -568,6 +569,19 @@ def infer_intent_verbs(tool_name: str, tags: set[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def truncate_at_word(text: str, limit: int) -> str:
+    """Truncate ``text`` to at most ``limit`` chars without splitting a word in
+    half — a straight ``text[:limit]`` slice was cutting mid-word and leaving
+    a dangling word fragment in the generated table that read as a typo."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space]
+    return cut
+
+
 def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str) -> str:
     lines: list[str] = []
     lines.append("# graph-os Capability Power Descriptors (generated)")
@@ -597,7 +611,7 @@ def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str)
         rest = c.typed_io.get("rest_route", "")
         lines.append(
             f"| [`{c.id}`](#{c.id.replace('_', '')}) | {', '.join(c.intent_verbs)} "
-            f"| {c.one_line[:100]} | {len(c.does)} | `{rest}` |"
+            f"| {truncate_at_word(c.one_line, 100)} | {len(c.does)} | `{rest}` |"
         )
     lines.append("")
     lines.append("## Capabilities")
@@ -650,9 +664,14 @@ def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str)
             lines.append("**Typed input:**")
             lines.append("")
             for p in c.typed_io["input_params"]:
+                # rstrip: an empty schema description must not leave a
+                # dangling trailing space (trailing-whitespace hook would
+                # otherwise rewrite this file on every regeneration).
                 lines.append(
-                    f"- `{p['name']}` ({p.get('type', 'any')}"
-                    f"{', required' if p.get('required') else ''}): {p.get('description', '')}"
+                    (
+                        f"- `{p['name']}` ({p.get('type', 'any')}"
+                        f"{', required' if p.get('required') else ''}): {p.get('description', '')}"
+                    ).rstrip()
                 )
         lines.append("")
         lines.append(
@@ -673,13 +692,20 @@ def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str)
 def render_json(cpds: list[CapabilityPowerDescriptor], *, generated_at: str) -> str:
     import json
 
-    return json.dumps(
-        {
-            "generated_at": generated_at,
-            "count": len(cpds),
-            "capabilities": [c.to_dict() for c in cpds],
-        },
-        indent=2,
-        sort_keys=False,
-        default=str,
+    # Trailing newline: end-of-file-fixer requires exactly one, and
+    # check_cpd.py diffs this in-memory string directly against the
+    # checked-in file — the two must agree byte-for-byte or the file
+    # (fixed once by the hook) reads as permanently "stale".
+    return (
+        json.dumps(
+            {
+                "generated_at": generated_at,
+                "count": len(cpds),
+                "capabilities": [c.to_dict() for c in cpds],
+            },
+            indent=2,
+            sort_keys=False,
+            default=str,
+        )
+        + "\n"
     )
