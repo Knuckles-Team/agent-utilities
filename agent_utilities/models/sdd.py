@@ -97,7 +97,7 @@ class Task(BaseModel):
         ),
     )
 
-    # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — governance gate/approval step kind
+    # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — governance gate/approval step kind
     # (autonomous-sdlc-loop-design.md §7.1 delta 2). A step's ``kind`` distinguishes an
     # ordinary executable step ("task", the default — unchanged behavior) from a
     # governance checkpoint ("gate"/"approval") that WorkflowRunner suspends on until an

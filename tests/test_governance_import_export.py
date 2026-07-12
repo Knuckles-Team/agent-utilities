@@ -12,8 +12,6 @@ to BPMN / SKILL.md.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from agent_utilities.knowledge_graph.governance_import import (
@@ -96,7 +94,13 @@ def _seed_epc(engine: FakeEngine) -> str:
     for oid, (t, n) in objs.items():
         engine.add_node(oid, t, name=n, objectType=t)
         engine.link_nodes(model, oid, "hasObject")
-    seq = ["aris:object:e0", "aris:object:f1", "aris:object:e1", "aris:object:f2", "aris:object:e2"]
+    seq = [
+        "aris:object:e0",
+        "aris:object:f1",
+        "aris:object:e1",
+        "aris:object:f2",
+        "aris:object:e2",
+    ]
     for a, b in zip(seq, seq[1:], strict=False):
         engine.link_nodes(a, b, "flowsTo")
     return model
@@ -133,16 +137,11 @@ def test_import_epc_yields_workflow_with_gate_step():
     assert rep["gate_count"] == 1  # "Manager Approval" → gate
     # the WorkflowDefinition + a gate WorkflowStep + REALIZES edge landed
     steps = [
-        d
-        for _n, d in engine.graph.nodes(data=True)
-        if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
     ]
     kinds = {s["kind"] for s in steps}
     assert "gate" in kinds
-    assert any(
-        p.get("type") == "REALIZES"
-        for _s, _t, p in engine.graph._edges
-    )
+    assert any(p.get("type") == "REALIZES" for _s, _t, p in engine.graph._edges)
 
 
 def test_import_archimate_walks_triggering_chain():
@@ -161,7 +160,11 @@ def test_import_archimate_walks_triggering_chain():
         ),
         key=lambda s: s["step_order"],
     )
-    assert [s["node_id"] for s in steps] == ["intake", "compliance_review", "fulfil_order"]
+    assert [s["node_id"] for s in steps] == [
+        "intake",
+        "compliance_review",
+        "fulfil_order",
+    ]
 
 
 def test_import_onetrust_single_gate():
@@ -173,9 +176,7 @@ def test_import_onetrust_single_gate():
     assert rep["step_count"] == 1
     assert rep["gate_count"] == 1
     step = next(
-        d
-        for _n, d in engine.graph.nodes(data=True)
-        if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "onetrust_assessments"
@@ -187,9 +188,7 @@ def test_import_erpnext_single_gate():
         "erpnext:workflow:purchase", "erpnext", name="Purchase Approval"
     )
     step = next(
-        d
-        for _n, d in engine.graph.nodes(data=True)
-        if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "erpnext_workflow"
@@ -201,17 +200,20 @@ async def test_import_bpmn_delegates_to_process_compiler():
     BusinessProcess subgraph (the extractor fixture)."""
     from agent_utilities.knowledge_graph.enrichment.extractors.camunda import extract
     from agent_utilities.knowledge_graph.enrichment.registry import write_batch
-
     from tests.unit.knowledge_graph.enrichment.bpmn_fixtures import XmlCapableClient
 
     engine = FakeEngine(with_backend=True)
 
     class _Writer:
         def add_node(self, node_id, **props):
-            engine.graph.add_node(node_id, {"type": props.pop("type", "Thing"), **props})
+            engine.graph.add_node(
+                node_id, {"type": props.pop("type", "Thing"), **props}
+            )
 
         def add_edge(self, src, tgt, **props):
-            engine.graph.add_edge(src, tgt, type=props.pop("rel_type", "RELATES_TO"), **props)
+            engine.graph.add_edge(
+                src, tgt, type=props.pop("rel_type", "RELATES_TO"), **props
+            )
 
         def execute(self, q, p=None):
             return []
@@ -219,14 +221,20 @@ async def test_import_bpmn_delegates_to_process_compiler():
         def execute_batch(self, q, batch):
             if "MERGE (n:" in q:
                 for row in batch:
-                    self.add_node(row["id"], **{k: v for k, v in row.items() if k != "id"})
+                    self.add_node(
+                        row["id"], **{k: v for k, v in row.items() if k != "id"}
+                    )
             elif "MERGE (s)-[r:" in q:
                 for row in batch:
                     self.add_edge(
                         row["source"],
                         row["target"],
                         rel_type=row.get("type"),
-                        **{k: v for k, v in row.items() if k not in ("source", "target", "type")},
+                        **{
+                            k: v
+                            for k, v in row.items()
+                            if k not in ("source", "target", "type")
+                        },
                     )
             return []
 

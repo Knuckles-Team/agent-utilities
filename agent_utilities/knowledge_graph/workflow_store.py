@@ -159,7 +159,7 @@ class WorkflowStore:
                 "is_parallel": step.parallel,
                 "timeout": step.timeout,
                 "status": "pending",
-                # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — gate/approval step kind
+                # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — gate/approval step kind
                 # (autonomous-sdlc-loop-design.md §7.1 delta 2), round-tripped through the store.
                 "kind": getattr(step, "kind", "task") or "task",
                 "condition": getattr(step, "condition", "on_success") or "on_success",

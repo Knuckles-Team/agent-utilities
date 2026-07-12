@@ -8,7 +8,7 @@ A ``kind="gate"`` step is not agent-executed: WorkflowRunner consults the
 DAG idempotently. Approved-inline proceeds; rejected skips the on-success
 downstream but runs an ``on_reject`` branch.
 
-@pytest.mark.concept("AU-ORCH.execution.gate-step-suspend-resume")
+@pytest.mark.concept("AU-ORCH.execution.workflow-lifecycle-management")
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from agent_utilities.models.graph import ExecutionStep, GraphPlan
 from agent_utilities.workflows import runner as runner_mod
 from agent_utilities.workflows.runner import WorkflowRunner
 
-pytestmark = pytest.mark.concept("AU-ORCH.execution.gate-step-suspend-resume")
+pytestmark = pytest.mark.concept("AU-ORCH.execution.workflow-lifecycle-management")
 
 
 class FakeGraph:
