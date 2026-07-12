@@ -26,8 +26,8 @@ class _FakeEngine:
         self.uql_seen = self.sql_seen = self.cypher_seen = self.sparql_seen = None
 
     def query_cypher(self, query, *a, **k):
-        if query.startswith("MATCH (n) RETURN DISTINCT labels"):
-            return [{"labels": ["Agent"]}, {"labels": ["Service"]}]
+        if query.startswith("MATCH (n) RETURN n.type"):
+            return [{"t": "Agent", "nt": None, "lb": None}, {"t": "Service"}]
         self.cypher_seen = query
         return [{"id": "n1", "name": "alpha"}]
 
@@ -186,6 +186,24 @@ def test_kg_2_305_is_llm_configured_reads_config(monkeypatch):
 
     monkeypatch.setattr(cfg_mod.config, "openai_base_url", "http://vllm.arpa/v1")
     assert nl_planner.is_llm_configured() is True
+
+
+def test_kg_2_305_render_schema_grounds_label_column_and_real_edge_columns():
+    """CONCEPT:AU-KG.query.ask-gateway-rest-twin grounding fix — the schema hint the AU
+    planner sends the fleet LLM must state the real label/kind SQL column (`type`, not
+    a same-named-but-unrelated `label` property) and the real fixed edges columns
+    (`src`/`dst`/`rel`), not an invented column like `source_node_id`.
+    """
+    eng = _FakeEngine()
+    schema = nl_planner.build_schema_context(eng)
+    rendered = nl_planner._render_schema(schema)
+
+    assert "Agent" in schema["node_labels"]
+    assert "`type`" in rendered
+    assert "`src`" in rendered
+    assert "`dst`" in rendered
+    assert "`rel`" in rendered
+    assert "source_node_id" in rendered  # named as the wrong column to avoid
 
 
 def test_kg_2_305_nl_query_mcp_tool_registered():
