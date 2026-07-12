@@ -1400,6 +1400,18 @@ def register_engine_surface_tools(mcp) -> None:
                 }
             )
 
+        # BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's
+        # structured ``.data`` verbatim (``mcp_package._decode``) — when the
+        # delegate's tool itself returns an already-JSON-encoded string (this
+        # repo's own tool convention: ``return json.dumps(...)``), ``.data`` IS
+        # that raw string, not the parsed object, so ``raw`` arrives here as a
+        # ``str`` even though the delegate answered normally. Align the parse
+        # here instead of failing on a shape mismatch that isn't a real outage.
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (TypeError, ValueError):
+                pass  # genuinely not JSON — falls through to the shape error below
         if not isinstance(raw, dict):
             return json.dumps(
                 {

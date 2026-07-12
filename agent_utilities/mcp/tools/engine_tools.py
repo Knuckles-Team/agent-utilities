@@ -249,6 +249,27 @@ def _client_for(graph: str) -> Any:
     return pool.acquire(graph_name=graph or _DEFAULT_GRAPH_POOL_KEY)
 
 
+def _resolve_graph_name(graph: str) -> str:
+    """Resolve the tool's top-level ``graph`` field to a concrete, non-empty
+    graph name (BUG-4) for call arguments a wire method requires explicitly —
+    ``""`` means "deployment default" everywhere else in this module, but a
+    method parameter literally named ``graph`` cannot be handed an empty
+    string. Mirrors the same resolution :func:`_client_factory` already uses
+    for the connection itself, so the call argument and the connection scope
+    always agree."""
+    if graph:
+        return graph
+    try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            default_graph_name,
+        )
+
+        return default_graph_name(AgentConfig())
+    except Exception:  # noqa: BLE001 — best-effort; engine rejects "" itself
+        return graph
+
+
 def _json_default(obj: Any) -> Any:
     if isinstance(obj, bytes | bytearray):
         return {"__bytes_b64__": base64.b64encode(bytes(obj)).decode("ascii")}
@@ -678,6 +699,25 @@ def _dispatch(
         return json.dumps(
             {"error": f"engine_{domain} has no callable action {action!r}"}
         )
+    # BUG-4: the top-level ``graph`` field only selects/pools the *connection*
+    # (via ``_client_for`` → ``client_connect_kwargs``) — it is never threaded
+    # into the call itself. Several wire methods (all of ``StreamingClient``'s
+    # graph-scoped ones — ``list_triggers``/``cdc_read``/``fired_triggers``/
+    # ``watch``/``register_trigger``/``register_continuous_query`` — and
+    # potentially others) declare an explicit ``graph`` parameter regardless of
+    # the connection's own graph scope, so without this a call like
+    # ``engine_streaming(action="list_triggers")`` fails with
+    # "missing 1 required positional argument: 'graph'" even though the tool's
+    # own ``graph`` field was filled in (with the resolved default). Inject the
+    # resolved graph name whenever the target method declares a ``graph``
+    # parameter and the caller didn't already supply one via ``params_json``.
+    if "graph" not in params:
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None and "graph" in sig.parameters:
+            params = {**params, "graph": _resolve_graph_name(graph)}
     try:
         result = fn(**params)
     except TypeError as exc:

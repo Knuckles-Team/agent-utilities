@@ -20,6 +20,7 @@ standard answer dict (``status=ok``). Built-ins (lazy-imported to avoid cycles):
 subsystem — it is *more providers on this one plane*.
 """
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -116,6 +117,38 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# BUG-3 (kg-exhaustive-smoke.md): a code-intelligence signal, checked AFTER the
+# other domain hints above and BEFORE the final fallback. There was never a
+# "code" bucket in ``_DOMAIN_HINTS`` — every query that missed ops/troubleshoot
+# fell straight through to the hardcoded ``return "code"`` default, so a plain
+# KG/concept question ("What is the 1:1:1 traceability rule?") got misrouted
+# into the code-intelligence provider and answered "No resolved code symbol
+# matched" even though the concept resolves instantly via graph_search. These
+# phrases are real, explicit code-question markers (not a catch-all).
+_CODE_HINTS: tuple[str, ...] = (
+    "function",
+    "method",
+    "class ",
+    "module",
+    "endpoint",
+    "symbol",
+    "codebase",
+    "source code",
+    "implementation of",
+    "def ",
+    "caller",
+    "callee",
+    "how does",
+    "how is",
+    "how do",
+    "code for",
+    "file:",
+)
+
+# A bare snake_case identifier (``run_agent``, ``build_code_context``) is also a
+# strong code-intelligence signal even without an explicit keyword above.
+_IDENTIFIER_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+
 
 def read_rows(
     engine: Any, cypher: str, params: dict[str, Any] | None = None
@@ -166,12 +199,26 @@ def _resolve_provider(domain: str) -> Callable[..., dict[str, Any]] | None:
 
 
 def infer_domain(query: str) -> str:
-    """Pick a domain from the question text; defaults to ``code``."""
+    """Pick a domain from the question text (BUG-3, kg-exhaustive-smoke.md).
+
+    Checks the explicit ``ops``/``troubleshoot`` keyword buckets first, then a
+    real code-intelligence signal (an explicit code keyword, or a bare
+    ``snake_case`` identifier in the query — see :data:`_CODE_HINTS` /
+    :data:`_IDENTIFIER_RE`), and only THEN falls back to ``entity`` — the
+    generic KG census/lookup domain (:mod:`entity_context`) — instead of
+    unconditionally guessing ``code``. Previously ANY query that missed every
+    keyword bucket defaulted to ``code``, so a plain KG/concept question
+    ("What is the 1:1:1 traceability rule?") was misrouted into the
+    code-intelligence provider and answered "No resolved code symbol matched"
+    even though the concept resolves instantly via ``graph_search``.
+    """
     low = (query or "").lower()
     for domain, hints in _DOMAIN_HINTS.items():
         if any(h in low for h in hints):
             return domain
-    return "code"
+    if any(h in low for h in _CODE_HINTS) or _IDENTIFIER_RE.search(low):
+        return "code"
+    return "entity"
 
 
 def list_context_domains() -> list[dict[str, Any]]:
