@@ -540,12 +540,53 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     return {"fired": fired, "count": len(fired)}
 
 
-def record_schedule_result(engine: Any, name: str, ok: bool) -> None:
+def _job_outcome(status: str | None, ok: bool) -> str:
+    """Bounded outcome label (ok|failed|skipped) for the per-job metric (CONCEPT:AU-OS.observability.no-op-without-metrics)."""
+    if status == "skipped":
+        return "skipped"
+    return "ok" if ok else "failed"
+
+
+def _record_job_metrics(
+    name: str, ok: bool, status: str | None, duration_s: float | None
+) -> None:
+    """Per-job outcome counter + duration histogram (Phase-0 daemon telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics).
+
+    Reuses the existing ``observability/gateway_metrics`` Prometheus registry —
+    default-on where the optional ``metrics`` extra is configured, a no-op
+    otherwise. Best-effort: telemetry must never break scheduling.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            SCHEDULED_JOB_DURATION,
+            SCHEDULED_JOB_RUNS,
+        )
+
+        outcome = _job_outcome(status, ok)
+        SCHEDULED_JOB_RUNS.labels(schedule=name, outcome=outcome).inc()
+        if duration_s is not None:
+            SCHEDULED_JOB_DURATION.labels(schedule=name).observe(duration_s)
+    except Exception:  # noqa: BLE001 — telemetry is best-effort, never fatal
+        logger.debug("schedule %s: job metrics recording failed", name, exc_info=True)
+
+
+def record_schedule_result(
+    engine: Any,
+    name: str,
+    ok: bool,
+    *,
+    duration_s: float | None = None,
+    status: str | None = None,
+) -> None:
     """Update a schedule's failure backoff after its job ran (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
     Called by the worker after ``run_scheduled_job`` so an ``adaptive`` schedule
     widens its interval on repeated failure and a failing job is throttled.
+    Also emits the per-job outcome/duration telemetry (Phase-0 daemon
+    telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics) — ``duration_s``/``status`` are optional so
+    existing callers are unaffected.
     """
+    _record_job_metrics(name, ok, status, duration_s)
     spec = _load_one(engine, name)
     if spec is None:
         return
@@ -598,8 +639,20 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute one scheduled job's payload — the worker calls this.
 
     The single dispatcher for every recurring job, routed by ``payload['kind']``
-    so the routing lives in exactly one place (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
+    so the routing lives in exactly one place (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent). Times the
+    dispatch and stamps the result with ``duration_s`` (Phase-0 daemon
+    telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics) so :func:`record_schedule_result` can emit
+    per-job duration telemetry — purely additive, every other key in the
+    returned dict is unchanged.
     """
+    start = time.perf_counter()
+    result = _dispatch_scheduled_job(engine, payload)
+    result["duration_s"] = time.perf_counter() - start
+    return result
+
+
+def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """The routing body of :func:`run_scheduled_job` (unchanged dispatch logic)."""
     kind = payload.get("kind", "skill")
     if kind == "maint":
         # A former fixed-interval maintenance tick: an engine ``_tick_<ref>`` method.

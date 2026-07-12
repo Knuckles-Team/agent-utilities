@@ -52,6 +52,8 @@ __all__ = [
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
+    "LANE_IN_FLIGHT",
+    "LANE_QUEUE_DEPTH",
     "MCP_CHILD_BREAKER_STATE",
     "MCP_CHILD_CALLS",
     "MCP_CHILD_QUEUE_DEPTH",
@@ -60,6 +62,8 @@ __all__ = [
     "MCP_TOOL_DURATION",
     "MCP_TOOL_IN_FLIGHT",
     "PROMETHEUS_AVAILABLE",
+    "SCHEDULED_JOB_DURATION",
+    "SCHEDULED_JOB_RUNS",
     "SKILL_CALLS",
     "TOOL_CALLS",
     "GatewayMetricsMiddleware",
@@ -202,6 +206,32 @@ KG_INGEST_CONSUMER_LAG = _gauge(
     "agent_utilities_kg_ingest_consumer_lag",
     "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
     ("topic", "group"),
+)
+# Unified scheduler + 8-lane task-queue observability (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent /
+# CONCEPT:AU-ORCH.execution.two-level-fair-rotation): the one seam every recurring/background job
+# (schedule_engine.run_scheduler_tick -> the task_lanes.py queue) runs through, so a daemon leak
+# shows up as a counter/gauge query instead of a grep through N tick bodies. ``schedule`` is
+# bounded (~33 named :Schedule nodes); ``lane`` is bounded (the 8 functional lanes in
+# task_lanes.TASK_LANES) — both safe cardinalities.
+SCHEDULED_JOB_RUNS = _counter(
+    "agent_utilities_scheduled_job_runs_total",
+    "Scheduled/recurring job runs by schedule name and outcome (ok|failed|skipped).",
+    ("schedule", "outcome"),
+)
+SCHEDULED_JOB_DURATION = _histogram(
+    "agent_utilities_scheduled_job_duration_seconds",
+    "Scheduled/recurring job execution duration by schedule name.",
+    ("schedule",),
+)
+LANE_QUEUE_DEPTH = _gauge(
+    "agent_utilities_lane_queue_depth",
+    "Pending KG task-queue depth by functional lane (task_lanes.TASK_LANES).",
+    ("lane",),
+)
+LANE_IN_FLIGHT = _gauge(
+    "agent_utilities_lane_in_flight",
+    "In-flight (currently claimed/running) KG tasks by functional lane.",
+    ("lane",),
 )
 # MCP multiplexer per-child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client): one series per
 # aggregated child server (~50, bounded by mcp_config.json). The multiplexer
