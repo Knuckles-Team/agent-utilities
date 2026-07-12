@@ -292,12 +292,24 @@ class EpistemicGraphBackend(GraphBackend):
                     "(anchor the query by id, or restrict it to a shape this "
                     f"backend can filter): {q[:200]}"
                 )
+            # No client-side traversal interpreter matched. The native Cypher
+            # engine is the authority for general relationship matching +
+            # aggregation, and — since the engine's ``rel_matches`` now also reads
+            # the ``rel_type`` property key this backend stamps every edge with — a
+            # typed ``-[:REL]->`` pattern matches natively instead of silently
+            # missing. Route there rather than fabricating an ``[]``: this kills the
+            # silent-empty footgun for un-anchored label→label shapes such as the
+            # delegation router's ``(:Server)-[:PROVIDES]->(:CallableResource)``
+            # discovery query (grouped ``count()`` + ``ORDER BY``/``LIMIT``). A
+            # shape the native engine can't express fails loud (``CypherEngineError``
+            # / ``NotImplementedError``), never a silent wrong ``[]``.
+            # (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
             logger.debug(
-                "epistemic_graph backend: unhandled relationship read; "
-                "returning [] (no full-graph fallback): %s",
+                "epistemic_graph backend: no traversal interpreter matched; "
+                "routing to the native Cypher engine: %s",
                 q[:160],
             )
-            return []
+            return self._native_execute(q, params)
 
         # Single-node MATCH: the O(1) ``id``-anchored fast path and the
         # no-predicate label/enumeration scan stay on typed engine methods
@@ -316,16 +328,25 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
 
-            rewritten = self._rewrite_virtual_id_accessors(q)
-            inlined = self._inline_cypher_params(rewritten, params)
-            try:
-                return self._graph.query_cypher(inlined)
-            except NotImplementedError:
-                raise
-            except Exception as exc:  # noqa: BLE001 — re-raised as a named, typed error
-                raise CypherEngineError(query=q, inlined=inlined, cause=exc) from exc
+            return self._native_execute(q, params)
 
         return self._legacy_execute(params)
+
+    def _native_execute(self, q: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Route a query to the native Cypher engine — the authority for general
+        matching / WHERE filtering / aggregation — rewriting virtual-id accessors
+        and inlining params first. Raises a named :class:`CypherEngineError` (or
+        propagates ``NotImplementedError``) on an engine failure rather than
+        degrading to a silent ``[]``. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
+        """
+        rewritten = self._rewrite_virtual_id_accessors(q)
+        inlined = self._inline_cypher_params(rewritten, params)
+        try:
+            return self._graph.query_cypher(inlined)
+        except NotImplementedError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — re-raised as a named, typed error
+            raise CypherEngineError(query=q, inlined=inlined, cause=exc) from exc
 
     @staticmethod
     def _rewrite_virtual_id_accessors(query: str) -> str:
@@ -563,18 +584,20 @@ class EpistemicGraphBackend(GraphBackend):
         — present in the compute graph but not returned by ``backend.execute``).
         """
         pat = re.search(
-            r"\(\s*(\w*)[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
-            r"\(\s*(\w*)[^)]*\)",
+            r"\(\s*(\w*)\s*(?::(\w+))?[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
+            r"\(\s*(\w*)\s*(?::(\w+))?[^)]*\)",
             q,
             re.I,
         )
         if not pat:
             return False, []
-        s_var, r_var, rel, t_var = (
+        s_var, s_label, r_var, rel, t_var, t_label = (
             pat.group(1),
             pat.group(2),
             pat.group(3),
             pat.group(4),
+            pat.group(5),
+            pat.group(6),
         )
 
         idmap: dict[str, Any] = {}
@@ -646,6 +669,20 @@ class EpistemicGraphBackend(GraphBackend):
             wants_count = re.search(r"RETURN\s+count\s*\(", q, re.I) is not None
             wants_edge = bool(r_var) and re.search(rf"RETURN\s+{r_var}(\b|\.)", q, re.I)
             if not (wants_count or wants_edge):
+                return False, []
+            # A source/target LABEL constraint cannot be honored by the O(1) global
+            # edge count or the unfiltered triple enumeration below — both would
+            # return a confidently-wrong number that ignores the label (e.g.
+            # ``(s:Server)-[r]->() RETURN count(r)`` counting EVERY edge in the
+            # graph, not just Server's). Defer so the query routes to the native
+            # engine, which applies the label. (CONCEPT:AU-KG.backend.where-clause-carrying)
+            if s_label or t_label:
+                logger.debug(
+                    "epistemic_graph backend: unanchored relationship aggregate "
+                    "with an endpoint label the global count can't honor; "
+                    "deferring to native: %s",
+                    q[:160],
+                )
                 return False, []
             edge_count = getattr(self._graph, "edge_count", None)
             get_triples = getattr(self._graph, "get_triples", None)
