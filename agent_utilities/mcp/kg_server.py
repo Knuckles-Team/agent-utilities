@@ -188,6 +188,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     # omitted param would be bound to the raw ``FieldInfo`` object, later blowing up with
     # "'FieldInfo' object has no attribute 'replace'" / "not JSON serializable". Resolve
     # FieldInfo defaults for omitted params so direct invocation matches the MCP behavior.
+    _missing_required: list[str] = []
     try:
         from pydantic.fields import FieldInfo
         from pydantic_core import PydanticUndefined
@@ -200,8 +201,21 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 _resolved = _default.default
                 if _resolved is not PydanticUndefined:
                     kwargs[_name] = _resolved
+                elif getattr(_default, "default_factory", None) is not None:
+                    kwargs[_name] = _default.default_factory()  # type: ignore[misc]
+                else:
+                    # Required param (Field with no default) omitted: without this the
+                    # raw FieldInfo would bind and later blow up deep in the tool with a
+                    # cryptic "'FieldInfo' object has no attribute 'strip'". Fail loud
+                    # with the actual missing-arg name instead.
+                    _missing_required.append(_name)
     except Exception:  # noqa: BLE001 — never let default-resolution break dispatch
         pass
+    if _missing_required:
+        raise ValueError(
+            f"Tool {tool_name!r} missing required argument(s): "
+            f"{', '.join(_missing_required)}."
+        )
 
     actor = _actor_from_kwargs(kwargs)
 
