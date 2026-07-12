@@ -135,9 +135,41 @@ def is_entitled(
     return f"{namespace}:{resource}" in cap_set or resource in cap_set
 
 
+def identity_scoped_resources(
+    namespace: str,
+    available: Iterable[str],
+    *,
+    actor: object | None = None,
+    super_caps: Iterable[str] = DEFAULT_SUPER_CAPS,
+) -> tuple[str, ...]:
+    """The one call an ``agents/*`` MCP server makes to auto-load by identity.
+
+    Resolves the ambient authenticated caller (``current_actor()`` unless an
+    explicit ``actor`` is passed) to the subset of ``available`` resources their
+    Okta/Keycloak groups entitle. ``ActorContext.roles`` is already the base
+    capability set (roles ∪ scopes ∪ group-derived capabilities), so this is a
+    thin wrapper over :func:`entitled_resources`.
+
+    Back-compat / fail-safe: the ambient ``SYSTEM_ACTOR`` (unauthenticated local
+    callers) holds the ``admin``/``system`` super-capability, so it is entitled
+    to ALL ``available`` resources — a server behaves exactly as today until a
+    real authenticated identity with specific groups scopes it down. This is the
+    native, default-on path: no flag, no opt-in, and every server that lists its
+    resources through this call inherits identity-scoped auto-loading for free.
+    """
+    from .brain_context import current_actor
+
+    ctx = actor if actor is not None else current_actor()
+    capabilities = getattr(ctx, "roles", ()) or ()
+    return entitled_resources(
+        capabilities, namespace, available, super_caps=super_caps
+    )
+
+
 __all__ = [
     "DEFAULT_SUPER_CAPS",
     "entitled_resources",
     "grants_all_in_namespace",
+    "identity_scoped_resources",
     "is_entitled",
 ]

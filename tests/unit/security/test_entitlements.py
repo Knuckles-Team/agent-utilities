@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.security.entitlements import (
     entitled_resources,
     grants_all_in_namespace,
+    identity_scoped_resources,
     is_entitled,
 )
 from agent_utilities.security.identity import base_capabilities, normalize_identity
@@ -84,3 +86,23 @@ class TestOktaKeycloakInterchangeableAutoload:
             keycloak, "k8s", available
         )
         assert entitled_resources(okta, "k8s", available) == ("prod", "staging")
+
+
+class TestIdentityScopedResources:
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
+    def test_authenticated_caller_scopes_to_entitled(self):
+        actor = ActorContext(
+            actor_id="user:ada",
+            roles=("k8s:prod",),
+            authenticated=True,
+        )
+        with use_actor(actor):
+            assert identity_scoped_resources("k8s", ["prod", "staging", "dev"]) == (
+                "prod",
+            )
+
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
+    def test_unauthenticated_system_actor_sees_all_backcompat(self):
+        # Ambient SYSTEM_ACTOR (admin/system) → all resources: today's behaviour
+        # until a real identity with specific groups scopes it down.
+        assert identity_scoped_resources("k8s", ["prod", "dev"]) == ("prod", "dev")
