@@ -132,6 +132,64 @@ class Orchestrator:
         trace["tool_call_count"] = len(tool_calls)
         return trace
 
+    def get_tool_calls_for_target(self, target_id: str) -> dict[str, Any]:
+        """Entity-anchored reverse-index: every ``:ToolCall`` that acted on ``target_id``.
+
+        CONCEPT:AU-KG.audit.tool-call-acted-on-reverse-index (G23, audit-trail closure) —
+        :meth:`get_run_trace` answers "what did run X do", organized by run; this answers
+        the complementary "what happened to entity X", organized by target. It walks the
+        ``:ToolCall -[:ACTED_ON]-> <target>`` edge :func:`agent_utilities.orchestration.
+        agent_runner._persist_tool_calls` writes (best-effort) whenever a tool call's
+        sanitized args carry a recognizable id key (``node_id``/``id``/``entity_id``/
+        ``target_id``/``ticket_id``/``incident_id``/``spec_id``) that resolves to an
+        existing graph node — so an auditor can reconstruct the full step-by-step history
+        against any entity (an ``:Incident``, ``:SpecProposal``, ``:Ticket``, a governance
+        gate node, …), in call order, each carrying its agent/tool/args/result/status.
+
+        Also attaches a best-effort :meth:`~agent_utilities.knowledge_graph.core.
+        graph_compute.GraphComputeEngine.audit_verify` snapshot (``audit`` key) so the
+        reconstructed history comes with the engine's cryptographic tamper-evidence
+        guarantee, not just the graph read — ``None`` when the engine build/config
+        doesn't support it (see :meth:`GraphComputeEngine.audit_verify`).
+        """
+        backend = getattr(self.engine, "backend", None)
+        if backend is None:
+            return {
+                "target_id": target_id,
+                "error": "no KG backend active",
+                "tool_calls": [],
+            }
+        try:
+            rows = backend.execute(
+                "MATCH (tc:ToolCall)-[:ACTED_ON]->(target {id: $tid}) "
+                "RETURN tc.id AS id, tc.run_id AS run_id, tc.agent_name AS agent_name, "
+                "tc.server AS server, tc.tool_name AS tool_name, tc.args AS args, "
+                "tc.result_preview AS result_preview, tc.error AS error, "
+                "tc.status AS status, tc.sequence AS sequence, tc.timestamp AS timestamp "
+                "ORDER BY tc.timestamp ASC, tc.sequence ASC",
+                {"tid": target_id},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "target_id": target_id,
+                "error": f"reverse-index query failed: {exc}",
+                "tool_calls": [],
+            }
+        tool_calls = [dict(r) for r in (rows or [])]
+        audit: dict[str, Any] | None = None
+        graph_client = getattr(self.engine, "graph", None)
+        if graph_client is not None:
+            try:
+                audit = graph_client.audit_verify()
+            except Exception:  # noqa: BLE001 — verification is a best-effort add-on
+                audit = None
+        return {
+            "target_id": target_id,
+            "tool_call_count": len(tool_calls),
+            "tool_calls": tool_calls,
+            "audit": audit,
+        }
+
     def get_session_runs(self, session_id: str) -> dict[str, Any]:
         """Fetch every ``:RunTrace`` anchored to a ``:Session`` (a multi-step delegation).
 
