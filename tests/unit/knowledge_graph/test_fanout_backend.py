@@ -37,7 +37,7 @@ class RecordingBackend(GraphBackend):
         if self.down:
             raise RuntimeError(f"{self.name} unreachable")
 
-    def execute(self, query, params=None):
+    def execute(self, query, params=None, *, include_epistemic=False):
         self._check()
         with self._lock:
             self.writes.append(("execute", query))
