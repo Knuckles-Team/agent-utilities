@@ -146,6 +146,31 @@ def _gate_env(venv_dir: Path) -> dict[str, str]:
     env["PATH"] = f"{venv_dir / 'bin'}{os.pathsep}{env.get('PATH', '')}"
     # Drop any inherited interpreter pin so `python3` resolves to the lean venv.
     env.pop("PYTHONHOME", None)
+    # Reproduce CI's kernel-ABSENCE. CI installs the package WITHOUT the
+    # per-platform-compiled `epistemic-graph[numeric]` kernel (it is not on PyPI),
+    # but a dev box's `pip install -e .` can resolve a locally-built kernel from the
+    # uv cache — leaking it into the "lean" venv and HIDING the exact
+    # `epistemic-graph kernel required` failures the guardrail gates (retrieval /
+    # eval-corpus / reliability-corpus / designation-eval / CPD) hit in CI. Block it
+    # so the harness is a faithful CI mirror: those gates skip cleanly and their
+    # pytest meta-tests skip in lockstep. Without this the pre-push hook is blind to
+    # the whole kernel-required class (which is how it slipped to CI once already).
+    block_dir = venv_dir / "_kernel_block"
+    block_dir.mkdir(exist_ok=True)
+    (block_dir / "sitecustomize.py").write_text(
+        "import sys, importlib.abc\n"
+        "class _KernelAbsent(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, name, path, target=None):\n"
+        "        if name == 'agent_utilities.numeric' or name.startswith('agent_utilities.numeric.'):\n"
+        "            raise ImportError('epistemic-graph kernel required: pip install epistemic-graph[numeric]>=2.7.0 (lean-parity mirror: CI has no compiled kernel)')\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, _KernelAbsent())\n",
+        encoding="utf-8",
+    )
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        f"{block_dir}{os.pathsep}{existing}" if existing else str(block_dir)
+    )
     return env
 
 
