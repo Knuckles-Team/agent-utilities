@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1003
+total_concepts: 1004
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -2090,6 +2090,18 @@ concepts:
   dotted: AU-ECO.mcp.full-api-mcp-surface
   aliases:
   - AU-ECO.mcp.full-api-mcp-surface
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.gateway-dispatch-isolation
+  name: most graph_*/
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  doc: most graph_*/
+  dotted: AU-ECO.mcp.gateway-dispatch-isolation
+  aliases:
+  - AU-ECO.mcp.gateway-dispatch-isolation
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.mcp.graph-reach-mcp-tool
@@ -7593,6 +7605,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/nl_planner.py
+  - agent_utilities/knowledge_graph/core/nl_query.py
   - agent_utilities/knowledge_graph/orchestration/data_analyst.py
   - agent_utilities/mcp/tools/intent_tools.py
   - agent_utilities/mcp/tools/query_tools.py

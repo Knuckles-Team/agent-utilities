@@ -62,9 +62,11 @@ class RegimeDetector:
         assert self.engine is not None
         node_id = f"Regime_{ticker}"
         self.engine.add_node(
-            id=node_id,
+            node_id=node_id,
             node_type="MarketRegime",
-            ticker=ticker,
-            regime_type=regime,
-            volatility=volatility,
+            properties={
+                "ticker": ticker,
+                "regime_type": regime,
+                "volatility": volatility,
+            },
         )

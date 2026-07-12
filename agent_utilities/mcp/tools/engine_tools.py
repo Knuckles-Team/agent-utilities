@@ -435,6 +435,54 @@ def _enforce_admin_scope(domain: str, action: str) -> None:
     )
 
 
+# ── Unbounded global-analytics OOM guard ──────────────────────────────────
+# ``engine_analytics(action="pagerank", params_json="{}")`` — an unbounded global
+# PageRank over the live ~139k-node graph — OOM-killed the epistemic-graph engine
+# (exitCode 137). ``AnalyticsClient.pagerank``/``betweenness_centrality``/
+# ``degree_centrality_all`` (``epistemic_graph.client``) take NO kwarg that scopes
+# them to anything smaller than the whole graph, so every call to one of them is
+# unbounded by construction; ``personalized_pagerank`` is bounded ONLY when it
+# carries a non-empty ``seed_nodes`` frontier. Rather than let the engine OOM
+# (silent, ungraceful), fail loud client-side before the RPC — mirrors the
+# engine's own ``RESULT_TOO_LARGE`` node-dump guard, just enforced here because
+# these are compute calls the engine has no size-check for.
+_UNBOUNDED_ANALYTICS_ACTIONS = frozenset(
+    {"pagerank", "betweenness_centrality", "degree_centrality_all"}
+)
+
+
+def _reject_unbounded_analytics(
+    domain: str, action: str, params: dict[str, Any]
+) -> str | None:
+    """Non-``None`` ⇒ a clear, typed rejection message; ``None`` ⇒ let it through.
+
+    Only the ``analytics`` domain's whole-graph algorithms are gated. Bounded/
+    legitimate analytics calls (``degree_centrality`` for one node, a
+    ``personalized_pagerank`` with a seeded frontier, anything outside
+    ``analytics``) are never touched.
+    """
+    if domain != "analytics":
+        return None
+    if action in _UNBOUNDED_ANALYTICS_ACTIONS:
+        return (
+            f"engine_analytics.{action} has no way to scope itself below the "
+            "ENTIRE graph (no top_k/limit/nodes/subset parameter exists on it) — "
+            "an unbounded call previously OOM-killed the engine (exitCode 137). "
+            "Rejected fail-loud instead of risking another crash. Use a bounded "
+            "alternative: 'personalized_pagerank' with a non-empty 'seed_nodes' "
+            "frontier ([[node_id, weight], ...]), or scope your read to a node "
+            "subset first (e.g. graph_analyze(action='blast_radius')/'inspect')."
+        )
+    if action == "personalized_pagerank" and not params.get("seed_nodes"):
+        return (
+            "engine_analytics.personalized_pagerank requires a non-empty "
+            "'seed_nodes' ([[node_id, weight], ...]) — without one the call is "
+            "unbounded over the entire graph, which previously OOM-killed the "
+            "engine (exitCode 137). Pass a seeded frontier to scope it."
+        )
+    return None
+
+
 def _dispatch(
     domain: str, methods: set[str], action: str, params_json: str, graph: str
 ) -> str:
@@ -464,6 +512,16 @@ def _dispatch(
         return json.dumps({"error": f"invalid params_json: {exc}"})
     if not isinstance(params, dict):
         return json.dumps({"error": "params_json must decode to a JSON object"})
+    guard_msg = _reject_unbounded_analytics(domain, action, params)
+    if guard_msg is not None:
+        return json.dumps(
+            {
+                "error": guard_msg,
+                "domain": domain,
+                "action": action,
+                "guard": "RESULT_TOO_LARGE",
+            }
+        )
     try:
         client = _client_for(graph)
     except Exception as exc:  # noqa: BLE001 — engine unreachable is a normal degrade

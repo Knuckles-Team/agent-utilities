@@ -371,18 +371,22 @@ class DebateEngine:
         node_id = f"Debate_{session.session_id}_{session.context.ticker}"
 
         self.engine.add_node(
-            id=node_id,
+            node_id=node_id,
             node_type="DebateSession",
-            ticker=session.context.ticker,
-            decision=session.final_decision,
-            rounds=len(session.rounds),
+            properties={
+                "ticker": session.context.ticker,
+                "decision": session.final_decision,
+                "rounds": len(session.rounds),
+            },
         )
 
         if session.risk_assessment:
             self.engine.add_node(
-                id=f"{node_id}_Risk",
+                node_id=f"{node_id}_Risk",
                 node_type="RiskAssessment",
-                approved=session.risk_assessment.approved,
-                reasoning=session.risk_assessment.reasoning,
+                properties={
+                    "approved": session.risk_assessment.approved,
+                    "reasoning": session.risk_assessment.reasoning,
+                },
             )
             self.engine.add_edge(node_id, f"{node_id}_Risk", "EVALUATED_BY")
