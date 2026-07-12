@@ -354,7 +354,7 @@ def analyze(root: Path) -> dict:
                     "type": "MISSING_TOOL_MODE",
                     "var": "MCP_TOOL_MODE",
                     "sources": [_rel(path, root)],
-                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the env block',
+                    "hint": 'add "MCP_TOOL_MODE": "intent" to the env block',
                 }
             )
 
@@ -402,7 +402,7 @@ def analyze(root: Path) -> dict:
                     "type": "MISSING_TOOL_MODE",
                     "var": "MCP_TOOL_MODE",
                     "sources": ["README.md (example)"],
-                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the example env block',
+                    "hint": 'add "MCP_TOOL_MODE": "intent" to the example env block',
                 }
             )
         for var in sorted(env):

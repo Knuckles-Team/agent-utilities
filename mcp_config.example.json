@@ -9,7 +9,7 @@
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "both",
+        "MCP_TOOL_MODE": "intent",
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
       }
     }

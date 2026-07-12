@@ -7,7 +7,7 @@
       "env": {
         "AGENT_ID": "bus-session",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "condensed",
+        "MCP_TOOL_MODE": "intent",
         "KG_DAEMON_ROLE": "client",
         "BUSTOOL": "true",
         "REACHTOOL": "true",

@@ -12,8 +12,10 @@ exact operation directly. It is the same client methods exposed one-to-one
 instead of folded behind an ``action`` switch; nothing is reimplemented.
 
 Selection is governed by one knob, :func:`tool_mode`
-(``MCP_TOOL_MODE`` ∈ ``condensed`` | ``verbose`` | ``both``, default
-``condensed``). Every verbose tool is tagged ``"verbose"`` (plus its domain) so
+(``MCP_TOOL_MODE`` ∈ ``condensed`` | ``verbose`` | ``both`` | ``intent``, default
+``intent`` — the collapsed intent-verb surface; the full granular/verbose tools
+are loaded on demand via the multiplexer's ``load_tools``). Every verbose tool is
+tagged ``"verbose"`` (plus its domain) so
 the existing ``DynamicVisibilityTransform`` (``--tools`` / tags / HTTP query)
 can still slice the set per request.
 
@@ -47,7 +49,13 @@ from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 logger = logging.getLogger(__name__)
 
 VALID_TOOL_MODES = ("condensed", "verbose", "both", "intent")
-_DEFAULT_MODE = "condensed"
+# Default to the collapsed INTENT surface (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse,
+# Seam 8): a small set of intent-verb tools (ask/write/act/find/manage/why) instead
+# of the ~100 granular/condensed tools, which blow past the client tool cap and cost
+# attention (worst for small/local models). Nothing is lost — the full granular +
+# verbose surface stays registered (REST + `_execute_tool` + REGISTERED_TOOLS
+# unaffected) and is loaded on demand via the multiplexer's `load_tools`.
+_DEFAULT_MODE = "intent"
 
 #: Tag stamped on EVERY condensed/verbose tool (any mode) so a deployment can
 #: statically shrink the LLM-visible surface via the pre-existing
@@ -142,12 +150,12 @@ def tool_mode() -> str:
     """Return the configured MCP tool surface: ``condensed``|``verbose``|``both``|``intent``.
 
     Reads ``MCP_TOOL_MODE`` through the shared config layer (so it is driven by
-    the one XDG ``config.json``). Defaults to ``condensed`` — the small,
-    action-routed surface — so existing deployments are unchanged. An
-    unrecognized value falls back to ``condensed`` with a warning.
+    the one XDG ``config.json``). Defaults to ``intent`` — the collapsed
+    intent-verb surface (the full granular set is loaded on demand via
+    ``load_tools``). An unrecognized value falls back to ``intent`` with a warning.
 
     ``intent`` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — Seam 8) is the
-    "small/cheap-LLM" profile: the condensed action-routed tools still register
+    default (and the "small/cheap-LLM") profile: the condensed action-routed tools still register
     (REST + ``_execute_tool`` + REGISTERED_TOOLS are unaffected — nothing is
     lost), but they are additionally tagged :data:`GATED_TAG` and held back from
     a session's default tool list; a handful of thin ``ask``/``find``/``write``/
