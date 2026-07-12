@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen_capability_power.py --write`; `scripts/check_cpd.py` gates drift in CI/pre-commit (CONCEPT:AU-KG.retrieval.capability-power-descriptor). Seam 8 Phase 1 — `plans/program-design-2026-07-11-epistemic-tool-routing.md` section 2b.
 >
-> 95 capabilities · generated 2026-07-11T22:30:23Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
+> 95 capabilities · generated 2026-07-12T00:38:22Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
 
 ## Index
 
@@ -114,7 +114,7 @@ answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step 
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/ask-data`
-- **MCP tags:** data-analysis, graph-os, nl, query
+- **MCP tags:** data-analysis, granular, graph-os, nl, query
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -134,7 +134,7 @@ answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -146,7 +146,7 @@ Atomically claim/list/release concept ids across parallel sessions & worktrees (
 
 - **Intent verbs:** act
 - **REST route:** `/concept/registry`
-- **MCP tags:** concept, governance, graph-os, ontology
+- **MCP tags:** concept, governance, granular, graph-os, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -170,7 +170,7 @@ Atomically claim/list/release concept ids across parallel sessions & worktrees (
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -182,7 +182,7 @@ Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): ext
 
 - **Intent verbs:** ask
 - **REST route:** `/document/process`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -204,7 +204,7 @@ Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): ext
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -216,7 +216,7 @@ Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/admin`
-- **MCP tags:** admin, engine, graph-os
+- **MCP tags:** admin, engine, granular, graph-os
 - **Side effects:** 2/2 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -236,7 +236,7 @@ Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -248,7 +248,7 @@ Low-level epistemic-graph engine surface for the 'analytics' domain (centrality 
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/analytics`
-- **MCP tags:** analytics, engine, graph-os
+- **MCP tags:** analytics, engine, granular, graph-os
 - **Side effects:** 3/5 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -271,7 +271,7 @@ Low-level epistemic-graph engine surface for the 'analytics' domain (centrality 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -283,7 +283,7 @@ Low-level epistemic-graph engine surface for the 'blob' domain (streamed content
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/blob`
-- **MCP tags:** blob, engine, graph-os
+- **MCP tags:** blob, engine, granular, graph-os
 - **Side effects:** 9/11 actions matched an EG ledger Method; any_mutates=True; durability=['BlobRedb', 'None']; txn=['Atomic', 'Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -312,7 +312,7 @@ Low-level epistemic-graph engine surface for the 'blob' domain (streamed content
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -324,7 +324,7 @@ Low-level epistemic-graph engine surface for the 'broker' domain (native message
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/broker`
-- **MCP tags:** broker, engine, graph-os
+- **MCP tags:** broker, engine, granular, graph-os
 - **Side effects:** 21/21 actions matched an EG ledger Method; any_mutates=True; durability=['None', 'Outbox']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -363,7 +363,7 @@ Low-level epistemic-graph engine surface for the 'broker' domain (native message
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -375,7 +375,7 @@ Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/channels`
-- **MCP tags:** channels, engine, graph-os
+- **MCP tags:** channels, engine, granular, graph-os
 - **Side effects:** 8/8 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -401,7 +401,7 @@ Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -413,7 +413,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/consensus`
-- **MCP tags:** admin, consensus, engine, graph-os
+- **MCP tags:** admin, consensus, engine, granular, graph-os
 - **Side effects:** 2/2 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -433,7 +433,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -445,7 +445,7 @@ Low-level epistemic-graph engine surface for the 'datascience' domain (estimator
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/datascience`
-- **MCP tags:** datascience, engine, graph-os
+- **MCP tags:** datascience, engine, granular, graph-os
 - **Side effects:** 0/15 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -478,7 +478,7 @@ Low-level epistemic-graph engine surface for the 'datascience' domain (estimator
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -490,7 +490,7 @@ Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/edges`
-- **MCP tags:** edges, engine, graph-os
+- **MCP tags:** edges, engine, granular, graph-os
 - **Side effects:** 8/9 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -517,7 +517,7 @@ Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -529,7 +529,7 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/finance`
-- **MCP tags:** engine, finance, graph-os
+- **MCP tags:** engine, finance, granular, graph-os
 - **Side effects:** 67/67 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['None']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -608,7 +608,7 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -620,7 +620,7 @@ Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/graph`
-- **MCP tags:** engine, graph, graph-os
+- **MCP tags:** engine, granular, graph, graph-os
 - **Side effects:** 27/29 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'None', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -667,7 +667,7 @@ Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -679,7 +679,7 @@ Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/graphlearn`
-- **MCP tags:** engine, graph-os, graphlearn
+- **MCP tags:** engine, granular, graph-os, graphlearn
 - **Side effects:** 2/2 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -699,7 +699,7 @@ Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -711,7 +711,7 @@ Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/ledger`
-- **MCP tags:** engine, graph-os, ledger
+- **MCP tags:** engine, granular, graph-os, ledger
 - **Side effects:** 3/3 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -732,7 +732,7 @@ Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -744,7 +744,7 @@ Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/lifecycle`
-- **MCP tags:** engine, graph-os, lifecycle
+- **MCP tags:** engine, granular, graph-os, lifecycle
 - **Side effects:** 10/10 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'None', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -772,7 +772,7 @@ Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -784,7 +784,7 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/mining`
-- **MCP tags:** engine, graph-os, mining
+- **MCP tags:** engine, granular, graph-os, mining
 - **Side effects:** 18/18 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -820,7 +820,7 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -832,7 +832,7 @@ Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/nodes`
-- **MCP tags:** engine, graph-os, nodes
+- **MCP tags:** engine, granular, graph-os, nodes
 - **Side effects:** 16/20 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost:** (unmeasured)
 - **Latency:** {'add': {'eg_method': 'AddNode', 'p50_ms': 0.187, 'p99_ms': 0.223, 'source': 'epistemic-graph/docs/benchmarks.md#results (2026-06-01, UDS, in-memory graph)', 'kind': 'measured'}, 'claim_next': {'eg_method': 'ClaimNext', 'source': "epistemic-graph/docs/benchmarks-soak.md (queue/claim primitive is measured in the same soak run; approximates AgentBus queue latency per that doc's own caveat — see the doc for the current number, not duplicated here to avoid a second copy drifting from the source)", 'kind': 'measured'}, 'compare_and_set': {'eg_method': 'CompareAndSetNodeFields', 'p50_ms': 14.17, 'p95_ms': 43.72, 'p99_ms': 57.24, 'source': 'epistemic-graph/docs/benchmarks-soak.md#phase-a (2026-07-11 soak run, shared/contended box — upper bound per source doc)', 'kind': 'measured'}, 'properties': {'eg_method': 'GetNodeProperties', 'p50_ms': 0.179, 'p99_ms': 0.21, 'source': 'epistemic-graph/docs/benchmarks.md#results (2026-06-01, UDS, in-memory graph)', 'kind': 'measured'}}
@@ -871,7 +871,7 @@ Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -883,7 +883,7 @@ Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / 
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/query`
-- **MCP tags:** engine, graph-os, query
+- **MCP tags:** engine, granular, graph-os, query
 - **Side effects:** 19/21 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -922,7 +922,7 @@ Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -934,7 +934,7 @@ Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/rbac`
-- **MCP tags:** admin, engine, graph-os, rbac
+- **MCP tags:** admin, engine, granular, graph-os, rbac
 - **Side effects:** 0/5 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -957,7 +957,7 @@ Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -969,7 +969,7 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/rdf`
-- **MCP tags:** engine, graph-os, rdf
+- **MCP tags:** engine, granular, graph-os, rdf
 - **Side effects:** 8/9 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -996,7 +996,7 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1008,7 +1008,7 @@ Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/reasoning`
-- **MCP tags:** engine, graph-os, reasoning
+- **MCP tags:** engine, granular, graph-os, reasoning
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1027,7 +1027,7 @@ Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1039,7 +1039,7 @@ Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/resharding`
-- **MCP tags:** admin, engine, graph-os, resharding
+- **MCP tags:** admin, engine, granular, graph-os, resharding
 - **Side effects:** 7/7 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1064,7 +1064,7 @@ Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1076,7 +1076,7 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/streaming`
-- **MCP tags:** engine, graph-os, streaming
+- **MCP tags:** engine, granular, graph-os, streaming
 - **Side effects:** 9/9 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic', 'None', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1103,7 +1103,7 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1115,7 +1115,7 @@ Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant 
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/tenants`
-- **MCP tags:** admin, engine, graph-os, tenants
+- **MCP tags:** admin, engine, granular, graph-os, tenants
 - **Side effects:** 2/3 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1136,7 +1136,7 @@ Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1148,7 +1148,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/timeseries`
-- **MCP tags:** engine, graph-os, timeseries
+- **MCP tags:** engine, granular, graph-os, timeseries
 - **Side effects:** 0/6 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1172,7 +1172,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1184,7 +1184,7 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/txn`
-- **MCP tags:** engine, graph-os, txn
+- **MCP tags:** engine, granular, graph-os, txn
 - **Side effects:** 17/17 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Saga', 'Snapshot']
 - **Cost:** (unmeasured)
 - **Latency:** {'add_node': {'eg_method': 'AddNode', 'p50_ms': 0.187, 'p99_ms': 0.223, 'source': 'epistemic-graph/docs/benchmarks.md#results (2026-06-01, UDS, in-memory graph)', 'kind': 'measured'}}
@@ -1220,7 +1220,7 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:21Z'}*
 
 ---
 
@@ -1232,7 +1232,7 @@ Ops / structural analysis over the KG.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/analyze`
-- **MCP tags:** analysis, analyze, graph-os
+- **MCP tags:** analysis, analyze, granular, graph-os
 - **Side effects:** 1/68 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['None']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1315,7 +1315,7 @@ Ops / structural analysis over the KG.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1327,7 +1327,7 @@ ask the Knowledge Graph in plain English.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/ask`
-- **MCP tags:** graph-os, nl, query
+- **MCP tags:** granular, graph-os, nl, query
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1348,7 +1348,7 @@ ask the Knowledge Graph in plain English.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1360,7 +1360,7 @@ the epistemic-graph engine message broker (AMQP-style exchanges + queues + strea
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/broker`
-- **MCP tags:** broker, engine, engine_surface, graph-os, messaging
+- **MCP tags:** broker, engine, engine_surface, granular, graph-os, messaging
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=True; durability=['Outbox']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1384,7 +1384,7 @@ the epistemic-graph engine message broker (AMQP-style exchanges + queues + strea
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerConsume', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerConsume', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1396,7 +1396,7 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/bus`
-- **MCP tags:** a2a, bus, graph-os, messaging
+- **MCP tags:** a2a, bus, granular, graph-os, messaging
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1434,7 +1434,7 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1446,7 +1446,7 @@ Understand a CODEBASE via the ingested code graph — query this before grep.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/code`
-- **MCP tags:** analyze_suite, code, graph-os
+- **MCP tags:** analyze_suite, code, granular, graph-os
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1468,7 +1468,7 @@ Understand a CODEBASE via the ingested code graph — query this before grep.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1480,7 +1480,7 @@ Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-sche
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/code-nav`
-- **MCP tags:** code, graph-os, query
+- **MCP tags:** code, granular, graph-os, query
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1504,7 +1504,7 @@ Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-sche
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1516,7 +1516,7 @@ Manage backend configurations, system credentials, and tool registration within 
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/configure`
-- **MCP tags:** analysis, configure, graph-os
+- **MCP tags:** analysis, configure, granular, graph-os
 - **Side effects:** 2/31 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1565,7 +1565,7 @@ Manage backend configurations, system credentials, and tool registration within 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1577,7 +1577,7 @@ store/fetch curated context for invoker→spawned-agent handoff, persisted in th
 
 - **Intent verbs:** act, ask
 - **REST route:** `/graph/context`
-- **MCP tags:** context, graph-os, orchestrate, query
+- **MCP tags:** context, granular, graph-os, orchestrate, query
 - **Side effects:** 1/4 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1602,7 +1602,7 @@ store/fetch curated context for invoker→spawned-agent handoff, persisted in th
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1614,7 +1614,7 @@ Reasoning-tree (vectorless) document retrieval over a per-document section tree 
 
 - **Intent verbs:** ask, find
 - **REST route:** `/graph/document-tree`
-- **MCP tags:** document, graph-os, query, retrieval, tree
+- **MCP tags:** document, granular, graph-os, query, retrieval, tree
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1643,7 +1643,7 @@ Reasoning-tree (vectorless) document retrieval over a per-document section tree 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1655,7 +1655,7 @@ Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.on
 
 - **Intent verbs:** write
 - **REST route:** `/graph/etl`
-- **MCP tags:** etl, graph-os, ingestion, ontology
+- **MCP tags:** etl, granular, graph-os, ingestion, ontology
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1681,7 +1681,7 @@ Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.on
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1693,7 +1693,7 @@ Evaluate agents/harnesses and reason over learned world models.
 
 - **Intent verbs:** why
 - **REST route:** `/graph/evaluate`
-- **MCP tags:** analyze_suite, evaluate, graph-os
+- **MCP tags:** analyze_suite, evaluate, granular, graph-os
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1715,7 +1715,7 @@ Evaluate agents/harnesses and reason over learned world models.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1727,7 +1727,7 @@ The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain):
 
 - **Intent verbs:** why
 - **REST route:** `/graph/explain`
-- **MCP tags:** analyze_suite, explain, graph-os
+- **MCP tags:** analyze_suite, explain, granular, graph-os
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1749,7 +1749,7 @@ The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain):
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'ExplainPlan', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'ExplainPlan', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1761,7 +1761,7 @@ federated search fanned across registered external graph references.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/federated-search`
-- **MCP tags:** engine, engine_surface, federated, graph-os, search
+- **MCP tags:** engine, engine_surface, federated, granular, graph-os, search
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1782,7 +1782,7 @@ federated search fanned across registered external graph references.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1794,7 +1794,7 @@ Record a human correction so the brain learns: correction_type 'outcome' adjusts
 
 - **Intent verbs:** write
 - **REST route:** `/graph/feedback`
-- **MCP tags:** feedback, graph-os, learning, write_ingest
+- **MCP tags:** feedback, granular, graph-os, learning, write_ingest
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1817,7 +1817,7 @@ Record a human correction so the brain learns: correction_type 'outcome' adjusts
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1829,7 +1829,7 @@ Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/feeds`
-- **MCP tags:** feeds, graph-os, state
+- **MCP tags:** feeds, granular, graph-os, state
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1852,7 +1852,7 @@ Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1864,7 +1864,7 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/fork`
-- **MCP tags:** engine, engine_surface, fanout, fork, graph-os, warm-fork
+- **MCP tags:** engine, engine_surface, fanout, fork, granular, graph-os, warm-fork
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1887,7 +1887,7 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1899,7 +1899,7 @@ the engine's GIS surface.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/gis`
-- **MCP tags:** engine, engine_surface, geospatial, gis, graph-os
+- **MCP tags:** engine, engine_surface, geospatial, gis, granular, graph-os
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1918,7 +1918,7 @@ the engine's GIS surface.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1930,7 +1930,7 @@ Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations
 
 - **Intent verbs:** act, manage
 - **REST route:** `/graph/goals`
-- **MCP tags:** goals, graph-os, state
+- **MCP tags:** goals, granular, graph-os, state
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1953,7 +1953,7 @@ Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1965,7 +1965,7 @@ Hydrate the Knowledge Graph from configured external sources.
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/hydrate`
-- **MCP tags:** graph-os, hydration, state
+- **MCP tags:** granular, graph-os, hydration, state
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1982,7 +1982,7 @@ Hydrate the Knowledge Graph from configured external sources.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -1994,7 +1994,7 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 
 - **Intent verbs:** write
 - **REST route:** `/graph/ingest`
-- **MCP tags:** graph-os, ingest, write_ingest
+- **MCP tags:** granular, graph-os, ingest, write_ingest
 - **Side effects:** 0/38 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2056,7 +2056,7 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2068,7 +2068,7 @@ the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, dr
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/kvcache`
-- **MCP tags:** engine, engine_surface, graph-os, kvcache
+- **MCP tags:** engine, engine_surface, granular, graph-os, kvcache
 - **Side effects:** 0/5 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2091,7 +2091,7 @@ the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, dr
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2103,7 +2103,7 @@ a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whos
 
 - **Intent verbs:** ask
 - **REST route:** `/graphlearn/fit`
-- **MCP tags:** engine, engine_surface, graph-os, graphlearn, kan, link-prediction, neuro-symbolic
+- **MCP tags:** engine, engine_surface, granular, graph-os, graphlearn, kan, link-prediction, neuro-symbolic
 - **Side effects:** 2/2 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2123,7 +2123,7 @@ a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whos
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2135,7 +2135,7 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 
 - **Intent verbs:** act, manage
 - **REST route:** `/graph/loops`
-- **MCP tags:** graph-os, loops, state
+- **MCP tags:** granular, graph-os, loops, state
 - **Side effects:** 0/9 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2175,7 +2175,7 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2187,7 +2187,7 @@ the engine's EG-318 memory surface: episodic→semantic memory, the spatial scen
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/memory`
-- **MCP tags:** engine, engine_surface, graph-os, memory, scene, trajectory
+- **MCP tags:** engine, engine_surface, granular, graph-os, memory, scene, trajectory
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2208,7 +2208,7 @@ the engine's EG-318 memory surface: episodic→semantic memory, the spatial scen
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2220,7 +2220,7 @@ bidirectional, cross-process, ordered message channel between an invoking agent 
 
 - **Intent verbs:** act, ask
 - **REST route:** `/graph/message`
-- **MCP tags:** graph-os, messaging, orchestrate, query
+- **MCP tags:** granular, graph-os, messaging, orchestrate, query
 - **Side effects:** 1/5 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2248,7 +2248,7 @@ bidirectional, cross-process, ordered message channel between an invoking agent 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2260,7 +2260,7 @@ the unified data-mining surface over the engine, compute-near-data (mining runs 
 
 - **Intent verbs:** ask
 - **REST route:** `/mining/associate`
-- **MCP tags:** anomaly, clustering, data-mining, engine, engine_surface, graph-os, mining
+- **MCP tags:** anomaly, clustering, data-mining, engine, engine_surface, granular, graph-os, mining
 - **Side effects:** 10/10 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2288,7 +2288,7 @@ the unified data-mining surface over the engine, compute-near-data (mining runs 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2300,7 +2300,7 @@ the deep-learning / heavy-Python family the engine core deliberately does NOT im
 
 - **Intent verbs:** ask
 - **REST route:** `/mining/deep/deep_forecast`
-- **MCP tags:** data-science-mcp, deep-learning, delegation, engine, engine_surface, graph-os, mining
+- **MCP tags:** data-science-mcp, deep-learning, delegation, engine, engine_surface, granular, graph-os, mining
 - **Side effects:** 0/5 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2323,7 +2323,7 @@ the deep-learning / heavy-Python family the engine core deliberately does NOT im
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2335,7 +2335,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 - **Intent verbs:** why
 - **REST route:** `/graph/observe`
-- **MCP tags:** analyze_suite, eval, graph-os, observe
+- **MCP tags:** analyze_suite, eval, granular, graph-os, observe
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2356,7 +2356,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2368,7 +2368,7 @@ Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — man
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/ontology`
-- **MCP tags:** graph-os, lifecycle, ontology
+- **MCP tags:** granular, graph-os, lifecycle, ontology
 - **Side effects:** 1/11 actions matched an EG ledger Method; any_mutates=True; durability=['Outbox']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2405,7 +2405,7 @@ Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — man
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2417,7 +2417,7 @@ Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/t
 
 - **Intent verbs:** ask
 - **REST route:** `/ops/causal`
-- **MCP tags:** blast-radius, causal, graph-os, ops, ops_causal, root-cause
+- **MCP tags:** blast-radius, causal, granular, graph-os, ops, ops_causal, root-cause
 - **Side effects:** 0/5 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2444,7 +2444,7 @@ Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/t
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2456,7 +2456,7 @@ Orchestrate multi-agent workflows, dispatch subagents, and manage execution loop
 
 - **Intent verbs:** act
 - **REST route:** `/graph/orchestrate`
-- **MCP tags:** analysis, graph-os, orchestrate
+- **MCP tags:** analysis, granular, graph-os, orchestrate
 - **Side effects:** 1/34 actions matched an EG ledger Method; any_mutates=True; durability=['Outbox']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2522,7 +2522,7 @@ Orchestrate multi-agent workflows, dispatch subagents, and manage execution loop
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2534,7 +2534,7 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/promql`
-- **MCP tags:** engine, engine_surface, graph-os, metrics, observability
+- **MCP tags:** engine, engine_surface, granular, graph-os, metrics, observability
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2559,7 +2559,7 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2571,7 +2571,7 @@ Execute a read-only Cypher query against the Knowledge Graph.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/query`
-- **MCP tags:** graph-os, query
+- **MCP tags:** granular, graph-os, query
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Atomic']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2593,7 +2593,7 @@ Execute a read-only Cypher query against the Knowledge Graph.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2605,7 +2605,7 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/reach`
-- **MCP tags:** graph-os, messaging, reach
+- **MCP tags:** granular, graph-os, messaging, reach
 - **Side effects:** 1/5 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2633,7 +2633,7 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2645,7 +2645,7 @@ Run the research/assimilation pipeline.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/research`
-- **MCP tags:** analyze_suite, graph-os, research
+- **MCP tags:** analyze_suite, granular, graph-os, research
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2667,7 +2667,7 @@ Run the research/assimilation pipeline.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2679,7 +2679,7 @@ Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, reve
 
 - **Intent verbs:** act, manage
 - **REST route:** `/graph/runvcs`
-- **MCP tags:** fork, graph-os, revert, runvcs, state, twin
+- **MCP tags:** fork, granular, graph-os, revert, runvcs, state, twin
 - **Side effects:** 2/7 actions matched an EG ledger Method; any_mutates=True; durability=['None']; txn=['Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2713,7 +2713,7 @@ Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, reve
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2725,7 +2725,7 @@ Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbo
 
 - **Intent verbs:** act, manage
 - **REST route:** `/graph/sandbox`
-- **MCP tags:** graph-os, sandbox, state, warm-fork
+- **MCP tags:** granular, graph-os, sandbox, state, warm-fork
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2745,7 +2745,7 @@ Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbo
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2757,7 +2757,7 @@ Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-schedulin
 
 - **Intent verbs:** act, manage
 - **REST route:** `/graph/schedules`
-- **MCP tags:** graph-os, scheduler, state
+- **MCP tags:** granular, graph-os, scheduler, state
 - **Side effects:** 0/6 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2782,7 +2782,7 @@ Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-schedulin
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2794,7 +2794,7 @@ Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, 
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/search`
-- **MCP tags:** graph-os, query, search
+- **MCP tags:** granular, graph-os, query, search
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2832,7 +2832,7 @@ Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2844,7 +2844,7 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/search-synthesis`
-- **MCP tags:** graph-os, query, search, synthesis, training-data
+- **MCP tags:** granular, graph-os, query, search, synthesis, training-data
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2869,7 +2869,7 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2881,7 +2881,7 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/secret`
-- **MCP tags:** graph-os, secret, security
+- **MCP tags:** granular, graph-os, secret, security
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2905,7 +2905,7 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2917,7 +2917,7 @@ Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/sessions`
-- **MCP tags:** graph-os, sessions, state
+- **MCP tags:** granular, graph-os, sessions, state
 - **Side effects:** 0/5 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2940,7 +2940,7 @@ Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2952,7 +2952,7 @@ Share a private node (CONCEPT:AU-KG.compute.data-is-private-its).
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/share`
-- **MCP tags:** graph-os, ontology, tenancy
+- **MCP tags:** granular, graph-os, ontology, tenancy
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -2974,7 +2974,7 @@ Share a private node (CONCEPT:AU-KG.compute.data-is-private-its).
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -2986,7 +2986,7 @@ mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them
 
 - **Intent verbs:** ask, write
 - **REST route:** `/graph/table`
-- **MCP tags:** graph-os, ingestion, query, table
+- **MCP tags:** granular, graph-os, ingestion, query, table
 - **Side effects:** 0/6 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3016,7 +3016,7 @@ mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3028,7 +3028,7 @@ search or fetch distributed traces from the engine's observability surface. acti
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/traces`
-- **MCP tags:** engine, engine_surface, graph-os, observability, traces
+- **MCP tags:** engine, engine_surface, granular, graph-os, observability, traces
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3053,7 +3053,7 @@ search or fetch distributed traces from the engine's observability surface. acti
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3065,7 +3065,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 
 - **Intent verbs:** write
 - **REST route:** `/graph/write`
-- **MCP tags:** graph-os, mutation, write, write_ingest
+- **MCP tags:** granular, graph-os, mutation, write, write_ingest
 - **Side effects:** 4/14 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb']; txn=['Atomic']
 - **Cost:** (unmeasured)
 - **Latency:** {'add_node': {'eg_method': 'AddNode', 'p50_ms': 0.187, 'p99_ms': 0.223, 'source': 'epistemic-graph/docs/benchmarks.md#results (2026-06-01, UDS, in-memory graph)', 'kind': 'measured'}}
@@ -3109,7 +3109,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3121,7 +3121,7 @@ Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s
 
 - **Intent verbs:** write
 - **REST route:** `/graph/writeback`
-- **MCP tags:** graph-os, ontology, writeback
+- **MCP tags:** granular, graph-os, ontology, writeback
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3148,7 +3148,7 @@ Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3160,7 +3160,7 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 
 - **Intent verbs:** write
 - **REST route:** `/usage/ingest-sessions`
-- **MCP tags:** graph-os, ingest, observability, write_ingest
+- **MCP tags:** granular, graph-os, ingest, observability, write_ingest
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3182,7 +3182,7 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3194,7 +3194,7 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/nl-query`
-- **MCP tags:** graph-os, nl, query
+- **MCP tags:** granular, graph-os, nl, query
 - **Side effects:** 1/1 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3216,7 +3216,7 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3228,7 +3228,7 @@ Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor
 
 - **Intent verbs:** ask
 - **REST route:** `/object/edits`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3257,7 +3257,7 @@ Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3269,7 +3269,7 @@ Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-increm
 
 - **Intent verbs:** ask
 - **REST route:** `/object/index`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3289,7 +3289,7 @@ Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-increm
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3301,7 +3301,7 @@ Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-material
 
 - **Intent verbs:** ask
 - **REST route:** `/object/permissioning`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3325,7 +3325,7 @@ Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-material
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3337,7 +3337,7 @@ Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/
 
 - **Intent verbs:** ask
 - **REST route:** `/object/set`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/9 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3372,7 +3372,7 @@ Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3384,7 +3384,7 @@ Compute derived (function/cypher/sparql/embedding-backed) properties live at rea
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/derive`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 1/4 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3408,7 +3408,7 @@ Compute derived (function/cypher/sparql/embedding-backed) properties live at rea
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3420,7 +3420,7 @@ Typed, versioned ontology functions: list or invoke through the governed runtime
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/function`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3442,7 +3442,7 @@ Typed, versioned ontology functions: list or invoke through the governed runtime
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3454,7 +3454,7 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/interface`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3481,7 +3481,7 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3493,7 +3493,7 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/leanix-sync`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3510,7 +3510,7 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3522,7 +3522,7 @@ Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple a
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/link-materialize`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3543,7 +3543,7 @@ Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple a
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3555,7 +3555,7 @@ List the ontology property-type registry and resolve/validate a Palantir-style t
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/property-types`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3577,7 +3577,7 @@ List the ontology property-type registry and resolve/validate a Palantir-style t
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3589,7 +3589,7 @@ Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selec
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/sampling-profiles`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/6 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3615,7 +3615,7 @@ Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selec
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3627,7 +3627,7 @@ List/describe constrained ontology value types and validate or coerce a value (C
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/value-types`
-- **MCP tags:** graph-os, ontology
+- **MCP tags:** granular, graph-os, ontology
 - **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3649,7 +3649,7 @@ List/describe constrained ontology value types and validate or coerce a value (C
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3661,7 +3661,7 @@ The Ultimate Quant System Tool.
 
 - **Intent verbs:** ask
 - **REST route:** `/quant`
-- **MCP tags:** ontology
+- **MCP tags:** granular, ontology
 - **Side effects:** 1/14 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['None']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3703,7 +3703,7 @@ The Ultimate Quant System Tool.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3715,7 +3715,7 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 - **Intent verbs:** manage
 - **REST route:** `/research/artifact`
-- **MCP tags:** graph-os, ontology, research, state
+- **MCP tags:** granular, graph-os, ontology, research, state
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3743,7 +3743,7 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3755,7 +3755,7 @@ Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework�
 
 - **Intent verbs:** ask
 - **REST route:** `/connector/source`
-- **MCP tags:** connectors, ecosystem, graph-os, ontology
+- **MCP tags:** connectors, ecosystem, granular, graph-os, ontology
 - **Side effects:** 0/2 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3778,7 +3778,7 @@ Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework�
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3790,7 +3790,7 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 
 - **Intent verbs:** write
 - **REST route:** `/source/drain`
-- **MCP tags:** graph-os, ingestion, ontology
+- **MCP tags:** granular, graph-os, ingestion, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3808,7 +3808,7 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3820,7 +3820,7 @@ THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-sou
 
 - **Intent verbs:** write
 - **REST route:** `/source/sync`
-- **MCP tags:** graph-os, ingestion, ontology
+- **MCP tags:** granular, graph-os, ingestion, ontology
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3839,7 +3839,7 @@ THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-sou
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3851,7 +3851,7 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 
 - **Intent verbs:** write
 - **REST route:** `/spec/ticket`
-- **MCP tags:** graph-os, ontology, sdd, writeback
+- **MCP tags:** granular, graph-os, ontology, sdd, writeback
 - **Side effects:** 0/1 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3877,7 +3877,7 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
 
@@ -3889,7 +3889,7 @@ Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observab
 
 - **Intent verbs:** write
 - **REST route:** `/usage/query`
-- **MCP tags:** graph-os, observability, usage, write_ingest
+- **MCP tags:** granular, graph-os, observability, usage, write_ingest
 - **Side effects:** 0/11 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -3926,6 +3926,6 @@ Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observab
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-11T22:30:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:38:22Z'}*
 
 ---
