@@ -17,16 +17,26 @@ SCRIPTS = ROOT / "scripts"
 MD_PATH = ROOT / "docs" / "capabilities-power.md"
 JSON_PATH = ROOT / "docs" / "capabilities-power.json"
 
+def _numeric_kernel_available() -> bool:
+    try:
+        import agent_utilities.numeric  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 # The CPD gate builds the FULL MCP tool registry (`kg_server`) to prove every
-# tool has exactly one CPD — that pulls the serving stack (starlette/fastmcp).
-# CI's guardrails job installs only the package core (deliberately lean, to catch
-# extra-leakage on the OTHER gates), so the registry can't be built there and the
-# coverage gate would be meaningless against a partial registry anyway. It runs in
-# the FULL-env pre-commit (the `guardrail-cpd-drift` hook) instead. Skip in lean.
+# tool has exactly one CPD — that pulls BOTH the serving stack (starlette/fastmcp)
+# AND the numeric kernel. CI's guardrails job installs only the package core
+# (deliberately lean, and the compiled kernel isn't pip-installable), so the
+# registry can't be built there and the coverage gate would be meaningless against
+# a partial registry anyway. It runs in the FULL-env pre-commit (the
+# `guardrail-cpd-drift` hook) instead. Skip when either piece is absent.
 _needs_server_stack = pytest.mark.skipif(
-    importlib.util.find_spec("starlette") is None,
-    reason="CPD gate needs the full MCP tool registry (serving stack: "
-    "starlette/fastmcp); runs in the full-env pre-commit, not the lean CI job",
+    importlib.util.find_spec("starlette") is None or not _numeric_kernel_available(),
+    reason="CPD gate needs the full MCP tool registry (serving stack "
+    "starlette/fastmcp + numeric kernel); runs in the full-env pre-commit, "
+    "not the lean CI job",
 )
 
 
