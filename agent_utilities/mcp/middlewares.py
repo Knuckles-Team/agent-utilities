@@ -107,6 +107,56 @@ class JWTClaimsLoggingMiddleware(Middleware):
             )
 
 
+class ActorContextMiddleware(Middleware):
+    """Bridge a server's validated JWT into the ambient ``ActorContext`` so every
+    tool call runs scoped to the caller's Okta/Keycloak identity.
+
+    ``create_mcp_server`` already validates inbound JWTs (multi-realm), but
+    nothing carried that identity into the agent-utilities execution plane — so
+    ``current_actor()`` was always the privileged ``SYSTEM_ACTOR`` and no server
+    could scope resources or authorization to *who is calling*. This middleware
+    is the fleet-wide fix (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance):
+    it mints the actor once per tool call from the already-validated claims
+    (:func:`~agent_utilities.security.request_identity.actor_from_claims`, the
+    one IdP-agnostic mapping) and scopes the call to it, so
+    :func:`~agent_utilities.security.entitlements.identity_scoped_resources` and
+    the KG permissioning layer all see the real caller.
+
+    Native + back-compat: mounted on every server the factory builds. When there
+    is no validated token (stdio/local/unauthenticated), it is a no-op and the
+    ambient ``SYSTEM_ACTOR`` is unchanged — behaviour is identical to today until
+    a real authenticated identity arrives.
+    """
+
+    def _claims(self, context: MiddlewareContext) -> dict | None:
+        auth = getattr(context, "auth", None)
+        claims = getattr(auth, "claims", None) if auth is not None else None
+        if claims:
+            return dict(claims)
+        # FastMCP 3.x: the validated access token is exposed via a dependency.
+        try:
+            from fastmcp.server.dependencies import get_access_token
+
+            token = get_access_token()
+        except Exception:
+            return None
+        claims = getattr(token, "claims", None) if token is not None else None
+        return dict(claims) if claims else None
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        from agent_utilities.security.brain_context import reset_actor, set_actor
+        from agent_utilities.security.request_identity import actor_from_claims
+
+        claims = self._claims(context)
+        if not claims:
+            return await call_next(context)
+        token = set_actor(actor_from_claims(claims))
+        try:
+            return await call_next(context)
+        finally:
+            reset_actor(token)
+
+
 class EntityLinkingMiddleware(Middleware):
     """Middleware for intercepting tool calls for cross-entity relationship resolution.
 
