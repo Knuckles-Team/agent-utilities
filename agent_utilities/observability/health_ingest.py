@@ -206,16 +206,24 @@ def ingest_health_anomaly(
 
 
 def ingest_incident(incident: dict[str, Any]) -> dict[str, int] | None:
-    """Write a minimal ``:Incident`` node for the future cross-layer correlation loop
+    """Write an ``:Incident`` node for the cross-layer correlation loop
     (``reports/unified-infra-intelligence-plan.md`` Phase D).
 
-    ``incident``: ``{"id"?, "kind", "summary"?, "entities": [<entity_id>, ...]}``.
-    Each listed entity is linked ``affectsEntity``. Best-effort/minimal by design —
-    the correlation loop that populates this richly is a later phase.
+    ``incident``: ``{"id"?, "kind"?, "summary"?, "entities": [<entity_id>, ...],
+    "anomalies"?: [<HealthAnomaly node id>, ...], "layers"?: [...], "signals"?:
+    [...], "severity"?, "root_cause_layer"?, "signature"?, "status"?,
+    "opened_at"?}``. Each listed ``entities`` id is linked ``affectsEntity`` (the
+    asset(s) the incident concerns); each ``anomalies`` id is linked
+    ``correlatesAnomaly`` (the contributing evidence) — populated by
+    :func:`agent_utilities.observability.incidents.correlate_incidents`. Every
+    field beyond ``id``/``entities`` is optional so the minimal Phase-D shape
+    (``{"kind","summary","entities"}``) still works unchanged. Best-effort by
+    design (engine-guarded via :func:`~.native_ingest.ingest_entities`).
     """
     from agent_utilities.knowledge_graph.memory.native_ingest import ingest_entities
 
     entity_ids = [e for e in (incident.get("entities") or []) if e]
+    anomaly_ids = [a for a in (incident.get("anomalies") or []) if a]
     iid = incident.get("id") or f"health:incident:{_now()}"
     entities = [
         {
@@ -223,10 +231,19 @@ def ingest_incident(incident: dict[str, Any]) -> dict[str, int] | None:
             "type": "Incident",
             "kind": incident.get("kind"),
             "summary": incident.get("summary"),
-            "observedAt": _now(),
+            "layers": incident.get("layers"),
+            "signals": incident.get("signals"),
+            "severity": incident.get("severity"),
+            "rootCauseLayer": incident.get("root_cause_layer"),
+            "signature": incident.get("signature"),
+            "status": incident.get("status") or "open",
+            "observedAt": incident.get("opened_at") or _now(),
         }
     ]
     relationships = [
         {"source": iid, "target": eid, "type": "affectsEntity"} for eid in entity_ids
+    ] + [
+        {"source": iid, "target": aid, "type": "correlatesAnomaly"}
+        for aid in anomaly_ids
     ]
     return ingest_entities(entities, relationships, source=_SOURCE, domain="health")
