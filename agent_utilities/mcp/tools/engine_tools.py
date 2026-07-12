@@ -484,7 +484,7 @@ def _reject_unbounded_analytics(
     return None
 
 
-# ── UQL server-side text-embedding pre-pass (F2, CONCEPT:AU-KG.query.uql-rank-text-preembed) ──
+# ── UQL server-side text-embedding pre-pass (F2 — the engine's EG-411 "no embedder bound op" state) ──
 #
 # ``RANK BY ~"some text"`` lowers to `Op::RankEmbed` and is resolved by an embedder
 # bound on the engine's `PlanCtx` — but nothing binds one there, so it always fails
@@ -582,7 +582,7 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     except Exception as exc:  # noqa: BLE001 — degrade loud, never silent-drop the RANK leg
         raise RuntimeError(
             "UQL 'RANK BY ~\"text\"' needs a server-side text embedder — the engine "
-            "has none bound (CONCEPT:AU-KG.query.uql-rank-text-preembed) and "
+            "has none bound (the engine's 'no embedder bound op' state) and "
             "pre-embedding it client-side "
             "(agent_utilities.core.embedding_utilities.create_embedding_model) failed "
             f"too: {exc}"

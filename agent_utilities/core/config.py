@@ -2505,20 +2505,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
-        cfg.otel_exporter_otlp_public_key
-    )
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
-        cfg.otel_exporter_otlp_secret_key
-    )
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
+    ] = cfg.otel_exporter_otlp_public_key
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
+    ] = cfg.otel_exporter_otlp_secret_key
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
-        cfg.langfuse_dataset_capture_threshold
-    )
+    _LAZY_CACHE[
+        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
+    ] = cfg.langfuse_dataset_capture_threshold
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -2592,9 +2592,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
-        cfg.knowledge_graph_sync_background
-    )
+    _LAZY_CACHE[
+        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
+    ] = cfg.knowledge_graph_sync_background
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -2604,9 +2604,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
-        cfg.enable_progressive_synthesis
-    )
+    _LAZY_CACHE[
+        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
+    ] = cfg.enable_progressive_synthesis
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -3495,14 +3495,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"]["PYTHONWARNINGS"] = (
-                            "ignore:urllib3 (2.3.0) or chardet"
-                        )
+                        cfg["env"][
+                            "PYTHONWARNINGS"
+                        ] = "ignore:urllib3 (2.3.0) or chardet"
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"]["PYTHONWARNINGS"] += (
-                                ",ignore:urllib3 (2.3.0) or chardet"
-                            )
+                            cfg["env"][
+                                "PYTHONWARNINGS"
+                            ] += ",ignore:urllib3 (2.3.0) or chardet"
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.
