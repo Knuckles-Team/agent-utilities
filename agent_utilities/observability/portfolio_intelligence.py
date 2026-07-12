@@ -28,12 +28,21 @@ composition style:
   consolidation-benefit criterion — a pure graph read, no new mining algorithm.
 
 **Two-tier evaluation (design Sec 2c).** :func:`assess_candidate` runs the GATE
-tier first — every REQUIRED ``:ComplianceGate`` for the candidate's
-sector/data-class (the ``legal-peripherals-mcp`` regulatory substrate, consumed
-generically via ``:governedBy``/label ``ComplianceGate`` — this module never
-models regulations itself), plus EOL and gov-ATO gates. A failed REQUIRED gate
-is an immediate ``reject`` — no score can buy it back. Only gate-passing
-candidates reach the WEIGHTED SCORE tier.
+tier first — every REQUIRED compliance unit for the candidate's declared
+sector/data-class, resolved generically off the ``legal-peripherals-mcp``
+regulatory ontology (``compliance.ttl`` + its per-regulation modules — this
+module never models regulations itself, only walks the shape): the candidate's
+``sector``/``dataClass`` resolve the applicable ``:Regulation``(s) via
+``:appliesToSector``/``:appliesToDataClass``; each applicable Regulation's
+``:ComplianceRequirement``(s) (``:derivedFromRegulation``), optionally
+evaluated by a named ``:ComplianceGate`` (``:evaluatesRequirement``), are the
+REQUIRED units; a candidate satisfies one via a declared
+``certifications``/``attestations`` entry or an ``:attestsTo``-style edge
+naming the gate/requirement/regulation. Plus EOL and gov-ATO gates. A failed
+REQUIRED gate is an immediate ``reject`` — no score can buy it back. Only
+gate-passing candidates reach the WEIGHTED SCORE tier. With NO ``:Regulation``
+nodes in the graph at all (substrate not ingested/federated), the gate
+degrades to a pass but logs a warning — distinct from "evaluated and passed."
 
 Report-only + engine-guarded throughout: with no reachable engine every entry
 point degrades to a safe no-op/empty result rather than raising, matching
@@ -314,48 +323,209 @@ def resolve_weights(
 # ── gate tier (design Sec 2c — runs FIRST, a failure is a hard reject) ──────
 
 
-def _compliance_gates_for(request: dict[str, Any], engine: Any) -> list[dict[str, Any]]:
-    """REQUIRED ``:ComplianceGate`` nodes applying to ``request``'s sector/data
-    class — consumed generically (label ``ComplianceGate`` + ``appliesToSector``/
-    ``appliesToDataClass`` properties) from whatever suite ingested them (the
-    ``legal-peripherals-mcp`` regulatory ontology, design Sec 1b/9b). No gates
-    ingested yet ⇒ an empty list ⇒ this gate degrades to a pass, matching every
-    other engine-guarded surface in this package."""
-    sector = str(request.get("sector") or "").strip().lower()
-    data_class = (
-        str(request.get("dataClass") or request.get("data_class") or "").strip().lower()
+def _norm(value: Any) -> str:
+    """Lowercase, punctuation-stripped comparison key — tolerant of an ontology
+    individual's local name (``MedicalSector``) vs. a caller's plain label
+    (``medical``)."""
+    return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+
+
+def _label_for(node_id: str, props: dict[str, Any] | None) -> str:
+    """The human-readable name for a graph node: its ``rdfs:label``/``name``
+    property, falling back to the raw id."""
+    props = props or {}
+    return str(props.get("label") or props.get("name") or node_id)
+
+
+def _matches(value: str, node_id: str, props: dict[str, Any]) -> bool:
+    """Whether caller-supplied ``value`` (e.g. request ``sector``/``dataClass``)
+    identifies the graph node ``node_id`` — compares (normalized) against the
+    node id and its label/name, either direction, so ``"medical"`` matches a
+    ``MedicalSector`` node and ``"phi"`` matches a ``PHI`` node."""
+    v = _norm(value)
+    if not v:
+        return False
+    for candidate in (node_id, props.get("label"), props.get("name")):
+        c = _norm(candidate)
+        if c and (v == c or v in c or c in v):
+            return True
+    return False
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list | tuple | set):
+        return [str(v) for v in value if v]
+    return [str(value)] if value else []
+
+
+def _applicable_regulations(
+    request: dict[str, Any], regulations: list[tuple[str, dict[str, Any]]], engine: Any
+) -> list[tuple[str, dict[str, Any]]]:
+    """``:Regulation`` nodes applicable to ``request``'s declared sector/data
+    class(es), resolved via the real ``:appliesToSector``/``:appliesToDataClass``
+    edges (``compliance.ttl``). A Regulation applies only when EVERY scope
+    dimension it actually declares matches the candidate's declared value(s) —
+    e.g. HIPAA (declares both ``:MedicalSector`` and ``:PHI``) applies only to a
+    medical-sector candidate handling PHI, not to every medical-sector candidate."""
+    sector = str(request.get("sector") or "").strip()
+    data_classes = _as_list(
+        request.get("dataClass")
+        or request.get("data_class")
+        or request.get("dataClasses")
     )
-    gates: list[dict[str, Any]] = []
-    for gid, props in _by_label(engine, "ComplianceGate"):
-        if not isinstance(props, dict):
-            continue
-        applies_sector = str(props.get("appliesToSector") or "").strip().lower()
-        applies_data = str(props.get("appliesToDataClass") or "").strip().lower()
-        if applies_sector and sector and applies_sector != sector:
-            continue
-        if applies_data and data_class and applies_data != data_class:
-            continue
-        gates.append({"id": gid, **props})
-    return gates
+    applicable: list[tuple[str, dict[str, Any]]] = []
+    for reg_id, reg_props in regulations:
+        declared_sectors = [
+            tgt for _s, tgt, p in _out(engine, reg_id) if _rel(p) == "appliesToSector"
+        ]
+        declared_data = [
+            tgt
+            for _s, tgt, p in _out(engine, reg_id)
+            if _rel(p) == "appliesToDataClass"
+        ]
+        if not declared_sectors and not declared_data:
+            continue  # no declared scope — not resolvable, skip rather than over-apply
+        sector_ok = not declared_sectors or any(
+            _matches(sector, tgt, _node_props(engine, tgt)) for tgt in declared_sectors
+        )
+        data_ok = not declared_data or any(
+            _matches(dc, tgt, _node_props(engine, tgt))
+            for tgt in declared_data
+            for dc in data_classes
+        )
+        if sector_ok and data_ok:
+            applicable.append((reg_id, reg_props))
+    return applicable
+
+
+def _gate_for_requirement(
+    requirement_id: str, gate_ids: set[str], engine: Any
+) -> tuple[str, dict[str, Any]]:
+    """The ``:ComplianceGate`` (if any) that ``:evaluatesRequirement`` this
+    requirement — a Regulation's ComplianceRequirement may be evaluated by an
+    ``:Assessment`` instead (e.g. BSA/AML's SAR requirement), which is not a hard
+    gate, so this only matches nodes that are actually labeled ``ComplianceGate``."""
+    for src, _tgt, p in _in(engine, requirement_id):
+        if _rel(p) == "evaluatesRequirement" and src in gate_ids:
+            return src, _node_props(engine, src)
+    return "", {}
+
+
+def _required_compliance_units(
+    request: dict[str, Any], engine: Any
+) -> tuple[list[dict[str, Any]], bool]:
+    """Every REQUIRED compliance unit applicable to ``request``, walking the real
+    ``legal-peripherals-mcp`` ontology shape (design Sec 1b/9b, ``compliance.ttl``):
+    ``:Regulation`` --``:appliesToSector``/``:appliesToDataClass``--> resolves the
+    applicable Regulation(s) (:func:`_applicable_regulations`); each Regulation's
+    ``:ComplianceRequirement``(s) (``:derivedFromRegulation``) are the REQUIRED
+    units, each optionally named by a ``:ComplianceGate`` that
+    ``:evaluatesRequirement`` it (:func:`_gate_for_requirement`).
+
+    Returns ``(units, substrate_present)``. ``substrate_present`` is ``False``
+    ONLY when the graph has no ``:Regulation`` nodes at all — the compliance
+    substrate genuinely isn't ingested/federated — distinguishing "evaluated,
+    nothing applies" from "couldn't evaluate."
+    """
+    regulations = _by_label(engine, "Regulation")
+    if not regulations:
+        return [], False
+    gate_ids = {gid for gid, _p in _by_label(engine, "ComplianceGate")}
+    units: list[dict[str, Any]] = []
+    for reg_id, reg_props in _applicable_regulations(request, regulations, engine):
+        reg_name = _label_for(reg_id, reg_props)
+        for req_id, _tgt, p in _in(engine, reg_id):
+            if _rel(p) != "derivedFromRegulation":
+                continue
+            req_props = _node_props(engine, req_id)
+            gate_id, gate_props = _gate_for_requirement(req_id, gate_ids, engine)
+            units.append(
+                {
+                    "regulationId": reg_id,
+                    "regulationName": reg_name,
+                    "requirementId": req_id,
+                    "requirementName": _label_for(req_id, req_props),
+                    "gateId": gate_id,
+                    "gateName": _label_for(gate_id, gate_props) if gate_id else "",
+                    "required": bool(req_props.get("required", True)),
+                }
+            )
+    return units, True
+
+
+def _unit_satisfied(
+    candidate_id: str, unit: dict[str, Any], request: dict[str, Any], engine: Any
+) -> bool:
+    """Whether the candidate has compliance evidence for ``unit`` — a declared
+    ``certifications``/``attestations`` entry (on the request/candidate) naming
+    the gate/requirement/regulation, or a graph edge from the candidate
+    (``:attestsTo`` and the legacy ``governedBy``/``satisfiesCompliance``/
+    ``conformsToStandard`` synonyms) targeting one of them. No evidence at all
+    ⇒ an applicable REQUIRED unit is UNMET."""
+    declared = {
+        _norm(e)
+        for e in (
+            *_as_list(request.get("certifications")),
+            *_as_list(request.get("attestations")),
+        )
+        if e
+    }
+    if declared:
+        targets = {
+            _norm(unit["regulationName"]),
+            _norm(unit["regulationId"]),
+            _norm(unit["requirementName"]),
+            _norm(unit["requirementId"]),
+            _norm(unit["gateName"]),
+            _norm(unit["gateId"]),
+        }
+        targets.discard("")
+        if declared & targets:
+            return True
+    evidence_ids = {unit["gateId"], unit["requirementId"], unit["regulationId"]}
+    evidence_ids.discard("")
+    for _s, tgt, p in _out(engine, candidate_id):
+        if (
+            _rel(p)
+            in ("attestsTo", "governedBy", "satisfiesCompliance", "conformsToStandard")
+            and tgt in evidence_ids
+        ):
+            return True
+    return False
 
 
 def _check_compliance_gates(
     candidate_id: str, request: dict[str, Any], engine: Any
 ) -> GateCheck:
-    gates = _compliance_gates_for(request, engine)
-    required = [g for g in gates if g.get("required", True)]
+    units, substrate_present = _required_compliance_units(request, engine)
+    if not substrate_present:
+        logger.warning(
+            "portfolio: compliance substrate unavailable (no :Regulation nodes in "
+            "the graph) — compliance_gate for candidate %s degraded to pass; "
+            "confirm the legal-peripherals-mcp ontology is ingested/federated",
+            candidate_id,
+        )
+        return GateCheck(
+            "compliance_gate",
+            True,
+            True,
+            "compliance substrate unavailable (no :Regulation nodes) — gate not evaluated",
+        )
+    required = [u for u in units if u["required"]]
     if not required:
         return GateCheck(
             "compliance_gate", True, True, "no REQUIRED compliance gate applies"
         )
-    satisfied = {
-        tgt
-        for _s, tgt, p in _out(engine, candidate_id)
-        if _rel(p) in ("governedBy", "satisfiesCompliance", "conformsToStandard")
-    }
-    missing = [g for g in required if g["id"] not in satisfied]
-    if missing:
-        names = ", ".join(str(g.get("name") or g["id"]) for g in missing)
+    unmet = [
+        u for u in required if not _unit_satisfied(candidate_id, u, request, engine)
+    ]
+    if unmet:
+        names = ", ".join(
+            f"{u['gateName'] or u['requirementName']} ({u['regulationName']})"
+            for u in unmet
+        )
         return GateCheck(
             "compliance_gate",
             False,
@@ -374,9 +544,7 @@ def _check_eol(candidate_id: str, engine: Any, *, grace_days: int = 180) -> Gate
     try:
         eol_date = datetime.fromisoformat(str(eol).replace("Z", "+00:00"))
     except ValueError:
-        return GateCheck(
-            "eol", True, True, "endOfLifeDate unparsable — not applicable"
-        )
+        return GateCheck("eol", True, True, "endOfLifeDate unparsable — not applicable")
     if eol_date.tzinfo is None:
         eol_date = eol_date.replace(tzinfo=UTC)
     if eol_date <= datetime.now(UTC) + timedelta(days=grace_days):

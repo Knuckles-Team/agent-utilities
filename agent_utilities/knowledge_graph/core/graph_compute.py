@@ -883,11 +883,24 @@ class GraphComputeEngine:
             )
             or []
         )
-        if not include_epistemic:
-            return rows
-        from .epistemic_row import attach_epistemic_rows
+        if include_epistemic:
+            from .epistemic_row import attach_epistemic_rows
 
-        return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
+            return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
+        from agent_utilities.core.config import config as _app_config
+
+        from .epistemic_row import (
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
+        )
+
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(rows, self.explain_provenance_by_ids)
+        return rows
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
         """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).
@@ -1187,6 +1200,30 @@ class GraphComputeEngine:
     def apply_ledger(self, transactions: list[str]) -> None:
         """Replay mutations from a transaction ledger log."""
         self._client.ledger.apply(transactions)
+
+    def audit_verify(self) -> dict[str, Any]:
+        """Cryptographically verify this graph's tamper-evident hash-chained audit log.
+
+        CONCEPT:AU-KG.audit.hash-chain-verify — routes to the engine's native
+        ``Method::AuditVerify`` (``epistemic-graph/src/audit.rs``): every durable
+        mutation already chains into a per-graph SHA-256 hash chain (the redb
+        ``AUDIT`` table, keyed ``(graph, seq)``); this walks it and reports whether
+        every entry's stored hash still matches its recomputed link — i.e. whether
+        the durable write history has been tampered with post-hoc. The engine
+        client (``epistemic_graph.client``) does not yet wrap ``AuditVerify`` as a
+        typed ``LedgerClient`` method, so this uses the same raw wire escape hatch
+        as :meth:`get_triples`/:meth:`remove_triples` (``_send_wire``) rather than
+        waiting on that package to add one — no Rust rebuild is required, the wire
+        ``Method`` already exists and is dispatched by any engine built with the
+        ``security`` feature (part of the default ``full`` build).
+
+        Returns the engine's ``AuditReport``: ``{"graph", "ok", "entries",
+        "first_broken_seq", "detail"}``. Raises if the engine build/config doesn't
+        support it (no ``security`` feature, or no durable redb persist dir
+        configured) so callers can degrade cleanly instead of silently trusting an
+        unverified log.
+        """
+        return dict(self._send_wire("AuditVerify"))
 
     def flush_ledger_to_backend(self, backend: Any) -> int:
         """Flush the epistemic-graph mutation ledger to a persistent backend.

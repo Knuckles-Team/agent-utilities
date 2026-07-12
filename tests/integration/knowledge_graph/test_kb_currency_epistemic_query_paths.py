@@ -179,6 +179,57 @@ def test_store_execute_include_epistemic_carries_engine_envelope(
             pass
 
 
+def test_query_cypher_include_epistemic_carries_engine_envelope(
+    engine_graph: Any,
+) -> None:
+    """``IntelligenceGraphEngine.query_cypher(..., include_epistemic=True)`` — the
+    MCP-facing Cypher surface (the ``graph_query`` tool / ``/graph/query`` REST
+    twin) currency-upgraded (WS-1a: the remaining gap this file's own
+    "documented follow-ups" list didn't yet cover — ``query_unified``/``uql``/
+    ``store.execute`` were adopted, the MCP entry point itself was not).
+
+    ``QueryMixin.query_cypher`` reads ``self.backend`` (needs ``.execute()`` +
+    ``.graph``); a real ``EpistemicGraphBackend`` bound to a fresh tenant graph
+    stands in for the full ``IntelligenceGraphEngine`` host, mirroring
+    :func:`test_store_execute_include_epistemic_carries_engine_envelope`'s setup.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
+
+    if not hasattr(engine_graph, "explain_provenance_by_ids"):
+        pytest.skip(
+            "installed epistemic_graph client predates explain_provenance_by_ids"
+        )
+    graph_name = f"query_cypher_test_{uuid.uuid4().hex[:12]}"
+    store = EpistemicGraphBackend(graph_name=graph_name)
+    try:
+        claim_id, evidence_id = _seed_claim_evidence(store.graph)
+        cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
+
+        class _Host:
+            backend = store
+            control_backend = None
+
+        host = _Host()
+
+        # Default path — byte-for-byte unaffected: plain dict rows.
+        plain_rows = QueryMixin.query_cypher(host, cypher)
+        assert len(plain_rows) == 1
+        assert plain_rows[0]["n"]["id"] == claim_id
+
+        # Opt-in path — the Seam 1 currency upgrade.
+        rows = QueryMixin.query_cypher(host, cypher, include_epistemic=True)
+        assert len(rows) == 1
+        _assert_currency_row(rows[0], claim_id, evidence_id)
+    finally:
+        try:
+            store.graph._client.tenants.delete(graph_name)
+        except Exception:  # noqa: BLE001 - best-effort teardown
+            pass
+
+
 def test_store_execute_include_epistemic_degrades_on_unsupported_backend() -> None:
     """A backend with no id-seeded epistemic primitive degrades to ``[]`` under
     ``include_epistemic=True`` — never raises, never silently returns plain

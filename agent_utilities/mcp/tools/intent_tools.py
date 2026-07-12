@@ -623,10 +623,20 @@ async def dispatch_intent(
     fell_back = False
     if text_param and text_param not in call_kwargs:
         call_kwargs[text_param] = intent
-    elif not call_kwargs and chosen_tool not in _PRIMARY_TEXT_PARAM and verb == "ask":
+    elif (
+        not call_kwargs
+        and chosen_tool not in _PRIMARY_TEXT_PARAM
+        and verb == "ask"
+        and not raw_hints.get("tool")
+        and not raw_hints.get("_tool")
+        and explicit_action is None
+    ):
         # No structured hints AND the winning tool has no known free-text param:
         # fall back to the NL planner rather than dispatch a call we know is
         # missing required args (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
+        # BUT an EXPLICIT tool pin (hints.tool) or an explicit action means the
+        # caller deliberately chose this tool — always dispatch it, never fall back
+        # to nl_query (that silently ignored the pin, e.g. graph_incident/compliance).
         fell_back = True
         chosen_tool = _ASK_FALLBACK_TOOL
         chosen_action = None

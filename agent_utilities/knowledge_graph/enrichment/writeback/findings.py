@@ -59,19 +59,28 @@ def push_findings(
     engine: Any = None,
     project: dict[str, Any] | None = None,
     dry_run: bool = True,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     """Collect KG risk findings and file them as issues in ``target``.
 
     ``project`` carries the tracker target (e.g. ``{"project_id": ...}`` for
     GitLab/Plane, ``{"owner":..., "repo":...}`` for GitHub). Fail-closed via
     :func:`run_writeback` (the target's ``*_ENABLE_WRITE`` gate applies).
+    ``as_of`` (ISO-8601, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) is the
+    bitemporal valid-time this pass asserts the filed findings are valid as
+    of — defaults to ``None`` ("now"), so an existing caller is unaffected.
     """
     creations = collect_risk_findings(backend)
     if project:
         for c in creations:
             c.update(project)
     result = run_writeback(
-        target, backend=backend, engine=engine, dry_run=dry_run, creations=creations
+        target,
+        backend=backend,
+        engine=engine,
+        dry_run=dry_run,
+        as_of=as_of,
+        creations=creations,
     )
     if isinstance(result, dict):
         result["findings"] = len(creations)
