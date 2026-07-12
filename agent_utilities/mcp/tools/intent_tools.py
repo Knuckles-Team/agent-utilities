@@ -1,4 +1,4 @@
-"""The graph-os **intent surface** — Seam 8, Phases 2-3 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
+"""The graph-os **intent surface** — Seam 8, Phases 2-5 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
 
 graph-os's condensed action-routed surface is already ~95 tools — past the point
 where more tools *lowers* LLM tool-selection accuracy (worst for small/cheap
