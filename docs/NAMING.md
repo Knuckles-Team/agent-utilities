@@ -49,7 +49,6 @@ For classes that coordinate across multiple systems without owning execution the
 
 **Examples:**
 - `DistributedCoordinator` — NATS/local task routing
-- `RecoveryDaemon` — Homeostatic recovery
 - `MemoryEngineManager` — Memory lifecycle coordination
 
 **Rule:** Coordinators delegate execution to other components. They are orchestration glue, not execution engines.

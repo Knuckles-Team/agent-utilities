@@ -2409,6 +2409,21 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("scheduler tick error: %s", e)
 
+        # Phase-0 daemon telemetry (CONCEPT:AU-ORCH.execution.two-level-fair-rotation): republish the same
+        # pending/in-flight snapshot admission control already computes as
+        # per-lane gauges, on the scheduler's own 60s cadence. Best-effort and
+        # fully isolated from the tick above — never affects scheduling.
+        try:
+            from agent_utilities.knowledge_graph.core.task_lanes import (
+                record_lane_metrics,
+            )
+
+            reg = getattr(self, "_worker_reg", None)
+            running_by_lane = reg.running_by_lane() if reg is not None else {}
+            record_lane_metrics(self._pending_by_lane(), running_by_lane)
+        except Exception:  # noqa: BLE001
+            logger.debug("scheduler tick: lane metrics failed", exc_info=True)
+
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.
 
@@ -3970,7 +3985,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     result = {"status": "error", "error": str(e)}
                     ok = False
                 if sched_name:
-                    record_schedule_result(self, sched_name, ok)
+                    record_schedule_result(
+                        self,
+                        sched_name,
+                        ok,
+                        duration_s=result.get("duration_s"),
+                        status=result.get("status"),
+                    )
                 self._update_task_status(
                     job_id,
                     "completed" if ok else "failed",
