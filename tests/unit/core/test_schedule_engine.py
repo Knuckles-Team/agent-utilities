@@ -317,6 +317,71 @@ def test_collapse_no_backend_is_safe() -> None:
     }
 
 
+def test_run_scheduled_job_stamps_duration() -> None:
+    """Phase-0 daemon telemetry (CONCEPT:AU-OS.observability.no-op-without-metrics) — every dispatch is timed and the
+    result carries ``duration_s`` additively; every other key is unchanged."""
+    eng = _FakeEngine()
+    res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "demo"})
+    assert res["status"] == "ok" and eng.ticked == ["demo"]
+    assert "duration_s" in res and res["duration_s"] >= 0.0
+
+
+def test_job_outcome_buckets_ok_failed_skipped() -> None:
+    assert se._job_outcome("skipped", True) == "skipped"
+    assert se._job_outcome("ok", True) == "ok"
+    assert se._job_outcome("error", False) == "failed"
+    assert se._job_outcome(None, False) == "failed"
+
+
+def test_record_schedule_result_emits_job_metrics(monkeypatch) -> None:
+    """``record_schedule_result`` publishes the per-job outcome counter + duration
+    histogram (Phase-0 daemon telemetry) alongside its existing backoff bookkeeping —
+    additive, no change to the backoff behaviour covered by the sibling test."""
+    import agent_utilities.observability.gateway_metrics as gm
+
+    runs: list[tuple[str, str]] = []
+    durations: list[tuple[str, float]] = []
+
+    class _FakeCounter:
+        def labels(self, schedule: str, outcome: str):
+            runs.append((schedule, outcome))
+            return self
+
+        def inc(self):
+            pass
+
+    class _FakeHistogram:
+        def labels(self, schedule: str):
+            self._schedule = schedule
+            return self
+
+        def observe(self, value: float):
+            durations.append((self._schedule, value))
+
+    monkeypatch.setattr(gm, "SCHEDULED_JOB_RUNS", _FakeCounter())
+    monkeypatch.setattr(gm, "SCHEDULED_JOB_DURATION", _FakeHistogram())
+
+    eng = _FakeEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="metriced",
+            payload={"kind": "maint", "ref": "demo"},
+            trigger="interval",
+            interval_s=60.0,
+        ),
+    )
+    se.record_schedule_result(
+        eng, "metriced", ok=True, duration_s=0.42, status="ok"
+    )
+    assert runs == [("metriced", "ok")]
+    assert durations == [("metriced", 0.42)]
+
+    se.record_schedule_result(eng, "metriced", ok=False, status="error")
+    assert runs[-1] == ("metriced", "failed")
+    assert len(durations) == 1  # no duration_s passed → histogram not observed
+
+
 def test_record_schedule_result_backoff() -> None:
     eng = _FakeEngine()
     se.register_schedule(

@@ -134,6 +134,56 @@ def test_select_pending_task_is_lane_fair():
     assert first_lane_a != first_lane_b  # cursor advanced → fairness
 
 
+def test_record_lane_metrics_is_a_safe_noop_without_prometheus():
+    """Phase-0 daemon telemetry (CONCEPT:AU-ORCH.execution.two-level-fair-rotation) — publishes per-lane queue-depth
+    + in-flight gauges to the existing gateway_metrics registry. Must never raise
+    (best-effort), whether or not the optional ``metrics`` extra is installed, and
+    must set every LANE_NAMES series even for lanes absent from the input maps."""
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        LANE_NAMES,
+        record_lane_metrics,
+    )
+
+    # Missing lanes default to 0; no exception either way.
+    record_lane_metrics({"maint": 3}, {"maint": 1})
+    record_lane_metrics({}, {})
+    assert True  # reaching here means no exception propagated
+
+
+def test_record_lane_metrics_calls_gateway_metrics_gauges(monkeypatch):
+    """With the metrics registry mocked, confirm every lane is set with the right values."""
+    import agent_utilities.observability.gateway_metrics as gm
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        LANE_NAMES,
+        record_lane_metrics,
+    )
+
+    calls: dict[str, dict[str, float]] = {"depth": {}, "in_flight": {}}
+
+    class _FakeGauge:
+        def __init__(self, sink: dict[str, float]):
+            self._sink = sink
+            self._lane = None
+
+        def labels(self, lane: str):
+            self._lane = lane
+            return self
+
+        def set(self, value: float):
+            self._sink[self._lane] = value
+
+    monkeypatch.setattr(gm, "LANE_QUEUE_DEPTH", _FakeGauge(calls["depth"]))
+    monkeypatch.setattr(gm, "LANE_IN_FLIGHT", _FakeGauge(calls["in_flight"]))
+
+    record_lane_metrics({"maint": 3, "queries": 1}, {"maint": 2})
+    assert calls["depth"]["maint"] == 3
+    assert calls["depth"]["queries"] == 1
+    assert calls["depth"].get("ingestion", 0) == 0
+    assert calls["in_flight"]["maint"] == 2
+    assert calls["in_flight"].get("queries", 0) == 0
+    assert set(calls["depth"]) == set(LANE_NAMES)
+
+
 def test_lane_metrics_reports_per_lane_congestion():
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
     from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES

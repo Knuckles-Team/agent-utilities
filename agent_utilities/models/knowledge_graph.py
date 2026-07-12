@@ -3796,7 +3796,7 @@ class AgentTaskNode(RegistryNode):
     ``depends_on_task_ids`` mirrors ``ExecutionStep.depends_on`` (see
     ``TeamComposition.to_durable_task_dag()``); a task only becomes eligible
     to run once every id in that list resolves to ``status == 'completed'``
-    — checked by a poll-based ``fleet_reconciler``/``RecoveryDaemon`` tick
+    — checked by a poll-based ``fleet_reconciler`` tick
     (``fire_ready_agent_tasks``) until change-data-capture firing lands
     (Phase 3b, engine-gated, a separate later task — NOT done here).
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
@@ -133,3 +136,41 @@ def test_dim_mismatch_raises():
     enc = _fitted_encoder()
     with pytest.raises(ValueError):
         enc.encode_content([1.0, 2.0, 3.0])
+
+
+def test_engine_query_imports_clean_without_numeric_kernel():
+    """The messaging socket-listener imports ``engine_query`` (which pulls in
+    ``temporal_semantic_id``) without ever touching the encoder's numeric code
+    paths. That import must NOT require the epistemic-graph numeric kernel —
+    only invoking ``TemporalSemanticIdEncoder`` methods should.
+
+    Runs in a clean subprocess (a shared pytest session already has
+    ``agent_utilities.numeric`` cached in ``sys.modules``) so this is a true
+    cold-import check. The kernel modules are poisoned to ``None`` in
+    ``sys.modules`` before the import, which forces Python's import system to
+    raise ``ImportError`` for them — simulating a kernel-absent (lean/headless)
+    environment, matching the ``agent-utilities-messaging`` deployment that
+    runs BAKED agent-utilities without ``epistemic-graph[numeric]``.
+    """
+    probe = (
+        "import sys, json\n"
+        # Poison the kernel modules so any import of them raises ImportError,
+        # regardless of whether epistemic-graph[numeric] is actually installed
+        # in this dev environment.
+        "sys.modules['epistemic_graph.numeric'] = None\n"
+        "sys.modules['numeric'] = None\n"
+        "import agent_utilities.knowledge_graph.orchestration.engine_query\n"
+        "import agent_utilities.knowledge_graph.retrieval.temporal_semantic_id as tsi\n"
+        "assert tsi.np is None, 'expected the numeric shim to be None without the kernel'\n"
+        "print(json.dumps({'ok': True}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"engine_query import failed without the numeric kernel:\n{result.stderr}"
+    )
+    assert '{"ok": true}' in result.stdout.strip().splitlines()[-1].lower()

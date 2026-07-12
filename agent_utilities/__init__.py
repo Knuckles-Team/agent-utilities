@@ -412,10 +412,6 @@ def __getattr__(name):
         from .orchestration.distributed_coordinator import DistributedCoordinator
 
         return DistributedCoordinator
-    elif name == "RecoveryDaemon":
-        from .orchestration.recovery_daemon import RecoveryDaemon
-
-        return RecoveryDaemon
     # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     elif name == "SemanticCompactor":
         from .knowledge_graph.memory.memory_compaction import SemanticCompactor
@@ -597,7 +593,6 @@ __all__ = [
     "CognitiveScheduler",
     # Distributed Coordination (CONCEPT:AU-OS.host.homeostatic-recovery-daemon)
     "DistributedCoordinator",
-    "RecoveryDaemon",
     # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     "SemanticCompactor",
     # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)
