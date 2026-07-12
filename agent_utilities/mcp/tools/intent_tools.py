@@ -278,7 +278,7 @@ _LEARNED_REWARD_WEIGHT = 0.2
 
 #: Lazily-constructed shared learner (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) — ``None`` until first
 #: touched so importing this module never pays ``OutcomeRouter``'s (numeric
-#: package) import cost; degrades to a no-op neutral stub if that optional
+#: package) import cost; degrades to a no-op neutral fallback if that optional
 #: dependency is unavailable (lean/headless install), never breaking routing.
 _OUTCOME_ROUTER: Any = None
 
