@@ -246,6 +246,10 @@ _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
+# Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): a
+# cheap manifest-hash check (dedup no-ops when nothing installed since last tick), so
+# it can poll far more often than a heavy sweep without wasted work.
+_PACKAGE_INSTALL_INGEST_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 
@@ -1076,6 +1080,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Default-on;
         # no-ops when no warm parents / idle workspaces exist.
         _maint("warm_parent_reap", "warm_parent_reap", _WARM_PARENT_REAP_INTERVAL)
+        # Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): auto-extend
+        # the KG when a package is installed — watches the universal-installer's
+        # install-manifest.json and re-drives the prompt/ontology/skill reloads on
+        # change. Default-on; the manifest-hash watermark makes an unchanged manifest
+        # (the common case — nothing installed since the last tick) a cheap no-op.
+        _maint(
+            "package_install_ingest",
+            "package_install_ingest",
+            _PACKAGE_INSTALL_INGEST_INTERVAL,
+        )
 
         for spec in specs:
             try:
@@ -1125,6 +1139,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — sweep is best-effort
             logger.debug("orphaned-sandbox sweep skipped: %s", e)
+
+    def _tick_package_install_ingest(self) -> None:
+        """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
+
+        Runs the ``package_install`` connector (:mod:`..ingestion.package_install_ingest`)
+        against the live engine — the same handler ``source_sync
+        source=package_install`` calls, so this scheduled tick and the on-demand
+        MCP/REST trigger share one implementation. Watermarked on the
+        ``install-manifest.json`` content hash, so a tick where nothing new was
+        installed since the last run is a cheap no-op.
+        """
+        try:
+            from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+            report = sync_source(self, "package_install", mode="delta")
+            if not report.get("skipped_unchanged"):
+                logger.info("package_install_ingest: %s", report)
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("package_install_ingest tick error: %s", e)
 
     def _tick_goal_sla(self) -> None:
         """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""
@@ -2375,6 +2408,21 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.info("scheduler fired: %s", result["fired"])
         except Exception as e:  # noqa: BLE001
             logger.error("scheduler tick error: %s", e)
+
+        # Phase-0 daemon telemetry (CONCEPT:AU-ORCH.execution.two-level-fair-rotation): republish the same
+        # pending/in-flight snapshot admission control already computes as
+        # per-lane gauges, on the scheduler's own 60s cadence. Best-effort and
+        # fully isolated from the tick above — never affects scheduling.
+        try:
+            from agent_utilities.knowledge_graph.core.task_lanes import (
+                record_lane_metrics,
+            )
+
+            reg = getattr(self, "_worker_reg", None)
+            running_by_lane = reg.running_by_lane() if reg is not None else {}
+            record_lane_metrics(self._pending_by_lane(), running_by_lane)
+        except Exception:  # noqa: BLE001
+            logger.debug("scheduler tick: lane metrics failed", exc_info=True)
 
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.
@@ -3937,7 +3985,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     result = {"status": "error", "error": str(e)}
                     ok = False
                 if sched_name:
-                    record_schedule_result(self, sched_name, ok)
+                    record_schedule_result(
+                        self,
+                        sched_name,
+                        ok,
+                        duration_s=result.get("duration_s"),
+                        status=result.get("status"),
+                    )
                 self._update_task_status(
                     job_id,
                     "completed" if ok else "failed",

@@ -478,10 +478,11 @@ def reconcile_fleet(engine: Any) -> dict[str, Any]:
 # does ZERO Cypher work instead of a full sweep. ``fire_ready_agent_tasks``
 # itself (the sweep body) is UNCHANGED and kept as the fallback — a non-engine
 # backend, or an engine build without the streaming feature, degrades the
-# watcher straight back to Phase 3a's always-sweep behavior. Wired into both
-# the leader-only ``FleetReconciler.reconcile()`` tick (fleet-wide) and the
-# per-scheduler ``RecoveryDaemon.stabilize()`` tick (local) — same watcher
-# class, two callers, no duplicated dependency logic.
+# watcher straight back to Phase 3a's always-sweep behavior. Wired into the
+# leader-only ``FleetReconciler.reconcile()`` tick (fleet-wide). (The standalone
+# ``RecoveryDaemon.stabilize()`` local-tick caller this watcher class also once
+# supported was deleted as orphaned/never-instantiated dead code — this
+# reconciler tick was always the live path.)
 
 _AGENT_TASK_DEP_SWEEP_LIMIT = 200
 

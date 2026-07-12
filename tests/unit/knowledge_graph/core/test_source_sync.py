@@ -320,14 +320,31 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     assert "servicenow" in out["errors"]
     assert "jira" not in out["synced"] and "jira" not in out["errors"]
     # synced: leanix + gitlab; errors: servicenow; skipped: archivebox (no new
-    # snapshots) + the unconfigured always-on delta handlers (ard/rss/freshrss/
-    # fleet_connectors) whose fake_sync raises "not configured". ``fleet`` is
-    # excluded from the sweep, so it never enters any bucket. The MCP-backed
-    # trackers (jira/confluence/plane + the other ``*-mcp`` trackers,
-    # CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers) are NOT candidates here: the hermetic test env has no
-    # mcp_config, so their servers env-detect as unconfigured and the
-    # candidate-builder drops them (no wasted connector_sync task).
-    assert out["counts"] == {"synced": 2, "skipped": 5, "errors": 1}
+    # snapshots) + every OTHER always-on delta handler NOT stubbed in `results`,
+    # since `fake_sync` raises "not configured" for any source outside it.
+    # ``fleet`` is excluded from the sweep, so it never enters any bucket. The
+    # MCP-backed trackers (jira/confluence/plane + the other ``*-mcp`` trackers,
+    # CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers) are NOT candidates
+    # here: the hermetic test env has no mcp_config, so their servers
+    # env-detect as unconfigured and the candidate-builder drops them (no
+    # wasted connector_sync task).
+    #
+    # Asserted as membership over the LIVE ``_DELTA_HANDLERS`` set (rather than
+    # a hand-maintained magic count) so this test doesn't rot every time a new
+    # delta handler is registered (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
+    always_on_unstubbed = {
+        h
+        for h in ss._DELTA_HANDLERS
+        if h not in results
+        and h != "fleet"
+        and h not in ss._MCP_TRACKER_SERVERS  # dropped as candidates, not skipped
+    }
+    assert set(out["skipped"]) == {"archivebox"} | always_on_unstubbed
+    assert out["counts"] == {
+        "synced": 2,
+        "skipped": 1 + len(always_on_unstubbed),
+        "errors": 1,
+    }
 
 
 # ── MCP-backed trackers as configured-via-mcp_config candidates (KG-2.154) ────

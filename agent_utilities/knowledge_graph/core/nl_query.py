@@ -28,17 +28,43 @@ logger = logging.getLogger(__name__)
 
 _DIALECTS = ("cypher", "sql", "sparql")
 
+#: The engine's SQL surface projects the property graph as two schema-on-read
+#: DataFusion tables (``eg-query::sql::providers::infer_nodes``/``infer_edges``).
+#: A node's cypher LABEL is NOT a distinct queryable column — it is whatever value
+#: lives in the node's own ``type`` property (the engine's Cypher label-index/
+#: ``labels(n)`` matcher checks ``type`` first, then ``node_type``, then ``label``
+#: as scalars, then a ``labels`` array). Every observed node/edge property becomes
+#: its own SQL column, so a bare ``label`` column often DOES exist (as an ordinary,
+#: usually-empty property) — filtering on it silently returns 0 rows instead of
+#: erroring, which is exactly the bug this grounds against.
+_SQL_SCHEMA_NOTE = (
+    "SQL table `nodes`: fixed `id` (Utf8 node id) + `props` (Binary raw blob) + "
+    "one column per node property (schema-on-read, so columns vary by graph). "
+    "The node's CYPHER LABEL / kind is NOT its own column — it is the `type` "
+    "property (fallback `node_type`, then `label`). ALWAYS filter label/kind "
+    "questions with `WHERE type = '<Label>'`. Do NOT use a `label` column for "
+    "this — a same-named `label` property often exists but is unrelated/empty, "
+    "so `WHERE label = ...` silently returns 0 rows instead of erroring.\n"
+    "SQL table `edges`: FIXED columns only — `src` (source node id), `dst` "
+    "(target node id), `rel` (relationship/edge-type string), `props` (Binary "
+    "raw blob). There is NO `source_node_id`/`target_node_id`/`type` column on "
+    "edges — use `src`/`dst`/`rel`."
+)
+
 _SYSTEM_PROMPT = (
     "You translate a natural-language question into a single read-only query against "
     "a Knowledge Graph engine. You may use one of these dialects:\n"
     "  - cypher: read-only Cypher over the property graph (MATCH ... RETURN ...).\n"
     "  - sql:    read-only SQL over the KG + user tables (SELECT ... FROM nodes / "
-    "FROM <table> ...). The node table is `nodes`.\n"
+    "FROM <table> ...). See the SQL schema note in the prompt for the real "
+    "`nodes`/`edges` columns (label questions filter on `type`, not `label`; "
+    "edges use `src`/`dst`/`rel`, not invented column names).\n"
     "  - sparql: SPARQL 1.1 SELECT/ASK over the RDF projection.\n"
     "Rules: emit ONLY a single query, never a mutation (no CREATE/MERGE/DELETE/"
     "INSERT/DROP/UPDATE). Prefer cypher unless the question is clearly relational "
     "(then sql) or clearly about RDF/ontology triples (then sparql). Ground every "
-    "label / table you reference in the provided schema. "
+    "label / table / column you reference in the provided schema — never invent a "
+    "column name. "
     'Respond with ONLY a JSON object: {"dialect": "...", "query": "..."}.'
 )
 
@@ -46,20 +72,34 @@ _SYSTEM_PROMPT = (
 def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]:
     """Collect a compact, live schema snapshot to ground the model.
 
-    Pulls distinct node labels (via Cypher) and user SQL tables (via the SQL surface).
-    Every step is best-effort — a cold / partial engine yields an empty section, never
-    an error.
+    Pulls distinct node labels (via Cypher) and user SQL tables (via the SQL surface),
+    plus a fixed ``sql_columns`` note describing the REAL `nodes`/`edges` SQL columns
+    and the cypher-label-to-SQL-column mapping (CONCEPT:AU-KG.query.ask-gateway-rest-twin
+    grounding fix — see ``_SQL_SCHEMA_NOTE``). Every step is best-effort — a cold /
+    partial engine yields an empty section, never an error.
+
+    Label probing reads ``n.type``/``n.node_type``/``n.label`` directly rather than the
+    Cypher ``labels(n)`` function: the engine's Cypher executor does not implement
+    ``labels(n)`` as a callable expression (it always evaluates to null), so a query
+    built around it silently returns no labels at all. Reading the scalar properties
+    the engine's own label index keys on (mirroring ``node_has_label`` in
+    ``eg-query::cypher::exec``) is the grounded equivalent. Dedup is done client-side
+    because the engine's ``DISTINCT`` does not reliably collapse duplicates for this
+    query shape either.
     """
     labels: list[str] = []
     try:
         rows = engine.query_cypher(
-            "MATCH (n) RETURN DISTINCT labels(n) AS labels LIMIT 200"
+            "MATCH (n) RETURN n.type AS t, n.node_type AS nt, n.label AS lb "
+            f"LIMIT {max(max_labels * 20, 2000)}"
         )
         seen: dict[str, None] = {}
         for row in rows or []:
-            for lbl in row.get("labels") or []:
-                if isinstance(lbl, str):
-                    seen.setdefault(lbl, None)
+            for key in ("t", "nt", "lb"):
+                val = row.get(key)
+                if isinstance(val, str) and val:
+                    seen.setdefault(val, None)
+                    break
         labels = list(seen)[:max_labels]
     except Exception as exc:  # noqa: BLE001 — schema is advisory
         logger.debug("schema label probe failed: %s", exc)
@@ -72,7 +112,11 @@ def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]
     except Exception as exc:  # noqa: BLE001
         logger.debug("schema table probe failed: %s", exc)
 
-    return {"node_labels": labels, "tables": tables}
+    return {
+        "node_labels": labels,
+        "tables": tables,
+        "sql_columns": _SQL_SCHEMA_NOTE,
+    }
 
 
 def _parse_llm_query(output: str) -> dict[str, str]:
@@ -102,12 +146,24 @@ def _is_mutation(query: str) -> bool:
     )
 
 
-def _execute(engine: Any, dialect: str, query: str) -> list[dict[str, Any]]:
-    """Run the generated query through the matching engine surface."""
+def _execute(
+    engine: Any, dialect: str, query: str, *, include_epistemic: bool = False
+) -> list[dict[str, Any]]:
+    """Run the generated query through the matching engine surface.
+
+    ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY) only applies to the ``cypher``
+    dialect — ``engine.sql``/``engine.sparql`` have no epistemic-envelope
+    parameter, so it is silently not passed for those (never raises).
+    """
     if dialect == "sql":
         return engine.sql(query)
     if dialect == "sparql":
         return engine.sparql(query)
+    if include_epistemic:
+        # Only pass the new kwarg when actually requested — keeps the default
+        # call shape byte-identical for any `query_cypher` implementation
+        # (real or test double) that predates this parameter.
+        return engine.query_cypher(query, include_epistemic=True)
     return engine.query_cypher(query)
 
 
@@ -134,6 +190,7 @@ def nl_to_query(
     dialect: str = "auto",
     execute: bool = True,
     limit: int = 50,
+    include_epistemic: bool = False,
 ) -> dict[str, Any]:
     """Translate ``question`` to a query, execute it, and return a grounded answer.
 
@@ -143,6 +200,13 @@ def nl_to_query(
         dialect: ``auto`` (let the model choose) or pin to ``cypher``/``sql``/``sparql``.
         execute: when False, return only the generated query (dry-run / preview).
         limit: max result rows returned.
+        include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY). Only takes effect
+            when the model (or a forced ``dialect``) resolves to ``cypher`` —
+            see :func:`_execute`. When true and honored, ``results`` holds
+            :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+            instances instead of plain dicts, and ``citations`` degrades to
+            ``[]`` (the id/source-uri extraction only recognizes plain-dict
+            rows) rather than raising.
 
     Returns ``{question, dialect, generated_query, results, row_count, citations,
     schema}`` — or ``{error: ...}`` on failure.
@@ -163,6 +227,7 @@ def nl_to_query(
         f"Question: {question}\n\n"
         f"Schema (node labels): {', '.join(schema['node_labels']) or '(unknown)'}\n"
         f"Schema (SQL tables): {', '.join(schema['tables']) or '(none)'}\n"
+        f"Schema (SQL columns): {schema['sql_columns']}\n"
     )
     if forced:
         prompt += f"\nYou MUST use the '{forced}' dialect.\n"
@@ -193,7 +258,12 @@ def nl_to_query(
         return out
 
     try:
-        rows = _execute(engine, parsed["dialect"], parsed["query"])
+        rows = _execute(
+            engine,
+            parsed["dialect"],
+            parsed["query"],
+            include_epistemic=include_epistemic,
+        )
         rows = list(rows or [])[:limit]
         out["results"] = rows
         out["row_count"] = len(rows)

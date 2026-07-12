@@ -1507,12 +1507,38 @@ async def _execute_agent_package_logic(
             elif isinstance(step_input.description, str):
                 sub_query = step_input.description
 
-        res_content = await client.execute_task(peer_url, sub_query)
-        result_str = str(res_content)
+        # CONCEPT:AU-KB-CURRENCY (A2A projection) — use the envelope variant
+        # so a peer's epistemic metadata (confidence/status/
+        # contradiction_count/policy_labels/source_refs, when it sends any)
+        # is visible, while `result_str` stays BYTE-IDENTICAL to what plain
+        # `execute_task` would have returned (content on success, the same
+        # "Error: ..."/"A2A Error: ..." string on failure) — no behavior
+        # change to the existing result-registry path.
+        envelope = await client.execute_task_with_epistemic(peer_url, sub_query)
+        result_str = envelope.get("content") or envelope.get("error") or ""
         # Unified result storage
         node_uid = f"{node_id}_{ctx.state.step_cursor}"
         ctx.state.results_registry[node_uid] = result_str
         ctx.state.results[node_id] = result_str
+
+        epistemic = envelope.get("epistemic") or {}
+        if epistemic:
+            try:
+                from agent_utilities.observability import get_telemetry_engine
+
+                get_telemetry_engine().annotate_epistemic(
+                    confidence=epistemic.get("confidence"),
+                    status=epistemic.get("status"),
+                    contradiction_count=epistemic.get("contradiction_count"),
+                    policy_labels=epistemic.get("policy_labels"),
+                    model=node_id,
+                )
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - tracing must never break the graph
+                logger.debug(
+                    "A2A epistemic span annotation skipped for %s: %s", node_id, exc
+                )
     else:
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)

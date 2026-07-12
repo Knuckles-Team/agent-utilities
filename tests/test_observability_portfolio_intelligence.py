@@ -72,31 +72,69 @@ class _Capture:
         return {"nodes": len(entities), "edges": len(relationships or [])}
 
 
-# ── 1. hard gate: PHI candidate missing HIPAA is rejected regardless of score ──
+# ── 1. hard gate against the REAL legal-peripherals-mcp compliance ontology ───
+# Mirrors compliance.ttl/compliance_hipaa.ttl/compliance_bsa_aml.ttl's actual
+# shape: :Regulation --appliesToSector/appliesToDataClass--> Sector/
+# DataClassification; :ComplianceRequirement --derivedFromRegulation-->
+# :Regulation; a :ComplianceRequirement is OPTIONALLY evaluated by a named
+# :ComplianceGate (HIPAA has one, BSA/AML's SAR requirement does not — it's
+# evaluated by an :Assessment instead, which must NOT count as a gate).
 
 
-def test_compliance_gate_rejects_phi_candidate_missing_hipaa():
+def _hipaa_ontology() -> tuple[list[tuple[str, str, str]], dict[str, list]]:
+    edges = [
+        ("HIPAA", "appliesToSector", "MedicalSector"),
+        ("HIPAA", "appliesToDataClass", "PHI"),
+        ("HIPAAPHIEncryptionRequirement", "derivedFromRegulation", "HIPAA"),
+        (
+            "PHIOnboardingComplianceGate",
+            "evaluatesRequirement",
+            "HIPAAPHIEncryptionRequirement",
+        ),
+    ]
+    by_label = {
+        "Regulation": [("HIPAA", {"name": "HIPAA"})],
+        "ComplianceGate": [
+            ("PHIOnboardingComplianceGate", {"name": "PHI Onboarding Compliance Gate"})
+        ],
+    }
+    return edges, by_label
+
+
+def _bsa_aml_ontology() -> tuple[list[tuple[str, str, str]], dict[str, list]]:
+    # No :ComplianceGate individual exists for BSA/AML in the real ontology — its
+    # SAR ComplianceRequirement is evaluated by an :Assessment, which must be
+    # ignored by gate resolution (only a node in the "ComplianceGate" label set
+    # counts).
+    edges = [
+        ("BSA_AML", "appliesToSector", "FinanceSector"),
+        ("BSA_AML", "appliesToDataClass", "FinancialData"),
+        ("BSASARComplianceRequirement", "derivedFromRegulation", "BSA_AML"),
+        (
+            "BSAAMLIndependentTestingAssessment",
+            "evaluatesRequirement",
+            "BSASARComplianceRequirement",
+        ),
+    ]
+    by_label = {
+        "Regulation": [("BSA_AML", {"name": "BSA/AML"})],
+        "ComplianceGate": [],
+    }
+    return edges, by_label
+
+
+def test_compliance_gate_rejects_phi_candidate_missing_hipaa_attestation():
+    edges, by_label = _hipaa_ontology()
     engine = _FakeEngine(
         edges=[
+            *edges,
             # a great candidate on paper: cheap, unique capability, no peers
             ("prod-a", "incursCost", "cost-a"),
         ],
         node_props={"cost-a": {"annualCost": 1.0}},
-        by_label={
-            "ComplianceGate": [
-                (
-                    "hipaa-gate",
-                    {
-                        "name": "HIPAA",
-                        "required": True,
-                        "appliesToSector": "healthcare",
-                        "appliesToDataClass": "phi",
-                    },
-                )
-            ]
-        },
+        by_label=by_label,
     )
-    request = {"candidateId": "prod-a", "sector": "healthcare", "dataClass": "phi"}
+    request = {"candidateId": "prod-a", "sector": "medical", "dataClass": "phi"}
 
     outcome = pi.assess_candidate(request, engine=engine)
 
@@ -108,49 +146,73 @@ def test_compliance_gate_rejects_phi_candidate_missing_hipaa():
     assert outcome["assessmentScore"] == 0.0
 
 
-def test_compliance_gate_passes_when_candidate_is_governed_by_the_gate():
+def test_compliance_gate_passes_with_declared_hipaa_attestation_then_scores():
+    edges, by_label = _hipaa_ontology()
+    engine = _FakeEngine(edges=edges, by_label=by_label)
+    request = {
+        "candidateId": "prod-a",
+        "sector": "medical",
+        "dataClass": "phi",
+        "attestations": ["HIPAA"],
+    }
+
+    check = pi._check_compliance_gates("prod-a", request, engine)
+    assert check.passed is True
+
+    outcome = pi.assess_candidate(request, engine=engine)
+    # gate passed -> proceeded to the weighted-score tier (no peers -> adopt)
+    assert outcome["verdict"] == "adopt"
+    assert outcome["criteria"] != []
+
+
+def test_compliance_gate_satisfied_via_attests_to_edge():
+    edges, by_label = _hipaa_ontology()
     engine = _FakeEngine(
-        edges=[("prod-a", "governedBy", "hipaa-gate")],
-        by_label={
-            "ComplianceGate": [
-                (
-                    "hipaa-gate",
-                    {
-                        "name": "HIPAA",
-                        "required": True,
-                        "appliesToSector": "healthcare",
-                        "appliesToDataClass": "phi",
-                    },
-                )
-            ]
-        },
+        edges=[*edges, ("prod-a", "attestsTo", "PHIOnboardingComplianceGate")],
+        by_label=by_label,
     )
-    request = {"candidateId": "prod-a", "sector": "healthcare", "dataClass": "phi"}
+    request = {"candidateId": "prod-a", "sector": "medical", "dataClass": "phi"}
 
     check = pi._check_compliance_gates("prod-a", request, engine)
     assert check.passed is True
 
 
-def test_unaffected_sector_does_not_trigger_the_hipaa_gate():
-    engine = _FakeEngine(
-        by_label={
-            "ComplianceGate": [
-                (
-                    "hipaa-gate",
-                    {
-                        "name": "HIPAA",
-                        "required": True,
-                        "appliesToSector": "healthcare",
-                        "appliesToDataClass": "phi",
-                    },
-                )
-            ]
-        },
-    )
+def test_compliance_gate_rejects_finance_candidate_missing_bsa_aml_gate():
+    edges, by_label = _bsa_aml_ontology()
+    engine = _FakeEngine(edges=edges, by_label=by_label)
+    request = {
+        "candidateId": "prod-a",
+        "sector": "finance",
+        "dataClass": "financialdata",
+    }
+
+    check = pi._check_compliance_gates("prod-a", request, engine)
+    assert check.passed is False
+    assert "BSA/AML" in check.reason
+
+
+def test_sector_with_no_applicable_regulation_passes():
+    edges, by_label = _hipaa_ontology()
+    engine = _FakeEngine(edges=edges, by_label=by_label)
     request = {"candidateId": "prod-a", "sector": "retail", "dataClass": "pii"}
+
     check = pi._check_compliance_gates("prod-a", request, engine)
     assert check.passed is True
     assert "no REQUIRED" in check.reason
+
+
+def test_compliance_substrate_absent_logs_warning_and_falls_back_to_pass(caplog):
+    engine = _FakeEngine()  # no "Regulation" nodes at all -> substrate not ingested
+    request = {"candidateId": "prod-a", "sector": "medical", "dataClass": "phi"}
+
+    with caplog.at_level(
+        "WARNING", logger="agent_utilities.observability.portfolio_intelligence"
+    ):
+        check = pi._check_compliance_gates("prod-a", request, engine)
+
+    assert check.passed is True
+    assert "substrate unavailable" in check.reason
+    assert any("substrate unavailable" in rec.message for rec in caplog.records)
 
 
 # ── 2. weighted score ranks peers + weights unique capabilities higher ────────

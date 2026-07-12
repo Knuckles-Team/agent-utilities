@@ -247,6 +247,36 @@ def build_agent_app(
                     )
                 ]
 
+        # CONCEPT:AU-KB-CURRENCY (A2A projection, `04-five-intersections.md`
+        # item 1/4: "no epistemic descriptors" on the AgentCard). Advertised
+        # unconditionally and additively (never replaces the skills a
+        # deployment already registers above) — every agent-utilities server
+        # shares the SAME one-engine KG, so `epistemic_status`/`why`/
+        # `what_changed` over it (the `kg-epistemic-answer` skill's
+        # `explain_provenance_by_ids`/`explain_belief`/`epistemic_status`/
+        # `explain_policy` actions) is a real, already-implemented
+        # capability of every deployment, not an aspirational one.
+        skills_list.append(
+            Skill(
+                id="epistemic-answer",
+                name=f"{_name} Epistemic Answer",
+                description=(
+                    "Answers epistemic_status/why/what_changed queries over the "
+                    "shared knowledge graph: calibrated confidence, evidence/"
+                    "source citations, belief justification trees, bitemporal "
+                    "valid/tx history, and policy-redaction-aware provenance."
+                ),
+                tags=["epistemic", "provenance", "confidence", "kg"],
+                examples=[
+                    "Why do you believe X?",
+                    "What is the epistemic status of Y?",
+                    "What changed about Z since last week?",
+                ],
+                input_modes=["text"],
+                output_modes=["text"],
+            )
+        )
+
         a2a_kwargs = {}
         if a2a_broker == "redis":
             try:

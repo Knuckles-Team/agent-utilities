@@ -188,6 +188,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     # omitted param would be bound to the raw ``FieldInfo`` object, later blowing up with
     # "'FieldInfo' object has no attribute 'replace'" / "not JSON serializable". Resolve
     # FieldInfo defaults for omitted params so direct invocation matches the MCP behavior.
+    _missing_required: list[str] = []
     try:
         from pydantic.fields import FieldInfo
         from pydantic_core import PydanticUndefined
@@ -200,8 +201,21 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 _resolved = _default.default
                 if _resolved is not PydanticUndefined:
                     kwargs[_name] = _resolved
+                elif getattr(_default, "default_factory", None) is not None:
+                    kwargs[_name] = _default.default_factory()  # type: ignore[misc]
+                else:
+                    # Required param (Field with no default) omitted: without this the
+                    # raw FieldInfo would bind and later blow up deep in the tool with a
+                    # cryptic "'FieldInfo' object has no attribute 'strip'". Fail loud
+                    # with the actual missing-arg name instead.
+                    _missing_required.append(_name)
     except Exception:  # noqa: BLE001 — never let default-resolution break dispatch
         pass
+    if _missing_required:
+        raise ValueError(
+            f"Tool {tool_name!r} missing required argument(s): "
+            f"{', '.join(_missing_required)}."
+        )
 
     actor = _actor_from_kwargs(kwargs)
 
@@ -223,15 +237,45 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 f"Unauthenticated callers may only use: {sorted(ANONYMOUS_READ_TOOLS)}."
             )
 
+    import asyncio
+
+    # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
+    # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
+    # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
+    # surface, a bad action, a wedged backend) freezes the whole graph-os child and
+    # disconnects EVERY connected MCP client. Run sync tools on a worker thread and bound
+    # every call with a timeout so a hung tool FAILS LOUD and frees the loop instead of taking
+    # the gateway down. The timeout is > the delegation wall-clock so execute_agent isn't
+    # killed. Threads propagate the current contextvars (actor/session) via to_thread.
+    _TOOL_CALL_TIMEOUT_S = 320.0
+
     async def _run() -> Any:
         if inspect.iscoroutinefunction(tool_func):
-            return await tool_func(**kwargs)
-        return tool_func(**kwargs)
+            return await asyncio.wait_for(
+                tool_func(**kwargs), timeout=_TOOL_CALL_TIMEOUT_S
+            )
+        return await asyncio.wait_for(
+            asyncio.to_thread(tool_func, **kwargs), timeout=_TOOL_CALL_TIMEOUT_S
+        )
 
-    if actor is None:
-        return await _run()
-    with use_actor(actor):
-        return await _run()
+    async def _guarded() -> Any:
+        try:
+            if actor is None:
+                return await _run()
+            with use_actor(actor):
+                return await _run()
+        except (asyncio.TimeoutError, TimeoutError):
+            return {
+                "error": (
+                    f"tool {tool_name!r} exceeded the {_TOOL_CALL_TIMEOUT_S:.0f}s dispatch "
+                    "timeout and was abandoned; the gateway stayed responsive (fail-loud "
+                    "dispatch isolation)."
+                ),
+                "tool": tool_name,
+                "degraded": True,
+            }
+
+    return await _guarded()
 
 
 def get_existing_disabled(engine, node_id: str) -> bool:
@@ -2483,6 +2527,19 @@ def _resolve_read_engines(
 #: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
 DEFAULT_FANOUT_TIMEOUT_S = 30.0
 
+#: Per-target wall-clock budget (seconds) for an IMPLICIT-default read fan-out —
+#: a ``graph_search``/``graph_query`` call with no explicit ``target`` that
+#: resolves (CONCEPT:AU-KG.ingest.unified-query-routing) to the routed
+#: content-graph union: ``default`` + every active ``code:*``/``src:*`` graph,
+#: which can be dozens of per-repo connections and often includes idle/
+#: unreachable ones. Using the full ``DEFAULT_FANOUT_TIMEOUT_S`` there means one
+#: unreachable ``code:<repo>`` backend blocks the common no-target call for up to
+#: 30s each, flooding the result with "timed out" entries. A short budget keeps
+#: the default call fast — an unreachable graph is skipped, not waited on — while
+#: an explicit ``target='all'``/list (a deliberate cross-repo search) keeps the
+#: full ``DEFAULT_FANOUT_TIMEOUT_S``.
+DEFAULT_CONTENT_FANOUT_TIMEOUT_S = 3.0
+
 
 def fanout_execute(entries, fn, *, timeout=None):
     """Run ``fn(name, engine)`` for every fan-out target CONCURRENTLY under a shared
@@ -2891,9 +2948,13 @@ def _build_server(bootstrap: bool = True):
     from agent_utilities.mcp.tools import (
         register_analysis_tools,
         register_analyze_suite_tools,
+        register_audit_tools,
         register_bus_tools,
+        register_compliance_tools,
         register_engine_surface_tools,
         register_engine_tools,
+        register_epistemic_tools,
+        register_incident_tools,
         register_ontology_tools,
         register_ops_causal_tools,
         register_query_tools,
@@ -2925,6 +2986,10 @@ def _build_server(bootstrap: bool = True):
             register_engine_tools,
             register_engine_surface_tools,
             register_ops_causal_tools,
+            register_audit_tools,
+            register_epistemic_tools,
+            register_incident_tools,
+            register_compliance_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
