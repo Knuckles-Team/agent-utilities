@@ -29,8 +29,8 @@ class _FakeEngine:
 
 def _diamond_with_sibling_branch() -> list[tuple[str, str, str]]:
     """A -> B -> D
-       A -> C -> D
-       X -> Y            (a wholly disconnected sibling branch — never touches A)
+    A -> C -> D
+    X -> Y            (a wholly disconnected sibling branch — never touches A)
     """
     return [
         ("A", "TRANSITION_TO", "B"),
@@ -74,9 +74,7 @@ def test_no_downstream_edges_invalidates_only_the_failed_node():
 
 
 def test_cycle_does_not_infinite_loop():
-    engine = _FakeEngine(
-        [("A", "TRANSITION_TO", "B"), ("B", "TRANSITION_TO", "A")]
-    )
+    engine = _FakeEngine([("A", "TRANSITION_TO", "B"), ("B", "TRANSITION_TO", "A")])
     out = localized_repair_region("A", engine=engine)
     assert out["invalidated"] == ["A", "B"]
 
