@@ -246,6 +246,10 @@ _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
+# Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): a
+# cheap manifest-hash check (dedup no-ops when nothing installed since last tick), so
+# it can poll far more often than a heavy sweep without wasted work.
+_PACKAGE_INSTALL_INGEST_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 
@@ -1076,6 +1080,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Default-on;
         # no-ops when no warm parents / idle workspaces exist.
         _maint("warm_parent_reap", "warm_parent_reap", _WARM_PARENT_REAP_INTERVAL)
+        # Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): auto-extend
+        # the KG when a package is installed — watches the universal-installer's
+        # install-manifest.json and re-drives the prompt/ontology/skill reloads on
+        # change. Default-on; the manifest-hash watermark makes an unchanged manifest
+        # (the common case — nothing installed since the last tick) a cheap no-op.
+        _maint(
+            "package_install_ingest",
+            "package_install_ingest",
+            _PACKAGE_INSTALL_INGEST_INTERVAL,
+        )
 
         for spec in specs:
             try:
@@ -1125,6 +1139,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — sweep is best-effort
             logger.debug("orphaned-sandbox sweep skipped: %s", e)
+
+    def _tick_package_install_ingest(self) -> None:
+        """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
+
+        Runs the ``package_install`` connector (:mod:`..ingestion.package_install_ingest`)
+        against the live engine — the same handler ``source_sync
+        source=package_install`` calls, so this scheduled tick and the on-demand
+        MCP/REST trigger share one implementation. Watermarked on the
+        ``install-manifest.json`` content hash, so a tick where nothing new was
+        installed since the last run is a cheap no-op.
+        """
+        try:
+            from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+            report = sync_source(self, "package_install", mode="delta")
+            if not report.get("skipped_unchanged"):
+                logger.info("package_install_ingest: %s", report)
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("package_install_ingest tick error: %s", e)
 
     def _tick_goal_sla(self) -> None:
         """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""
