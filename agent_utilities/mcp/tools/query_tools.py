@@ -1305,8 +1305,21 @@ def register_query_tools(mcp):
             return _run_search(entries[0][1])
 
         # Fan-out — per-target timeout so one slow backend can't stall the set.
+        # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
+        # (no ``target`` passed, or explicitly "default") fans across every active
+        # content graph, which can be dozens of ``code:<repo>`` connections and
+        # often includes idle/unreachable ones. Use the SHORT per-backend budget
+        # there so those are skipped quickly instead of the call blocking up to
+        # the full fan-out timeout per graph. An explicit ``target='all'``/list
+        # (a deliberate cross-repo search) keeps the full budget.
+        is_implicit_target = target is None or (
+            isinstance(target, str) and target.strip().lower() in ("", "default")
+        )
+        fanout_timeout = (
+            kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S if is_implicit_target else None
+        )
         results, fan_errors = kg_server.fanout_execute(
-            entries, lambda name, engine: _run_search(engine)
+            entries, lambda name, engine: _run_search(engine), timeout=fanout_timeout
         )
         out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
         out_lines += [
