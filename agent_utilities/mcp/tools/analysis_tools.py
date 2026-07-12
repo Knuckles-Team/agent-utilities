@@ -2294,11 +2294,29 @@ def register_analysis_tools(mcp):
                     return f"Error retrieving workflow status: {exc}"
 
             elif action == "export_workflow":
+                # KG :WorkflowDefinition → BPMN / JSON / SKILL.md (CONCEPT:AU-KG.ontology.connector-agnostic-proposal),
+                # the round-trip that makes "we speak their language" bidirectional
+                # (autonomous-sdlc-loop-design.md §6.0/§7.1). task=<workflow name>,
+                # agent_name=<format: bpmn|json|skill> (default bpmn).
                 try:
+                    from agent_utilities.knowledge_graph.governance_import import (
+                        export_workflow as _export_workflow,
+                    )
+
+                    wf_name = task or agent_name
+                    if not wf_name:
+                        return json.dumps(
+                            {"error": "Specify the workflow name in 'task'."},
+                            default=str,
+                        )
+                    fmt = (
+                        agent_name
+                        if agent_name and agent_name != wf_name
+                        else "bpmn"
+                    )
+                    engine = kg_server._get_engine()
                     return json.dumps(
-                        {
-                            "error": "Workflow export requires resolving workflows from the database. Legacy catalog export is deprecated."
-                        },
+                        _export_workflow(engine, wf_name, fmt=fmt),
                         indent=2,
                         default=str,
                     )
