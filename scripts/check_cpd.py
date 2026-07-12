@@ -41,7 +41,12 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
 
 def _check_drift() -> tuple[list[str], list]:
     errors: list[str] = []
-    cpds, generated_at = gcp.generate(None, refresh_cache=False)
+    # prefer_cache=True: verify against the committed vendored ledger cache, the
+    # SAME source CI sees (no EG clone there). Reading a live EG ledger this box
+    # happens to have would make the on-box gate pass while the identical CI gate
+    # fails on real drift — the reproducibility hole that let this slip past
+    # pre-commit. The gate is now environment-invariant.
+    cpds, generated_at = gcp.generate(None, refresh_cache=False, prefer_cache=True)
     md = gcp.render_markdown(cpds, generated_at=generated_at)
     js = gcp.render_json(cpds, generated_at=generated_at)
 

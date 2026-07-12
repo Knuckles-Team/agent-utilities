@@ -93,20 +93,32 @@ def locate_eg_ledger(explicit: str | None) -> Path | None:
 
 
 def load_ledger(
-    explicit: str | None, *, refresh_cache: bool = True
+    explicit: str | None, *, refresh_cache: bool = True, prefer_cache: bool = False
 ) -> tuple[dict[str, LedgerRow], str | None, bool]:
     """Return ``(ledger, path_used, was_live)``.
 
     Prefers a live EG checkout; refreshes the vendored cache from it when
     found AND ``refresh_cache`` (the generator's ``--write`` path — a real
-    content change). ``refresh_cache=False`` (read-only verification, e.g.
-    ``scripts/check_cpd.py``) reads the SAME live ledger content for the
-    comparison but never rewrites the cache file just for having been asked —
-    otherwise a read-only gate would dirty ``_vendor_eg_capability_ledger.json``
-    on every run (a fresh ``cached_at``) even with no actual row change. Falls
-    back to the last-committed cache when no live checkout is reachable —
-    never fabricates ledger rows.
+    content change). Falls back to the last-committed cache when no live
+    checkout is reachable — never fabricates ledger rows.
+
+    ``prefer_cache=True`` forces the committed cache to be the ledger source
+    even when a live EG clone IS on disk. This is the REPRODUCIBLE verification
+    path (``scripts/check_cpd.py``): the drift gate must compare against the
+    same committed cache CI sees, not a live EG ledger that only this box
+    happens to have checked out — otherwise on-box `check_cpd` passes while the
+    identical CI gate (cache-only, no EG clone) fails on the exact drift the
+    pre-commit hook was supposed to catch. The live ledger still drives the
+    cache refresh on the ``--write`` path; it just never silently becomes the
+    verification oracle. Cache absent ⇒ falls through to the live/empty paths.
     """
+    if prefer_cache and CACHE_PATH.exists():
+        cached = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        ledger = {
+            method: LedgerRow(**row) for method, row in cached.get("rows", {}).items()
+        }
+        return ledger, cached.get("source_path"), False
+
     live_path = locate_eg_ledger(explicit)
     if live_path is not None:
         text = live_path.read_text(encoding="utf-8")
@@ -423,7 +435,10 @@ async def _list_tools(mcp: Any) -> list[Any]:
 
 
 def generate(
-    eg_ledger_arg: str | None, *, refresh_cache: bool = True
+    eg_ledger_arg: str | None,
+    *,
+    refresh_cache: bool = True,
+    prefer_cache: bool = False,
 ) -> tuple[list[CapabilityPowerDescriptor], str]:
     from agent_utilities.mcp import kg_server
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
@@ -440,8 +455,17 @@ def generate(
     deep_mining_actions = getattr(kg_server, "DEEP_MINING_ACTIONS", ())
 
     ledger, ledger_path, ledger_live = load_ledger(
-        eg_ledger_arg, refresh_cache=refresh_cache
+        eg_ledger_arg, refresh_cache=refresh_cache, prefer_cache=prefer_cache
     )
+    # Canonicalize ledger order so the AU-action→EG-Method matcher is
+    # order-INVARIANT. A live EG clone yields the ledger in document order; the
+    # vendored cache round-trips it in sorted-key order (`json.dumps(sort_keys)`).
+    # The fuzzy matcher breaks ties by iteration order, so those two orderings
+    # produced DIFFERENT matches (`commit`→`Commit` vs `BlobCommit`) for the same
+    # rows — making a doc generated on-box (live) irreproducible from the cache CI
+    # uses. Sorting here fixes it at the source: every environment matches against
+    # the same canonical order, so live-render == cache-render byte-for-byte.
+    ledger = dict(sorted(ledger.items()))
 
     tools = asyncio.run(_list_tools(mcp))
     cpds = [

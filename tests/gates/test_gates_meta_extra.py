@@ -10,7 +10,32 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+
+
+def _numeric_kernel_available() -> bool:
+    """True when the epistemic-graph[numeric] kernel is importable.
+
+    The retrieval-quality gate ranks vectors through the kernel-backed
+    ``agent_utilities.numeric`` namespace and SKIPS (exit 0) when it is absent
+    (lean/headless CI without the ``[numeric]``/``[graphos]`` extra). Its
+    pass/trip assertions below only hold when the gate can actually run, so they
+    skip in lockstep with the gate — the same subprocess env the test drives.
+    """
+    try:
+        import agent_utilities.numeric  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+_needs_numeric_kernel = pytest.mark.skipif(
+    not _numeric_kernel_available(),
+    reason="retrieval-quality gate requires the epistemic-graph[numeric] kernel "
+    "(it skips cleanly without it, so these trip/pass assertions do not apply)",
+)
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
@@ -74,12 +99,14 @@ def test_coupling_gate_passes_with_no_imports(tmp_path):
 # ---- retrieval-quality gate --------------------------------------------------
 
 
+@_needs_numeric_kernel
 def test_retrieval_gate_passes_on_clean_corpus():
     res = _run([str(SCRIPTS / "check_retrieval_quality.py")])
     assert res.returncode == 0, res.stdout + res.stderr
     assert "Recall@5=1.000" in res.stdout
 
 
+@_needs_numeric_kernel
 def test_retrieval_gate_trips_on_degraded_corpus():
     res = _run([str(SCRIPTS / "check_retrieval_quality.py"), "--degrade"])
     assert res.returncode == 1, res.stdout + res.stderr

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-12T02:32:16Z",
+  "generated_at": "2026-07-12T02:39:50Z",
   "count": 95,
   "capabilities": [
     {
@@ -136,7 +136,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -319,7 +319,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -476,7 +476,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -632,7 +632,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -814,7 +814,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -879,27 +879,28 @@
         },
         {
           "action": "commit",
-          "eg_method": "Commit",
+          "eg_method": "BlobCommit",
           "match_confidence": 1.0,
           "matched_tokens": [
+            "blob",
             "commit"
           ],
           "mutates": "~true",
-          "durability": "None",
-          "authz_action": "txn:control",
+          "durability": "BlobRedb",
+          "authz_action": "blob:write",
           "idempotent": "false",
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Saga",
-          "eg_note": "the durable-apply moment of the multi-op OCC transaction; self-routes before dispatch_graph_op"
+          "eg_note": "multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op"
         },
         {
           "action": "fetch",
-          "eg_method": "BlobFetchBegin",
+          "eg_method": "BlobChunkGet",
           "match_confidence": 0.667,
           "matched_tokens": [
             "blob",
-            "fetch"
+            "get"
           ],
           "mutates": "false",
           "durability": "None",
@@ -1061,8 +1062,7 @@
       "scopes": [
         "blob:admin",
         "blob:read",
-        "blob:write",
-        "txn:control"
+        "blob:write"
       ],
       "policy": {
         "approval_class": "auto",
@@ -1106,7 +1106,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -1328,20 +1328,19 @@
         },
         {
           "action": "stream_commit_offset",
-          "eg_method": "StreamCommitOffset",
+          "eg_method": "Commit",
           "match_confidence": 1.0,
           "matched_tokens": [
-            "commit",
-            "offset",
-            "stream"
+            "commit"
           ],
-          "mutates": "true",
-          "durability": "Outbox",
-          "authz_action": "stream:admin",
-          "idempotent": "true",
-          "audited": "true",
+          "mutates": "~true",
+          "durability": "None",
+          "authz_action": "txn:control",
+          "idempotent": "false",
+          "audited": "false",
           "emits_cdc": "false",
-          "txn_participation": "Atomic"
+          "txn_participation": "Saga",
+          "eg_note": "the durable-apply moment of the multi-op OCC transaction; self-routes before dispatch_graph_op"
         },
         {
           "action": "stream_committed_offset",
@@ -1522,6 +1521,7 @@
         ],
         "txn_participation_values_seen": [
           "Atomic",
+          "Saga",
           "Snapshot"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
@@ -1532,7 +1532,8 @@
         "broker:consume",
         "broker:publish",
         "stream:admin",
-        "stream:read"
+        "stream:read",
+        "txn:control"
       ],
       "policy": {
         "approval_class": "auto",
@@ -1576,7 +1577,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -1838,7 +1839,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -1851,20 +1852,21 @@
       "does": [
         {
           "action": "apply_multisig_mutation",
-          "eg_method": "ApplyMutation",
+          "eg_method": "ApplyMultisigMutation",
           "match_confidence": 1.0,
           "matched_tokens": [
             "apply",
+            "multisig",
             "mutation"
           ],
           "mutates": "~true",
           "durability": "None",
-          "authz_action": "graph:write",
+          "authz_action": "security:admin",
           "idempotent": "false",
           "audited": "false",
           "emits_cdc": "false",
-          "txn_participation": "Atomic",
-          "eg_note": "write per access.rs but absent from wal.rs durable set (EG-P0-3)"
+          "txn_participation": "Saga",
+          "eg_note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); multisig threshold-gated, multi-party"
         },
         {
           "action": "register_identity",
@@ -1948,12 +1950,12 @@
           "None"
         ],
         "txn_participation_values_seen": [
-          "Atomic"
+          "Atomic",
+          "Saga"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
-        "graph:write",
         "security:admin"
       ],
       "policy": {
@@ -1998,7 +2000,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -2191,7 +2193,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -2452,7 +2454,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -2961,7 +2963,7 @@
         },
         {
           "action": "kalman_filter_1d",
-          "eg_method": "FinanceKalmanFilter1d",
+          "eg_method": "FinanceKalmanBeta",
           "match_confidence": 0.667,
           "matched_tokens": [
             "finance",
@@ -3164,10 +3166,12 @@
         },
         {
           "action": "monte_carlo_var",
-          "eg_method": "FinanceVar",
+          "eg_method": "FinanceMonteCarloVar",
           "match_confidence": 1.0,
           "matched_tokens": [
+            "carlo",
             "finance",
+            "monte",
             "var"
           ],
           "mutates": "false",
@@ -3372,14 +3376,16 @@
         },
         {
           "action": "risk_metrics",
-          "eg_method": "Metrics",
+          "eg_method": "FinanceRiskMetrics",
           "match_confidence": 1.0,
           "matched_tokens": [
-            "metrics"
+            "finance",
+            "metrics",
+            "risk"
           ],
           "mutates": "false",
           "durability": "None",
-          "authz_action": "service:control",
+          "authz_action": "compute:finance",
           "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
@@ -3673,8 +3679,7 @@
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
-        "compute:finance",
-        "service:control"
+        "compute:finance"
       ],
       "policy": {
         "approval_class": "auto",
@@ -3718,7 +3723,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -4303,7 +4308,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -4462,7 +4467,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -4639,7 +4644,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -4936,7 +4941,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -5377,7 +5382,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -5816,7 +5821,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -6310,7 +6315,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:15Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -6455,7 +6460,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -6506,11 +6511,11 @@
         },
         {
           "action": "get_triples",
-          "eg_method": "GetTriples",
+          "eg_method": "GetRdf",
           "match_confidence": 1.0,
           "matched_tokens": [
             "get",
-            "triples"
+            "rdf"
           ],
           "mutates": "false",
           "durability": "None",
@@ -6716,7 +6721,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -6837,7 +6842,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -7081,7 +7086,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -7094,15 +7099,15 @@
       "does": [
         {
           "action": "cdc_read",
-          "eg_method": "StreamRead",
+          "eg_method": "CdcRead",
           "match_confidence": 1.0,
           "matched_tokens": [
-            "read",
-            "stream"
+            "cdc",
+            "read"
           ],
           "mutates": "false",
           "durability": "None",
-          "authz_action": "stream:read",
+          "authz_action": "cdc:read",
           "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
@@ -7177,15 +7182,16 @@
         },
         {
           "action": "read_continuous_query",
-          "eg_method": "StreamRead",
+          "eg_method": "ReadContinuousQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
-            "read",
-            "stream"
+            "continuous",
+            "query",
+            "read"
           ],
           "mutates": "false",
           "durability": "None",
-          "authz_action": "stream:read",
+          "authz_action": "cdc:read",
           "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
@@ -7314,8 +7320,7 @@
       },
       "scopes": [
         "cdc:admin",
-        "cdc:read",
-        "stream:read"
+        "cdc:read"
       ],
       "policy": {
         "approval_class": "auto",
@@ -7359,7 +7364,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -7523,7 +7528,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -7671,7 +7676,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -7783,21 +7788,20 @@
         },
         {
           "action": "blob_ref",
-          "eg_method": "TxnBlobRef",
+          "eg_method": "BlobRef",
           "match_confidence": 1.0,
           "matched_tokens": [
             "blob",
-            "ref",
-            "txn"
+            "ref"
           ],
           "mutates": "~true",
-          "durability": "None",
-          "authz_action": "txn:write",
+          "durability": "BlobRedb",
+          "authz_action": "blob:write",
           "idempotent": "false",
           "audited": "false",
           "emits_cdc": "false",
-          "txn_participation": "Saga",
-          "eg_note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)"
+          "txn_participation": "Atomic",
+          "eg_note": "refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb"
         },
         {
           "action": "cas",
@@ -7934,35 +7938,37 @@
         },
         {
           "action": "unified_query",
-          "eg_method": "UnifiedQuery",
+          "eg_method": "TxnUnifiedQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
             "query",
+            "txn",
             "unified"
           ],
           "mutates": "false",
           "durability": "None",
-          "authz_action": "query:unified",
+          "authz_action": "txn:read",
           "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
-          "txn_participation": "Snapshot"
+          "txn_participation": "Saga"
         },
         {
           "action": "unified_query_plan",
-          "eg_method": "UnifiedQuery",
+          "eg_method": "TxnUnifiedQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
             "query",
+            "txn",
             "unified"
           ],
           "mutates": "false",
           "durability": "None",
-          "authz_action": "query:unified",
+          "authz_action": "txn:read",
           "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
-          "txn_participation": "Snapshot"
+          "txn_participation": "Saga"
         }
       ],
       "typed_io": {
@@ -8025,21 +8031,22 @@
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
+          "BlobRedb",
           "GraphRedb",
           "None"
         ],
         "txn_participation_values_seen": [
           "Atomic",
-          "Saga",
-          "Snapshot"
+          "Saga"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
+        "blob:write",
         "edge:write",
         "node:write",
-        "query:unified",
         "txn:control",
+        "txn:read",
         "txn:write"
       ],
       "policy": {
@@ -8092,7 +8099,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -8614,7 +8621,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -8761,7 +8768,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -8774,15 +8781,15 @@
       "does": [
         {
           "action": "graph_broker",
-          "eg_method": "BrokerConsume",
+          "eg_method": "BrokerAck",
           "match_confidence": 0.5,
           "matched_tokens": [
             "broker"
           ],
           "mutates": "true",
           "durability": "Outbox",
-          "authz_action": "broker:consume",
-          "idempotent": "false",
+          "authz_action": "broker:ack",
+          "idempotent": "true",
           "audited": "true",
           "emits_cdc": "false",
           "txn_participation": "Atomic"
@@ -8918,7 +8925,7 @@
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
-        "broker:consume"
+        "broker:ack"
       ],
       "policy": {
         "approval_class": "auto",
@@ -8959,10 +8966,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": "BrokerConsume",
+        "source_method_eg": "BrokerAck",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -9313,7 +9320,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -9470,7 +9477,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -9653,7 +9660,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -9955,7 +9962,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -10149,7 +10156,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -10378,7 +10385,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -10579,7 +10586,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -10736,7 +10743,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -10749,7 +10756,7 @@
       "does": [
         {
           "action": "graph_explain",
-          "eg_method": "ExplainPlan",
+          "eg_method": "ExplainBelief",
           "match_confidence": 0.5,
           "matched_tokens": [
             "explain"
@@ -10906,10 +10913,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": "ExplainPlan",
+        "source_method_eg": "ExplainBelief",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11060,7 +11067,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11233,7 +11240,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11383,7 +11390,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11575,7 +11582,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11700,7 +11707,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11853,7 +11860,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -11950,7 +11957,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -12330,7 +12337,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -12475,7 +12482,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -12642,7 +12649,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -12969,7 +12976,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -13108,7 +13115,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -13332,7 +13339,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -13639,7 +13646,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -13790,7 +13797,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -13925,7 +13932,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -14211,7 +14218,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -14408,7 +14415,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -14893,7 +14900,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -15086,7 +15093,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -15272,7 +15279,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -15492,7 +15499,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -15649,7 +15656,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -15947,7 +15954,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16071,7 +16078,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16232,7 +16239,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16419,7 +16426,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16610,7 +16617,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16780,7 +16787,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -16925,7 +16932,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -17063,7 +17070,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -17286,7 +17293,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -17477,7 +17484,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -17860,7 +17867,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18089,7 +18096,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18236,7 +18243,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18412,7 +18419,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18632,7 +18639,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18751,7 +18758,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:49Z"
       }
     },
     {
@@ -18918,7 +18925,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19175,7 +19182,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19351,7 +19358,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19500,7 +19507,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19696,7 +19703,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19791,7 +19798,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -19934,7 +19941,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -20070,7 +20077,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -20240,7 +20247,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -20376,7 +20383,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -20685,7 +20692,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -20916,7 +20923,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -21081,7 +21088,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -21190,7 +21197,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -21311,7 +21318,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -21518,7 +21525,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     },
     {
@@ -21789,7 +21796,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:32:16Z"
+        "generated_at": "2026-07-12T02:39:50Z"
       }
     }
   ]
