@@ -1288,9 +1288,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -2202,7 +2202,6 @@ from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
 from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
     sanitize_tool_args as _sanitize_tool_args,  # noqa: F401  (re-exported for callers/tests)
 )
-
 
 # Common id-shaped keys a tool call's sanitized args carry when the call acted on
 # an existing KG entity (an incident, ticket, spec proposal, governance gate, …).
