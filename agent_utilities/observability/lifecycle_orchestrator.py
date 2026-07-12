@@ -368,8 +368,55 @@ def _write_lifecycle_steps(
     return ingest_entities(proposals, relationships, source=_SOURCE, domain="sdlc")
 
 
+def _annotate_escalation(
+    proposals: list[dict[str, Any]],
+    entry: dict[str, Any],
+    *,
+    engine: Any,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Consult the escalation policy for each proposed transition (design §3.4).
+
+    The escalation-decision policy is a **consultable gate** the orchestrator's
+    proposals carry: for each transition, :func:`evaluate_escalation` decides
+    ``auto`` vs ``escalate`` from existing graph evidence and (when it escalates)
+    emits a queryable ``:EscalationRequest``; the proposal is stamped with the
+    resulting ``autonomy`` + the escalation id so a downstream executor can inject
+    a human-review gate step (§7.1) at exactly that transition. Report-only:
+    stamping never actuates. Best-effort — a policy failure leaves the proposal at
+    the autonomous default. Extra per-transition evidence (diff size, run status,
+    …) may be threaded via ``context``.
+    """
+    from agent_utilities.observability import escalation_policy
+
+    entry_id = str(entry.get("id") or "")
+    base = dict(context or {})
+    for prop in proposals:
+        ctx = {
+            **base,
+            "entry": entry_id,
+            "transition": prop.get("transition"),
+        }
+        try:
+            request = escalation_policy.evaluate_escalation(ctx, engine=engine)
+        except Exception as e:  # noqa: BLE001 — policy must not break the sweep
+            logger.debug("lifecycle: escalation consult failed: %s", e)
+            request = None
+        if request is not None:
+            prop["autonomy"] = "escalate"
+            prop["escalation"] = request["id"]
+            prop["escalationSignals"] = request["signals"]
+        else:
+            prop["autonomy"] = "auto"
+
+
 def run_lifecycle(
-    entry: dict[str, Any], *, engine: Any | None = None, write: bool = True
+    entry: dict[str, Any],
+    *,
+    engine: Any | None = None,
+    write: bool = True,
+    consult_escalation: bool = False,
+    escalation_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Enter-anywhere gap-fill for one spine node ``entry`` (``{"id", "type"}``).
 
@@ -378,6 +425,12 @@ def run_lifecycle(
     report-only proposals. NEVER executes a transition — each proposal only records
     the intended transition and its ``:boundCapability``. Best-effort: an
     unreachable engine yields an all-zero summary.
+
+    When ``consult_escalation`` is set, each proposal is additionally run through
+    the escalation-decision policy (design §3.4) and stamped ``autonomy``
+    (``auto``/``escalate``) + an ``:EscalationRequest`` id — the consultable gate
+    the fuller-autonomy-with-escalation model carries. ``escalation_context``
+    threads extra per-transition evidence (diff size, run status, service, …).
     """
     eng = engine or health_ingest._engine()
     if eng is None:
@@ -387,6 +440,9 @@ def run_lifecycle(
     all_props = diff_lifecycle(entry, reader=reader)
     seen = _existing_step_signatures(reader)
     fresh = [p for p in all_props if p["signature"] not in seen]
+
+    if consult_escalation and fresh:
+        _annotate_escalation(fresh, entry, engine=eng, context=escalation_context)
 
     result = (
         _write_lifecycle_steps(str(entry.get("id") or ""), fresh) if write else None
