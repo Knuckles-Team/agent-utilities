@@ -899,6 +899,17 @@ class AgentConfig(BaseSettings):
     auth_jwt_audience: str | None = Field(default=None, alias="AUTH_JWT_AUDIENCE")
     """Expected JWT audience claim for validation."""
 
+    identity_group_capability_map: dict[str, list[str]] | None = Field(
+        default=None, alias="IDENTITY_GROUP_CAPABILITY_MAP"
+    )
+    """Optional IdP group/role → capability mapping for provider-agnostic role
+    inheritance (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance). A JSON
+    object, e.g. ``{"okta-group-id-0oa...": ["kg-admin"], "engineering": ["kg-write"]}``.
+    Lets an opaque Okta group id (or a differently-named Keycloak group) map to
+    the same base capability a Keycloak role would grant, so both providers are
+    interchangeable. Unset (default) means a group name IS its capability
+    (identity mapping) — zero-config when group/role names already match."""
+
     # --- Knowledge Graph identity enforcement (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) ---
 
     kg_auth_required: bool = Field(default=False, alias="KG_AUTH_REQUIRED")
