@@ -14,7 +14,7 @@ description: >-
 license: MIT
 tags: [graph-os, epistemic, engine, belief, provenance, confidence, bitemporal]
 tier: core
-wraps: [graph_query, graph_ask, engine_query]
+wraps: [graph_query, graph_ask, engine_query, graph_epistemic]
 metadata:
   author: Genius
   version: '0.1.0'
@@ -59,15 +59,35 @@ params_json='{"...": ...}')`), progressively deeper and progressively more featu
    `{"visible_ids": [...], "policy_denied_ids": [...]}` — use this when an expected row
    is missing and you need to know whether policy hid it.
 
+## Two additive surfaces (WS-1a)
+
+- **`include_epistemic` on the read path** — `graph_query(cypher=..., include_epistemic=true)`
+  and `graph_ask(question=..., include_epistemic=true)` (cypher dialect only) skip the
+  two-step "get ids, then currency-upgrade them" dance above: each result row IS
+  already an `EpistemicRow` (confidence/bitemporal window/evidence/policy labels
+  alongside the row's own `properties`), resolved server-side in the SAME query call.
+  Use this when you just want provenance-aware rows; use the `explain_provenance_by_ids`
+  two-step above when you already have an id list from elsewhere.
+- **`graph_epistemic`** — a purpose-named wrapper over layers 2-4 above PLUS
+  `resolve_conflict` (`{"node_ids": [...], "semantics": "grounded"}` — argumentation-
+  based resolution over a set of contradicting claims), so you don't have to remember
+  the underlying `engine_query` action names: `graph_epistemic(action="why", node_id=...)`
+  = `explain_belief`, `action="status"` = `epistemic_status`, `action="what_changed"`,
+  `action="resolve_conflict"`. Same degrade contract (a clean `{"error": ...}` on an
+  engine build/config that lacks the action).
+
 ## Invoke
 
-- **MCP:** `load_tools(tools=["graph_query", "graph_ask", "engine_query"])`.
+- **MCP:** `load_tools(tools=["graph_query", "graph_ask", "engine_query", "graph_epistemic"])`.
 - Get the base rows: `graph_query(cypher="MATCH (c:Claim) WHERE c.topic = 'X' RETURN c.id AS id")`
   or `graph_ask(question="...", execute=true)`.
-- Currency-upgrade the ids: `engine_query(action="explain_provenance_by_ids", params_json='{"ids": ["claim:1", "claim:2"]}')`.
-- Deep-dive one node: `engine_query(action="explain_belief", params_json='{"node_id": "claim:1"}')`.
-- Capstone (if built with `epistemic-tms`): `engine_query(action="epistemic_status", params_json='{"node_id": "claim:1"}')`.
-- **REST twin:** `POST /engine/query` with `{"action": "explain_belief", "params_json": "{\"node_id\": \"claim:1\"}"}`.
+- Currency-upgrade the ids: `engine_query(action="explain_provenance_by_ids", params_json='{"ids": ["claim:1", "claim:2"]}')`
+  — or skip straight to provenance-aware rows with `graph_query(cypher="...", include_epistemic=true)`.
+- Deep-dive one node: `graph_epistemic(action="why", node_id="claim:1")` (or
+  `engine_query(action="explain_belief", params_json='{"node_id": "claim:1"}')`).
+- Capstone (if built with `epistemic-tms`): `graph_epistemic(action="status", node_id="claim:1")`.
+- **REST twin:** `POST /engine/query` with `{"action": "explain_belief", "params_json": "{\"node_id\": \"claim:1\"}"}`,
+  or `POST /epistemic` with `{"action": "why", "node_id": "claim:1"}`.
 
 ## Example
 
@@ -96,10 +116,11 @@ engine_query(action="epistemic_status", params_json='{"node_id": "claim:mine:abc
   `epistemic-tms` feature (not folded into `full`) — check for a degrade response before
   assuming the capstone ran.
 - `ExplainBelief`'s policy-aware redaction (`disclosure_level` — `Full` / `Skeleton` /
-  `ExistenceOnly`) exists engine-side (`epistemic-redaction` feature) but the
-  `epistemic_graph` Python client this tool wraps has **no method exposing it yet** —
-  it cannot be reached from this skill or any other AU surface today. Treat every
-  `explain_belief` call here as full-disclosure.
+  `ExistenceOnly`, `epistemic-redaction` engine feature) IS now reachable: pass
+  `disclosure_level` to `engine_query(action="explain_belief", ...)` or
+  `graph_epistemic(action="why", disclosure_level="Skeleton", ...)`. Omitting it means
+  full disclosure (the engine's own default). `kg-compliance`'s bulk `export` action
+  applies this per-node across a whole id set.
 - These are read-only diagnostics over what the mining/loop/ingestion pipelines already
   wrote — they explain existing belief structure, they do not create it. To grow the
   belief graph, see `kg-mining-flywheel`.

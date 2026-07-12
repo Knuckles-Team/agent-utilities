@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1001
+total_concepts: 1002
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4805,6 +4805,18 @@ concepts:
   - AU-KG.enrichment.community-reports
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.enrichment.compliance-posture-rollup
+  name: AU-KG.enrichment.compliance-posture-rollup
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/compliance_tools.py
+  doc: AU-KG.enrichment.compliance-posture-rollup
+  dotted: AU-KG.enrichment.compliance-posture-rollup
+  aliases:
+  - AU-KG.enrichment.compliance-posture-rollup
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.enrichment.contextual-retrieval-enrichment
   name: situate each chunk within the document and embed context+chunk for better recall
   pillar: AU-KG
@@ -4825,6 +4837,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/incident_tools.py
   - agent_utilities/observability/incidents.py
   doc: Reads recent
   dotted: AU-KG.enrichment.cross-layer-incident-correlation
