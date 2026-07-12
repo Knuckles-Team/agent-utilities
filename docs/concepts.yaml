@@ -8195,12 +8195,13 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.context-compiler-kv-seam
-  name: '** — the compiled bundle can'
+  name: the serving-layer half of Seam 6. Builds
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
-  doc: '** — the compiled bundle can'
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+  doc: the serving-layer half of Seam 6. Builds
   dotted: AU-KG.retrieval.context-compiler-kv-seam
   aliases:
   - AU-KG.retrieval.context-compiler-kv-seam
@@ -13613,14 +13614,19 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.epistemic.truth-maintenance
-  name: Seam 3 — X-6
+  name: stamp the matrix
   pillar: EG-KG
   status: live
   code_paths:
+  - agent_utilities/graph/routing/enrichers/capability_designation.py
+  - agent_utilities/knowledge_graph/assimilation/feature_matrix.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/knowledge_graph/research/claim_flywheel.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
-  doc: Seam 3 — X-6
+  - agent_utilities/knowledge_graph/research/placement_mining.py
+  doc: stamp the matrix
   dotted: EG-KG.epistemic.truth-maintenance
   aliases:
   - EG-KG.epistemic.truth-maintenance
@@ -13780,6 +13786,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
   - agent_utilities/knowledge_graph/research/code_synthesis.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py

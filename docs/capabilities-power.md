@@ -2,107 +2,107 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen_capability_power.py --write`; `scripts/check_cpd.py` gates drift in CI/pre-commit (CONCEPT:AU-KG.retrieval.capability-power-descriptor). Seam 8 Phase 1 — `plans/program-design-2026-07-11-epistemic-tool-routing.md` section 2b.
 >
-> 95 capabilities · generated 2026-07-12T00:48:23Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
+> 95 capabilities · generated 2026-07-12T01:31:16Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
 
 ## Index
 
 | Capability | Intent verbs | One-line power | Actions | REST |
 |---|---|---|---:|---|
-| [`ask_data`](#askdata) | ask | answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step data-analysis agent  | 1 | `/graph/ask-data` |
-| [`concept_registry`](#conceptregistry) | act | Atomically claim/list/release concept ids across parallel sessions & worktrees (CONCEPT:AU-OS.govern | 1 | `/concept/registry` |
-| [`document_process`](#documentprocess) | ask | Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): extract → chunk(overlap)  | 1 | `/document/process` |
-| [`engine_admin`](#engineadmin) | ask | Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance: online backup + re | 2 | `/engine/admin` |
-| [`engine_analytics`](#engineanalytics) | ask | Low-level epistemic-graph engine surface for the 'analytics' domain (centrality + (personalized) Pag | 5 | `/engine/analytics` |
-| [`engine_blob`](#engineblob) | ask | Low-level epistemic-graph engine surface for the 'blob' domain (streamed content-addressed media blo | 11 | `/engine/blob` |
-| [`engine_broker`](#enginebroker) | ask | Low-level epistemic-graph engine surface for the 'broker' domain (native message broker: exchange/qu | 21 | `/engine/broker` |
-| [`engine_channels`](#enginechannels) | ask | Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agent communication chan | 8 | `/engine/channels` |
-| [`engine_consensus`](#engineconsensus) | ask | Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig  | 2 | `/engine/consensus` |
-| [`engine_datascience`](#enginedatascience) | ask | Low-level epistemic-graph engine surface for the 'datascience' domain (estimators + primitives + tra | 15 | `/engine/datascience` |
-| [`engine_edges`](#engineedges) | ask | Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temporal invalidate/supe | 9 | `/engine/edges` |
-| [`engine_finance`](#enginefinance) | ask | Low-level epistemic-graph engine surface for the 'finance' domain (quantitative finance (optimize/ri | 67 | `/engine/finance` |
-| [`engine_graph`](#enginegraph) | ask | Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithms, AST parse/index,  | 29 | `/engine/graph` |
-| [`engine_graphlearn`](#enginegraphlearn) | ask | Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-learning: fit/predic | 2 | `/engine/graphlearn` |
+| [`ask_data`](#askdata) | ask | answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step data-analysis agent | 1 | `/graph/ask-data` |
+| [`concept_registry`](#conceptregistry) | act | Atomically claim/list/release concept ids across parallel sessions & worktrees | 1 | `/concept/registry` |
+| [`document_process`](#documentprocess) | ask | Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): extract → chunk(overlap) | 1 | `/document/process` |
+| [`engine_admin`](#engineadmin) | ask | Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance: online backup + | 2 | `/engine/admin` |
+| [`engine_analytics`](#engineanalytics) | ask | Low-level epistemic-graph engine surface for the 'analytics' domain (centrality + (personalized) | 5 | `/engine/analytics` |
+| [`engine_blob`](#engineblob) | ask | Low-level epistemic-graph engine surface for the 'blob' domain (streamed content-addressed media | 11 | `/engine/blob` |
+| [`engine_broker`](#enginebroker) | ask | Low-level epistemic-graph engine surface for the 'broker' domain (native message broker: | 21 | `/engine/broker` |
+| [`engine_channels`](#enginechannels) | ask | Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agent communication | 8 | `/engine/channels` |
+| [`engine_consensus`](#engineconsensus) | ask | Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig | 2 | `/engine/consensus` |
+| [`engine_datascience`](#enginedatascience) | ask | Low-level epistemic-graph engine surface for the 'datascience' domain (estimators + primitives + | 15 | `/engine/datascience` |
+| [`engine_edges`](#engineedges) | ask | Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temporal | 9 | `/engine/edges` |
+| [`engine_finance`](#enginefinance) | ask | Low-level epistemic-graph engine surface for the 'finance' domain (quantitative finance | 67 | `/engine/finance` |
+| [`engine_graph`](#enginegraph) | ask | Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithms, AST parse/index, | 29 | `/engine/graph` |
+| [`engine_graphlearn`](#enginegraphlearn) | ask | Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-learning: | 2 | `/engine/graphlearn` |
 | [`engine_ledger`](#engineledger) | ask | Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger get/clear/apply). | 3 | `/engine/ledger` |
-| [`engine_lifecycle`](#enginelifecycle) | manage | Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay/evict, batch_update | 10 | `/engine/lifecycle` |
-| [`engine_mining`](#enginemining) | ask | Low-level epistemic-graph engine surface for the 'mining' domain (association-rule mining (Apriori/F | 18 | `/engine/mining` |
-| [`engine_nodes`](#enginenodes) | ask | Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batch/union reads, degre | 20 | `/engine/nodes` |
-| [`engine_query`](#enginequery) | ask | Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / GraphQL / UQL / unif | 23 | `/engine/query` |
-| [`engine_rbac`](#enginerbac) | manage | Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy administration: roles +  | 5 | `/engine/rbac` |
-| [`engine_rdf`](#enginerdf) | ask | Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL reasoning) | 9 | `/engine/rdf` |
-| [`engine_reasoning`](#enginereasoning) | ask | Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-chaining OWL/RDFS Datal | 1 | `/engine/reasoning` |
-| [`engine_resharding`](#engineresharding) | manage | Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog/reshard/rebalance a | 7 | `/engine/resharding` |
-| [`engine_streaming`](#enginestreaming) | ask | Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / continuous queries / watc | 9 | `/engine/streaming` |
-| [`engine_tenants`](#enginetenants) | manage | Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph create/delete/ | 3 | `/engine/tenants` |
-| [`engine_timeseries`](#enginetimeseries) | ask | Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB append/range/windo | 6 | `/engine/timeseries` |
+| [`engine_lifecycle`](#enginelifecycle) | manage | Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay/evict, | 10 | `/engine/lifecycle` |
+| [`engine_mining`](#enginemining) | ask | Low-level epistemic-graph engine surface for the 'mining' domain (association-rule mining | 18 | `/engine/mining` |
+| [`engine_nodes`](#enginenodes) | ask | Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batch/union reads, | 20 | `/engine/nodes` |
+| [`engine_query`](#enginequery) | ask | Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / GraphQL / UQL / | 23 | `/engine/query` |
+| [`engine_rbac`](#enginerbac) | manage | Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy administration: roles + | 5 | `/engine/rbac` |
+| [`engine_rdf`](#enginerdf) | ask | Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL | 9 | `/engine/rdf` |
+| [`engine_reasoning`](#enginereasoning) | ask | Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-chaining OWL/RDFS | 1 | `/engine/reasoning` |
+| [`engine_resharding`](#engineresharding) | manage | Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog/reshard/rebalance | 7 | `/engine/resharding` |
+| [`engine_streaming`](#enginestreaming) | ask | Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / continuous queries / | 9 | `/engine/streaming` |
+| [`engine_tenants`](#enginetenants) | manage | Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph | 3 | `/engine/tenants` |
+| [`engine_timeseries`](#enginetimeseries) | ask | Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB | 6 | `/engine/timeseries` |
 | [`engine_txn`](#enginetxn) | ask | Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC ACID transactions). | 17 | `/engine/txn` |
 | [`graph_analyze`](#graphanalyze) | ask | Ops / structural analysis over the KG. | 68 | `/graph/analyze` |
 | [`graph_ask`](#graphask) | ask | ask the Knowledge Graph in plain English. | 1 | `/graph/ask` |
-| [`graph_broker`](#graphbroker) | ask | the epistemic-graph engine message broker (AMQP-style exchanges + queues + streams), distinct from t | 1 | `/graph/broker` |
-| [`graph_bus`](#graphbus) | ask | the agent-to-agent communication bus: let this session talk to other Claude/LLM sessions (any provid | 1 | `/graph/bus` |
+| [`graph_broker`](#graphbroker) | ask | the epistemic-graph engine message broker (AMQP-style exchanges + queues + streams), distinct from | 1 | `/graph/broker` |
+| [`graph_bus`](#graphbus) | ask | the agent-to-agent communication bus: let this session talk to other Claude/LLM sessions (any | 1 | `/graph/bus` |
 | [`graph_code`](#graphcode) | ask | Understand a CODEBASE via the ingested code graph — query this before grep. | 1 | `/graph/code` |
-| [`graph_code_nav`](#graphcodenav) | ask | Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-schema). action: 'find_d | 1 | `/graph/code-nav` |
-| [`graph_configure`](#graphconfigure) | manage | Manage backend configurations, system credentials, and tool registration within the unified agent ec | 31 | `/graph/configure` |
-| [`graph_context`](#graphcontext) | act, ask | store/fetch curated context for invoker→spawned-agent handoff, persisted in the epistemic-graph so a | 4 | `/graph/context` |
-| [`graph_document_tree`](#graphdocumenttree) | ask, find | Reasoning-tree (vectorless) document retrieval over a per-document section tree (CONCEPT:AU-KG.retri | 4 | `/graph/document-tree` |
+| [`graph_code_nav`](#graphcodenav) | ask | Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-schema). action: | 1 | `/graph/code-nav` |
+| [`graph_configure`](#graphconfigure) | manage | Manage backend configurations, system credentials, and tool registration within the unified agent | 31 | `/graph/configure` |
+| [`graph_context`](#graphcontext) | act, ask | store/fetch curated context for invoker→spawned-agent handoff, persisted in the epistemic-graph so | 4 | `/graph/context` |
+| [`graph_document_tree`](#graphdocumenttree) | ask, find | Reasoning-tree (vectorless) document retrieval over a per-document section tree | 4 | `/graph/document-tree` |
 | [`graph_etl`](#graphetl) | write | Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.ontology.one-source). | 2 | `/graph/etl` |
 | [`graph_evaluate`](#graphevaluate) | why | Evaluate agents/harnesses and reason over learned world models. | 1 | `/graph/evaluate` |
-| [`graph_explain`](#graphexplain) | why | The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to | 1 | `/graph/explain` |
+| [`graph_explain`](#graphexplain) | why | The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question | 1 | `/graph/explain` |
 | [`graph_federated_search`](#graphfederatedsearch) | ask | federated search fanned across registered external graph references. | 1 | `/graph/federated-search` |
-| [`graph_feedback`](#graphfeedback) | write | Record a human correction so the brain learns: correction_type 'outcome' adjusts an entity's reward, | 1 | `/graph/feedback` |
+| [`graph_feedback`](#graphfeedback) | write | Record a human correction so the brain learns: correction_type 'outcome' adjusts an entity's | 1 | `/graph/feedback` |
 | [`graph_feeds`](#graphfeeds) | manage | Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connector/2.122). | 4 | `/graph/feeds` |
-| [`graph_fork`](#graphfork) | ask | warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-on-write sandboxes): | 1 | `/graph/fork` |
+| [`graph_fork`](#graphfork) | ask | warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-on-write | 1 | `/graph/fork` |
 | [`graph_gis`](#graphgis) | ask | the engine's GIS surface. | 1 | `/graph/gis` |
 | [`graph_goals`](#graphgoals) | act, manage | Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations', 'cancel'). | 4 | `/graph/goals` |
 | [`graph_hydrate`](#graphhydrate) | manage | Hydrate the Knowledge Graph from configured external sources. | 1 | `/graph/hydrate` |
 | [`graph_ingest`](#graphingest) | write | Smart ingestion for codebases, documents, directories, and conversation logs. | 38 | `/graph/ingest` |
-| [`graph_kvcache`](#graphkvcache) | ask | the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, driven through the KG- | 5 | `/graph/kvcache` |
-| [`graph_learn`](#graphlearn) | ask | a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whose learned per-featur | 2 | `/graphlearn/fit` |
+| [`graph_kvcache`](#graphkvcache) | ask | the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, driven through the | 5 | `/graph/kvcache` |
+| [`graph_learn`](#graphlearn) | ask | a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whose learned | 2 | `/graphlearn/fit` |
 | [`graph_loops`](#graphloops) | act, manage | The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-properties-carry). | 9 | `/graph/loops` |
-| [`graph_memory`](#graphmemory) | ask | the engine's EG-318 memory surface: episodic→semantic memory, the spatial scene graph, and RL trajec | 3 | `/graph/memory` |
-| [`graph_message`](#graphmessage) | act, ask | bidirectional, cross-process, ordered message channel between an invoking agent and a spawned agent, | 5 | `/graph/message` |
-| [`graph_mine`](#graphmine) | ask | the unified data-mining surface over the engine, compute-near-data (mining runs where the graph live | 10 | `/mining/associate` |
-| [`graph_mine_deep`](#graphminedeep) | ask | the deep-learning / heavy-Python family the engine core deliberately does NOT implement (no torch/GP | 5 | `/mining/deep/deep_forecast` |
-| [`graph_observe`](#graphobserve) | why | Reason over the KG-native observability subgraph — traces, online-scores, assertion verdicts, genera | 3 | `/graph/observe` |
-| [`graph_ontology`](#graphontology) | manage | Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary OWL/RDF  | 11 | `/graph/ontology` |
-| [`graph_ops_causal`](#graphopscausal) | ask | Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/tool/model -> service | 5 | `/ops/causal` |
+| [`graph_memory`](#graphmemory) | ask | the engine's EG-318 memory surface: episodic→semantic memory, the spatial scene graph, and RL | 3 | `/graph/memory` |
+| [`graph_message`](#graphmessage) | act, ask | bidirectional, cross-process, ordered message channel between an invoking agent and a spawned | 5 | `/graph/message` |
+| [`graph_mine`](#graphmine) | ask | the unified data-mining surface over the engine, compute-near-data (mining runs where the graph | 10 | `/mining/associate` |
+| [`graph_mine_deep`](#graphminedeep) | ask | the deep-learning / heavy-Python family the engine core deliberately does NOT implement (no | 5 | `/mining/deep/deep_forecast` |
+| [`graph_observe`](#graphobserve) | why | Reason over the KG-native observability subgraph — traces, online-scores, assertion verdicts, | 3 | `/graph/observe` |
+| [`graph_ontology`](#graphontology) | manage | Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary OWL/RDF | 11 | `/graph/ontology` |
+| [`graph_ops_causal`](#graphopscausal) | ask | Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/tool/model -> | 5 | `/ops/causal` |
 | [`graph_orchestrate`](#graphorchestrate) | act | Orchestrate multi-agent workflows, dispatch subagents, and manage execution loops. | 34 | `/graph/orchestrate` |
-| [`graph_promql`](#graphpromql) | ask | query the engine's observability metrics with PromQL. action='instant' (a single evaluation at 'time | 2 | `/graph/promql` |
+| [`graph_promql`](#graphpromql) | ask | query the engine's observability metrics with PromQL. action='instant' (a single evaluation at | 2 | `/graph/promql` |
 | [`graph_query`](#graphquery) | ask | Execute a read-only Cypher query against the Knowledge Graph. | 1 | `/graph/query` |
 | [`graph_reach`](#graphreach) | ask | reach the user over a messaging backend (Telegram, Slack, Discord, ...). | 5 | `/graph/reach` |
 | [`graph_research`](#graphresearch) | ask | Run the research/assimilation pipeline. | 1 | `/graph/research` |
-| [`graph_runvcs`](#graphrunvcs) | act, manage | Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a LIVE | 7 | `/graph/runvcs` |
-| [`graph_sandbox`](#graphsandbox) | act, manage | Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surf | 3 | `/graph/sandbox` |
+| [`graph_runvcs`](#graphrunvcs) | act, manage | Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a | 7 | `/graph/runvcs` |
+| [`graph_sandbox`](#graphsandbox) | act, manage | Inspect and control the native warm-fork sandbox runtime | 3 | `/graph/sandbox` |
 | [`graph_schedules`](#graphschedules) | act, manage | Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent). | 6 | `/graph/schedules` |
-| [`graph_search`](#graphsearch) | ask | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, dc | 1 | `/graph/search` |
-| [`graph_search_synthesis`](#graphsearchsynthesis) | ask | Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized searc | 2 | `/graph/search-synthesis` |
-| [`graph_secret`](#graphsecret) | manage | Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted __se | 4 | `/graph/secret` |
+| [`graph_search`](#graphsearch) | ask | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, | 1 | `/graph/search` |
+| [`graph_search_synthesis`](#graphsearchsynthesis) | ask | Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized | 2 | `/graph/search-synthesis` |
+| [`graph_secret`](#graphsecret) | manage | Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted | 4 | `/graph/secret` |
 | [`graph_sessions`](#graphsessions) | manage | Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel'). | 5 | `/graph/sessions` |
 | [`graph_share`](#graphshare) | manage | Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). | 4 | `/graph/share` |
 | [`graph_table`](#graphtable) | ask, write | mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them. | 6 | `/graph/table` |
-| [`graph_traces`](#graphtraces) | ask | search or fetch distributed traces from the engine's observability surface. action='search' (filter  | 2 | `/graph/traces` |
+| [`graph_traces`](#graphtraces) | ask | search or fetch distributed traces from the engine's observability surface. action='search' (filter | 2 | `/graph/traces` |
 | [`graph_write`](#graphwrite) | write | Write nodes, relationships, or register external graphs to the Knowledge Graph. | 14 | `/graph/write` |
-| [`graph_writeback`](#graphwriteback) | write | Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.storage.nonblocking-c | 1 | `/graph/writeback` |
-| [`ingest_sessions`](#ingestsessions) | write | Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.mcp.client-side-chat- | 3 | `/usage/ingest-sessions` |
-| [`nl_query`](#nlquery) | ask | ask the Knowledge Graph in plain English, planned by agent-utilities' OWN configured fleet LLM (the  | 1 | `/graph/nl-query` |
-| [`object_edits`](#objectedits) | ask | Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit  | 4 | `/object/edits` |
-| [`object_index`](#objectindex) | ask | Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live): ba | 3 | `/object/index` |
-| [`object_permissioning`](#objectpermissioning) | ask | Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): red | 3 | `/object/permissioning` |
-| [`object_set`](#objectset) | ask | Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/ | 9 | `/object/set` |
-| [`ontology_derive`](#ontologyderive) | ask | Compute derived (function/cypher/sparql/embedding-backed) properties live at read time (CONCEPT:AU-K | 4 | `/ontology/derive` |
-| [`ontology_function`](#ontologyfunction) | ask | Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:AU-KG.onto | 2 | `/ontology/function` |
-| [`ontology_interface`](#ontologyinterface) | ask | Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:AU-KG | 4 | `/ontology/interface` |
-| [`ontology_leanix_sync`](#ontologyleanixsync) | ask | Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.tt | 1 | `/ontology/leanix-sync` |
-| [`ontology_link_materialize`](#ontologylinkmaterialize) | ask | Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT | 1 | `/ontology/link-materialize` |
-| [`ontology_property_types`](#ontologypropertytypes) | ask | List the ontology property-type registry and resolve/validate a Palantir-style type ref (CONCEPT:AU- | 4 | `/ontology/property-types` |
-| [`ontology_sampling_profile`](#ontologysamplingprofile) | ask | Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/ | 6 | `/ontology/sampling-profiles` |
-| [`ontology_value_types`](#ontologyvaluetypes) | ask | List/describe constrained ontology value types and validate or coerce a value (CONCEPT:AU-KG.ontolog | 4 | `/ontology/value-types` |
+| [`graph_writeback`](#graphwriteback) | write | Backfeed KG-derived knowledge into an external system-of-record | 1 | `/graph/writeback` |
+| [`ingest_sessions`](#ingestsessions) | write | Ingest AI agent chat/session history into the usage store + KG | 3 | `/usage/ingest-sessions` |
+| [`nl_query`](#nlquery) | ask | ask the Knowledge Graph in plain English, planned by agent-utilities' OWN configured fleet LLM (the | 1 | `/graph/nl-query` |
+| [`object_edits`](#objectedits) | ask | Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit | 4 | `/object/edits` |
+| [`object_index`](#objectindex) | ask | Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live): | 3 | `/object/index` |
+| [`object_permissioning`](#objectpermissioning) | ask | Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): | 3 | `/object/permissioning` |
+| [`object_set`](#objectset) | ask | Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): | 9 | `/object/set` |
+| [`ontology_derive`](#ontologyderive) | ask | Compute derived (function/cypher/sparql/embedding-backed) properties live at read time | 4 | `/ontology/derive` |
+| [`ontology_function`](#ontologyfunction) | ask | Typed, versioned ontology functions: list or invoke through the governed runtime | 2 | `/ontology/function` |
+| [`ontology_interface`](#ontologyinterface) | ask | Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL | 4 | `/ontology/interface` |
+| [`ontology_leanix_sync`](#ontologyleanixsync) | ask | Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates | 1 | `/ontology/leanix-sync` |
+| [`ontology_link_materialize`](#ontologylinkmaterialize) | ask | Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it | 1 | `/ontology/link-materialize` |
+| [`ontology_property_types`](#ontologypropertytypes) | ask | List the ontology property-type registry and resolve/validate a Palantir-style type ref | 4 | `/ontology/property-types` |
+| [`ontology_sampling_profile`](#ontologysamplingprofile) | ask | Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): | 6 | `/ontology/sampling-profiles` |
+| [`ontology_value_types`](#ontologyvaluetypes) | ask | List/describe constrained ontology value types and validate or coerce a value | 4 | `/ontology/value-types` |
 | [`quant`](#quant) | ask | The Ultimate Quant System Tool. | 14 | `/quant` |
-| [`research_artifact`](#researchartifact) | manage | Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.research.best-effort- | 1 | `/research/artifact` |
-| [`source_connector`](#sourceconnector) | ask | Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list  | 2 | `/connector/source` |
-| [`source_drain`](#sourcedrain) | write | Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:AU-KG.ont | 1 | `/source/drain` |
-| [`source_sync`](#sourcesync) | write | THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one e | 1 | `/source/sync` |
-| [`spec_ticket`](#specticket) | write | Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable (CONCEPT:AU-KG.inges | 1 | `/spec/ticket` |
-| [`usage_query`](#usagequery) | write | Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): toke | 11 | `/usage/query` |
+| [`research_artifact`](#researchartifact) | manage | Agent-Native Research Artifacts over the one ontology-driven KG | 1 | `/research/artifact` |
+| [`source_connector`](#sourceconnector) | ask | Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list | 2 | `/connector/source` |
+| [`source_drain`](#sourcedrain) | write | Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus | 1 | `/source/drain` |
+| [`source_sync`](#sourcesync) | write | THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one | 1 | `/source/sync` |
+| [`spec_ticket`](#specticket) | write | Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable | 1 | `/spec/ticket` |
+| [`usage_query`](#usagequery) | write | Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): | 11 | `/usage/query` |
 
 ## Capabilities
 
@@ -134,7 +134,7 @@ answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -170,7 +170,7 @@ Atomically claim/list/release concept ids across parallel sessions & worktrees (
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -204,7 +204,7 @@ Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): ext
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -236,7 +236,7 @@ Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -271,7 +271,7 @@ Low-level epistemic-graph engine surface for the 'analytics' domain (centrality 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -312,7 +312,7 @@ Low-level epistemic-graph engine surface for the 'blob' domain (streamed content
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -363,7 +363,7 @@ Low-level epistemic-graph engine surface for the 'broker' domain (native message
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -401,7 +401,7 @@ Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -433,7 +433,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -478,7 +478,7 @@ Low-level epistemic-graph engine surface for the 'datascience' domain (estimator
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -517,7 +517,7 @@ Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -608,7 +608,7 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -667,7 +667,7 @@ Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -699,7 +699,7 @@ Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -732,7 +732,7 @@ Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -772,7 +772,7 @@ Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -820,7 +820,7 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -871,7 +871,7 @@ Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -924,7 +924,7 @@ Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -959,7 +959,7 @@ Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -998,7 +998,7 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1029,7 +1029,7 @@ Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1066,7 +1066,7 @@ Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1105,7 +1105,7 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1138,7 +1138,7 @@ Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1174,7 +1174,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1222,7 +1222,7 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1317,7 +1317,7 @@ Ops / structural analysis over the KG.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1350,7 +1350,7 @@ ask the Knowledge Graph in plain English.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1386,7 +1386,7 @@ the epistemic-graph engine message broker (AMQP-style exchanges + queues + strea
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerConsume', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerConsume', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1436,7 +1436,7 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1470,7 +1470,7 @@ Understand a CODEBASE via the ingested code graph — query this before grep.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1506,7 +1506,7 @@ Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-sche
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1567,7 +1567,7 @@ Manage backend configurations, system credentials, and tool registration within 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1604,7 +1604,7 @@ store/fetch curated context for invoker→spawned-agent handoff, persisted in th
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1645,7 +1645,7 @@ Reasoning-tree (vectorless) document retrieval over a per-document section tree 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1683,7 +1683,7 @@ Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.on
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1717,7 +1717,7 @@ Evaluate agents/harnesses and reason over learned world models.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1751,7 +1751,7 @@ The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain):
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'ExplainPlan', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'ExplainPlan', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1784,7 +1784,7 @@ federated search fanned across registered external graph references.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1819,7 +1819,7 @@ Record a human correction so the brain learns: correction_type 'outcome' adjusts
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1854,7 +1854,7 @@ Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1889,7 +1889,7 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1920,7 +1920,7 @@ the engine's GIS surface.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1955,7 +1955,7 @@ Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -1984,7 +1984,7 @@ Hydrate the Knowledge Graph from configured external sources.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:22Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2058,7 +2058,7 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2093,7 +2093,7 @@ the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, dr
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2125,7 +2125,7 @@ a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whos
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2177,7 +2177,7 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2210,7 +2210,7 @@ the engine's EG-318 memory surface: episodic→semantic memory, the spatial scen
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2250,7 +2250,7 @@ bidirectional, cross-process, ordered message channel between an invoking agent 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2290,7 +2290,7 @@ the unified data-mining surface over the engine, compute-near-data (mining runs 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2325,7 +2325,7 @@ the deep-learning / heavy-Python family the engine core deliberately does NOT im
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2358,7 +2358,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2366,7 +2366,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 **graph ontology**
 
-Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary OWL/RDF ontologies hosted in the running KG. action='load' (parse + SHACL-validate + register a .ttl/OWL fro
+Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary OWL/RDF ontologies hosted in the running KG. action='load' (parse + SHACL-validate + register a .ttl/OWL
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/ontology`
@@ -2407,7 +2407,7 @@ Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — man
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2446,7 +2446,7 @@ Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/t
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2524,7 +2524,7 @@ Orchestrate multi-agent workflows, dispatch subagents, and manage execution loop
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2561,7 +2561,7 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2596,7 +2596,7 @@ Execute a read-only Cypher query against the Knowledge Graph.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2636,7 +2636,7 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2670,7 +2670,7 @@ Run the research/assimilation pipeline.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2716,7 +2716,7 @@ Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, reve
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2748,7 +2748,7 @@ Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbo
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2785,7 +2785,7 @@ Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-schedulin
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2835,7 +2835,7 @@ Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2843,7 +2843,7 @@ Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, 
 
 **graph search synthesis**
 
-Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized search difficulty of solver trajectories (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72, AHE
+Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized search difficulty of solver trajectories (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72,
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/search-synthesis`
@@ -2872,7 +2872,7 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2908,7 +2908,7 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2943,7 +2943,7 @@ Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -2977,7 +2977,7 @@ Share a private node (CONCEPT:AU-KG.compute.data-is-private-its).
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3019,7 +3019,7 @@ mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3056,7 +3056,7 @@ search or fetch distributed traces from the engine's observability surface. acti
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3112,7 +3112,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3151,7 +3151,7 @@ Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3159,7 +3159,7 @@ Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s
 
 **ingest sessions**
 
-Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and parses their local logs (use when
+Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and parses their local logs (use
 
 - **Intent verbs:** write
 - **REST route:** `/usage/ingest-sessions`
@@ -3185,7 +3185,7 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3219,7 +3219,7 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3260,7 +3260,7 @@ Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3292,7 +3292,7 @@ Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-increm
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3328,7 +3328,7 @@ Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-material
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3375,7 +3375,7 @@ Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3411,7 +3411,7 @@ Compute derived (function/cypher/sparql/embedding-backed) properties live at rea
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3445,7 +3445,7 @@ Typed, versioned ontology functions: list or invoke through the governed runtime
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3484,7 +3484,7 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3492,7 +3492,7 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 
 **ontology leanix sync**
 
-Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:AU-KG.
+Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion
 
 - **Intent verbs:** ask
 - **REST route:** `/ontology/leanix-sync`
@@ -3513,7 +3513,7 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3546,7 +3546,7 @@ Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple a
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3580,7 +3580,7 @@ List the ontology property-type registry and resolve/validate a Palantir-style t
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:15Z'}*
 
 ---
 
@@ -3618,7 +3618,7 @@ Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selec
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3652,7 +3652,7 @@ List/describe constrained ontology value types and validate or coerce a value (C
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3688,25 +3688,25 @@ The Ultimate Quant System Tool.
 
 **Typed input:**
 
-- `domain` (string, required): 
-- `action` (string, required): 
-- `ticker` (string): 
-- `asset_class` (string): 
-- `period` (string): 
-- `interval` (string): 
-- `side` (string): 
-- `quantity` (number): 
-- `order_type` (string): 
-- `price` (number): 
-- `mode` (string): 
-- `portfolio_id` (string): 
-- `rounds` (integer): 
+- `domain` (string, required):
+- `action` (string, required):
+- `ticker` (string):
+- `asset_class` (string):
+- `period` (string):
+- `interval` (string):
+- `side` (string):
+- `quantity` (number):
+- `order_type` (string):
+- `price` (number):
+- `mode` (string):
+- `portfolio_id` (string):
+- `rounds` (integer):
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3714,7 +3714,7 @@ The Ultimate Quant System Tool.
 
 **research artifact**
 
-Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80). action in 'reason' (run OWL/RDF reasoning over the whole ecosystem and harv
+Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80). action in 'reason' (run OWL/RDF reasoning over the whole ecosystem and
 
 - **Intent verbs:** manage
 - **REST route:** `/research/artifact`
@@ -3746,7 +3746,7 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3754,7 +3754,7 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 **source connector**
 
-Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool dr
+Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool
 
 - **Intent verbs:** ask
 - **REST route:** `/connector/source`
@@ -3781,7 +3781,7 @@ Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework�
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3811,7 +3811,7 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3842,7 +3842,7 @@ THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-sou
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3880,7 +3880,7 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
 
@@ -3929,6 +3929,6 @@ Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observab
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T00:48:23Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': '/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-12T01:31:16Z'}*
 
 ---
