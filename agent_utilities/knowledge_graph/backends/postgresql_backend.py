@@ -759,9 +759,21 @@ class PostgreSQLBackend(GraphBackend):
         return run_with_resilience_sync(_attempt, policy)
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query by transpiling to SQL."""
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
+            # primitive on this backend; degrade to ``[]`` per the ABC contract.
+            logger.debug(
+                "PostgreSQLBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         from agent_utilities.orchestration.resilience import (
             ResiliencePolicy,
             RetryableError,

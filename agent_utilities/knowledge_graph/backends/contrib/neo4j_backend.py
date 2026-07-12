@@ -56,8 +56,20 @@ class Neo4jBackend(GraphBackend):
         return value
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
+            # primitive on this backend; degrade to ``[]`` per the ABC contract.
+            logger.debug(
+                "Neo4jBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         params = {k: coerce_cypher_property(v) for k, v in (params or {}).items()}
         with self.driver.session() as session:
             result = session.run(query, params)

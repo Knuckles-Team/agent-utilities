@@ -117,7 +117,11 @@ class JenaFusekiBackend(SparqlAdapter):
     # ------------------------------------------------------------------
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a SPARQL query/update against Fuseki.
 
@@ -127,7 +131,18 @@ class JenaFusekiBackend(SparqlAdapter):
         code that raised on every Cypher query). Use a SPARQL query, or an LPG
         backend for Cypher. The LPG↔OWL bridge answers SPARQL over any LPG store
         via ``OWLBridge.query_sparql`` — this backend is for a real triplestore.
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1): this triplestore
+        tier has no id-seeded epistemic-envelope primitive, so a ``True`` request
+        degrades to ``[]`` per the ABC contract rather than raising or silently
+        returning plain rows.
         """
+        if include_epistemic:
+            logger.debug(
+                "JenaFusekiBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         stripped = query.strip().upper()
         if stripped.startswith(
             ("SELECT", "ASK", "CONSTRUCT", "DESCRIBE", "PREFIX", "INSERT", "DELETE")
