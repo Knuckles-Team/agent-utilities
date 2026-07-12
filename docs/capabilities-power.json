@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-12T00:48:23Z",
+  "generated_at": "2026-07-12T01:31:16Z",
   "count": 95,
   "capabilities": [
     {
@@ -112,7 +112,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ask_data: answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step ",
+        "ask_data: answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step",
         "ask_data action=ask_data"
       ],
       "eligibility_predicates": {
@@ -136,7 +136,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -295,7 +295,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "concept_registry: Atomically claim/list/release concept ids across parallel sessions & worktrees (",
+        "concept_registry: Atomically claim/list/release concept ids across parallel sessions & worktrees",
         "concept_registry action=concept_registry"
       ],
       "eligibility_predicates": {
@@ -319,7 +319,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -454,7 +454,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "document_process: Document \u2192 ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): extra",
+        "document_process: Document \u2192 ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage):",
         "document_process action=document_process"
       ],
       "eligibility_predicates": {
@@ -476,7 +476,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -608,7 +608,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_admin: Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance",
+        "engine_admin: Low-level epistemic-graph engine surface for the 'admin' domain",
         "engine_admin action=backup",
         "engine_admin action=restore"
       ],
@@ -632,7 +632,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -789,7 +789,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_analytics: Low-level epistemic-graph engine surface for the 'analytics' domain (centrality ",
+        "engine_analytics: Low-level epistemic-graph engine surface for the 'analytics' domain (centrality",
         "engine_analytics action=betweenness_centrality",
         "engine_analytics action=degree_centrality",
         "engine_analytics action=degree_centrality_all"
@@ -814,7 +814,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -1081,7 +1081,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_blob: Low-level epistemic-graph engine surface for the 'blob' domain (streamed content",
+        "engine_blob: Low-level epistemic-graph engine surface for the 'blob' domain (streamed",
         "engine_blob action=begin",
         "engine_blob action=chunk_get",
         "engine_blob action=chunk_put"
@@ -1106,7 +1106,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -1551,7 +1551,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_broker: Low-level epistemic-graph engine surface for the 'broker' domain (native message",
+        "engine_broker: Low-level epistemic-graph engine surface for the 'broker' domain (native",
         "engine_broker action=ack",
         "engine_broker action=ack_tag",
         "engine_broker action=bind_queue"
@@ -1576,7 +1576,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -1813,7 +1813,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_channels: Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen",
+        "engine_channels: Low-level epistemic-graph engine surface for the 'channels' domain (dynamic",
         "engine_channels action=close",
         "engine_channels action=create",
         "engine_channels action=get_members"
@@ -1838,7 +1838,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -1973,7 +1973,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust ",
+        "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust",
         "engine_consensus action=apply_multisig_mutation",
         "engine_consensus action=register_identity"
       ],
@@ -1998,7 +1998,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -2166,7 +2166,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_datascience: Low-level epistemic-graph engine surface for the 'datascience' domain (estimator",
+        "engine_datascience: Low-level epistemic-graph engine surface for the 'datascience' domain",
         "engine_datascience action=adam_step",
         "engine_datascience action=compute_stats",
         "engine_datascience action=cross_entropy"
@@ -2191,7 +2191,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -2427,7 +2427,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_edges: Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp",
+        "engine_edges: Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD,",
         "engine_edges action=add",
         "engine_edges action=count",
         "engine_edges action=has"
@@ -2452,7 +2452,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -3693,7 +3693,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_finance: Low-level epistemic-graph engine surface for the 'finance' domain (quantitative ",
+        "engine_finance: Low-level epistemic-graph engine surface for the 'finance' domain (quantitative",
         "engine_finance action=adf_test",
         "engine_finance action=alpha_combination_engine",
         "engine_finance action=avellaneda_stoikov"
@@ -3718,7 +3718,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -4278,7 +4278,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_graph: Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm",
+        "engine_graph: Low-level epistemic-graph engine surface for the 'graph' domain (graph",
         "engine_graph action=add_embedding",
         "engine_graph action=batch_cosine_similarity",
         "engine_graph action=batch_l2_normalize"
@@ -4303,7 +4303,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -4438,7 +4438,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_graphlearn: Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-",
+        "engine_graphlearn: Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN",
         "engine_graphlearn action=fit",
         "engine_graphlearn action=predict"
       ],
@@ -4462,7 +4462,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -4614,7 +4614,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_ledger: Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g",
+        "engine_ledger: Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger",
         "engine_ledger action=apply",
         "engine_ledger action=clear",
         "engine_ledger action=get"
@@ -4639,7 +4639,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -4911,7 +4911,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_lifecycle: Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay",
+        "engine_lifecycle: Low-level epistemic-graph engine surface for the 'lifecycle' domain",
         "engine_lifecycle action=batch_update",
         "engine_lifecycle action=decay_sweep",
         "engine_lifecycle action=evict_lru"
@@ -4936,7 +4936,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -5352,7 +5352,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_mining: Low-level epistemic-graph engine surface for the 'mining' domain (association-ru",
+        "engine_mining: Low-level epistemic-graph engine surface for the 'mining' domain",
         "engine_mining action=anomaly",
         "engine_mining action=associate",
         "engine_mining action=causal_impact"
@@ -5377,7 +5377,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -5791,7 +5791,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_nodes: Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc",
+        "engine_nodes: Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD,",
         "engine_nodes action=add",
         "engine_nodes action=claim_next",
         "engine_nodes action=compare_and_set"
@@ -5816,7 +5816,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -6285,7 +6285,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_query: Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / ",
+        "engine_query: Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher /",
         "engine_query action=causal_counterfactual",
         "engine_query action=causal_estimate",
         "engine_query action=cypher"
@@ -6310,7 +6310,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -6429,7 +6429,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_rbac: Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi",
+        "engine_rbac: Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy",
         "engine_rbac action=add_grant",
         "engine_rbac action=add_role",
         "engine_rbac action=list"
@@ -6455,7 +6455,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -6691,7 +6691,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_rdf: Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA",
+        "engine_rdf: Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples +",
         "engine_rdf action=add_triples",
         "engine_rdf action=drop_named_graph",
         "engine_rdf action=explain"
@@ -6716,7 +6716,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -6814,7 +6814,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_reasoning: Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha",
+        "engine_reasoning: Low-level epistemic-graph engine surface for the 'reasoning' domain",
         "engine_reasoning action=reason"
       ],
       "eligibility_predicates": {
@@ -6837,7 +6837,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -7055,7 +7055,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_resharding: Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog",
+        "engine_resharding: Low-level epistemic-graph engine surface for the 'resharding' domain (M3",
         "engine_resharding action=catalog_assign",
         "engine_resharding action=catalog_list",
         "engine_resharding action=catalog_reassign"
@@ -7081,7 +7081,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -7334,7 +7334,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_streaming: Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti",
+        "engine_streaming: Low-level epistemic-graph engine surface for the 'streaming' domain (CDC /",
         "engine_streaming action=cdc_read",
         "engine_streaming action=drop_continuous_query",
         "engine_streaming action=drop_trigger"
@@ -7359,7 +7359,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -7497,7 +7497,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_tenants: Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant ",
+        "engine_tenants: Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant",
         "engine_tenants action=create",
         "engine_tenants action=delete",
         "engine_tenants action=list"
@@ -7523,7 +7523,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -7646,7 +7646,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_timeseries: Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD",
+        "engine_timeseries: Low-level epistemic-graph engine surface for the 'timeseries' domain (native",
         "engine_timeseries action=append",
         "engine_timeseries action=asof_join",
         "engine_timeseries action=gap_fill"
@@ -7671,7 +7671,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -8067,7 +8067,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "engine_txn: Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A",
+        "engine_txn: Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC",
         "engine_txn action=add_edge",
         "engine_txn action=add_embedding",
         "engine_txn action=add_measurement"
@@ -8092,7 +8092,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -8614,7 +8614,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -8761,7 +8761,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -8937,7 +8937,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_broker: the epistemic-graph engine message broker (AMQP-style exchanges + queues + strea",
+        "graph_broker: the epistemic-graph engine message broker (AMQP-style exchanges + queues +",
         "graph_broker action=graph_broker"
       ],
       "eligibility_predicates": {
@@ -8962,7 +8962,7 @@
         "source_method_eg": "BrokerConsume",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -9289,7 +9289,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_bus: the agent-to-agent communication bus: let this session talk to other Claude/LLM ",
+        "graph_bus: the agent-to-agent communication bus: let this session talk to other Claude/LLM",
         "graph_bus action=graph_bus"
       ],
       "eligibility_predicates": {
@@ -9313,7 +9313,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -9470,7 +9470,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -9630,7 +9630,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_code_nav: Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-sche",
+        "graph_code_nav: Navigate the resolved code graph",
         "graph_code_nav action=connects"
       ],
       "eligibility_predicates": {
@@ -9653,7 +9653,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -9930,7 +9930,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_configure: Manage backend configurations, system credentials, and tool registration within ",
+        "graph_configure: Manage backend configurations, system credentials, and tool registration within",
         "graph_configure action=add_connection",
         "graph_configure action=config_doctor",
         "graph_configure action=config_reference"
@@ -9955,7 +9955,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -10123,7 +10123,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_context: store/fetch curated context for invoker\u2192spawned-agent handoff, persisted in the ",
+        "graph_context: store/fetch curated context for invoker\u2192spawned-agent handoff, persisted in the",
         "graph_context action=get",
         "graph_context action=list",
         "graph_context action=prune"
@@ -10149,7 +10149,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -10351,7 +10351,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_document_tree: Reasoning-tree (vectorless) document retrieval over a per-document section tree ",
+        "graph_document_tree: Reasoning-tree (vectorless) document retrieval over a per-document section tree",
         "graph_document_tree action=build",
         "graph_document_tree action=content",
         "graph_document_tree action=retrieve"
@@ -10378,7 +10378,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -10554,7 +10554,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_etl: Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.on",
+        "graph_etl: Unified ETL pipeline between systems over the canonical KG hub",
         "graph_etl action=lineage",
         "graph_etl action=list"
       ],
@@ -10579,7 +10579,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -10736,7 +10736,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -10886,7 +10886,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_explain: The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain):",
+        "graph_explain: The UNIVERSAL context plane",
         "graph_explain action=graph_explain"
       ],
       "eligibility_predicates": {
@@ -10909,7 +10909,7 @@
         "source_method_eg": "ExplainPlan",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11060,7 +11060,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11209,7 +11209,7 @@
         "You only need to read/inspect \u2014 use the matching read-only `graph_query`/`graph_search`/`graph_analyze` capability instead."
       ],
       "examples": [
-        "graph_feedback: Record a human correction so the brain learns: correction_type 'outcome' adjusts",
+        "graph_feedback: Record a human correction so the brain learns: correction_type 'outcome'",
         "graph_feedback action=graph_feedback"
       ],
       "eligibility_predicates": {
@@ -11233,7 +11233,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11358,7 +11358,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_feeds: Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect",
+        "graph_feeds: Manage the unified RSS/Atom feed registry",
         "graph_feeds action=add",
         "graph_feeds action=list",
         "graph_feeds action=remove"
@@ -11383,7 +11383,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11549,7 +11549,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_fork: warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-",
+        "graph_fork: warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV /",
         "graph_fork action=graph_fork"
       ],
       "eligibility_predicates": {
@@ -11575,7 +11575,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11700,7 +11700,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11828,7 +11828,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_goals: Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations",
+        "graph_goals: Orchestrate background/autonomous loops (action in 'create', 'list',",
         "graph_goals action=cancel",
         "graph_goals action=create",
         "graph_goals action=iterations"
@@ -11853,7 +11853,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -11950,7 +11950,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:22Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -12330,7 +12330,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -12449,7 +12449,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_kvcache: the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, dr",
+        "graph_kvcache: the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface,",
         "graph_kvcache action=contains",
         "graph_kvcache action=exists",
         "graph_kvcache action=get"
@@ -12475,7 +12475,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -12614,7 +12614,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_learn: a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whos",
+        "graph_learn: a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph,",
         "graph_learn action=fit",
         "graph_learn action=predict"
       ],
@@ -12642,7 +12642,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -12944,7 +12944,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_loops: The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-",
+        "graph_loops: The single entrypoint for long-running objectives",
         "graph_loops action=cancel",
         "graph_loops action=drive",
         "graph_loops action=list"
@@ -12969,7 +12969,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -13080,7 +13080,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_memory: the engine's EG-318 memory surface: episodic\u2192semantic memory, the spatial scene ",
+        "graph_memory: the engine's EG-318 memory surface: episodic\u2192semantic memory, the spatial scene",
         "graph_memory action=link",
         "graph_memory action=recall",
         "graph_memory action=store"
@@ -13108,7 +13108,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -13306,7 +13306,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_message: bidirectional, cross-process, ordered message channel between an invoking agent ",
+        "graph_message: bidirectional, cross-process, ordered message channel between an invoking agent",
         "graph_message action=close",
         "graph_message action=history",
         "graph_message action=open"
@@ -13332,7 +13332,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -13610,7 +13610,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_mine: the unified data-mining surface over the engine, compute-near-data (mining runs ",
+        "graph_mine: the unified data-mining surface over the engine, compute-near-data (mining runs",
         "graph_mine action=associate",
         "graph_mine action=cluster",
         "graph_mine action=anomaly"
@@ -13639,7 +13639,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -13761,7 +13761,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_mine_deep: the deep-learning / heavy-Python family the engine core deliberately does NOT im",
+        "graph_mine_deep: the deep-learning / heavy-Python family the engine core deliberately does NOT",
         "graph_mine_deep action=deep_forecast",
         "graph_mine_deep action=deep_classify",
         "graph_mine_deep action=autoencoder_anomaly"
@@ -13790,7 +13790,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -13899,7 +13899,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_observe: Reason over the KG-native observability subgraph \u2014 traces, online-scores, assert",
+        "graph_observe: Reason over the KG-native observability subgraph \u2014 traces, online-scores,",
         "graph_observe action=failure_cluster",
         "graph_observe action=prompt_regression",
         "graph_observe action=trace_rootcause"
@@ -13925,13 +13925,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
       "id": "graph_ontology",
       "title": "graph ontology",
-      "one_line": "Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) \u2014 manage arbitrary OWL/RDF ontologies hosted in the running KG. action='load' (parse + SHACL-validate + register a .ttl/OWL fro",
+      "one_line": "Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) \u2014 manage arbitrary OWL/RDF ontologies hosted in the running KG. action='load' (parse + SHACL-validate + register a .ttl/OWL",
       "intent_verbs": [
         "manage"
       ],
@@ -14186,7 +14186,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_ontology: Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) \u2014 manag",
+        "graph_ontology: Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) \u2014",
         "graph_ontology action=activate",
         "graph_ontology action=deactivate",
         "graph_ontology action=delete"
@@ -14211,7 +14211,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -14380,7 +14380,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_ops_causal: Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> agent/t",
+        "graph_ops_causal: Enterprise operations causal graph (Codex X-2): joins Langfuse traces ->",
         "graph_ops_causal action=root_cause",
         "graph_ops_causal action=blast_radius",
         "graph_ops_causal action=change_risk"
@@ -14408,7 +14408,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -14856,7 +14856,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_orchestrate: Orchestrate multi-agent workflows, dispatch subagents, and manage execution loop",
+        "graph_orchestrate: Orchestrate multi-agent workflows, dispatch subagents, and manage execution",
         "graph_orchestrate action=assimilate",
         "graph_orchestrate action=compile_process",
         "graph_orchestrate action=compile_workflow"
@@ -14881,7 +14881,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -15048,7 +15048,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_promql: query the engine's observability metrics with PromQL. action='instant' (a single",
+        "graph_promql: query the engine's observability metrics with PromQL. action='instant' (a",
         "graph_promql action=instant",
         "graph_promql action=range"
       ],
@@ -15074,7 +15074,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -15260,7 +15260,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -15480,7 +15480,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -15637,7 +15637,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -15907,7 +15907,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_runvcs: Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, reve",
+        "graph_runvcs: Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork,",
         "graph_runvcs action=commit",
         "graph_runvcs action=discard",
         "graph_runvcs action=fork"
@@ -15935,7 +15935,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -16033,7 +16033,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_sandbox: Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbo",
+        "graph_sandbox: Inspect and control the native warm-fork sandbox runtime",
         "graph_sandbox action=reap",
         "graph_sandbox action=status",
         "graph_sandbox action=warm"
@@ -16059,7 +16059,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -16195,7 +16195,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_schedules: Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-schedulin",
+        "graph_schedules: Inspect and control the unified scheduler",
         "graph_schedules action=disable",
         "graph_schedules action=enable",
         "graph_schedules action=list"
@@ -16220,7 +16220,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -16384,7 +16384,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_search: Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, ",
+        "graph_search: Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy,",
         "graph_search action=graph_search"
       ],
       "eligibility_predicates": {
@@ -16407,13 +16407,13 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
       "id": "graph_search_synthesis",
       "title": "graph search synthesis",
-      "one_line": "Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized search difficulty of solver trajectories (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72, AHE",
+      "one_line": "Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized search difficulty of solver trajectories (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72,",
       "intent_verbs": [
         "ask"
       ],
@@ -16572,7 +16572,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_search_synthesis: Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia",
+        "graph_search_synthesis: Synthesize a shortcut-resistant deep-search task from the evidence graph, or",
         "graph_search_synthesis action=diagnose",
         "graph_search_synthesis action=synthesize"
       ],
@@ -16598,7 +16598,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -16743,7 +16743,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_secret: Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e",
+        "graph_secret: Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable,",
         "graph_secret action=delete",
         "graph_secret action=get",
         "graph_secret action=list"
@@ -16768,7 +16768,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -16913,7 +16913,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -17051,7 +17051,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -17248,7 +17248,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_table: mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them",
+        "graph_table: mirror data into native engine SQL tables (DataFusion + pg-wire) and manage",
         "graph_table action=create",
         "graph_table action=drop",
         "graph_table action=ingest"
@@ -17274,7 +17274,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -17439,7 +17439,7 @@
         "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
       ],
       "examples": [
-        "graph_traces: search or fetch distributed traces from the engine's observability surface. acti",
+        "graph_traces: search or fetch distributed traces from the engine's observability surface.",
         "graph_traces action=get",
         "graph_traces action=search"
       ],
@@ -17465,7 +17465,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -17848,7 +17848,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -18042,7 +18042,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_writeback: Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s",
+        "graph_writeback: Backfeed KG-derived knowledge into an external system-of-record",
         "graph_writeback action=graph_writeback"
       ],
       "eligibility_predicates": {
@@ -18065,13 +18065,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
       "id": "ingest_sessions",
       "title": "ingest sessions",
-      "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and parses their local logs (use when",
+      "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and parses their local logs (use",
       "intent_verbs": [
         "write"
       ],
@@ -18186,7 +18186,7 @@
         "You only need to read/inspect \u2014 use the matching read-only `graph_query`/`graph_search`/`graph_analyze` capability instead."
       ],
       "examples": [
-        "ingest_sessions: Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m",
+        "ingest_sessions: Ingest AI agent chat/session history into the usage store + KG",
         "ingest_sessions action=collect",
         "ingest_sessions action=paths",
         "ingest_sessions action=upload"
@@ -18212,7 +18212,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -18365,7 +18365,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "nl_query: ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config",
+        "nl_query: ask the Knowledge Graph in plain English, planned by agent-utilities' OWN",
         "nl_query action=nl_query"
       ],
       "eligibility_predicates": {
@@ -18388,7 +18388,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -18584,7 +18584,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "object_edits: Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor",
+        "object_edits: Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback):",
         "object_edits action=as_of",
         "object_edits action=history",
         "object_edits action=record"
@@ -18608,7 +18608,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -18703,7 +18703,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "object_index: Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-increm",
+        "object_index: Object Index Lifecycle / Object Data Funnel",
         "object_index action=reindex",
         "object_index action=status",
         "object_index action=sync"
@@ -18727,7 +18727,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -18870,7 +18870,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "object_permissioning: Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-material",
+        "object_permissioning: Fine-grained object permissioning",
         "object_permissioning action=mark",
         "object_permissioning action=redact",
         "object_permissioning action=restricted_view"
@@ -18894,7 +18894,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -19127,7 +19127,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "object_set: Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/",
+        "object_set: Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38):",
         "object_set action=aggregate",
         "object_set action=from_ids",
         "object_set action=intersect"
@@ -19151,7 +19151,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -19303,7 +19303,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_derive: Compute derived (function/cypher/sparql/embedding-backed) properties live at rea",
+        "ontology_derive: Compute derived (function/cypher/sparql/embedding-backed) properties live at",
         "ontology_derive action=compute",
         "ontology_derive action=compute_all",
         "ontology_derive action=discover_extensions"
@@ -19327,7 +19327,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -19453,7 +19453,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_function: Typed, versioned ontology functions: list or invoke through the governed runtime",
+        "ontology_function: Typed, versioned ontology functions: list or invoke through the governed",
         "ontology_function action=invoke",
         "ontology_function action=list"
       ],
@@ -19476,7 +19476,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -19648,7 +19648,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_interface: Ontology interfaces: resolve implementers (targeting), check conformance, or emi",
+        "ontology_interface: Ontology interfaces: resolve implementers (targeting), check conformance, or",
         "ontology_interface action=conforms",
         "ontology_interface action=implementers",
         "ontology_interface action=list"
@@ -19672,13 +19672,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
       "id": "ontology_leanix_sync",
       "title": "ontology leanix sync",
-      "one_line": "Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:AU-KG.",
+      "one_line": "Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion",
       "intent_verbs": [
         "ask"
       ],
@@ -19745,7 +19745,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_leanix_sync: Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate",
+        "ontology_leanix_sync: Discover the live LeanIX metamodel and mirror it natively as OWL/RDF:",
         "ontology_leanix_sync action=ontology_leanix_sync"
       ],
       "eligibility_predicates": {
@@ -19767,7 +19767,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -19888,7 +19888,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_link_materialize: Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple a",
+        "ontology_link_materialize: Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple",
         "ontology_link_materialize action=types"
       ],
       "eligibility_predicates": {
@@ -19910,7 +19910,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -20022,7 +20022,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_property_types: List the ontology property-type registry and resolve/validate a Palantir-style t",
+        "ontology_property_types: List the ontology property-type registry and resolve/validate a Palantir-style",
         "ontology_property_types action=column_type",
         "ontology_property_types action=describe",
         "ontology_property_types action=list"
@@ -20046,7 +20046,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:15Z"
       }
     },
     {
@@ -20192,7 +20192,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_sampling_profile: Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selec",
+        "ontology_sampling_profile: Task-aware LLM sampling profiles",
         "ontology_sampling_profile action=describe",
         "ontology_sampling_profile action=evolve",
         "ontology_sampling_profile action=list"
@@ -20216,7 +20216,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -20328,7 +20328,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ontology_value_types: List/describe constrained ontology value types and validate or coerce a value (C",
+        "ontology_value_types: List/describe constrained ontology value types and validate or coerce a value",
         "ontology_value_types action=coerce",
         "ontology_value_types action=describe",
         "ontology_value_types action=list"
@@ -20352,7 +20352,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -20661,13 +20661,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
       "id": "research_artifact",
       "title": "research artifact",
-      "one_line": "Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80). action in 'reason' (run OWL/RDF reasoning over the whole ecosystem and harv",
+      "one_line": "Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.research.best-effort-lightweight-never/2.80). action in 'reason' (run OWL/RDF reasoning over the whole ecosystem and",
       "intent_verbs": [
         "manage"
       ],
@@ -20868,7 +20868,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "research_artifact: Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r",
+        "research_artifact: Agent-Native Research Artifacts over the one ontology-driven KG",
         "research_artifact action=research_artifact"
       ],
       "eligibility_predicates": {
@@ -20892,13 +20892,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
       "id": "source_connector",
       "title": "source connector",
-      "one_line": "Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework\u20134.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool \u2014 mcp_tool dr",
+      "one_line": "Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework\u20134.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool \u2014 mcp_tool",
       "intent_verbs": [
         "ask"
       ],
@@ -21032,7 +21032,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "source_connector: Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework\u20134",
+        "source_connector: Document-source connectors",
         "source_connector action=list",
         "source_connector action=run"
       ],
@@ -21057,7 +21057,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -21143,7 +21143,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "source_drain: Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu",
+        "source_drain: Watch a chunked async drain started by source_sync(mode='full') on a LARGE",
         "source_drain action=source_drain"
       ],
       "eligibility_predicates": {
@@ -21166,7 +21166,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -21264,7 +21264,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "source_sync: THE canonical connector\u2192KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-sourc",
+        "source_sync: THE canonical connector\u2192KG ingestion tool",
         "source_sync action=source_sync"
       ],
       "eligibility_predicates": {
@@ -21287,7 +21287,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -21470,7 +21470,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "spec_ticket: Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable ",
+        "spec_ticket: Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable",
         "spec_ticket action=spec_ticket"
       ],
       "eligibility_predicates": {
@@ -21494,7 +21494,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     },
     {
@@ -21739,7 +21739,7 @@
         "You only need to read/inspect \u2014 use the matching read-only `graph_query`/`graph_search`/`graph_analyze` capability instead."
       ],
       "examples": [
-        "usage_query: Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observab",
+        "usage_query: Query usage/cost/observability analytics",
         "usage_query action=activity",
         "usage_query action=by_agent",
         "usage_query action=by_model"
@@ -21765,7 +21765,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T00:48:23Z"
+        "generated_at": "2026-07-12T01:31:16Z"
       }
     }
   ]

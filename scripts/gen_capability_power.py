@@ -57,6 +57,7 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
     render_json,
     render_markdown,
     strip_generation_timestamp,
+    truncate_at_word,
 )
 
 MD_PATH = ROOT / "docs" / "capabilities-power.md"
@@ -159,7 +160,16 @@ def _extract_one_line(description: str) -> str:
     m = re.search(r"\.\s+[A-Z]", text)
     if m:
         return text[: m.start() + 1].strip()
-    return text[:200].strip()
+    if len(text) <= 200:
+        return text.strip()
+    # No sentence break within the window — cut at the last whitespace boundary
+    # before the limit so we never split a word in half, leaving a dangling
+    # word fragment that reads as a typo.
+    cut = text[:200]
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space]
+    return cut.strip()
 
 
 def _parse_action_tokens_from_text(default: str, description: str) -> list[str]:
@@ -253,7 +263,7 @@ def build_examples(
     """A few intent-phrasing examples, DERIVED from the tool's own action names
     (not hand-authored copy) — the X-4/2c resolver few-shot signal.
     """
-    examples = [f"{tool_name}: {one_line[:80]}"]
+    examples = [f"{tool_name}: {truncate_at_word(one_line, 80)}"]
     for d in does[:3]:
         examples.append(f"{tool_name} action={d['action']}")
     return examples
