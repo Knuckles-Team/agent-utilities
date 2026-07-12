@@ -631,6 +631,7 @@ class WorkflowRunner:
         session_id: str,
         failed_step: str,
         task: str | None = None,
+        prior_result: WorkflowResult | None = None,
     ) -> WorkflowResult:
         """Resume a run after a STEP FAILURE (not a gate), re-executing ONLY the
         region ``failed_step`` actually invalidates — Atomic Task Graph paper
@@ -649,6 +650,14 @@ class WorkflowRunner:
         region-preserving repair the paper's failure-localization idea
         describes, applied to the existing suspend/resume state machine rather
         than a blind whole-plan retry.
+
+        The prior run's completed-step state is sourced from ``prior_result``
+        when the caller already has it in hand (the common case — a run just
+        completed/failed and its ``WorkflowResult`` is right there; a plain
+        completed/failed/partial run has NO persisted ``:WorkflowRun`` state,
+        only a SUSPENDED one does, see :meth:`_persist_run_state`), else it
+        falls back to :meth:`_load_run_state` (a gate-suspended run resumed
+        into a subsequent step failure).
         """
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
         from agent_utilities.workflows.localized_repair import (
@@ -666,16 +675,24 @@ class WorkflowRunner:
         )
         invalidated = set(region["invalidated"]) | {failed_step}
 
-        prior = self._load_run_state(engine, session_id)
+        if prior_result is not None:
+            prior_completed = {
+                r.node_id: {"output": r.output, "status": r.status, "node_id": r.node_id}
+                for r in prior_result.step_results
+            }
+            prior_satisfied = {
+                r.node_id for r in prior_result.step_results if r.status == "completed"
+            }
+        else:
+            prior = self._load_run_state(engine, session_id)
+            prior_completed = dict(prior.get("completed") or {})
+            prior_satisfied = set(prior.get("satisfied") or set())
+
         trimmed = {
             "completed": {
-                sid: rec
-                for sid, rec in (prior.get("completed") or {}).items()
-                if sid not in invalidated
+                sid: rec for sid, rec in prior_completed.items() if sid not in invalidated
             },
-            "satisfied": {
-                sid for sid in (prior.get("satisfied") or set()) if sid not in invalidated
-            },
+            "satisfied": {sid for sid in prior_satisfied if sid not in invalidated},
         }
 
         result = await self._execute_plan_via_agents(
