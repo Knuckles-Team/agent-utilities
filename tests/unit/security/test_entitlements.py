@@ -70,7 +70,11 @@ class TestOktaKeycloakInterchangeableAutoload:
         available = ["prod", "staging", "dev"]
         okta = base_capabilities(
             normalize_identity(
-                {"sub": "u", "iss": "https://x.okta.com", "groups": ["k8s:prod", "k8s:staging"]}
+                {
+                    "sub": "u",
+                    "iss": "https://x.okta.com",
+                    "groups": ["k8s:prod", "k8s:staging"],
+                }
             )
         )
         keycloak = base_capabilities(

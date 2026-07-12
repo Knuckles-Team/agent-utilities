@@ -10,6 +10,17 @@ see every failure mode. Deep dives:
 [Autonomous governance and zero trust](../architecture/autonomous_governance_and_zero_trust.md),
 [Configuration](../architecture/configuration.md).
 
+> The claims-to-actor mapping (`actor_from_claims`) now delegates to the
+> IdP-agnostic normalizer described in
+> [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](../architecture/identity-inheritance.md)
+> (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance): Okta `groups` and
+> Keycloak `realm_access.roles`/`resource_access.*.roles`/group-mapper are
+> unioned into the same base capability set, which then drives per-server
+> identity-scoped resource auto-load
+> (CONCEPT:AU-OS.identity.identity-scoped-resource-autoload). That page is the
+> canonical reference for the current mapping; the claims table just below
+> predates that normalization and is kept for the JWT-mechanics narrative.
+
 **Prerequisites (ladder rung).** The secured rung of
 [Deployment configurations](../guides/deployment-configurations.md): the REST gateway
 (`python -m agent_utilities`) plus an identity provider that serves a JWKS endpoint

@@ -174,6 +174,7 @@ nav:
       - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
+      - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:

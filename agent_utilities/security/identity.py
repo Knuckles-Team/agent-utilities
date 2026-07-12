@@ -133,9 +133,7 @@ def normalize_identity(claims: Mapping[str, Any]) -> NormalizedIdentity:
       group-membership mapper), path-normalized.
     * **tenant** ← ``tenant_id``/``tenant``/``org_id``/``tid``/``org``.
     """
-    subject = next(
-        (str(claims[k]) for k in _SUBJECT_KEYS if claims.get(k)), "jwt"
-    )
+    subject = next((str(claims[k]) for k in _SUBJECT_KEYS if claims.get(k)), "jwt")
 
     roles: list[str] = []
     for key in _ROLE_KEYS:
