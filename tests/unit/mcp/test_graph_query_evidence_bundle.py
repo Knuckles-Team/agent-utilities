@@ -134,7 +134,7 @@ def test_graph_query_envelope_bundle_wires_evidence_bundle_from_engine_wire(
     # rows are still present, unmodified.
     assert out["rows"] == _ROWS
     # explain_provenance_by_ids was actually invoked with the row ids extracted
-    # from the plain Cypher result — proves the live wiring, not a stub return.
+    # from the plain Cypher result — proves the live wiring, not a hardcoded passthrough.
     assert sorted(engine.graph.seen_ids) == ["agent:bar", "agent:foo"]
 
     bundle = out["evidence_bundle"]

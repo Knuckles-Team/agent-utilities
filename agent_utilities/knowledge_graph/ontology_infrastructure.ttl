@@ -70,6 +70,11 @@
 part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:HealthAnomaly a owl:Class ;
+    rdfs:label "Health Anomaly" ;
+    rdfs:comment "An entity+signal observed drifting off its :HealthBaseline (above-baseline / saturated / a caller-defined systemic kind) — produced by agent_utilities.observability.health.detect_anomaly / correlate." ;
+    rdfs:subClassOf bfo:0000031 .
+
 :HealthBaseline a owl:Class ;
     rdfs:label "Health Baseline" ;
     rdfs:comment "An entity+signal's learned fingerprint (p50/p95, idle/load envelope, inertia) computed from its :HealthTrend history by agent_utilities.observability.health.compute_baseline — the reference for anomaly detection." ;
@@ -79,6 +84,11 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:label "Health Trend" ;
     rdfs:comment "One distilled aggregate-window reading of a named signal on an entity (min/avg/max + avg control level + sample count) — the layer-agnostic generalization of fan-manager's :ThermalTrend, produced by agent_utilities.observability.health.HealthTrendBuffer." ;
     rdfs:subClassOf bfo:0000031 .
+
+:Incident a owl:Class ;
+    rdfs:label "Incident" ;
+    rdfs:comment "One cross-layer correlation event synthesized from simultaneous :HealthAnomaly rows on related entities (thermal + OS load + pod restarts + service latency, all within one window) — the payoff of the unified model (reports/unified-infra-intelligence-plan.md Phase D). BFO:Process — unfolds over a time window." ;
+    rdfs:subClassOf bfo:0000015 .
 
 :OperatingSystem a owl:Class ;
     rdfs:label "Operating System" ;
@@ -166,12 +176,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:domain :Rack ;
     rdfs:range :CoolingUnit .
 
-:correlatesAnomaly a owl:ObjectProperty ;
-    rdfs:label "correlates anomaly" ;
-    rdfs:comment "Links an :Incident to each contributing :HealthAnomaly it was synthesized from." ;
-    rdfs:domain :Incident ;
-    rdfs:range :HealthAnomaly .
-
 :dependsOn a owl:ObjectProperty ;
     rdfs:label "depends on" ;
     rdfs:comment "Links a :Service to another :Service it depends on, for blast-radius reasoning." ;
@@ -248,12 +252,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:domain :DeploymentManifest ;
     rdfs:range :DeploymentPhase .
 
-:hasTicket a owl:ObjectProperty ;
-    rdfs:label "has ticket" ;
-    rdfs:comment "Links an :Incident to the :Ticket filed (or proposed) for it in a ticketing system of record." ;
-    rdfs:domain :Incident ;
-    rdfs:range :Ticket .
-
 :hostedBy a owl:ObjectProperty ;
     rdfs:label "hosted by" ;
     rdfs:comment "Links a :Service to the :Pod (or :Workload) that hosts it." ;
@@ -278,11 +276,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
 :layer a owl:DatatypeProperty ;
     rdfs:label "layer" ;
     rdfs:comment "Which layer of the unified infrastructure model a :HealthTrend/:HealthBaseline/:HealthAnomaly belongs to: hardware, os, orchestration, service, or network." ;
-    rdfs:range xsd:string .
-
-:layers a owl:DatatypeProperty ;
-    rdfs:label "layers" ;
-    rdfs:comment "The distinct unified-infra-model layers (hardware/os/orchestration/service/network) an :Incident's contributing anomalies span." ;
     rdfs:range xsd:string .
 
 :managesDNSFor a owl:ObjectProperty ;
@@ -363,17 +356,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:domain :DeploymentPrerequisite ;
     rdfs:range xsd:string .
 
-:proposedAction a owl:DatatypeProperty ;
-    rdfs:label "proposed action" ;
-    rdfs:comment "The remediation action a :RemediationProposal recommends (e.g. disk_cleanup, restart_or_cordon_pod, apply_fan_policy, tunnel_failover) — report-only, never auto-executed." ;
-    rdfs:range xsd:string .
-
-:proposesRemediation a owl:ObjectProperty ;
-    rdfs:label "proposes remediation" ;
-    rdfs:comment "Links a :RemediationProposal to the :Incident it addresses." ;
-    rdfs:domain :RemediationProposal ;
-    rdfs:range :Incident .
-
 :proxyType a owl:DatatypeProperty ;
     rdfs:label "proxy type" ;
     rdfs:domain :ReverseProxy ;
@@ -389,11 +371,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:label "resolves DNS for" ;
     rdfs:domain :DNSRewrite ;
     rdfs:range au:PlatformService .
-
-:rootCauseLayer a owl:DatatypeProperty ;
-    rdfs:label "root cause layer" ;
-    rdfs:comment "The deepest unified-infra-model layer among an :Incident's contributing anomalies (hardware < os < orchestration < service < network) — the presumed root cause." ;
-    rdfs:range xsd:string .
 
 :routesTo a owl:ObjectProperty ;
     rdfs:label "routes to" ;
@@ -430,55 +407,20 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:domain :DeploymentManifest ;
     rdfs:range xsd:integer .
 
-:severity a owl:DatatypeProperty ;
-    rdfs:label "severity" ;
-    rdfs:comment "An :Incident's synthesized severity (e.g. warning, critical — critical when it spans more than one layer)." ;
-    rdfs:range xsd:string .
-
 :signal a owl:DatatypeProperty ;
     rdfs:label "signal" ;
     rdfs:comment "The named numeric signal a :HealthTrend/:HealthBaseline/:HealthAnomaly measures (e.g. cpu_temp_c, disk_pct, load1, latency_ms, restart_count)." ;
     rdfs:range xsd:string .
 
-:signals a owl:DatatypeProperty ;
-    rdfs:label "signals" ;
-    rdfs:comment "The distinct named signals an :Incident's contributing anomalies were observed on." ;
-    rdfs:range xsd:string .
-
-:signature a owl:DatatypeProperty ;
-    rdfs:label "signature" ;
-    rdfs:comment "Stable dedupe key (asset + contributing layers/signals) an :Incident is keyed on, so a re-run of the correlation loop does not duplicate an already-open incident." ;
-    rdfs:range xsd:string .
-
-:status a owl:DatatypeProperty ;
-    rdfs:label "status" ;
-    rdfs:comment "Lifecycle status of an :Incident (open/resolved) or :RemediationProposal (proposed/dispatched)." ;
-    rdfs:range xsd:string .
-
 :summary a owl:DatatypeProperty ;
     rdfs:label "summary" ;
-    rdfs:comment "Human-readable synthesis of an :Incident's cross-layer cause, or a :RemediationProposal's rationale." ;
+    rdfs:comment "Human-readable synthesis of an :Incident's cross-layer cause." ;
     rdfs:range xsd:string .
 
 :targetHost a owl:DatatypeProperty ;
     rdfs:label "target host" ;
     rdfs:comment "Hostname or IP of the deployment target." ;
     rdfs:domain :DeploymentManifest ;
-    rdfs:range xsd:string .
-
-:ticketRef a owl:DatatypeProperty ;
-    rdfs:label "ticket ref" ;
-    rdfs:comment "The :Ticket's identifier in its ticketing system of record (or a synthetic 'proposed:<incident id>' when report-only/no SoR is reachable)." ;
-    rdfs:range xsd:string .
-
-:ticketStatus a owl:DatatypeProperty ;
-    rdfs:label "ticket status" ;
-    rdfs:comment "A :Ticket's status (proposed/created/failed, or the system-of-record's own status after an update)." ;
-    rdfs:range xsd:string .
-
-:ticketUrl a owl:DatatypeProperty ;
-    rdfs:label "ticket url" ;
-    rdfs:comment "A browsable URL for a :Ticket in its ticketing system of record, when the adapter can construct one." ;
     rdfs:range xsd:string .
 
 :transitionedTo a owl:ObjectProperty ;
@@ -546,11 +488,6 @@ BFO:GenericallyDependentContinuant.""" ;
     rdfs:comment "A network fabric switch (InfiniBand, RoCE, high-speed Ethernet)." ;
     rdfs:subClassOf bfo:0000030 .
 
-:HealthAnomaly a owl:Class ;
-    rdfs:label "Health Anomaly" ;
-    rdfs:comment "An entity+signal observed drifting off its :HealthBaseline (above-baseline / saturated / a caller-defined systemic kind) — produced by agent_utilities.observability.health.detect_anomaly / correlate." ;
-    rdfs:subClassOf bfo:0000031 .
-
 :Host a owl:Class ;
     rdfs:label "Host" ;
     rdfs:comment """A reachable host in the tunnel-manager inventory (an addressable compute
@@ -592,20 +529,10 @@ node, possibly reached through a :Tunnel). CONCEPT:KG-2.158.""" ;
     rdfs:comment "An individual route rule mapping a domain to a backend service." ;
     rdfs:subClassOf bfo:0000004 .
 
-:RemediationProposal a owl:Class ;
-    rdfs:label "Remediation Proposal" ;
-    rdfs:comment "A REPORT-ONLY proposed remediation action for an :Incident's root cause (e.g. disk cleanup, pod restart/cordon, fan-policy change, tunnel failover), linked via :proposesRemediation. Never auto-executed — produced by agent_utilities.observability.incidents.propose_remediation for later operator/graph_loops dispatch." ;
-    rdfs:subClassOf bfo:0000031 .
-
 :ReverseProxy a owl:Class ;
     rdfs:label "Reverse Proxy" ;
     rdfs:comment "A traffic routing and TLS termination system providing :ReverseProxyCapability." ;
     rdfs:subClassOf bfo:0000004 .
-
-:Ticket a owl:Class ;
-    rdfs:label "Ticket" ;
-    rdfs:comment "A ticket filed (or proposed) in an external ticketing system of record (ServiceNow/ERPNext/Jira/Plane) for an :Incident, linked via :hasTicket. Produced by agent_utilities.observability.incident_router.route_incident — report-only/dry-run unless INCIDENT_TICKET_ENABLE is set." ;
-    rdfs:subClassOf bfo:0000031 .
 
 :VPNTunnel a owl:Class ;
     rdfs:label "VPN Tunnel" ;
@@ -654,11 +581,6 @@ network endpoint URL.""" ;
     rdfs:label "Container Stack" ;
     rdfs:comment "A logical grouping of containers (Compose stack, Swarm service, K8s Deployment)." ;
     rdfs:subClassOf bfo:0000004 .
-
-:Incident a owl:Class ;
-    rdfs:label "Incident" ;
-    rdfs:comment "One cross-layer correlation event synthesized from simultaneous :HealthAnomaly rows on related entities (thermal + OS load + pod restarts + service latency, all within one window) — the payoff of the unified model (reports/unified-infra-intelligence-plan.md Phase D). BFO:Process — unfolds over a time window." ;
-    rdfs:subClassOf bfo:0000015 .
 
 :Service a owl:Class ;
     rdfs:label "Service" ;
