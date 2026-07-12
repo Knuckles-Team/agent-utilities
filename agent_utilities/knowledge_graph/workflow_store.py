@@ -159,7 +159,13 @@ class WorkflowStore:
                 "is_parallel": step.parallel,
                 "timeout": step.timeout,
                 "status": "pending",
+                # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — gate/approval step kind
+                # (autonomous-sdlc-loop-design.md §7.1 delta 2), round-tripped through the store.
+                "kind": getattr(step, "kind", "task") or "task",
+                "condition": getattr(step, "condition", "on_success") or "on_success",
             }
+            if getattr(step, "on_reject", None):
+                step_props["on_reject"] = step.on_reject
             if step.refined_subtask:
                 step_props["refined_subtask"] = step.refined_subtask
             if step.description:
@@ -181,13 +187,19 @@ class WorkflowStore:
                 properties={"step_order": i},
             )
 
-            # Link step → previous step (sequential dependency)
+            # Link step → previous step (sequential dependency). The edge carries
+            # THIS step's own exit condition (default "on_success", unchanged for
+            # ordinary steps; a gate step's configured condition for gate steps).
             if prev_step_id and not step.parallel:
                 self.engine.link_nodes(
                     prev_step_id,
                     step_id,
                     "TRANSITION_TO",
-                    properties={"condition": "on_success", "priority": 1},
+                    properties={
+                        "condition": getattr(step, "condition", "on_success")
+                        or "on_success",
+                        "priority": 1,
+                    },
                 )
 
             # Link step → required tools (best-effort)
@@ -296,6 +308,9 @@ class WorkflowStore:
                 timeout=float(data.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,
+                kind=str(data.get("kind") or "task"),
+                condition=str(data.get("condition") or "on_success"),
+                on_reject=data.get("on_reject"),
             )
             steps.append(step)
 
@@ -339,7 +354,8 @@ class WorkflowStore:
             "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
             "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
-            "s.access_list_json AS access_list, s.step_order AS step_order "
+            "s.access_list_json AS access_list, s.step_order AS step_order, "
+            "s.kind AS kind, s.condition AS condition, s.on_reject AS on_reject "
             "ORDER BY s.step_order",
             {"wid": wid},
         )
@@ -375,6 +391,9 @@ class WorkflowStore:
                 timeout=float(row.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,
+                kind=str(row.get("kind") or "task"),
+                condition=str(row.get("condition") or "on_success"),
+                on_reject=row.get("on_reject"),
             )
             steps.append(step)
 

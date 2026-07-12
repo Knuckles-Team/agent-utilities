@@ -97,6 +97,30 @@ class Task(BaseModel):
         ),
     )
 
+    # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — governance gate/approval step kind
+    # (autonomous-sdlc-loop-design.md §7.1 delta 2). A step's ``kind`` distinguishes an
+    # ordinary executable step ("task", the default — unchanged behavior) from a
+    # governance checkpoint ("gate"/"approval") that WorkflowRunner suspends on until an
+    # external ``:satisfiedBy`` edge appears (see workflows/runner.py). ``condition`` names
+    # the exit condition this step's outgoing TRANSITION_TO edges carry when satisfied
+    # (default "on_success", matching every existing edge); ``on_reject`` optionally names
+    # the step id to route to instead when a gate is explicitly rejected (branch-on-deny).
+    kind: str = Field(
+        default="task",
+        description="Step kind: 'task' (default, ordinary executable step) or "
+        "'gate'/'approval' (a governance checkpoint the executor suspends on).",
+    )
+    condition: str = Field(
+        default="on_success",
+        description="The exit condition this step satisfies on completion/approval — "
+        "carried on its outgoing TRANSITION_TO edge(s).",
+    )
+    on_reject: str | None = Field(
+        default=None,
+        description="Optional step id to route to when a 'gate'/'approval' step is "
+        "explicitly rejected, instead of the normal on_success dependents.",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def sync_aliases(cls, data: dict[str, Any] | Any) -> dict[str, Any] | Any:

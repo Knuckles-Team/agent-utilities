@@ -61,6 +61,13 @@ _STEP_RE = re.compile(
 # Body fields the corpus renders under a step heading.
 _AGENT_RE = re.compile(r"\*\*Agent\*\*:\s*`?([^`\n]+)`?")
 _TOOLS_RE = re.compile(r"\*\*Tools\*\*:\s*`?([^`\n]+)`?")
+# CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — the governance gate/approval step
+# kind (autonomous-sdlc-loop-design.md §7.1 delta 2): a step body opts into being a
+# suspend/resume checkpoint via ``**Kind**: gate`` (or ``approval``), optionally with its
+# own exit ``**Condition**`` (default "on_success") and an ``**OnReject**`` branch target.
+_KIND_RE = re.compile(r"\*\*Kind\*\*:\s*`?(gate|approval|task)`?", re.IGNORECASE)
+_CONDITION_RE = re.compile(r"\*\*Condition\*\*:\s*`?([^`\n]+)`?")
+_ON_REJECT_RE = re.compile(r"\*\*OnReject\*\*:\s*`?([^`\n]+)`?")
 
 
 def _slug(text: str) -> str:
@@ -136,6 +143,11 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
         else:
             skill_name = _slug(component)
 
+        kind_m = _KIND_RE.search(step_body)
+        condition_m = _CONDITION_RE.search(step_body)
+        on_reject_m = _ON_REJECT_RE.search(step_body)
+        kind = kind_m.group(1).strip().lower() if kind_m else "task"
+
         steps.append(
             {
                 "step": step_num,
@@ -144,6 +156,10 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
                 "depends_on": depends_on,
                 "tools": tools,
                 "description": step_body.strip().split("\n", 1)[0].strip(),
+                # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 gate step kind.
+                "kind": kind,
+                "condition": condition_m.group(1).strip() if condition_m else "on_success",
+                "on_reject": on_reject_m.group(1).strip() if on_reject_m else None,
             }
         )
 
@@ -229,6 +245,9 @@ def _content_hash(parsed: dict[str, Any]) -> str:
                 "skill_name": s["skill_name"],
                 "depends_on": s["depends_on"],
                 "tools": s["tools"],
+                "kind": s.get("kind", "task"),
+                "condition": s.get("condition", "on_success"),
+                "on_reject": s.get("on_reject"),
             }
             for s in parsed["steps"]
         ],
@@ -323,6 +342,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
     # workflow corpus is semantically searchable (not just dispatchable). Best-effort.
     _chunk_workflow_body(engine, wf_id, str(parsed.get("body") or ""), name)
 
+    step_by_num = {s["step"]: s for s in steps}
     for s in steps:
         step_id = num_to_stepid[s["step"]]
         resolved_deps = sorted(
@@ -333,6 +353,8 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
                 and n in num_to_stepid
             }
         )
+        kind = s.get("kind") or "task"
+        condition = s.get("condition") or "on_success"
         step_props: dict[str, Any] = {
             "node_id": step_id,
             "step_order": s["step"],
@@ -342,20 +364,49 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
             "timeout": 120.0,
             "status": "pending",
             "depends_on_json": json.dumps(resolved_deps),
+            # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 gate step kind.
+            "kind": kind,
+            "condition": condition,
         }
         if s.get("tools"):
             step_props["tools_json"] = json.dumps(s["tools"], default=str)
         if s.get("description"):
             step_props["refined_subtask"] = s["description"]
+        on_reject_num = (
+            _resolve_dep(s["on_reject"], comp_to_num) if s.get("on_reject") else None
+        )
+        on_reject_id = (
+            num_to_stepid.get(on_reject_num) if on_reject_num is not None else None
+        )
+        if on_reject_id:
+            step_props["on_reject"] = on_reject_id
         engine.add_node(step_id, "WorkflowStep", properties=step_props)
         engine.link_nodes(
             wf_id, step_id, "HAS_STEP", properties={"step_order": s["step"]}
         )
 
-        # depends_on → TRANSITION_TO edges (predecessor → this step).
+        # depends_on → TRANSITION_TO edges (predecessor → this step), carrying the
+        # PREDECESSOR's own exit condition (default "on_success"; a gate predecessor's
+        # configured condition otherwise — §7.1 delta 2).
         for dep_id in resolved_deps:
+            dep_num = next(n for n, sid in num_to_stepid.items() if sid == dep_id)
+            dep_condition = (step_by_num.get(dep_num) or {}).get(
+                "condition"
+            ) or "on_success"
             engine.link_nodes(
-                dep_id, step_id, "TRANSITION_TO", properties={"condition": "on_success"}
+                dep_id,
+                step_id,
+                "TRANSITION_TO",
+                properties={"condition": dep_condition},
+            )
+
+        # A gate's on_reject branch — a distinct TRANSITION_TO edge for the deny path.
+        if on_reject_id:
+            engine.link_nodes(
+                step_id,
+                on_reject_id,
+                "TRANSITION_TO",
+                properties={"condition": "on_reject"},
             )
 
         # Link the step to its atomic Skill node (create-if-absent).
