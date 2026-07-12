@@ -95,6 +95,7 @@ async def run_agent(
     open_channel: bool = False,
     memento_source: str | None = None,
     execution_profile: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -318,6 +319,12 @@ async def run_agent(
         config["invoker_allowed_tools"] = list(allowed_tools)
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
+    # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in capability
+    # (like RLM): a run that needs deliberation turns it ON per-execution by passing an
+    # effort ("low"/"medium"/"high"); otherwise the deterministic tool loop leaves it OFF
+    # (the fleet default). Threaded onto config so _execute_single_server can honor it.
+    if reasoning_effort:
+        config["reasoning_effort"] = str(reasoning_effort)
     # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
     # of tools; binding every schema to the single-server agent makes the LLM call hang
     # and the run silently degrade to a hallucinating toolless graph. When the caller
@@ -1281,9 +1288,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -1684,6 +1691,15 @@ async def _execute_single_server(
         enable_universal_tools=False,
         name=agent_name,
         system_prompt=system_prompt,
+        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is a CAPABILITY,
+        # not a default: this deterministic "call the bound tool(s), report the result"
+        # loop leaves it OFF (the fleet default via create_model) so chain-of-thought
+        # doesn't stack ~18x per-turn latency across the model→tool→model turns until the
+        # run blows the wall-clock and is mis-attributed to a blocked tool. An execution
+        # that genuinely needs deliberation opts IN by setting ``reasoning_effort`` on the
+        # run config (e.g. "low"/"high"), mirroring how RLM is enabled when needed — None
+        # here inherits the model/per-agent setting rather than forcing it off.
+        reasoning_effort=config.get("reasoning_effort"),
     )
 
     prompt = task

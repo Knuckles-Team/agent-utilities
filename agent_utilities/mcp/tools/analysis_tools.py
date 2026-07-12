@@ -1742,6 +1742,14 @@ def register_analysis_tools(mcp):
             "bidirectional message channel for this run; the response JSON includes a "
             "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
         ),
+        reasoning_effort: str = Field(
+            default="",
+            description="CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an OPT-IN capability "
+            "(like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic "
+            "tool loops don't need it and it stacks ~18x per-turn latency). Set an effort "
+            "('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs "
+            "deliberation (action='execute_agent'). Empty = off / inherit the model's setting.",
+        ),
         host: str = Field(
             default="",
             description="CONCEPT:AU-ORCH.execution.computer-use-agent — for action='computer_use': inventory host alias "
@@ -1990,6 +1998,8 @@ def register_analysis_tools(mcp):
                         open_channel=bool(
                             open_channel
                         ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
+                        reasoning_effort=reasoning_effort
+                        or None,  # CONCEPT:AU-ORCH.execution.delegation-reasoning-off
                     )
                     return agent_result
                 except Exception as exc:
