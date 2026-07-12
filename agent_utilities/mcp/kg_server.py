@@ -2891,6 +2891,7 @@ def _build_server(bootstrap: bool = True):
     from agent_utilities.mcp.tools import (
         register_analysis_tools,
         register_analyze_suite_tools,
+        register_audit_tools,
         register_bus_tools,
         register_engine_surface_tools,
         register_engine_tools,
@@ -2925,6 +2926,7 @@ def _build_server(bootstrap: bool = True):
             register_engine_tools,
             register_engine_surface_tools,
             register_ops_causal_tools,
+            register_audit_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
