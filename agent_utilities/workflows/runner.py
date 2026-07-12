@@ -115,6 +115,19 @@ STATUS_BLOCKED = "blocked_on_approval"
 STATUS_REJECTED = "rejected"
 STATUS_SKIPPED = "skipped"
 
+# CONCEPT:AU-ORCH.routing.functional-role-resolution — evidentiary model-tier routing (ATG paper
+# idea #3, ``models/sdd.py``'s ``Task.model_tier``). Deliberately NOT a new
+# model registry: a "small"/"cheap" step (well-scoped, already-decomposed —
+# exactly the case the paper shows a small model handles fine) maps onto the
+# existing ``run_agent(reasoning_effort=...)`` per-call knob rather than a new
+# tier->model-id table. Unrecognized/absent tiers pass ``None`` through
+# unchanged (native default reasoning — today's behavior).
+MODEL_TIER_REASONING_EFFORT: dict[str, str] = {
+    "small": "low",
+    "cheap": "low",
+    "large": "high",
+}
+
 
 def _is_gate_step(step: Any) -> bool:
     return str(getattr(step, "kind", "task") or "task").lower() in GATE_KINDS
@@ -183,6 +196,10 @@ class StepResult:
     duration_ms: float
     error: str | None = None
     trace_id: str | None = None
+    # CONCEPT:AU-ORCH.routing.functional-role-resolution — the model-tier hint this step ran
+    # under (ATG paper idea #3, ``models/sdd.py``'s ``Task.model_tier``), recorded
+    # for observability even when unset (the default, ordinary-tier run).
+    model_tier: str | None = None
 
 
 @dataclass
@@ -607,6 +624,77 @@ class WorkflowRunner:
             resume_state=prior,
         )
 
+    async def resume_localized(
+        self,
+        workflow_name: str,
+        engine: IntelligenceGraphEngine,
+        session_id: str,
+        failed_step: str,
+        task: str | None = None,
+    ) -> WorkflowResult:
+        """Resume a run after a STEP FAILURE (not a gate), re-executing ONLY the
+        region ``failed_step`` actually invalidates — Atomic Task Graph paper
+        idea #1 (arXiv:2607.01942,
+        ``reports/paper-analysis-2607.01942.md`` §4 Rank 1), the same primitive
+        :mod:`agent_utilities.observability.ci_recycle` uses for a CI failure.
+
+        Unlike :meth:`resume` (which only ever re-drives from a SUSPENDED gate,
+        never discarding a completed step), this computes
+        :func:`agent_utilities.workflows.localized_repair.localized_repair_region`
+        from ``failed_step`` over the plan's own ``TRANSITION_TO`` DAG and drops
+        ONLY the invalidated steps from the prior run's completed/satisfied
+        state before re-driving — every PRESERVED step (upstream + sibling
+        branches ``failed_step`` never fed) keeps its already-recorded
+        ``:RunTrace``/``:ToolCall`` result and is NOT re-executed. This is the
+        region-preserving repair the paper's failure-localization idea
+        describes, applied to the existing suspend/resume state machine rather
+        than a blind whole-plan retry.
+        """
+        from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+        from agent_utilities.workflows.localized_repair import (
+            localized_repair_region,
+        )
+
+        store = WorkflowStore(engine)
+        plan = store.load_workflow(workflow_name)
+        if plan is None:
+            raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
+
+        all_step_ids = [getattr(s, "id", "") or "" for s in plan.steps]
+        region = localized_repair_region(
+            failed_step, engine=engine, all_nodes=all_step_ids
+        )
+        invalidated = set(region["invalidated"]) | {failed_step}
+
+        prior = self._load_run_state(engine, session_id)
+        trimmed = {
+            "completed": {
+                sid: rec
+                for sid, rec in (prior.get("completed") or {}).items()
+                if sid not in invalidated
+            },
+            "satisfied": {
+                sid for sid in (prior.get("satisfied") or set()) if sid not in invalidated
+            },
+        }
+
+        result = await self._execute_plan_via_agents(
+            plan=plan,
+            engine=engine,
+            workflow_name=workflow_name,
+            trace_session=session_id,
+            task=task,
+            resume_state=trimmed,
+        )
+        logger.info(
+            "[ORCH.repair] workflow %s localized repair from %s: invalidated=%s preserved=%s",
+            workflow_name,
+            failed_step,
+            sorted(invalidated),
+            region["preserved"],
+        )
+        return result
+
     # ------------------------------------------------------------------
     # Suspend/resume state persistence (CONCEPT:AU-ORCH.execution.workflow-lifecycle-management, §7.1 delta 3)
     # ------------------------------------------------------------------
@@ -860,6 +948,16 @@ class WorkflowRunner:
                     for d in deps
                     if outputs.get(d)
                 )
+                # CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier routing hint (ATG
+                # paper idea #3). Only honored when the step didn't already pin an
+                # exact model_id (which always wins); unrecognized/absent tiers pass
+                # reasoning_effort=None through unchanged (today's default).
+                tier = str(getattr(step, "model_tier", "") or "").lower() or None
+                effort = (
+                    MODEL_TIER_REASONING_EFFORT.get(tier)
+                    if tier and not getattr(step, "model_id", None)
+                    else None
+                )
                 t0 = _time.monotonic()
                 try:
                     out = await run_agent(
@@ -869,6 +967,7 @@ class WorkflowRunner:
                         max_steps=self.max_steps_per_agent,
                         context=ctx or None,
                         session_id=session_id,
+                        reasoning_effort=effort,
                     )
                     ok = not str(out).startswith("Agent execution failed")
                     return StepResult(
@@ -880,6 +979,7 @@ class WorkflowRunner:
                         duration_ms=(_time.monotonic() - t0) * 1000,
                         error=None if ok else str(out)[:300],
                         trace_id=session_id,
+                        model_tier=tier,
                     )
                 except Exception as exc:  # noqa: BLE001 — one step must not kill the DAG
                     return StepResult(
@@ -890,6 +990,7 @@ class WorkflowRunner:
                         status="failed",
                         duration_ms=(_time.monotonic() - t0) * 1000,
                         error=str(exc)[:300],
+                        model_tier=tier,
                         trace_id=session_id,
                     )
 
