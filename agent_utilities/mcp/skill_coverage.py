@@ -64,8 +64,10 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         # REGISTERED_TOOLS under MCP_TOOL_MODE=intent. They are not per-CAPABILITY
         # wrappers (a kg-<verb> skill implies ONE granular tool) — they wrap the
         # WHOLE resolver, and every granular tool they route to already has its
-        # own kg-* skill. A dedicated "how to use the intent surface" skill is
-        # tracked as Seam 8 follow-up rather than shipped in this kickoff slice.
+        # own kg-* skill. The dedicated "how to use the intent surface" skill
+        # (`kg-intent`, tier: meta) documents the resolver/dispatcher mechanism
+        # itself; it is intentionally NOT a `wraps:` entry here — a meta skill
+        # never claims verb coverage (see `compute_coverage`'s tier exemption).
         "ask",
         "find",
         "write",

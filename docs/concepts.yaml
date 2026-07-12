@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 991
+total_concepts: 995
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -2130,6 +2130,54 @@ concepts:
   dotted: AU-ECO.mcp.intent-surface-condensed-collapse
   aliases:
   - AU-ECO.mcp.intent-surface-condensed-collapse
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-cpd-ranking
+  name: For a tool with a generated CPD entry
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: For a tool with a generated CPD entry
+  dotted: AU-ECO.mcp.intent-surface-cpd-ranking
+  aliases:
+  - AU-ECO.mcp.intent-surface-cpd-ranking
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-outcome-learning
+  name: the learned reward-EMA for THIS
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: the learned reward-EMA for THIS
+  dotted: AU-ECO.mcp.intent-surface-outcome-learning
+  aliases:
+  - AU-ECO.mcp.intent-surface-outcome-learning
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-resolution-cache
+  name: when the SAME
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: when the SAME
+  dotted: AU-ECO.mcp.intent-surface-resolution-cache
+  aliases:
+  - AU-ECO.mcp.intent-surface-resolution-cache
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-selection-accuracy
+  name: hand-labelled corpus, one case per
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py
+  doc: hand-labelled corpus, one case per
+  dotted: AU-ECO.mcp.intent-surface-selection-accuracy
+  aliases:
+  - AU-ECO.mcp.intent-surface-selection-accuracy
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.mcp.intent-surface-tool-lifecycle
@@ -8207,12 +8255,13 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.context-compiler-kv-seam
-  name: '** — the compiled bundle can'
+  name: the serving-layer half of Seam 6. Builds
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
-  doc: '** — the compiled bundle can'
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+  doc: the serving-layer half of Seam 6. Builds
   dotted: AU-KG.retrieval.context-compiler-kv-seam
   aliases:
   - AU-KG.retrieval.context-compiler-kv-seam
@@ -13637,14 +13686,19 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.epistemic.truth-maintenance
-  name: Seam 3 — X-6
+  name: stamp the matrix
   pillar: EG-KG
   status: live
   code_paths:
+  - agent_utilities/graph/routing/enrichers/capability_designation.py
+  - agent_utilities/knowledge_graph/assimilation/feature_matrix.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/knowledge_graph/research/claim_flywheel.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
-  doc: Seam 3 — X-6
+  - agent_utilities/knowledge_graph/research/placement_mining.py
+  doc: stamp the matrix
   dotted: EG-KG.epistemic.truth-maintenance
   aliases:
   - EG-KG.epistemic.truth-maintenance
@@ -13804,6 +13858,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
   - agent_utilities/knowledge_graph/research/code_synthesis.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py

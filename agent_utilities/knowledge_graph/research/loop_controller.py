@@ -957,6 +957,23 @@ class LoopController:
         predicted = result.get("predicted") or []
         return {"count": len(predicted), "examples": predicted[:5]}
 
+    # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) -- #
+    def _register_derived_claim(
+        self, claim: Any, errors: list[str], context: str
+    ) -> None:
+        """Thin ``self.engine``-bound adapter over the shared ``candidate_insight.
+        register_claim_materialization`` writeback seam — see that function's
+        docstring for the full contract. ``_run_insight_validation`` (association/
+        anomaly/predicted-edge findings) and ``_run_trace_mining`` (mined
+        sequential-pattern findings) both call this so a new mining family gets
+        the same reversible-derived-data coverage for free; ``placement_mining.
+        run_placement_mining_cycle`` (a free function, not a ``LoopController``
+        method) calls the shared function directly with its own ``engine``.
+        """
+        from .candidate_insight import register_claim_materialization
+
+        register_claim_materialization(self.engine, claim, errors, context=context)
+
     # -- Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C4) -- #
     def _run_insight_validation(self, mine_result: dict[str, Any]) -> dict[str, Any]:
         """Mine → CandidateInsight → EvidenceBundle → Claim → Validation → Action gate.
@@ -1089,30 +1106,9 @@ class LoopController:
                 errors.append(f"insight_validation:persist {claim.id}: {e}")
                 continue
 
-            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): stamp this
-            # mined claim's real invalidation-dependency provenance — a `:DerivedFrom`
-            # edge to each base fact `cand.source_ids` names (the SAME ids the finding
-            # was actually mined from, never fabricated) — then register it as a live
-            # engine-side TruthMaintenance materialization off that SAME provenance.
-            # From this point on, the engine auto-invalidates this claim the moment any
-            # of those base facts changes/is removed through the normal write path — no
-            # polling, no second bookkeeping store here. Best-effort audit overlay,
-            # same posture as the flywheel calls below: never gates the pipeline. --
-            for source_id in claim.source_ids:
-                try:
-                    self.engine.add_edge(
-                        claim.id, source_id, relationship_type="DERIVED_FROM"
-                    )
-                except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
-                    errors.append(
-                        f"insight_validation:derived_from {claim.id}->{source_id}: {e}"
-                    )
-            try:
-                self.engine.register_materialization(claim.id)
-            except Exception as e:  # noqa: BLE001 — TMS registration is best-effort
-                errors.append(
-                    f"insight_validation:register_materialization {claim.id}: {e}"
-                )
+            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the shared
+            # writeback seam — see ``_register_derived_claim`` docstring. --
+            self._register_derived_claim(claim, errors, "insight_validation")
 
             # -- X3: record the flywheel's PROPOSED event (best-effort audit
             # overlay; never gates the pipeline above). --
@@ -1446,6 +1442,11 @@ class LoopController:
             except Exception as e:  # noqa: BLE001 — persistence is best-effort
                 errors.append(f"trace_mining:persist {claim.id}: {e}")
                 continue
+
+            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the SAME
+            # shared writeback seam ``_run_insight_validation`` uses — see
+            # ``_register_derived_claim`` docstring. --
+            self._register_derived_claim(claim, errors, "trace_mining")
 
             try:
                 flywheel.propose(claim.id, reason=f"mined {cand.finding_type} finding")

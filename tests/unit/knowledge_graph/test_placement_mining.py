@@ -690,6 +690,81 @@ def test_eligible_proposal_persists_as_an_unverified_proposal_claim(monkeypatch)
     assert proposals[0]["is_verified"] is False
 
 
+# ---------------------------------------------------------------------------
+# X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the persisted
+# PlacementProposal claim registers via the SAME shared writeback seam
+# ``loop_controller._run_insight_validation``/``_run_trace_mining`` use
+# (``candidate_insight.register_claim_materialization``), and ACTUALLY goes
+# Stale when its real base fact (the placement target) changes.
+# ---------------------------------------------------------------------------
+
+
+class _TmsAwareCycleStubEngine(_CycleStubEngine):
+    """``_CycleStubEngine`` + ``add_edge`` + a minimal, faithful in-process
+    TruthMaintenance index (same contract as ``test_insight_validation.py``'s
+    ``_TmsAwareInsightStubEngine``)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.edges: list[tuple[str, str, dict[str, Any]]] = []
+        self._versions: dict[str, int] = {}
+        self._materializations: dict[str, dict[str, int]] = {}
+
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
+    ) -> None:
+        super().add_node(node_id, node_type, properties)
+        self._versions[node_id] = self._versions.get(node_id, 0) + 1
+
+    def add_edge(
+        self, source: str, target: str, rel_type: str = "", **properties: Any
+    ) -> None:
+        self.edges.append((source, target, {"rel_type": rel_type, **properties}))
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        deps = {
+            target
+            for source, target, props in self.edges
+            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+        }
+        self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
+        return {
+            "id": derived_id,
+            "depends_on": sorted(deps),
+            "generating_activity": None,
+        }
+
+    def materialization_status(self, derived_id: str) -> str | None:
+        snapshot = self._materializations.get(derived_id)
+        if snapshot is None:
+            return None
+        for dep, ver in snapshot.items():
+            if self._versions.get(dep, 0) != ver:
+                return "Stale"
+        return "Fresh"
+
+
+def test_placement_proposal_materialization_goes_stale_when_target_changes(
+    monkeypatch,
+):
+    _patch_mine_result(monkeypatch, anomaly_score=4.0)
+    engine = _TmsAwareCycleStubEngine()
+    rep = run_placement_mining_cycle(engine)
+
+    assert rep["persisted"] == 1
+    proposal = engine.by_type("PlacementProposal")[0]
+    claim_id = proposal["id"]
+    target = proposal["source_ids"][0]
+    assert target  # sanity: the claim carries the real placement target
+
+    assert engine.materialization_status(claim_id) == "Fresh"
+
+    # The placement target itself is later revised (a real KG write).
+    engine.add_node(target, "Entity", properties={"revised": True})
+
+    assert engine.materialization_status(claim_id) == "Stale"
+
+
 def test_shipped_default_never_applies_or_canaries(monkeypatch):
     """apply_placement_change is approval_required by default — the gate must
     queue, and the canary must never even run."""

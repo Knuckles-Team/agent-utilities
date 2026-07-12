@@ -1273,6 +1273,7 @@ def run_placement_mining_cycle(
     )
     from agent_utilities.orchestration.outcome_router import OutcomeRouter
 
+    from .candidate_insight import register_claim_materialization
     from .claim_flywheel import ClaimFlywheel
     from .promotion_governance import PromotionGovernanceValidator
 
@@ -1340,6 +1341,14 @@ def run_placement_mining_cycle(
         except Exception as e:  # noqa: BLE001 — persistence is best-effort
             errors.append(f"placement_mining:persist {claim.id}: {e}")
             continue
+
+        # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the SAME
+        # shared writeback seam ``loop_controller._run_insight_validation`` /
+        # ``_run_trace_mining`` use — see ``candidate_insight.
+        # register_claim_materialization`` docstring. --
+        register_claim_materialization(
+            engine, claim, errors, context="placement_mining"
+        )
 
         try:
             flywheel.propose(claim.id, reason=f"mined {prop.kind} placement finding")

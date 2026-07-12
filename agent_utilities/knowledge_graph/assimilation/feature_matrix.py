@@ -322,9 +322,53 @@ def materialize(
         summary["persisted"] = False
         summary["error"] = str(exc)
 
+    if summary["persisted"]:
+        _register_matrix_materialization(
+            engine, node_id, matrix.rows[:MAX_PERSISTED_ROWS]
+        )
+
     _persist_live_artifact(node_id, matrix, markdown, summary)
     summary["markdown"] = markdown
     return summary
+
+
+def _register_matrix_materialization(
+    engine: Any, node_id: str, rows: list[FeatureMatrixRow]
+) -> None:
+    """X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): stamp the matrix
+    node's real invalidation-dependency provenance and register it as a live
+    engine-side TruthMaintenance materialization.
+
+    The matrix is a materialized JOIN over the assimilated graph: each persisted
+    row's ``feature_id`` (the base Feature/SDDFeature/Article node it summarizes)
+    and, when present, the ``concept_id`` it was matched against (the
+    ``SATISFIED_BY``/``RELATES_TO`` target) are the REAL base facts this row came
+    from — never fabricated. A ``:DerivedFrom`` edge (``relationship_type=
+    "DERIVED_FROM"``, the exact property key ``eg_epistemic::
+    register_from_provenance`` reads) lands from the matrix node to each distinct
+    one of those ids, then the matrix node is registered as a live TruthMaintenance
+    materialization off that SAME provenance — so a change to any summarized
+    feature or matched concept marks the whole matrix stale, prompting the next
+    cycle's ``materialize`` call to refresh it. Best-effort: never gates the
+    already-completed persist above (mirrors ``loop_controller.
+    _register_derived_claim``'s posture).
+    """
+    deps: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for dep in (row.feature_id, row.concept_id):
+            if dep and dep not in seen:
+                seen.add(dep)
+                deps.append(dep)
+    for dep in deps:
+        try:
+            engine.add_edge(node_id, dep, relationship_type="DERIVED_FROM")
+        except Exception:  # noqa: BLE001 — provenance edges are best-effort
+            pass
+    try:
+        engine.register_materialization(node_id)
+    except Exception:  # noqa: BLE001 — TMS registration is best-effort
+        pass
 
 
 def _persist_live_artifact(

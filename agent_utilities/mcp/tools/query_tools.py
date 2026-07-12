@@ -191,6 +191,41 @@ def build_code_nav_query(
     return cypher, params
 
 
+def _evidence_bundle_for_rows(engine: Any, rows: list[Any]) -> Any:
+    """Build an :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle`
+    over a plain Cypher result ``rows`` (``graph_query``'s ``envelope='bundle'``).
+
+    Currency-upgrades ``rows`` the SAME way
+    :meth:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph._attach_epistemic`
+    does for its per-row ``EpistemicRow`` path: extract the distinct ids
+    (:func:`~agent_utilities.knowledge_graph.core.epistemic_row.row_ids_from_plain_rows`),
+    resolve their engine-side epistemic envelope in ONE round-trip via
+    ``engine.graph.explain_provenance_by_ids`` (``Method::ExplainProvenanceByIds``),
+    then fold the resulting ``KnowledgeSet`` rows into ONE aggregate
+    :class:`EvidenceBundle` via :meth:`EvidenceBundle.from_engine_wire` — confidence
+    (top-scored row), freshness (bitemporal min/max), contradictions (scanned across
+    row claims), and policy exclusions, never fabricated. Degrades to an empty
+    bundle (never raises) when the engine has no ``explain_provenance_by_ids``
+    primitive or no row carries a resolvable id.
+    """
+    from agent_utilities.knowledge_graph.core.epistemic_row import (
+        row_ids_from_plain_rows,
+    )
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+    fetch = getattr(getattr(engine, "graph", None), "explain_provenance_by_ids", None)
+    if fetch is None:
+        return EvidenceBundle.from_engine_wire({"rows": []})
+    plain_rows = (
+        [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+    )
+    id_props = row_ids_from_plain_rows(plain_rows)
+    if not id_props:
+        return EvidenceBundle.from_engine_wire({"rows": []})
+    wire_rows = fetch([ip["id"] for ip in id_props]) or []
+    return EvidenceBundle.from_engine_wire({"rows": wire_rows})
+
+
 def _resolve_symbol_id(engine, *, symbol: str, node_id: str) -> dict[str, Any] | None:
     """Resolve a symbol name (or exact id) to its best :Code node row."""
     if node_id:
@@ -316,6 +351,15 @@ def register_query_tools(mcp):
                 "get per-connection labeled results."
             ),
         ),
+        envelope: str = Field(
+            default="raw",
+            description="'raw' (default; byte-identical legacy shape — a bare JSON row "
+            "array) or 'bundle' (single-connection local Cypher only: return "
+            '`{"rows": [...], "evidence_bundle": {...}}`, wrapping the rows\' '
+            "engine-resolved epistemic envelope — confidence/provenance/bitemporal "
+            "coverage/contradictions — as an EvidenceBundle via "
+            "`Method::ExplainProvenanceByIds`). Additive/opt-in.",
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         parsed_params = json.loads(params) if params else {}
@@ -432,12 +476,28 @@ def register_query_tools(mcp):
                 return json.dumps({"error": str(e)})
 
         if not fanout:
-            # Single connection (default or one named) — identical shape to legacy.
+            # Single connection (default or one named) — identical shape to legacy
+            # when envelope='raw' (the default).
             _name, engine = entries[0]
             try:
                 results = engine.query_cypher(
                     cypher, parsed_params, as_of=as_of or None
                 )
+                # A raw direct call (bypassing FastMCP schema resolution /
+                # _execute_tool) that omits `envelope` binds it to the Field(...)
+                # descriptor itself, not the string default — normalize
+                # defensively so that degrades to "raw" (mirrors graph_ask).
+                envelope_mode = envelope if isinstance(envelope, str) else "raw"
+                if envelope_mode.strip().lower() == "bundle":
+                    return json.dumps(
+                        {
+                            "rows": results,
+                            "evidence_bundle": _evidence_bundle_for_rows(
+                                engine, results
+                            ).model_dump(),
+                        },
+                        default=str,
+                    )
                 return json.dumps(results, default=str)
             except Exception as e:
                 return json.dumps({"error": str(e)})

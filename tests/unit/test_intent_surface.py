@@ -188,3 +188,120 @@ def test_kg_query_skill_still_documents_graph_query():
     )
     text = skill_path.read_text(encoding="utf-8")
     assert "graph_query" in text
+
+
+# --------------------------------------------------------------------------- #
+# Seam 8 remaining work: CPD-backed ranking, the outcome-learning loop, and
+# resolution caching (docs/architecture/intent-surface.md §7).
+# --------------------------------------------------------------------------- #
+
+
+def test_resolver_ranks_against_the_generated_cpd_when_available():
+    """CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking — a real tool with a generated CPD
+    entry (docs/capabilities-power.json) is ranked using its CPD one_line/
+    examples/does text, not just its bare docstring, and dispatch reports the
+    CPD as the capability_source."""
+    cpds = intent_tools._load_cpds_safe()
+    assert "graph_query" in cpds, "docs/capabilities-power.json must be checked in"
+
+    candidates = intent_tools.resolve_intent(
+        "ask", "execute a read-only cypher query", top_k=8
+    )
+    by_tool = {c.tool: c for c in candidates}
+    assert "graph_query" in by_tool
+    # The CPD's own example text ("graph_query action=graph_query") and
+    # one_line both feed the candidate doc — a term only present there (not in
+    # the bare function docstring) should still be attributable to the match.
+    assert "cypher" in by_tool["graph_query"].doc.lower()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reports_cpd_capability_source_for_a_cpd_backed_tool(
+    monkeypatch,
+):
+    async def fake_graph_query(query: str = "", **_kw) -> str:
+        return json.dumps({"rows": []})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_query", fake_graph_query)
+
+    result = await intent_tools.dispatch_intent(
+        "ask", "run a cypher query against the graph", hints={"tool": "graph_query"}
+    )
+    assert result["executed"] is True
+    assert "Capability Power Descriptor" in result["routing"]["capability_source"]
+    assert "calibrated_outcome_reward" in result["routing"]
+
+
+@pytest.mark.asyncio
+async def test_outcome_learning_biases_a_later_resolution(monkeypatch):
+    """CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning — recording a dispatch outcome
+    feeds the shared durable-bandit reward-EMA (OutcomeRouter, over
+    CapabilityIndex.record_outcome/reward_of — no second learner), and a LATER
+    unpinned resolution for the same verb prefers the capability that
+    succeeded over one it exactly ties with lexically."""
+
+    async def fake_a(**_kw) -> str:
+        return "ok-a"
+
+    async def fake_b(**_kw) -> str:
+        return "ok-b"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "fake_tool_a", fake_a)
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "fake_tool_b", fake_b)
+    monkeypatch.setitem(intent_tools.TOOL_VERBS, "fake_tool_a", ("act",))
+    monkeypatch.setitem(intent_tools.TOOL_VERBS, "fake_tool_b", ("act",))
+    intent_tools._CANDIDATES_CACHE = None
+
+    # Nonsense wording that matches neither tool's name/doc -> guaranteed tie
+    # at score 0.0, so the reward-EMA blend is the ONLY thing that can decide
+    # the ordering.
+    nonsense_intent = "zzqzq wobbleflorp nonexistent gizmo"
+
+    # top_k generous enough that BOTH fake tools survive the top-k slice
+    # regardless of the (score, tool) tie-break among the real 'act' surface.
+    before = intent_tools.resolve_intent("act", nonsense_intent, top_k=100)
+    before_scores = {c.tool: c.score for c in before}
+    assert before_scores["fake_tool_a"] == before_scores["fake_tool_b"] == 0.0
+
+    result = await intent_tools.dispatch_intent(
+        "act", nonsense_intent, hints={"tool": "fake_tool_a"}
+    )
+    assert result["executed"] is True
+    assert result["result"] == "ok-a"
+
+    after = intent_tools.resolve_intent("act", nonsense_intent, top_k=100)
+    after_scores = {c.tool: c.score for c in after}
+    assert after_scores["fake_tool_a"] > after_scores["fake_tool_b"]
+    ranked_tools = [c.tool for c in after if c.tool in ("fake_tool_a", "fake_tool_b")]
+    assert ranked_tools[0] == "fake_tool_a"
+
+
+def test_resolution_cache_hits_repeat_intent_misses_a_different_one(monkeypatch):
+    """CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache — the SAME (verb, intent) resolves
+    from the bounded cache (no new entry, identical ranking) while a
+    differently-worded intent is a fresh miss (a new cache entry)."""
+
+    async def fake_cache_tool(**_kw) -> str:
+        return "ok"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "fake_cache_tool", fake_cache_tool)
+    monkeypatch.setitem(intent_tools.TOOL_VERBS, "fake_cache_tool", ("ask",))
+    intent_tools._CANDIDATES_CACHE = None
+    intent_tools._RESOLUTION_CACHE.clear()
+
+    size_before = len(intent_tools._RESOLUTION_CACHE)
+    r1 = intent_tools.resolve_intent("ask", "  Find The Fake Cache Tool  ", top_k=5)
+    size_after_first = len(intent_tools._RESOLUTION_CACHE)
+    assert size_after_first == size_before + 1
+
+    # Same intent modulo case/whitespace -> normalizes to the SAME cache key.
+    r2 = intent_tools.resolve_intent("ask", "find the fake cache tool", top_k=5)
+    size_after_second = len(intent_tools._RESOLUTION_CACHE)
+    assert size_after_second == size_after_first  # cache hit — no new entry
+    assert [c.tool for c in r1] == [c.tool for c in r2]
+    assert [c.score for c in r1] == [c.score for c in r2]
+
+    # A genuinely different intent is a fresh key.
+    intent_tools.resolve_intent("ask", "an entirely unrelated intent phrase", top_k=5)
+    size_after_third = len(intent_tools._RESOLUTION_CACHE)
+    assert size_after_third == size_after_second + 1

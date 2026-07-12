@@ -224,6 +224,91 @@ def test_register_materialization_failure_is_tolerated():
 
 
 # ---------------------------------------------------------------------------
+# (a.2) X-6 / Seam 3: the registered materialization ACTUALLY goes Stale when a
+# base fact it depends on changes — a fake-but-faithful engine-side TMS index
+# (mirrors the real engine's own documented contract: register_materialization
+# snapshots the CURRENT state of every ``:DerivedFrom`` target; materialization_
+# status compares that snapshot against the live state and reports "Stale" the
+# moment any dependency changed through the normal write path).
+# ---------------------------------------------------------------------------
+
+
+class _TmsAwareInsightStubEngine(_InsightStubEngine):
+    """``_InsightStubEngine`` + a minimal, faithful in-process TruthMaintenance
+    index: every ``add_node`` bumps that id's version counter; ``register_
+    materialization`` snapshots the CURRENT version of every ``:DerivedFrom``
+    target the derived id carries; ``materialization_status`` reports "Stale"
+    the instant any snapshotted dependency's version has since moved, "Fresh"
+    otherwise — exactly the contract ``graph_compute.register_materialization``/
+    ``materialization_status`` document for the real engine."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._versions: dict[str, int] = {}
+        self._materializations: dict[str, dict[str, int]] = {}
+
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
+    ) -> None:
+        super().add_node(node_id, node_type, properties)
+        self._versions[node_id] = self._versions.get(node_id, 0) + 1
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        super().register_materialization(derived_id)
+        deps = {
+            target
+            for source, target, props in self.edges
+            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+        }
+        self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
+        return {
+            "id": derived_id,
+            "depends_on": sorted(deps),
+            "generating_activity": None,
+        }
+
+    def materialization_status(self, derived_id: str) -> str | None:
+        snapshot = self._materializations.get(derived_id)
+        if snapshot is None:
+            return None
+        for dep, ver in snapshot.items():
+            if self._versions.get(dep, 0) != ver:
+                return "Stale"
+        return "Fresh"
+
+
+def test_registered_claim_materialization_goes_stale_when_base_fact_changes():
+    eng = _TmsAwareInsightStubEngine()
+    mine_result = _mine_result(association_confidence=0.95, anomaly_score=0.1)
+    rep = LoopController(eng)._run_insight_validation(mine_result)
+
+    assert rep["persisted_claims"] == 1
+    claim_id = eng.by_type("Claim")[0]["id"]
+    source_ids = eng.by_type("Claim")[0]["source_ids"]
+    assert source_ids  # sanity: the claim carries real base-fact ids
+
+    # Freshly registered, off the SAME writeback the pipeline just ran.
+    assert eng.materialization_status(claim_id) == "Fresh"
+
+    # A committed change to ONE of the claim's real base facts (the normal
+    # write path any other KG writer already uses) ...
+    eng.add_node(source_ids[0], "Concept", properties={"revised": True})
+
+    # ... auto-invalidates the materialization -- no polling, no second
+    # bookkeeping store, exactly the guarantee ``register_materialization``'s
+    # docstring promises.
+    assert eng.materialization_status(claim_id) == "Stale"
+
+    # An UNRELATED node changing does not affect it.
+    eng2 = _TmsAwareInsightStubEngine()
+    rep2 = LoopController(eng2)._run_insight_validation(mine_result)
+    claim_id2 = eng2.by_type("Claim")[0]["id"]
+    assert rep2["persisted_claims"] == 1
+    eng2.add_node("some:unrelated-node", "Concept", properties={})
+    assert eng2.materialization_status(claim_id2) == "Fresh"
+
+
+# ---------------------------------------------------------------------------
 # (b) action_policy.decide() is consulted before any promotion
 # ---------------------------------------------------------------------------
 

@@ -220,10 +220,26 @@ class StardogSparqlBackend(SparqlAdapter):
     # GraphBackend ABC — write via Cypher translation, read via SPARQL
     # ------------------------------------------------------------------
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Route a query: native SPARQL passes through; the engine's Cypher MERGE
-        shapes translate to SPARQL; everything else is a no-op read (``[]``)."""
+        shapes translate to SPARQL; everything else is a no-op read (``[]``).
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1): this triplestore
+        tier has no id-seeded epistemic-envelope primitive, so a ``True`` request
+        degrades to ``[]`` per the ABC contract rather than raising or silently
+        returning plain rows.
+        """
+        if include_epistemic:
+            logger.debug(
+                "StardogSparqlBackend.execute(include_epistemic=True): no "
+                "epistemic envelope primitive; returning []"
+            )
+            return []
         params = params or {}
         stripped = query.strip()
         upper = stripped.upper()

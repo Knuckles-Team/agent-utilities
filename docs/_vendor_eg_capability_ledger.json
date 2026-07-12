@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-11T22:30:21Z",
-  "row_count": 346,
+  "cached_at": "2026-07-12T00:52:57Z",
+  "row_count": 348,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -398,6 +398,17 @@
       "note": "NOT present in access.rs's write classifier at all -- governed elsewhere",
       "txn_participation": "Saga"
     },
+    "CausalCounterfactual": {
+      "audited": "false",
+      "authz_action": "explain:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CausalCounterfactual",
+      "mutates": "false",
+      "note": "EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal`",
+      "txn_participation": "Snapshot"
+    },
     "CausalEstimate": {
       "audited": "false",
       "authz_action": "explain:read",
@@ -406,7 +417,7 @@
       "idempotent": "true",
       "method": "CausalEstimate",
       "mutates": "false",
-      "note": "EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal`",
+      "note": "EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal`",
       "txn_participation": "Snapshot"
     },
     "CdcRead": {
@@ -3135,6 +3146,17 @@
       "method": "ResolveCandidates",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "ResolveConflict": {
+      "audited": "false",
+      "authz_action": "explain:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ResolveConflict",
+      "mutates": "false",
+      "note": "EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms`",
       "txn_participation": "Snapshot"
     },
     "ResourceStats": {

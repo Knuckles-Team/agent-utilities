@@ -848,6 +848,7 @@ class GraphComputeEngine:
         plan: list[dict[str, Any]],
         *,
         reorder_filter_selectivity: float | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
 
@@ -863,13 +864,30 @@ class GraphComputeEngine:
 
         Requires an engine built with the ``query`` feature; on a build without it
         the call raises a clear engine error — there is no O(N) Python fallback.
+
+        Args:
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended from ``KnowledgeGraph.query``
+                to this cross-modal surface). Default ``False`` — byte-for-byte the
+                same ``[{"id", "score"}]`` rows as before this parameter existed.
+                When ``True``, currency-upgrades the SAME ids (in the SAME
+                post-``Rank`` order) via ``explain_provenance_by_ids`` into
+                :class:`~.epistemic_row.EpistemicRow` results carrying the
+                engine's confidence, bitemporal window, evidence provenance, and
+                policy labels — never fabricated, resolved server-side. See
+                ``docs/architecture/epistemic-columns-currency.md``.
         """
-        return (
+        rows = (
             self._client.query.unified(
                 plan, reorder_filter_selectivity=reorder_filter_selectivity
             )
             or []
         )
+        if not include_epistemic:
+            return rows
+        from .epistemic_row import attach_epistemic_rows
+
+        return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
         """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).
