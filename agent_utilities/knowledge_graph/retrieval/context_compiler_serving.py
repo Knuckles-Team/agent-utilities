@@ -25,6 +25,7 @@ this module is downstream of a already-assembled :class:`ContextBundle`.
 """
 
 import logging
+import time
 from typing import Any
 
 from .context_compiler import ContextBundle
@@ -147,6 +148,32 @@ def bundle_chat_completion(
         bundle.cache_key,
         len(bundle.items),
     )
-    return client.chat.completions.create(
+    start = time.perf_counter()
+    response = client.chat.completions.create(
         model=resolved_model or "default", messages=messages, **create_kwargs
     )
+    _record_ttft(time.perf_counter() - start, bundle)
+    return response
+
+
+def _record_ttft(duration_s: float, bundle: ContextBundle) -> None:
+    """Observe the WS-4 TTFT-proxy histogram (additive, best-effort, never raises).
+
+    CONCEPT:AU-KG.retrieval.context-compiler-kv-seam — ``duration_s`` is the
+    wall-clock latency of the (non-streaming) ``chat.completions.create`` call,
+    the same latency-based signal ``scripts/measure_bundle_kv_reuse.py`` already
+    treats as the fallback proof of prefix-cache reuse when vLLM's own
+    ``/metrics`` isn't reachable; this just makes that signal a standing
+    Prometheus histogram instead of a one-off script run, split by whether
+    ``bundle`` itself was served from the Seam-6 KV cache.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            CONTEXT_COMPILER_TTFT,
+        )
+
+        CONTEXT_COMPILER_TTFT.labels(
+            kv_cache_hit=str(bool(bundle.kv_cache_hit)).lower()
+        ).observe(duration_s)
+    except Exception as exc:  # noqa: BLE001 — metrics must never break the call
+        logger.debug("context-compiler ttft metric recording failed: %s", exc)

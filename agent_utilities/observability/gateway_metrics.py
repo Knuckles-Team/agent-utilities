@@ -42,6 +42,10 @@ __all__ = [
     "GATEWAY_RATE_LIMITED",
     "GATEWAY_REQUEST_DURATION",
     "GATEWAY_REQUESTS",
+    "CONTEXT_COMPILER_ITEMS",
+    "CONTEXT_COMPILER_KV_CACHE",
+    "CONTEXT_COMPILER_TOKENS",
+    "CONTEXT_COMPILER_TTFT",
     "DB_CALLS",
     "DISPATCH_QUEUE_DEPTH",
     "DISPATCH_TURNS",
@@ -52,6 +56,7 @@ __all__ = [
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
+    "KVCACHE_CLIENT_REQUESTS",
     "MCP_CHILD_BREAKER_STATE",
     "MCP_CHILD_CALLS",
     "MCP_CHILD_QUEUE_DEPTH",
@@ -114,30 +119,34 @@ def _gauge(name: str, doc: str, labelnames: tuple[str, ...] = ()) -> Any:
         return _NoopMetric()
 
 
-def _histogram(name: str, doc: str, labelnames: tuple[str, ...] = ()) -> Any:
+_DEFAULT_LATENCY_BUCKETS = (
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+    10.0,
+    30.0,
+    60.0,
+)
+
+
+def _histogram(
+    name: str,
+    doc: str,
+    labelnames: tuple[str, ...] = (),
+    *,
+    buckets: tuple[float, ...] = _DEFAULT_LATENCY_BUCKETS,
+) -> Any:
     if not PROMETHEUS_AVAILABLE:
         return _NoopMetric()
     try:
-        return Histogram(
-            name,
-            doc,
-            labelnames=labelnames,
-            buckets=(
-                0.005,
-                0.01,
-                0.025,
-                0.05,
-                0.1,
-                0.25,
-                0.5,
-                1.0,
-                2.5,
-                5.0,
-                10.0,
-                30.0,
-                60.0,
-            ),
-        )
+        return Histogram(name, doc, labelnames=labelnames, buckets=buckets)
     except ValueError:
         return _NoopMetric()
 
@@ -314,6 +323,50 @@ BUS_SEND_DURATION = _histogram(
 BUS_DISPATCH = _counter(
     "agent_utilities_bus_dispatch_total",
     "Bus message->fleet-work dispatches by outcome (submitted|denied|failed).",
+    ("outcome",),
+)
+
+# ContextCompiler answer-path efficiency (CONCEPT:AU-KG.retrieval.context-compiler /
+# CONCEPT:AU-KG.retrieval.context-compiler-kv-seam — WS-4). The mature ContextCompiler
+# + Seam-6 KV-cache wiring had no measurement of its claimed efficiency; these mirror
+# the existing gateway/MCP metric families (bounded, small label sets) rather than
+# standing up a new metrics system. Recorded by ``ContextCompiler.compile`` and
+# ``context_compiler_serving.bundle_chat_completion`` — no-op wherever the ``metrics``
+# extra (prometheus-client) is absent, same as every metric above.
+CONTEXT_COMPILER_ITEMS = _counter(
+    "agent_utilities_context_compiler_items_total",
+    "ContextCompiler candidate items per compile() call by outcome "
+    "(selected|dropped_policy|dropped_redundant|dropped_budget).",
+    ("outcome",),
+)
+CONTEXT_COMPILER_TOKENS = _histogram(
+    "agent_utilities_context_compiler_tokens",
+    "ContextCompiler per-compile() token counts by kind: 'in' is the MMR-selected "
+    "pool handed to the token-budget fit, 'selected' is tokens actually kept "
+    "(ContextBundle.tokens_used) — the selection-efficiency ratio is selected/in.",
+    ("kind",),
+    buckets=(16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384),
+)
+CONTEXT_COMPILER_KV_CACHE = _counter(
+    "agent_utilities_context_compiler_kv_cache_requests_total",
+    "ContextCompiler Seam-6 bundle-level KV-cache lookups (compile(kv_backend=...)) "
+    "by outcome (hit|miss) — hit-rate = hit / (hit + miss).",
+    ("outcome",),
+)
+CONTEXT_COMPILER_TTFT = _histogram(
+    "agent_utilities_context_compiler_ttft_seconds",
+    "bundle_chat_completion() wall-clock latency to the live chat endpoint — a "
+    "time-to-first-token PROXY for non-streaming calls (see "
+    "scripts/measure_bundle_kv_reuse.py for the token-level vLLM prefix-cache "
+    "signal this approximates), split by whether the bundle itself was served "
+    "from the Seam-6 KV cache (kv_cache_hit).",
+    ("kv_cache_hit",),
+)
+KVCACHE_CLIENT_REQUESTS = _counter(
+    "agent_utilities_kvcache_client_requests_total",
+    "EpistemicGraphKVBackend.get() lookups by outcome (hit|miss|error) — the "
+    "client-side half of the EG-187 remote KV-cache contract; GET /kv/stats on "
+    "the engine exposes the aggregate server-side occupancy/dedup counters.",
     ("outcome",),
 )
 
