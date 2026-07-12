@@ -189,6 +189,36 @@ class ServiceNowSink:
                 logger.debug("servicenow create_cmdb_relation failed", exc_info=True)
                 result.errors += 1
 
+        # work_notes — append a review note to an existing ticket/demand record
+        # (e.g. a TRM u_trm_request, an incident) WITHOUT touching CMDB CI
+        # fields — a ticket is a different table than a CI, so this reuses the
+        # generic table-patch surface (matching incident_router.ServiceNowAdapter's
+        # update_ticket) rather than the CMDB-only create/patch_cmdb_instance
+        # calls above. Portfolio-intelligence's TRM recommendation writeback is
+        # the first consumer (CONCEPT:AU-KG.enrichment.portfolio-intelligence).
+        for item in ops.get("work_notes") or []:
+            sys_id = item.get("sys_id") or resolve(item.get("node"))
+            note = item.get("note")
+            table = item.get("table") or "task"
+            if not (sys_id and note):
+                result.skipped += 1
+                continue
+            if dry_run:
+                result.proposals.append(
+                    {"op": "work_notes", "table": table, "sys_id": sys_id, "note": note}
+                )
+                continue
+            try:
+                client.patch_table_record(  # type: ignore[union-attr]  # client None-checked above
+                    table=table,
+                    table_record_sys_id=sys_id,
+                    data={"work_notes": note},
+                )
+                result.enriched += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("servicenow work_notes patch failed", exc_info=True)
+                result.errors += 1
+
         # retirements — mark CIs retired (install_status=7).
         for item in ops.get("retirements") or []:
             sys_id = resolve(item.get("node"))

@@ -138,3 +138,4 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
 | `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
+| `shapes/portfolio_intelligence.shapes.ttl` | Portfolio comparative-intelligence decision shapes (CONCEPT:AU-KG.enrichment.portfolio-intelligence): a `:Recommendation` must carry a valid adopt/reject/consolidate/migrate `:verdict` + non-empty `:rationale`; an `:Assessment` must record its `:assessmentScore`; a `:ComparisonCriterion` must declare its kind + weight. |

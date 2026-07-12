@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 996
+total_concepts: 997
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -4902,16 +4902,30 @@ concepts:
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.enrichment.ops-causal-graph
-  name: AU-KG.enrichment.ops-causal-graph
+  name: The fleet ingests the SAME git
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/enrichment/ops_causal_graph.py
   - agent_utilities/mcp/tools/ops_causal_tools.py
-  doc: AU-KG.enrichment.ops-causal-graph
+  - agent_utilities/observability/repo_crosswalk.py
+  doc: The fleet ingests the SAME git
   dotted: AU-KG.enrichment.ops-causal-graph
   aliases:
   - AU-KG.enrichment.ops-causal-graph
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.enrichment.portfolio-intelligence
+  name: AU-KG.enrichment.portfolio-intelligence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/servicenow.py
+  - agent_utilities/observability/portfolio_intelligence.py
+  doc: AU-KG.enrichment.portfolio-intelligence
+  dotted: AU-KG.enrichment.portfolio-intelligence
+  aliases:
+  - AU-KG.enrichment.portfolio-intelligence
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.enrichment.proposals-live-as
@@ -5363,6 +5377,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/config.py
   - agent_utilities/ecosystem/ea_clients.py
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/backends/base.py
@@ -5406,6 +5421,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/registry.py
   - agent_utilities/knowledge_graph/enrichment/source_adapters.py
   - agent_utilities/knowledge_graph/enrichment/writeback/approval.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/asset_mirror.py
   - agent_utilities/knowledge_graph/enrichment/writeback/findings.py
   - agent_utilities/knowledge_graph/enrichment/writeback/inventory.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ansible.py
@@ -6720,6 +6736,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
+  - agent_utilities/knowledge_graph/governance_import.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
@@ -9607,13 +9624,14 @@ concepts:
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.delegation-reasoning-off
-  name: this is a deterministic
+  name: reasoning is an OPT-IN capability
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/agent/factory.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/orchestration/agent_runner.py
-  doc: this is a deterministic
+  doc: reasoning is an OPT-IN capability
   dotted: AU-ORCH.execution.delegation-reasoning-off
   aliases:
   - AU-ORCH.execution.delegation-reasoning-off
@@ -10448,7 +10466,10 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
   - agent_utilities/knowledge_graph/kb/x_workflows.py
+  - agent_utilities/knowledge_graph/workflow_store.py
+  - agent_utilities/models/sdd.py
   - agent_utilities/workflows/__init__.py
   - agent_utilities/workflows/runner.py
   doc: / ORCH-1.95 — Named Workflow Execution. Loads the stored
@@ -12549,12 +12570,14 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.host.report-only-remediation-proposal
-  name: meant for a CronJob /
+  name: Given ANY entry node on the
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/observability/escalation_policy.py
   - agent_utilities/observability/incidents.py
-  doc: meant for a CronJob /
+  - agent_utilities/observability/lifecycle_orchestrator.py
+  doc: Given ANY entry node on the
   dotted: AU-OS.host.report-only-remediation-proposal
   aliases:
   - AU-OS.host.report-only-remediation-proposal
