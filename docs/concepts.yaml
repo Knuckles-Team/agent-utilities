@@ -10460,7 +10460,7 @@ concepts:
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.execution.two-level-fair-rotation
-  name: /1.76 — TWO-LEVEL fair rotation
+  name: the one seam every recurring/background job
   pillar: AU-ORCH
   status: live
   code_paths:
@@ -10468,7 +10468,8 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/retrieval/ops_context.py
-  doc: /1.76 — TWO-LEVEL fair rotation
+  - agent_utilities/observability/gateway_metrics.py
+  doc: the one seam every recurring/background job
   dotted: AU-ORCH.execution.two-level-fair-rotation
   aliases:
   - AU-ORCH.execution.two-level-fair-rotation
@@ -12597,13 +12598,12 @@ concepts:
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.host.homeostatic-recovery-daemon
-  name: Homeostatic Recovery Daemon
+  name: AU-OS.host.homeostatic-recovery-daemon
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/__init__.py
-  - agent_utilities/orchestration/recovery_daemon.py
-  doc: Homeostatic Recovery Daemon
+  doc: AU-OS.host.homeostatic-recovery-daemon
   dotted: AU-OS.host.homeostatic-recovery-daemon
   aliases:
   - AU-OS.host.homeostatic-recovery-daemon
@@ -12949,6 +12949,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/core/schedule_engine.py
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/config.py
   - agent_utilities/gateway/graph_api.py
@@ -13431,7 +13432,6 @@ concepts:
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/orchestration/engine_claim.py
   - agent_utilities/orchestration/fleet_reconciler.py
-  - agent_utilities/orchestration/recovery_daemon.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/security/tool_guard.py
   - agent_utilities/tools/scheduler_tools.py
@@ -13542,6 +13542,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/runtime/warm_registry.py
   - agent_utilities/server/routers/commands.py
   doc: Unified scheduling engine, one intelligent scheduler for all recurring work
