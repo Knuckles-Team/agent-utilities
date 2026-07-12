@@ -613,6 +613,7 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
 
     try:
         from agent_utilities.mcp.middlewares import (
+            ActorContextMiddleware,
             EntityLinkingMiddleware,
             JWTClaimsLoggingMiddleware,
             ToolMetricsMiddleware,
@@ -623,11 +624,19 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
         JWTClaimsLoggingMiddleware = None  # type: ignore
         EntityLinkingMiddleware = None  # type: ignore
         ToolMetricsMiddleware = None  # type: ignore
+        ActorContextMiddleware = None  # type: ignore
 
     middlewares: list[Any] = [
         ErrorHandlingMiddleware(include_traceback=True, transform_errors=True),
         RateLimitingMiddleware(max_requests_per_second=10.0, burst_capacity=20),
     ]
+
+    # Scope every tool call to the caller's validated Okta/Keycloak identity so
+    # servers can auto-load resources and inherit authz per-caller
+    # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance). No-op when the
+    # request carries no validated token (unauthenticated → SYSTEM_ACTOR).
+    if ActorContextMiddleware is not None:
+        middlewares.append(ActorContextMiddleware())
 
     # Per-tool Prometheus metrics (count/latency/error) for this server, scraped
     # from its own /metrics route (CONCEPT:AU-OS.observability.no-op-without-metrics). No-op without the metrics extra.

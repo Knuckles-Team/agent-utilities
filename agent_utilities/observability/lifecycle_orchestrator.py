@@ -295,6 +295,74 @@ def _existing_step_signatures(reader: _GraphReader) -> set[str]:
     return sigs
 
 
+# Fields compared by :func:`find_reusable` — the TRANSITION CLASS (kind + stage
+# hop + capability), deliberately excluding the entry id so two DIFFERENT spine
+# nodes with the identical transition shape can match.
+_REUSE_KEY_FIELDS: tuple[str, ...] = (
+    "kind",
+    "fromStage",
+    "toStage",
+    "transition",
+    "targetType",
+)
+
+
+def find_reusable(
+    target: dict[str, Any],
+    candidates: list[tuple[str, dict[str, Any]]],
+    *,
+    key_fields: tuple[str, ...] = _REUSE_KEY_FIELDS,
+    similarity: float = 0.8,
+) -> dict[str, Any] | None:
+    """Reuse-lookup — Atomic Task Graph paper idea #2 (arXiv:2607.01942,
+    ``reports/paper-analysis-2607.01942.md`` §4 Rank 2).
+
+    :func:`_existing_step_signatures` above is EXACT-match idempotency (never
+    re-propose the identical transition for the identical entry). This extends
+    it one step further: before re-deriving a computation/result from scratch
+    (an equivalent prior ``:Assessment``/``:LifecycleStep``/CI repair, ...),
+    check whether a SIMILAR prior one already exists — same transition class,
+    a different (but equivalent) triggering node — and reuse it instead.
+
+    Deliberately conservative and deterministic (no embeddings/fuzzy text
+    matching): a candidate qualifies when the fraction of ``key_fields`` it
+    shares with ``target`` (exact per-field equality) is >= ``similarity``. The
+    default ``key_fields`` compare the TRANSITION CLASS only (kind/stage-hop/
+    transition-name/target-type), not the specific entry id — so, e.g., two
+    different incidents both needing a ``generate_spec`` hop can match. Reuse
+    only ever short-circuits the "would I derive the identical KIND of thing"
+    check; the caller decides what reuse means for its own node type (skip
+    re-diagnosis, link-and-still-create, ...) — this helper never merges two
+    distinct entities on its own.
+
+    Returns the best-scoring qualifying candidate's properties, stamped with
+    ``reusedFrom`` (the candidate's node id) and ``reuseScore``, or ``None``
+    when nothing meets the bar.
+    """
+    best: tuple[str, dict[str, Any], float] | None = None
+    for cand_id, props in candidates:
+        if not isinstance(props, dict) or not cand_id:
+            continue
+        total = len(key_fields)
+        if not total:
+            continue
+        matched = sum(
+            1
+            for f in key_fields
+            if props.get(f) is not None and props.get(f) == target.get(f)
+        )
+        score = matched / total
+        if score >= similarity and (best is None or score > best[2]):
+            best = (cand_id, props, score)
+    if best is None:
+        return None
+    cand_id, props, score = best
+    result = dict(props)
+    result["reusedFrom"] = cand_id
+    result["reuseScore"] = round(score, 3)
+    return result
+
+
 def diff_lifecycle(
     entry: dict[str, Any], *, reader: _GraphReader
 ) -> list[dict[str, Any]]:
@@ -417,6 +485,8 @@ def run_lifecycle(
     write: bool = True,
     consult_escalation: bool = False,
     escalation_context: dict[str, Any] | None = None,
+    reuse_similar: bool = False,
+    reuse_similarity: float = 0.8,
 ) -> dict[str, Any]:
     """Enter-anywhere gap-fill for one spine node ``entry`` (``{"id", "type"}``).
 
@@ -431,6 +501,16 @@ def run_lifecycle(
     (``auto``/``escalate``) + an ``:EscalationRequest`` id — the consultable gate
     the fuller-autonomy-with-escalation model carries. ``escalation_context``
     threads extra per-transition evidence (diff size, run status, service, …).
+
+    When ``reuse_similar`` is set, every fresh (non-exact-duplicate) proposal is
+    additionally checked against :func:`find_reusable` (paper idea #2) over the
+    existing ``:LifecycleStep`` population: a proposal whose transition CLASS
+    matches a prior one closely enough (``reuse_similarity``) is stamped
+    ``reusedFrom``/``reuseScore`` — it is still proposed/written (each entry
+    genuinely needs its own transition instance, e.g. its own ticket), but the
+    stamp records what it reused instead of re-deriving that class of proposal
+    from a blank diff. Default off — an opt-in refinement of the exact-match
+    dedupe above, not a change to it.
     """
     eng = engine or health_ingest._engine()
     if eng is None:
@@ -440,6 +520,14 @@ def run_lifecycle(
     all_props = diff_lifecycle(entry, reader=reader)
     seen = _existing_step_signatures(reader)
     fresh = [p for p in all_props if p["signature"] not in seen]
+
+    if reuse_similar and fresh:
+        candidates = reader.nodes_by_label("LifecycleStep")
+        for prop in fresh:
+            hit = find_reusable(prop, candidates, similarity=reuse_similarity)
+            if hit is not None:
+                prop["reusedFrom"] = hit["reusedFrom"]
+                prop["reuseScore"] = hit["reuseScore"]
 
     if consult_escalation and fresh:
         _annotate_escalation(fresh, entry, engine=eng, context=escalation_context)

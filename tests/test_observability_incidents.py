@@ -246,6 +246,75 @@ def test_propose_remediation_engine_unreachable_returns_none(monkeypatch):
     assert inc.propose_remediation(incident) is None
 
 
+# --- actuate_remediation (propose -> gate -> (held)) ---------------------- #
+def test_actuate_remediation_refuses_non_restart_class_actions():
+    proposal = {
+        "proposedAction": "investigate_os_pressure",
+        "entity": "systems:host:r510",
+    }
+    out = inc.actuate_remediation(proposal)
+    assert out["status"] == "not_actuatable"
+
+
+def test_actuate_remediation_refuses_when_no_target_entity():
+    proposal = {"proposedAction": "restart_or_cordon_pod", "entity": ""}
+    out = inc.actuate_remediation(proposal)
+    assert out["status"] == "not_actuatable"
+
+
+def test_actuate_remediation_defaults_to_held_pending_human_approval():
+    """The whole point of the seam: with the SHIPPED default ActionPolicy
+    (restart_service = approval_required), a safe restart-class proposal is
+    always HELD, never executed — no monkeypatching of the policy at all."""
+    proposal = {
+        "id": "health:remediation:x",
+        "proposedAction": "restart_or_cordon_pod",
+        "entity": "cm:node:r820",
+        "incident": "health:incident:r820:abc",
+    }
+    out = inc.actuate_remediation(proposal)
+    assert out["status"] == "held"
+    assert out["decision"] == "queue_approval"
+    assert out["tier"] == "approval_required"
+    assert out["action_kind"] == "restart_service"
+    assert out["target"] == "r820"
+
+
+def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeypatch):
+    from agent_utilities.orchestration import action_policy as ap
+    from agent_utilities.orchestration import fleet_actuation as fa
+
+    class _AllowPolicy:
+        def decide(self, request):
+            return ap.ActionDecision(
+                decision=ap.DECISION_ALLOW,
+                tier=ap.TIER_AUTO,
+                request=request,
+                reason="test-allow",
+            )
+
+    monkeypatch.setattr(ap, "get_action_policy", lambda engine=None: _AllowPolicy())
+    executed: list = []
+    monkeypatch.setattr(
+        fa,
+        "execute_action",
+        lambda engine, request, actuator: (
+            executed.append(request) or {"ok": True, "dry_run": True}
+        ),
+    )
+
+    proposal = {
+        "id": "health:remediation:y",
+        "proposedAction": "restart_or_cordon_pod",
+        "entity": "cm:node:r820",
+    }
+    out = inc.actuate_remediation(proposal)
+    assert out["status"] == "executed"
+    assert len(executed) == 1
+    assert executed[0].kind == "restart_service"
+    assert executed[0].target == "r820"
+
+
 # --- run_incident_correlation -------------------------------------------- #
 def test_run_incident_correlation_summarizes_and_never_raises(monkeypatch):
     monkeypatch.setattr(
@@ -304,3 +373,74 @@ def test_run_incident_correlation_survives_a_routing_failure(monkeypatch):
     assert summary["routed"] == 0
     assert summary["proposed"] == 0
     assert summary["incidents"] == 1
+
+
+# --- actuation wiring in run_incident_correlation (default OFF) ----------- #
+def test_run_incident_correlation_default_flag_off_never_attempts_actuation(
+    monkeypatch,
+):
+    """CONCEPT:AU-OS.host.report-only-remediation-proposal — with
+    INCIDENT_ACTUATION_ENABLED unset (the shipped default), the tick never
+    even calls actuate_remediation and the summary shape is byte-identical
+    to the pre-actuator-seam report-only behavior (no ``actuated``/``held``
+    keys)."""
+    monkeypatch.setattr(
+        inc, "correlate_incidents", lambda **kw: [{"id": "i1", "signature": "s1"}]
+    )
+    monkeypatch.setattr(
+        "agent_utilities.observability.incident_router.route_incident", lambda i: True
+    )
+    proposal = {
+        "id": "p1",
+        "proposedAction": "restart_or_cordon_pod",
+        "entity": "cm:node:r820",
+    }
+    monkeypatch.setattr(inc, "propose_remediation", lambda incident: proposal)
+    attempted: list = []
+    monkeypatch.setattr(inc, "actuate_remediation", lambda *a, **k: attempted.append(1))
+
+    summary = inc.run_incident_correlation()
+
+    assert attempted == []
+    assert "actuated" not in summary
+    assert "held" not in summary
+    assert summary == {
+        "incidents": 1,
+        "new": 1,
+        "deduped": 0,
+        "routed": 1,
+        "proposed": 1,
+    }
+
+
+def test_run_incident_correlation_enabled_flag_wires_through_to_held(monkeypatch):
+    """With the flag explicitly on, the tick offers the eligible proposal to
+    the SAME fail-closed gate — the default ActionPolicy still holds it, so
+    ``held`` increments and ``actuated`` stays 0 (never autonomous by
+    default even with the wiring switched on)."""
+    import agent_utilities.core.config as cfg_mod
+
+    def fake_setting(key, default=None, cast=None):
+        if key == "INCIDENT_ACTUATION_ENABLED":
+            return True
+        return default
+
+    monkeypatch.setattr(cfg_mod, "setting", fake_setting)
+    monkeypatch.setattr(hi, "_engine", lambda: None)
+    monkeypatch.setattr(
+        inc, "correlate_incidents", lambda **kw: [{"id": "i1", "signature": "s1"}]
+    )
+    monkeypatch.setattr(
+        "agent_utilities.observability.incident_router.route_incident", lambda i: True
+    )
+    proposal = {
+        "id": "p1",
+        "proposedAction": "restart_or_cordon_pod",
+        "entity": "cm:node:r820",
+    }
+    monkeypatch.setattr(inc, "propose_remediation", lambda incident: proposal)
+
+    summary = inc.run_incident_correlation()
+
+    assert summary["actuated"] == 0
+    assert summary["held"] == 1

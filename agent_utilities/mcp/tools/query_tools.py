@@ -88,6 +88,22 @@ def _persist_sections(
     return ok
 
 
+def _json_default(obj: Any) -> Any:
+    """``json.dumps(default=...)`` helper that dataclass-serializes an
+    :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+    (or any other dataclass instance) instead of stringifying it (CONCEPT:AU-KB-CURRENCY).
+
+    Used wherever a tool's result may carry ``include_epistemic=True`` rows —
+    plain dicts pass through ``json.dumps`` untouched; only genuinely
+    non-serializable values (dataclass instances) reach this hook.
+    """
+    import dataclasses
+
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    return str(obj)
+
+
 def is_aggregation_cypher(cypher: str) -> bool:
     """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
 
@@ -360,6 +376,21 @@ def register_query_tools(mcp):
             "coverage/contradictions — as an EvidenceBundle via "
             "`Method::ExplainProvenanceByIds`). Additive/opt-in.",
         ),
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in, single-connection local Cypher only "
+                "(ignored on scope='sql'/'sparql'/'federated' and on a fan-out "
+                "target). When true, each result row is currency-upgraded via the "
+                "engine's `explain_provenance_by_ids` into a per-row epistemic "
+                "envelope — confidence, bitemporal valid/tx time, evidence "
+                "provenance, policy labels — alongside the row's own properties "
+                "(never fabricated, resolved server-side). Overrides `envelope`: "
+                "the response becomes a JSON array of these widened rows instead "
+                "of the plain/bundle shape. Degrades to an empty array when the "
+                "connected backend has no epistemic primitive."
+            ),
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         parsed_params = json.loads(params) if params else {}
@@ -479,7 +510,27 @@ def register_query_tools(mcp):
             # Single connection (default or one named) — identical shape to legacy
             # when envelope='raw' (the default).
             _name, engine = entries[0]
+            # Same raw-call defensive normalization as `envelope` below (a direct
+            # call bypassing FastMCP schema resolution binds an omitted bool Field
+            # to its FieldInfo, not the `False` default).
+            include_epistemic_flag = (
+                include_epistemic if isinstance(include_epistemic, bool) else False
+            )
             try:
+                if include_epistemic_flag:
+                    # Only pass the new kwarg when actually requested — keeps the
+                    # default call shape byte-identical for any `query_cypher`
+                    # implementation (real or test double) that predates this
+                    # parameter and doesn't accept it.
+                    results = engine.query_cypher(
+                        cypher,
+                        parsed_params,
+                        as_of=as_of or None,
+                        include_epistemic=True,
+                    )
+                    # Per-row epistemic envelope takes precedence over `envelope`
+                    # (there is no aggregate-bundle-of-epistemic-rows shape).
+                    return json.dumps(results, default=_json_default)
                 results = engine.query_cypher(
                     cypher, parsed_params, as_of=as_of or None
                 )
@@ -565,6 +616,18 @@ def register_query_tools(mcp):
             "(additionally wrap the result as an EvidenceBundle under "
             "`evidence_bundle`). Additive/opt-in.",
         ),
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in. Only takes effect when the "
+                "generated (or forced) query resolves to the 'cypher' dialect "
+                "(sql/sparql have no epistemic-envelope surface, so this is a "
+                "silent no-op for those). When true and honored, `results` holds "
+                "per-row epistemic envelopes (confidence, bitemporal valid/tx "
+                "time, evidence provenance, policy labels) instead of plain rows, "
+                "and `citations` degrades to an empty list."
+            ),
+        ),
     ) -> str:
         from agent_utilities.knowledge_graph.core.nl_query import nl_to_query
 
@@ -579,12 +642,13 @@ def register_query_tools(mcp):
                 dialect=str(dialect),
                 execute=bool(execute),
                 limit=int(limit),
+                include_epistemic=bool(include_epistemic),
             )
             # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
             # that omits `envelope` binds it to the Field(...) descriptor itself, not
             # the string default — normalize defensively so that degrades to "raw".
             envelope_mode = envelope if isinstance(envelope, str) else "raw"
-            if envelope_mode.strip().lower() == "bundle":
+            if envelope_mode.strip().lower() == "bundle" and not include_epistemic:
                 from agent_utilities.models.evidence_bundle import EvidenceBundle
 
                 result = {
@@ -593,7 +657,7 @@ def register_query_tools(mcp):
                         result
                     ).model_dump(),
                 }
-            return json.dumps(result, default=str)
+            return json.dumps(result, default=_json_default)
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
@@ -1240,10 +1304,50 @@ def register_query_tools(mcp):
         if not fanout:
             return _run_search(entries[0][1])
 
-        # Fan-out — per-target timeout so one slow backend can't stall the set.
-        results, fan_errors = kg_server.fanout_execute(
-            entries, lambda name, engine: _run_search(engine)
+        # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
+        # (no ``target`` passed, or explicitly "default") fans across every active
+        # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
+        # connections, often idle/unreachable. An explicit ``target='all'``/list is
+        # a deliberate cross-repo search and keeps the full per-backend budget.
+        is_implicit_target = target is None or (
+            isinstance(target, str) and target.strip().lower() in ("", "default")
         )
+        if is_implicit_target:
+            # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
+            # legacy ``__commons__`` + control-plane content and is the source of
+            # the real ranked hits. So run it separately at the normal budget
+            # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
+            # supplementary content backends. Under a wide implicit fan-out (~70
+            # ``code:*`` graphs) a single shared short wall-clock across ALL targets
+            # starved the primary — it was queued behind the hung code backends and
+            # timed out too, so the search returned zero results even though the
+            # engine was healthy. Splitting the primary out fixes that: a search
+            # still returns the primary's real hits in a few seconds when every
+            # supplementary backend is dead.
+            primary = [(n, e) for n, e in entries if n == "default"]
+            supplementary = [(n, e) for n, e in entries if n != "default"]
+            # Robustness: if the resolver produced no ``default`` entry, treat the
+            # first as primary so SOMETHING always grounds at the full budget.
+            if not primary and entries:
+                primary, supplementary = [entries[0]], entries[1:]
+            results: dict[str, Any] = {}
+            fan_errors: dict[str, str] = {}
+            for name, engine in primary:
+                results[name] = _run_search(engine)
+            if supplementary:
+                sup_results, sup_errors = kg_server.fanout_execute(
+                    supplementary,
+                    lambda name, engine: _run_search(engine),
+                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                )
+                results.update(sup_results)
+                fan_errors.update(sup_errors)
+        else:
+            # Explicit cross-repo fan-out — per-target timeout at the full budget so
+            # one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(
+                entries, lambda name, engine: _run_search(engine)
+            )
         out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
         out_lines += [
             f"=== {name} (error) ===\n{err}"

@@ -53,11 +53,14 @@ _SYSTEM_PROMPT = (
     "|> RANK BY ~[1.0, 0.0, 0.0, 0.0] |> LIMIT k. Use it for graph traversal + "
     "filtering + vector ranking in one query.\n"
     "  - cypher: read-only Cypher over the property graph (MATCH ... RETURN ...).\n"
-    "  - sql:    read-only SQL over the KG (SELECT ... FROM nodes ...). Node table is "
-    "`nodes`.\n"
+    "  - sql:    read-only SQL over the KG (SELECT ... FROM nodes ...). See the SQL "
+    "schema note in the prompt for the real `nodes`/`edges` columns (label questions "
+    "filter on `type`, not `label`; edges use `src`/`dst`/`rel`, not invented column "
+    "names).\n"
     "  - sparql: SPARQL 1.1 SELECT/ASK over the RDF projection.\n"
     "Rules: emit ONLY one query, NEVER a mutation (no CREATE/MERGE/DELETE/INSERT/DROP/"
-    "SET/UPDATE). Ground every label / table you reference in the provided schema. "
+    "SET/UPDATE). Ground every label / table / column you reference in the provided "
+    "schema — never invent a column name. "
     'Respond with ONLY a JSON object: {"dialect": "...", "query": "..."}.'
 )
 
@@ -74,6 +77,14 @@ def is_llm_configured() -> bool:
     try:
         from agent_utilities.core.config import config
 
+        # A configured fleet chat model (config.json ``chat_models`` — e.g. the local
+        # vLLM at ``http://vllm.arpa/v1``) IS a usable planner endpoint: ``create_model``
+        # routes an unmapped role to ``config.default_chat_model`` (see model_factory).
+        # This is the SAME model delegation already uses, so recognize it here instead of
+        # forcing the operator to also set the OPENAI_BASE_URL env var (config is the
+        # single source of truth).
+        if getattr(config, "chat_models", None):
+            return True
         if getattr(config, "openai_base_url", None):
             return True
         for key in (
@@ -135,13 +146,30 @@ class AuNlPlanner:
 
     def _default_run(self, prompt: str, system_prompt: str) -> str:
         """Call the AU-configured fleet LLM once and return its raw text output."""
+        import asyncio
+
         from pydantic_ai import Agent
 
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role=self._role)
         agent = Agent(model=model, system_prompt=system_prompt)
-        return str(agent.run_sync(prompt).output)
+
+        def _call() -> str:
+            return str(agent.run_sync(prompt).output)
+
+        # ``nl_query`` is a SYNC entrypoint but the MCP/gateway dispatch calls it from
+        # inside a running event loop. ``agent.run_sync`` spins its own loop and raises
+        # "This event loop is already running" when one is already active on this thread.
+        # Detect that and run the sync call on a worker thread (which has no running loop).
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return _call()
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_call).result()
 
     def plan(
         self,
@@ -178,6 +206,7 @@ def _render_schema(schema: dict[str, Any], extra_hint: str = "") -> str:
     lines = [
         f"Schema (node labels): {', '.join(schema.get('node_labels') or []) or '(unknown)'}",
         f"Schema (SQL tables): {', '.join(schema.get('tables') or []) or '(none)'}",
+        f"Schema (SQL columns): {schema.get('sql_columns') or '(unknown)'}",
     ]
     if extra_hint:
         lines.append(f"Hint: {extra_hint}")

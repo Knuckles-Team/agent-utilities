@@ -271,3 +271,29 @@ def lane_task_types(lane: str) -> list[str]:
 def lane_model_role(lane: str) -> str:
     """The model role a lane routes its LLM work to (for create_model role resolution)."""
     return TASK_LANES.get(lane, TASK_LANES[DEFAULT_LANE])["model_role"]
+
+
+def record_lane_metrics(
+    pending_by_lane: dict[str, int], running_by_lane: dict[str, int]
+) -> None:
+    """Publish per-lane queue-depth + in-flight gauges (Phase-0 daemon telemetry, CONCEPT:AU-ORCH.execution.two-level-fair-rotation).
+
+    Reuses the existing ``observability/gateway_metrics`` Prometheus registry —
+    default-on where the optional ``metrics`` extra is configured, a no-op
+    otherwise. Callers already compute both maps for admission control
+    (``_pending_by_lane``/``WorkerRegistry.running_by_lane``) — this just
+    republishes that same snapshot as gauges, one series per lane
+    (``LANE_NAMES`` is small and bounded). Best-effort: telemetry must never
+    break the caller's tick.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            LANE_IN_FLIGHT,
+            LANE_QUEUE_DEPTH,
+        )
+
+        for lane in LANE_NAMES:
+            LANE_QUEUE_DEPTH.labels(lane=lane).set(pending_by_lane.get(lane, 0))
+            LANE_IN_FLIGHT.labels(lane=lane).set(running_by_lane.get(lane, 0))
+    except Exception:  # noqa: BLE001 — telemetry is best-effort, never fatal
+        pass
