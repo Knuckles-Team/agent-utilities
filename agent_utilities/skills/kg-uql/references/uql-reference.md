@@ -33,18 +33,38 @@ vector's components.
 
 UQL is a **pipeline**: `source { "|>" stage }` (`parser.rs:193` `parse_query`). A
 `source` seeds an initial `RowSet` (an ordered list of `(id, optional score)`
-rows); each `|>`-separated `stage` is `RowSet -> RowSet`. The **empty-set-becomes-
-source rule** (CONCEPT:EG-KG.query.empty-set-commutativity, `docs/uql.md:204-229`) means several stages
-below are legal as a bare leading clause with no `MATCH` at all — noted per row.
+rows); each `|>`-separated `stage` is `RowSet -> RowSet`. **The leading `source`
+production is ALWAYS a literal `MATCH (:Label) [WHERE …]`** — `parse_query`
+(`parser.rs:193-199`) calls `parse_scan` first, unconditionally, and `parse_scan`
+(`parser.rs:204-219`) unconditionally does `self.expect_kw("MATCH")?` as its very
+first token: there is no branch that accepts any other keyword there. A UQL text
+query can **never** open with `REASON`/`FOREIGN`/`AS OF`/`TEXT`/`RANK BY`/etc. —
+each of those is confirmed live to fail with `parse error: expected keyword MATCH`
+when placed first. The separate **empty-set-becomes-source rule** (CONCEPT:EG-KG.query.empty-set-commutativity,
+`docs/uql.md:204-229`) is an *executor* property over the RowSet the parser has
+already built the pipeline for: when a stage — including the very first `|>` stage
+right after a `MATCH` that itself scanned zero rows — is fed an EMPTY RowSet, it
+re-seeds from itself instead of returning empty. That lets e.g. `REASON`/`AS OF`
+act as an effective source *after* a (possibly deliberately-empty) leading `MATCH`
+— see §1.1's last row — but it is never a parser affordance for omitting `MATCH`
+itself.
 
 ### 1.1 Source stages
 
+The table below lists what can seed a `RowSet`. Only the first row is a **leading**
+clause the text grammar accepts (`parse_scan` requires the literal `MATCH`
+keyword, `parser.rs:205`); the rest are `|>`-stage-only in UQL *text* — each is
+"source-shaped" at the executor level (it can re-seed an empty RowSet per the
+empty-⇒-source rule described above) but can only be written after some leading
+`MATCH (:Label) |> …` (scanning a label that happens to return zero rows, if the
+reseed behavior is what's wanted).
+
 | Clause | `Op` | Parser | Feature | Semantics |
 |---|---|---|---|---|
-| `MATCH (:Label) [WHERE pred_list]` | `Scan{label}` [+ `Filter`] | `parse_scan`, `parser.rs:204` | base `query` | Seed every node whose `type == Label`. An inline `WHERE` is sugar for a following `|> WHERE` (proven byte-identical, `mod.rs:117-135`). |
-| `REASON <Class>` / `REASON "Class"` / `REASON <http://…/Class>` | `Reason{target_class, ontology}` | `parse_reason`, `parser.rs:534` (owl build) / `parser.rs:557` (non-owl: clear "not in this build" error) | `owl` | Seed every individual the native OWL 2 reasoner **infers** as a member of the class — including ones with no asserted type edge. An angle-bracketed `<iri>` lexes as one token (`lexer.rs:279` `lex_iri`) distinct from the comparison `<` (disambiguated by requiring a `:` scheme + no whitespace). |
-| `FOREIGN "<name>"` | `Foreign{name}` | `parse_foreign`, `parser.rs:480` | base `query` (resolve: `federation`) | Seed from a registered external source. See §2 Federation. |
-| bare `AS OF @t`, bare `TEXT "q"`, bare `RANK BY ~[…]`, etc. | (respective Op) | — | — | Per the empty-⇒-source rule, ANY stage fed an empty RowSet acts as a source (`docs/uql.md:206-212`, proven by `plan_proptest::empty_intermediate_reseeds_source_breaks_commute`) — so a query may legally start with no `MATCH`. |
+| `MATCH (:Label) [WHERE pred_list]` | `Scan{label}` [+ `Filter`] | `parse_scan`, `parser.rs:204` | base `query` | Seed every node whose `type == Label`. An inline `WHERE` is sugar for a following `|> WHERE` (proven byte-identical, `mod.rs:117-135`). **This is the only clause the parser accepts as the query's leading token** — every query starts here. |
+| `MATCH (…) |> REASON <Class>` / `|> REASON "Class"` / `|> REASON <http://…/Class>` | `Reason{target_class, ontology}` | `parse_reason`, `parser.rs:534` (owl build) / `parser.rs:557` (non-owl: clear "not in this build" error) | `owl` | Seed every individual the native OWL 2 reasoner **infers** as a member of the class — including ones with no asserted type edge — when the RowSet reaching it is empty (executor reseed). An angle-bracketed `<iri>` lexes as one token (`lexer.rs:279` `lex_iri`) distinct from the comparison `<` (disambiguated by requiring a `:` scheme + no whitespace). A bare leading `REASON <Class>` with no `MATCH` first is a **parse error**, confirmed live — see §1's preamble. |
+| `MATCH (…) |> FOREIGN "<name>"` | `Foreign{name}` | `parse_foreign`, `parser.rs:480` | base `query` (resolve: `federation`) | Seed from a registered external source when the RowSet reaching it is empty (executor reseed). See §2 Federation. Same leading-`MATCH`-required rule as `REASON`. |
+| `MATCH (…) |>` bare `AS OF @t`, bare `TEXT "q"`, bare `RANK BY ~[…]`, etc. | (respective Op) | — | — | Per the empty-⇒-source rule, ANY stage fed an empty RowSet acts as a source (`docs/uql.md:206-212`, proven by `plan_proptest::empty_intermediate_reseeds_source_breaks_commute`) — but that empty RowSet must itself have come from a preceding, syntactically-required `MATCH`. A bare `AS OF @t` (or `TEXT`/`RANK BY`/…) with no leading `MATCH` is a **parse error**, not a legal query. |
 
 ### 1.2 Relational filter (real DataFusion)
 
@@ -93,6 +113,13 @@ Executed by `traverse_op` (`exec.rs:609`), `Op::Traverse` at `eg-types/src/wire.
 | `FUSE [branch] [branch] …` | `FuseRrf{branches,k:0.0}` | `parse_fuse`, `parser.rs:859` (gated) / `parser.rs:883` (ungated: clear error) | `text` | Runs each bracketed sub-pipeline over the SAME seed, then reciprocal-rank-fuses (`Σ 1/(k+rank)`, `k=60` convention) the ranked id lists — fuses RANKS not raw scores, so multi-branch strength beats single-branch strength. `wire.rs:475`; `fuse_rrf`, `exec.rs:625`. Canonical tri-modal branch set: `[RANK BY ~[…]] [TEXT "q"] [RERANK NODE_DISTANCE FROM "n"]`. |
 
 ### 1.7 Bi-temporal time (dependency-free — Pi-safe)
+
+Like every stage below §1.1's leading `MATCH` row, `AS OF`/`WINDOW` are `|>`-stage
+clauses only — a bare leading `AS OF @t` (no `MATCH` first) is a **parse error**
+(`parser.rs:205` mandates the literal `MATCH` keyword to open a query; see §1's
+preamble). They act as a *source* only via the executor's empty-⇒-source reseed
+rule, when the RowSet reaching them is empty (typically a leading `MATCH` that
+scanned a label with no rows) — never by omitting `MATCH` textually.
 
 | Clause | `Op` | Parser | Semantics |
 |---|---|---|---|
@@ -156,9 +183,9 @@ recognizes each keyword (so the error names the RIGHT clause) but rejects with
 | **Vector / ANN** | ✅ Yes | `RANK BY ~[…]` / `~"text"` (§1.4) | Named/by-handle stored embeddings (`~handle`) are a *declared, self-documented* reserved seam (§1.4 row 3, §4.2). |
 | **Text / BM25** | ✅ Yes (feature `text`) | `TEXT "…"`, `FUSE […] […]` (§1.6) | — |
 | **Graph-native / diversity rerank** | ✅ Yes | `RERANK NODE_DISTANCE\|MENTIONS\|MMR` (§1.5) | — |
-| **Bi-temporal time (AS OF / windowed agg)** | ✅ Yes | `AS OF [TX\|VALID] @t`, `WINDOW <dur> [agg]` (§1.7) | These are point-in-time FILTER / windowed-AGGREGATE ops over whatever RowSet reaches them — they are NOT a time-series *source*. See next row. |
+| **Bi-temporal time (AS OF / windowed agg)** | ✅ Yes | `AS OF [TX\|VALID] @t`, `WINDOW <dur> [agg]` (§1.7) | These are point-in-time FILTER / windowed-AGGREGATE ops over whatever RowSet reaches them — they are NOT a time-series *source*. See next row. Always a `\|>` stage after a leading `MATCH` — never legal as the query's first clause (§1.1). |
 | **Native time-series (TSDB)** | ❌ **No** | — | `Op::TsScan{series,from,to}` (source, `wire.rs:677`, executed `exec.rs:775`) and `Op::SensorFuse{streams,tolerance_ns}` (multi-sensor align, `wire.rs:662`) are feature-`timeseries` wire Ops with **no UQL keyword** in `parse_stage`'s dispatch table (`parser.rs:227-296`) — **§4.1 gap**. Only reachable via `action="unified"` with a raw `{"TsScan": {...}}` op dict, or the sibling `engine_timeseries` domain (`kg-modality-timeseries` skill) for direct append/range/asof/gapfill. |
-| **OWL reasoning** | ✅ Yes (feature `owl`) | `REASON <Class>` (§1.1) | — |
+| **OWL reasoning** | ✅ Yes (feature `owl`) | `REASON <Class>` (§1.1) | Always a `\|>` stage after a leading `MATCH` — never legal as the query's first clause; a bare leading `REASON <Class>` is a **parse error** (confirmed live, §1.1). |
 | **SPARQL** | ❌ **No** (as a pipeline stage) | — | `Op::SparqlBgp{query,var}` (source, `wire.rs:500`, feature `owl-plan`) has **no UQL keyword** — **§4.1 gap**. Full SPARQL SELECT/ASK/CONSTRUCT/DESCRIBE is a sibling top-level dialect: `KnowledgeGraph.sparql()` (`agent_utilities/knowledge_graph/orchestration/engine_query.py:240`) → the engine's native RDF projection — not composable inside a UQL text pipeline. |
 | **Epistemic confidence / time-decay** | ✅ Yes | `EVIDENCE FOR`, `CONTRADICTS`, `SUPPORTED BY`, `BELIEF AS OF`, `VALID AS OF`, `SOURCE RELIABILITY`, `CONFIDENCE`, `EXPLAIN BELIEF` (§1.9) | The deeper Phase-1-3 epistemic surface — `ResolveConflict` (argumentation semantics), `CausalEstimate`/`CausalCounterfactual` (Pearl do-calculus), `RankByProvenance`, `ExplainEvidence`, `EpistemicStatus`/`WhatChanged` (bitemporal diff) — are separate `QueryClient` methods reached as distinct `engine_query` **actions** (`epistemic_graph/client.py:3142-3463`), never UQL pipeline stages. This is a genuine capability, just not exposed at the UQL text surface — filed as a lower-priority gap in §4.3 since it was never *documented* as a UQL clause. |
 | **Federation (external sources)** | ✅ Yes | `FOREIGN "<name>"` (§1.8), after `engine_query(action="register_foreign_source", …)` | The resolved executor `Op::ForeignScan{source, join}` (`wire.rs:534`) exposes a `join: bool` (intersect-vs-replace) the UQL `Foreign` marker cannot set — **§4.1 partial gap**. |
@@ -205,11 +232,15 @@ Seams: graph + SQL + vector. (`eg-plan/src/uql/mod.rs:20-30` docstring; proven
 byte-identical to a hand-built `Plan` by `pipeline_parses_to_hand_built_plan`,
 `mod.rs:46-73`.)
 
-**4. Time + graph + diversity — no `MATCH` needed (empty-set-as-source).**
+**4. Time + graph + diversity — a leading `MATCH` is still required (empty-⇒-source
+RESEED, not a parser exemption — see §1.1).**
 ```
-AS OF @1700000000 |> TRAVERSE -[:CAUSED]->{1,2} |> RERANK MMR 0.5 10
+MATCH (:NoSuchLabel) |> AS OF @1700000000 |> TRAVERSE -[:CAUSED]->{1,2} |> RERANK MMR 0.5 10
 ```
-Seams: bi-temporal (source) + graph (traversal) + diversity rerank.
+Seams: bi-temporal (reseed) + graph (traversal) + diversity rerank. `AS OF` alone
+with no leading `MATCH` is a **parse error** ("expected keyword MATCH"), confirmed
+live — scanning a label with zero rows (`:NoSuchLabel`) is what actually triggers
+the empty-⇒-source reseed this example demonstrates.
 
 **5. Federation + time + graph, composed in one plan (the parser's own
 composition proof).**
@@ -226,13 +257,15 @@ MATCH (:Doc) |> FUSE [RANK BY ~[1.0, 0.0]] [TEXT "graph databases"] [RERANK NODE
 Seams: graph (scan + node-distance) + vector + BM25 text, fused by reciprocal
 rank. (`mod.rs:484-522` `fuse_stage_lowers_to_fuse_rrf_like_the_builder`.)
 
-**7. OWL reasoning seeding a vector rank.**
+**7. OWL reasoning seeding a vector rank — again, a leading `MATCH` is required.**
 ```
-REASON <http://ex/Device> |> RANK BY ~[0.2, 0.4, -0.1] |> LIMIT 5
+MATCH (:NoSuchLabel) |> REASON <http://ex/Device> |> RANK BY ~[0.2, 0.4, -0.1] |> LIMIT 5
 ```
-Seams: OWL/SPARQL-adjacent inference (source) + vector rank. (`REASON` seeding a
-downstream `Rank`/`Traverse`/`Filter`/`Limit` is explicitly the documented
-composition, `docs/uql.md:86`.)
+Seams: OWL/SPARQL-adjacent inference (reseed via the empty-⇒-source rule) + vector
+rank. (`REASON` seeding a downstream `Rank`/`Traverse`/`Filter`/`Limit` is
+explicitly the documented composition, `docs/uql.md:86` — but `REASON` is always a
+`|>` stage, `parser.rs:260`; a bare leading `REASON <Class>` with no `MATCH` first
+is a **parse error**, confirmed live.)
 
 **8. Epistemic evidence discounted by belief-time confidence.**
 ```
@@ -373,11 +406,11 @@ an error itself (some of these — 12-14 — are EXPECTED to error).
 | 3 | `MATCH (:Doc) |> TRAVERSE -[:CITES]->{1,2}` | graph + graph traversal | 1-2-hop `CITES` neighbors of every `Doc`, possible duplicates depending on de-dup semantics — check for stable ids. |
 | 4 | `MATCH (:Doc) |> RANK BY ~[1.0, 0.0, 0.0, 0.0] |> LIMIT 5` | graph + vector | ≤5 rows, `score` populated, descending cosine similarity. |
 | 5 | `MATCH (:Doc) |> TEXT "graph databases" |> LIMIT 5` | graph + BM25 text (feature `text`) | ≤5 rows scored by BM25, OR a clear "not in this build" error on a non-`text` server. |
-| 6 | `AS OF @1700000000 |> LIMIT 5` | bi-temporal source (no `MATCH`) | Confirms the empty-⇒-source rule: nodes live at `ts`, not an empty result. |
+| 6 | `MATCH (:NoSuchLabel) |> AS OF @1700000000 |> LIMIT 5` | bi-temporal reseed via the empty-⇒-source rule (a leading `MATCH` is mandatory — a bare `AS OF @1700000000 \|> LIMIT 5` with no `MATCH` first is a **parse error**, confirmed live) | Confirms the empty-⇒-source rule: the empty `(:NoSuchLabel)` scan lets `AS OF` re-seed from the bi-temporal index — nodes live at `ts`, not an empty result. |
 | 7 | `MATCH (:Event) |> WINDOW 1 h SUM` | graph + windowed time-series aggregate | One row per non-empty hour bucket if the rows carry `(ts,value)`; else the RowSet-preserving passthrough on a non-`timeseries` build — confirm which. |
 | 8 | `MATCH (:Doc) |> TRAVERSE -[:CITES]->{1,2} |> RANK BY ~[0.1,0.9,0.0] |> LIMIT 10` | graph + traversal + vector | The 3-seam canonical pipeline (§3.3) — must match the parser doctest's proven shape. |
 | 9 | `MATCH (:Doc) |> FUSE [RANK BY ~[1.0,0.0]] [TEXT "graphs"] [RERANK NODE_DISTANCE FROM "n1"] |> LIMIT 5` | graph + vector + text + graph-distance, RRF-fused | ≤5 rows; the fused rank order should NOT equal any single branch's order in general (proves fusion actually ran, not just the first branch). |
-| 10 | `REASON <http://ex/Device> |> RANK BY ~[0.2,0.4,-0.1] |> LIMIT 5` | OWL reasoning source + vector | ≤5 rows from the OWL-inferred class membership set, OR a clear "OWL reasoner … not available" error on a non-`owl` build. |
+| 10 | `MATCH (:NoSuchLabel) |> REASON <http://ex/Device> |> RANK BY ~[0.2,0.4,-0.1] |> LIMIT 5` | OWL reasoning reseed via the empty-⇒-source rule (`REASON` is always a `\|>` stage — a bare leading `REASON <http://ex/Device> \|> …` with no `MATCH` first is a **parse error**, confirmed live) + vector | ≤5 rows from the OWL-inferred class membership set, OR a clear "OWL reasoner … not available" error on a non-`owl` build. |
 | 11 | `MATCH (:Claim) |> EVIDENCE FOR "c1" |> BELIEF AS OF @1700000000 |> LIMIT 10` | graph + epistemic evidence-graph + belief-time confidence | ≤10 rows, epistemic-scored, OR a clear "epistemic … not available" error. |
 | 12 | `MATCH (:Doc) |> SPATIAL_SCAN "Doc" [0,0,10,10]` *(deliberately invalid — GIS has no UQL keyword)* | attempted GIS source — §4.1 item 5 | **Expected: a UQL PARSE error** ("expected a pipeline stage…") — if this instead silently returns rows or a 500, that is a real bug (the parser is accepting/mis-lexing something it shouldn't). |
 | 13 | `MATCH (:Doc) WHERE geometry WITHIN "POLYGON(...)"` *(deliberately invalid — no spatial `WHERE` syntax)* | attempted `Pred::SpatialWithin` via `WHERE` — §4.1 item 2 | **Expected: a UQL PARSE error** at the `WITHIN` token (`parse_pred` only knows `>`/`<`/`=`). Confirms the documented gap rather than a numeric-comparison mis-parse. |
