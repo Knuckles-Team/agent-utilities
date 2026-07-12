@@ -67,8 +67,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+try:
+    from agent_utilities.numeric import NDArray
+    from agent_utilities.numeric import xp as np
+except ImportError:
+    # epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
+    # `[numeric]`/`[graphos]` extra). Keep this module IMPORTABLE — gates and tools
+    # that only reference the class/structure (e.g. check_retrieval_quality) must not
+    # fail. `NDArray` is a pure type alias (Any); the ANN/vector code paths below use
+    # `np` and require the kernel — they raise a clear error at call time if invoked
+    # without it, rather than trapping every importer at module load.
+    NDArray = Any  # type: ignore[assignment,misc]
+    np: Any = None  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
