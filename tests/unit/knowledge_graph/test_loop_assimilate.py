@@ -48,7 +48,27 @@ class _Engine:
     def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
         self.graph.add_edge(src, dst, properties or {})
 
-    def query_cypher(self, *a, **k):
+    def query_cypher(self, cypher, params=None):
+        # Answer the two BOUNDED watermark-stage query shapes for real (matching a
+        # live engine); everything else (e.g. topic-detection queries) resolves to
+        # [] -> "no unresolved topics", preserving cycle-stops-after-assimilate.
+        params = params or {}
+        if "RETURN count(n)" in cypher:
+            types = {
+                t.strip().strip("'").lower()
+                for t in cypher.split("[", 1)[1].split("]", 1)[0].split(",")
+            }
+            n = sum(
+                1
+                for attrs in self.graph._n.values()
+                if str(attrs.get("type", "")).lower() in types
+            )
+            return [{"c": n}]
+        if "n.id = $id" in cypher and "n.hash" in cypher:
+            attrs = self.graph._n.get(params.get("id"))
+            if attrs is None or "hash" not in attrs:
+                return []
+            return [{"hash": attrs["hash"]}]
         return []  # no unresolved topics → cycle stops after assimilate
 
     def submit_task(self, *, target_path, **k):
@@ -131,6 +151,82 @@ def test_cycle_metrics_and_evolution_node_persisted():
     # convention used by the daemon tick (engine_tasks._tick_evolution)
     cycles = [nid for nid in engine.graph.nodes() if str(nid).startswith("evo_cycle_")]
     assert len(cycles) == 1
+
+
+class _TooLargeError(Exception):
+    """Mirrors the live engine's ``RESULT_TOO_LARGE`` response guard."""
+
+
+class _GuardedGraph(_Graph):
+    """A graph whose unscoped ``nodes(data=True)`` behaves like the live
+    ``epistemic-graph`` engine at ecosystem scale: refused outright once the
+    graph outgrows the response cap (live-reproduced at 139,657 nodes > the
+    50,000 cap, ``RESULT_TOO_LARGE: GetNodes would return ... nodes``).
+    ``get_nodes_by_label`` — the bounded per-label surface — stays available,
+    since that's what the assimilate path must use instead.
+    """
+
+    def nodes(self, data=False):
+        raise _TooLargeError(
+            "RESULT_TOO_LARGE: GetNodes would return 139657 nodes (> cap 50000)"
+        )
+
+    def get_nodes_by_label(self, label, limit=0):
+        wanted = label.lower()
+        rows = [
+            (nid, attrs)
+            for nid, attrs in self._n.items()
+            if str(attrs.get("type", "")).lower() == wanted
+        ]
+        return rows if not limit else rows[:limit]
+
+
+class _GuardedEngine(_Engine):
+    """An engine backed by ``_GuardedGraph`` — inherits ``_Engine.query_cypher``'s
+    real answers for the two BOUNDED watermark-stage shapes, but any accidental
+    unscoped ``graph.nodes()`` call (the bug this regression test guards against)
+    raises ``_TooLargeError`` instead of silently succeeding.
+    """
+
+    def __init__(self, nodes):
+        super().__init__(nodes)
+        self.graph = _GuardedGraph(nodes)
+
+
+def test_assimilate_watermark_stages_never_dump_whole_graph():
+    """Bug fix regression (RESULT_TOO_LARGE): ``_state_watermark``/``_load_watermark``
+    run on every ``assimilate`` call, before dedup/gap/synergy/rank even start, so
+    they must use bounded per-id / per-label queries — never an unscoped
+    ``graph.nodes(data=True)`` whole-graph dump. ``_GuardedGraph.nodes()`` raises if
+    that ever happens; a passing run proves the bounded path is what's really used.
+    """
+    engine = _GuardedEngine(_graph_nodes())
+    ctl = LoopController(engine)
+    first = ctl._run_assimilate()
+    assert first["skipped"] is False
+    assert first["watermark"]
+    # Second call re-reads the persisted watermark via the same bounded id lookup
+    # (not a dump) and correctly detects "unchanged".
+    second = ctl._run_assimilate()
+    assert second["skipped"] is True and second["reason"] == "unchanged"
+
+
+def test_state_watermark_fallback_is_bounded_per_label():
+    """When the cheap Cypher count is unavailable, the hash-based fallback must
+    still use the bounded ``get_nodes_by_label`` surface (via ``iter_typed_nodes``),
+    not an unscoped ``graph.nodes(data=True)`` scan.
+    """
+
+    class _NoCountEngine(_GuardedEngine):
+        def query_cypher(self, cypher, params=None):
+            if "RETURN count(n)" in cypher:
+                return []  # forces _cheap_input_count() -> None -> fallback path
+            return super().query_cypher(cypher, params)
+
+    engine = _NoCountEngine(_graph_nodes())
+    ctl = LoopController(engine)
+    wm = ctl._state_watermark()
+    assert wm  # a real hash, computed without touching graph.nodes()
 
 
 def test_breadth_stage_runs_when_configured(tmp_path, monkeypatch):
