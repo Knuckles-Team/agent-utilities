@@ -259,3 +259,124 @@ def test_record_outcome_never_raises_on_a_bare_engine():
     fw.propose("claim:1")  # tolerated
     outcome = fw.record_outcome("claim:1", reward=0.9)  # must not raise
     assert outcome["reward"] == pytest.approx(0.9)
+
+
+# ---------------------------------------------------------------------------
+# X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): record_outcome's
+# durable capability-reward writeback registers off the SAME ClaimOutcome node
+# it just persisted, and that materialization ACTUALLY goes Stale when the
+# observation is later revised.
+# ---------------------------------------------------------------------------
+
+
+class _RewardCypherBackend:
+    """Minimal in-memory Cypher executor for the durable-outcome write path
+    (mirrors ``tests/unit/graph/test_capability_designation.py``'s
+    ``_FakeCypherBackend``)."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict[str, Any]] = {}
+
+    def execute(self, query: str, params: dict[str, Any] | None = None):
+        params = params or {}
+        nid = str(params.get("id"))
+        if "SET" in query:
+            node = self.nodes.setdefault(nid, {})
+            node["capability_reward"] = params.get("r")
+            node["capability_reward_count"] = params.get("c")
+            return []
+        node = self.nodes.get(nid, {})
+        return [
+            {
+                "reward": node.get("capability_reward"),
+                "count": node.get("capability_reward_count"),
+            }
+        ]
+
+
+class _TmsAwareFlywheelEngine(_FlywheelStubEngine):
+    """``_FlywheelStubEngine`` + a real durable-reward Cypher backend + a
+    minimal, faithful in-process TruthMaintenance index (same contract as
+    ``test_insight_validation.py``'s ``_TmsAwareInsightStubEngine``): every
+    ``add_node`` bumps that id's version; ``register_materialization``
+    snapshots the CURRENT version of every ``:DerivedFrom`` target;
+    ``materialization_status`` reports "Stale" the instant a snapshotted
+    dependency's version has since moved."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.backend = _RewardCypherBackend()
+        self._versions: dict[str, int] = {}
+        self._materializations: dict[str, dict[str, int]] = {}
+
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
+    ) -> None:
+        super().add_node(node_id, node_type, properties)
+        self._versions[node_id] = self._versions.get(node_id, 0) + 1
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        deps = {
+            target
+            for source, target, _rel_type, props in self.edges
+            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+        }
+        self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
+        return {
+            "id": derived_id,
+            "depends_on": sorted(deps),
+            "generating_activity": None,
+        }
+
+    def materialization_status(self, derived_id: str) -> str | None:
+        snapshot = self._materializations.get(derived_id)
+        if snapshot is None:
+            return None
+        for dep, ver in snapshot.items():
+            if self._versions.get(dep, 0) != ver:
+                return "Stale"
+        return "Fresh"
+
+
+def test_record_outcome_registers_capability_reward_materialization_and_invalidates():
+    eng = _TmsAwareFlywheelEngine()
+    fw = ClaimFlywheel(eng)
+    fw.propose("claim:1")
+    fw.validate("claim:1", True)
+    fw.accept("claim:1")
+
+    fw.record_outcome("claim:1", reward=0.9, note="materialized")
+    outcome_id = eng.by_type("ClaimOutcome")[0]["id"]
+
+    # The durable capability reward (persisted onto "claim:1", the default
+    # durable_key) is registered as a live TMS materialization off the SAME
+    # ClaimOutcome node record_outcome just wrote — never a fabricated id.
+    assert eng.materialization_status("claim:1") == "Fresh"
+
+    # The observation is later revised through the normal write path.
+    eng.add_node(outcome_id, "ClaimOutcome", properties={"reward": 0.1})
+    assert eng.materialization_status("claim:1") == "Stale"
+
+
+def test_record_outcome_with_durable_key_registers_on_the_routing_entity():
+    """``durable_key`` (e.g. an ``OutcomeRouter`` bandit key) is the entity the
+    materialization registers on — not the claim id — mirroring where the
+    durable reward itself is written."""
+    eng = _TmsAwareFlywheelEngine()
+    fw = ClaimFlywheel(eng)
+    fw.propose("claim:1")
+    fw.validate("claim:1", True)
+    fw.accept("claim:1")
+
+    fw.record_outcome(
+        "claim:1",
+        reward=0.9,
+        durable_reward=0.0,
+        durable_key="trace_pattern_miner:failure_tool_sequence:Read",
+    )
+
+    assert (
+        eng.materialization_status("trace_pattern_miner:failure_tool_sequence:Read")
+        == "Fresh"
+    )
+    assert eng.materialization_status("claim:1") is None  # never registered

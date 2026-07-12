@@ -54,6 +54,7 @@ __all__ = [
     "candidates_from_predicted_edges",
     "candidates_from_sequential_patterns",
     "candidates_from_mine_discovery",
+    "register_claim_materialization",
 ]
 
 #: Conservative default floor a mined finding's confidence must clear before it
@@ -163,6 +164,48 @@ class CandidateInsight:
                 }
             ],
         )
+
+
+def register_claim_materialization(
+    engine: Any, claim: ClaimNode, errors: list[str], *, context: str
+) -> None:
+    """Stamp a persisted claim's real invalidation-dependency provenance and
+    register it as a live engine-side TruthMaintenance materialization
+    (X-6 / Seam 3, CONCEPT:EG-KG.epistemic.truth-maintenance).
+
+    THE one shared writeback seam every mining family's Claim-persist stage
+    calls right after ``engine.add_node(claim.id, ...)`` — regardless of
+    whether the family is a :class:`CandidateInsight` finding
+    (``loop_controller._run_insight_validation``: association/anomaly/
+    predicted-edge), a mined sequential pattern (``loop_controller.
+    _run_trace_mining``), or a :class:`~.placement_mining.PlacementProposal`
+    (``placement_mining.run_placement_mining_cycle``) — every one of them
+    already builds a ``ClaimNode`` with real ``source_ids``, so every one of
+    them gets reversible-derived-data coverage for free by calling this once,
+    rather than each carrying its own copy.
+
+    Writes a ``:DerivedFrom`` edge (``relationship_type="DERIVED_FROM"``, the
+    exact property key ``eg_epistemic::register_from_provenance`` reads) from
+    ``claim.id`` to EACH id in ``claim.source_ids`` — the real base facts the
+    finding/proposal was actually mined from, never fabricated — then
+    registers ``claim.id`` as a live engine-side TruthMaintenance
+    materialization off that SAME provenance. From this point on, the engine
+    auto-invalidates the claim the moment any of those base facts changes/is
+    removed through the normal write path — no polling, no second bookkeeping
+    store here. Both steps are best-effort audit overlays: never gates the
+    caller's pipeline. ``context`` prefixes any recorded error (e.g.
+    ``"insight_validation"`` / ``"trace_mining"`` / ``"placement_mining"``) so
+    a failure is traceable to its calling stage.
+    """
+    for source_id in claim.source_ids:
+        try:
+            engine.add_edge(claim.id, source_id, relationship_type="DERIVED_FROM")
+        except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
+            errors.append(f"{context}:derived_from {claim.id}->{source_id}: {e}")
+    try:
+        engine.register_materialization(claim.id)
+    except Exception as e:  # noqa: BLE001 — TMS registration is best-effort
+        errors.append(f"{context}:register_materialization {claim.id}: {e}")
 
 
 # ── per-finding-type extraction (see loop_controller._run_mine_discovery docstring
