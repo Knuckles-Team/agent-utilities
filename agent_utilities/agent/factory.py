@@ -228,6 +228,35 @@ def create_agent_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_agent_extra_body(
+    model: Any, reasoning_effort: str | None
+) -> dict[str, Any]:
+    """Build the AGENT-level ``extra_body``, preserving the model's reasoning settings.
+
+    CONCEPT:AU-ORCH.execution.delegation-reasoning-off — pydantic-ai merges
+    agent-over-model ``ModelSettings`` with a SHALLOW dict union, so the agent-level
+    ``extra_body`` REPLACES (not deep-merges) the model-level one that ``create_model``
+    built. That silently discarded ``create_model``'s ``reasoning_effort="none"``
+    default (and any per-model override) for every ``create_agent``-built agent —
+    leaving the fleet running with the reasoning model thinking ON. Carry the model's
+    ``extra_body`` up to the winning layer, let a deployment ``DEFAULT_EXTRA_BODY`` and
+    an explicit ``reasoning_effort`` arg override, so:
+
+    - no per-model config → create_model's ``reasoning_effort="none"`` reaches the
+      request (thinking OFF, the documented default);
+    - a per-model ``reasoning_effort`` override (e.g. ``"high"``) is preserved;
+    - a caller (e.g. a delegated tool loop) can force ``reasoning_effort="none"``.
+    """
+    model_settings = getattr(model, "settings", None)
+    model_extra = (
+        dict(dict(model_settings).get("extra_body") or {}) if model_settings else {}
+    )
+    merged = {**model_extra, **(DEFAULT_EXTRA_BODY or {})}
+    if reasoning_effort is not None:
+        merged["reasoning_effort"] = reasoning_effort
+    return merged
+
+
 def create_agent(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -279,6 +308,14 @@ def create_agent(
     #     catalog, loaded on demand by the model.
     thinking_effort: str | None = None,
     defer_tool_loading: bool = False,
+    # reasoning_effort: vLLM/OpenAI reasoning override threaded onto the AGENT-level
+    #   ``extra_body`` (e.g. "none" to switch a reasoning chat model's thinking OFF for
+    #   a deterministic tool loop). MUST be applied here, not only at the model
+    #   constructor: pydantic-ai merges agent-over-model ModelSettings with a SHALLOW
+    #   dict union, so an agent-level ``extra_body`` REPLACES (not deep-merges) the
+    #   model-level one — leaving a model-constructor ``reasoning_effort`` silently
+    #   discarded. None = leave the model's own reasoning setting untouched.
+    reasoning_effort: str | None = None,
 ) -> tuple[Agent[Any, Any], list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
@@ -434,6 +471,12 @@ def create_agent(
         timeout=DEFAULT_TIMEOUT,
     )
 
+    # Agent-level ``extra_body`` WINS the pydantic-ai settings merge (agent-over-model,
+    # SHALLOW union), so the model's own ``extra_body`` (carrying create_model's
+    # ``reasoning_effort`` default + any per-model override) must be carried UP to the
+    # agent level or it is silently replaced — see the ``reasoning_effort`` param doc.
+    _extra_body = _resolve_agent_extra_body(model, reasoning_effort)
+
     settings = ModelSettings(
         max_tokens=DEFAULT_MAX_TOKENS,
         temperature=DEFAULT_TEMPERATURE,
@@ -446,7 +489,7 @@ def create_agent(
         logit_bias=DEFAULT_LOGIT_BIAS,
         stop_sequences=DEFAULT_STOP_SEQUENCES,
         extra_headers=DEFAULT_EXTRA_HEADERS,
-        extra_body=DEFAULT_EXTRA_BODY,
+        extra_body=_extra_body,
     )
 
     from pydantic_ai_skills import SkillsToolset
