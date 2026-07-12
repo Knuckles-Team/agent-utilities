@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
+import types
+from pathlib import Path
 
 import pytest
 
@@ -57,6 +61,48 @@ def test_main_run_emits_token(monkeypatch, tmp_path, capsys):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert "tool_token" in out and out["agent"] == "agentA"
+
+
+def test_install_skills_imports_current_universal_skills_bridge_path(monkeypatch):
+    """Regression: ``_install_skills`` must import ``universal_skills.core.skill_installer``
+    directly. The old ``universal_skills.core.skill_installer.scripts`` path (pre
+    commit b9d23f77) no longer exists — ``skill_installer`` is now a flat
+    backward-compat re-export module, not a package with a ``scripts``
+    submodule — so that import always raised ``ModuleNotFoundError`` and
+    silently disabled ``agent-utilities install-skills``. This proves the fixed
+    import path resolves and is actually used (not the stale one), by
+    injecting a fake bridge module at the current path and asserting
+    ``_install_skills`` drives it end-to-end instead of falling into the
+    "not installed" fallback.
+    """
+    fake_target = Path("/tmp/fake-claude-skills")
+    fake_installer = types.SimpleNamespace(
+        TOOL_PATHS={"claude": fake_target},
+        detect_present_tools=lambda: {},
+        install_skills=lambda *a, **kw: True,
+    )
+    fake_pkg = types.ModuleType("universal_skills")
+    fake_core = types.ModuleType("universal_skills.core")
+    fake_core.skill_installer = fake_installer
+    monkeypatch.setitem(sys.modules, "universal_skills", fake_pkg)
+    monkeypatch.setitem(sys.modules, "universal_skills.core", fake_core)
+    monkeypatch.setitem(
+        sys.modules, "universal_skills.core.skill_installer", fake_installer
+    )
+
+    args = argparse.Namespace(
+        tool="claude",
+        path=None,
+        skills="",
+        group=None,
+        no_graphs=False,
+        force=False,
+        symlink=False,
+        layer="all",
+    )
+    out = cli._install_skills(args)
+    assert "error" not in out
+    assert out["installed"] == {"claude": str(fake_target)}
 
 
 def test_context_glossary_present():
