@@ -63,8 +63,26 @@ def pytest_configure(config):
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends import set_active_backend
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+try:
+    from agent_utilities.knowledge_graph.backends import set_active_backend
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+except ImportError:
+    # Kernel-free lean env (CI guardrails installs the package WITHOUT the
+    # per-platform-compiled `epistemic-graph[numeric]` kernel, which is not
+    # available on PyPI). The engine/backend layer isn't importable there, so
+    # pytest collection of the pure gate/meta suites (tests/gates, the prod-profile
+    # guard) must not hard-fail at import. Tests that actually exercise the engine
+    # are `@pytest.mark.engine` / kernel-guarded and skip; the autouse cleanup below
+    # only RESETS global engine/backend state, which is a no-op when the kernel (and
+    # thus any active engine) is absent. When the kernel IS present (every real
+    # install, the pipeline test job, local dev) these bind normally — transparent.
+    def set_active_backend(_backend):  # type: ignore[misc]
+        return None
+
+    class IntelligenceGraphEngine:  # type: ignore[no-redef]
+        @staticmethod
+        def set_active(_engine):
+            return None
 
 
 @pytest.fixture(autouse=True)
@@ -341,7 +359,18 @@ def _session_engine():
     # Wire the client / EngineResolver to THIS engine for the whole session.
     # Set in os.environ (not monkeypatch) so it survives the per-test
     # ``_isolate_os_environ`` snapshot/restore.
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    except ImportError as exc:
+        # The engine BINARY started, but the Python engine layer needs the
+        # per-platform-compiled `epistemic-graph[numeric]` kernel, which is absent
+        # in the lean CI env (not on PyPI). Degrade to the SAME hermetic-skip mode
+        # as an unavailable engine: tests that request the real engine skip; pure
+        # gate/meta tests (tests/gates, the prod-profile guard) are unaffected.
+        print(f"[session-engine] engine Python layer unavailable (kernel absent): {exc}")
+        engine.stop()
+        yield None
+        return
 
     os.environ["GRAPH_SERVICE_SOCKET"] = engine.socket_path  # type: ignore[assignment]
     os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
