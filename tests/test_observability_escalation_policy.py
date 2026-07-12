@@ -183,9 +183,7 @@ def test_cold_start_inferred_from_empty_history(_capture_writes):
 
 def test_cold_start_suppressed_when_prior_run_exists(_capture_writes):
     engine = _FakeEngine(
-        by_label={
-            "RunTrace": [("t1", {"transition": "deploy", "service": "svc:x"})]
-        }
+        by_label={"RunTrace": [("t1", {"transition": "deploy", "service": "svc:x"})]}
     )
     out = ep.evaluate_escalation(
         {

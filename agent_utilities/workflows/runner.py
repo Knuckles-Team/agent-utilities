@@ -105,7 +105,7 @@ logger = logging.getLogger(__name__)
 # Registry for tracking workflow runs (both active and completed) within this process
 _active_workflows: dict[str, WorkflowResult] = {}
 
-# CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — governance gate/approval step kind
+# CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — governance gate/approval step kind
 # (autonomous-sdlc-loop-design.md §7.1 delta 3). A step whose ``kind`` is one of these is
 # a suspend/resume checkpoint, not an ordinary agent-executed step.
 GATE_KINDS = frozenset({"gate", "approval"})
@@ -297,7 +297,7 @@ class WorkflowRunner:
                 agent-utilities depending on it. Best-effort; default None.
             gate_checker: Optional ``(engine, step) -> "approved"|"rejected"|None``
                 callable consulted for every ``kind="gate"``/``"approval"`` step
-                (CONCEPT:AU-ORCH.execution.gate-step-suspend-resume, §7.1 delta 3). Defaults to
+                (CONCEPT:AU-ORCH.execution.workflow-lifecycle-management, §7.1 delta 3). Defaults to
                 :func:`_default_gate_checker` (a ``:satisfiedBy`` out-edge on the
                 step). Overridable so a deployment can bind gate satisfaction to
                 its own governance system (Camunda task completion, an
@@ -582,7 +582,7 @@ class WorkflowRunner:
     ) -> WorkflowResult:
         """Resume a run that :meth:`_execute_plan_via_agents` SUSPENDED on a gate.
 
-        CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 delta 3. A suspended run
+        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 delta 3. A suspended run
         persisted its per-step state as a ``:WorkflowRun {status:"suspended"}`` node
         (see :meth:`_persist_run_state`). Resuming reloads that state and re-drives
         the DAG from where it blocked; each still-blocked gate is re-checked via
@@ -608,7 +608,7 @@ class WorkflowRunner:
         )
 
     # ------------------------------------------------------------------
-    # Suspend/resume state persistence (CONCEPT:AU-ORCH.execution.gate-step-suspend-resume, §7.1 delta 3)
+    # Suspend/resume state persistence (CONCEPT:AU-ORCH.execution.workflow-lifecycle-management, §7.1 delta 3)
     # ------------------------------------------------------------------
 
     def _persist_run_state(
@@ -705,7 +705,7 @@ class WorkflowRunner:
         own RunTrace + :ToolCall nodes, so workflow execution is fully visible over
         graph-os with zero extra plumbing.
 
-        CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 delta 3: a ready step whose
+        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 delta 3: a ready step whose
         ``kind`` is ``"gate"``/``"approval"`` is NOT run by an agent; instead the
         ``gate_checker`` is consulted. Approved → the step completes and its
         on-success dependents proceed; rejected → the step and its on-success

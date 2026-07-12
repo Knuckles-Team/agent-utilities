@@ -189,7 +189,11 @@ def _signal_large_diff(reader: _GraphReader, ctx: dict[str, Any]) -> SignalHit |
         total = 0
         for sym in ctx.get("changed_symbols") or []:
             total += len(
-                [1 for rel, _t in reader.out_edges(str(sym)) if rel in ("calls", "depends_on")]
+                [
+                    1
+                    for rel, _t in reader.out_edges(str(sym))
+                    if rel in ("calls", "depends_on")
+                ]
             )
         fanout = total
     if fanout is not None and _int(fanout, 0) > fanout_cap:
@@ -380,9 +384,7 @@ def evaluate_escalation(
     return request
 
 
-def _write_escalation(
-    request: dict[str, Any], entry_id: str
-) -> dict[str, int] | None:
+def _write_escalation(request: dict[str, Any], entry_id: str) -> dict[str, int] | None:
     """MERGE the ``:EscalationRequest`` + an ``escalates`` edge from the entry node.
 
     Best-effort — a failed write returns ``None`` and the request is still
@@ -397,9 +399,7 @@ def _write_escalation(
             if entry_id
             else []
         )
-        return ingest_entities(
-            [request], relationships, source=_SOURCE, domain="sdlc"
-        )
+        return ingest_entities([request], relationships, source=_SOURCE, domain="sdlc")
     except Exception as e:  # noqa: BLE001 — persistence is best-effort
         logger.debug("escalation write skipped: %s", e)
         return None

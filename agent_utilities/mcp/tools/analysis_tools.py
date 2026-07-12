@@ -2309,11 +2309,7 @@ def register_analysis_tools(mcp):
                             {"error": "Specify the workflow name in 'task'."},
                             default=str,
                         )
-                    fmt = (
-                        agent_name
-                        if agent_name and agent_name != wf_name
-                        else "bpmn"
-                    )
+                    fmt = agent_name if agent_name and agent_name != wf_name else "bpmn"
                     engine = kg_server._get_engine()
                     return json.dumps(
                         _export_workflow(engine, wf_name, fmt=fmt),

@@ -61,7 +61,7 @@ _STEP_RE = re.compile(
 # Body fields the corpus renders under a step heading.
 _AGENT_RE = re.compile(r"\*\*Agent\*\*:\s*`?([^`\n]+)`?")
 _TOOLS_RE = re.compile(r"\*\*Tools\*\*:\s*`?([^`\n]+)`?")
-# CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — the governance gate/approval step
+# CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — the governance gate/approval step
 # kind (autonomous-sdlc-loop-design.md §7.1 delta 2): a step body opts into being a
 # suspend/resume checkpoint via ``**Kind**: gate`` (or ``approval``), optionally with its
 # own exit ``**Condition**`` (default "on_success") and an ``**OnReject**`` branch target.
@@ -156,9 +156,11 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
                 "depends_on": depends_on,
                 "tools": tools,
                 "description": step_body.strip().split("\n", 1)[0].strip(),
-                # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 gate step kind.
+                # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 gate step kind.
                 "kind": kind,
-                "condition": condition_m.group(1).strip() if condition_m else "on_success",
+                "condition": condition_m.group(1).strip()
+                if condition_m
+                else "on_success",
                 "on_reject": on_reject_m.group(1).strip() if on_reject_m else None,
             }
         )
@@ -364,7 +366,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
             "timeout": 120.0,
             "status": "pending",
             "depends_on_json": json.dumps(resolved_deps),
-            # CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 gate step kind.
+            # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 gate step kind.
             "kind": kind,
             "condition": condition,
         }

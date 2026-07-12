@@ -124,9 +124,7 @@ class GovernanceImporter:
             try:
                 return [
                     (
-                        str(
-                            (e or {}).get("type") or (e or {}).get("rel_type") or ""
-                        ),
+                        str((e or {}).get("type") or (e or {}).get("rel_type") or ""),
                         t,
                     )
                     for _s, t, e in graph.out_edges(node_id, data=True)
@@ -200,14 +198,22 @@ class GovernanceImporter:
         """
         children = self._hasobject_children(model_id, "hasObject")
         if not children:
-            return {"error": f"EPC model {model_id!r} has no :hasObject objects", "source": model_id}
+            return {
+                "error": f"EPC model {model_id!r} has no :hasObject objects",
+                "source": model_id,
+            }
 
         def _is_fn(props: dict[str, Any]) -> bool:
             return str(props.get("type") or "").endswith("EPCFunction")
 
         tasks, flows = self._walk_sequence(children, {"flowsTo"}, is_executable=_is_fn)
         return self._compile_and_store(
-            tasks, flows, model_id, name or self._node_props(model_id).get("name"), domain, "aris-epc"
+            tasks,
+            flows,
+            model_id,
+            name or self._node_props(model_id).get("name"),
+            domain,
+            "aris-epc",
         )
 
     def import_archimate(
@@ -217,11 +223,19 @@ class GovernanceImporter:
         ``:WorkflowDefinition`` by walking ``Triggering``/``Flow`` edges."""
         props0 = self._node_props(process_id)
         if not props0:
-            return {"error": f"ArchiMate element {process_id!r} not found", "source": process_id}
+            return {
+                "error": f"ArchiMate element {process_id!r} not found",
+                "source": process_id,
+            }
 
         def _is_behavior(props: dict[str, Any]) -> bool:
             t = str(props.get("type") or "")
-            return t in ("BusinessProcess", "BusinessFunction", "BusinessInteraction", "ApplicationProcess")
+            return t in (
+                "BusinessProcess",
+                "BusinessFunction",
+                "BusinessInteraction",
+                "ApplicationProcess",
+            )
 
         tasks, flows = self._walk_sequence(
             [process_id], {"Triggering", "Flow"}, is_executable=_is_behavior
@@ -243,7 +257,11 @@ class GovernanceImporter:
             report["translator"] = "camunda-bpmn"
             return report
         except ProcessCompilationError as exc:
-            return {"error": str(exc), "source": process_id, "translator": "camunda-bpmn"}
+            return {
+                "error": str(exc),
+                "source": process_id,
+                "translator": "camunda-bpmn",
+            }
 
     def import_approval_gate(
         self,
@@ -288,13 +306,21 @@ class GovernanceImporter:
         translator: str,
     ) -> dict[str, Any]:
         if not tasks:
-            return {"error": f"{translator}: no process structure for {source_id!r}", "source": source_id}
+            return {
+                "error": f"{translator}: no process structure for {source_id!r}",
+                "source": source_id,
+            }
         try:
-            order, deps, _branches = ProcessPlanCompiler._collapse_gateways(tasks, flows)
+            order, deps, _branches = ProcessPlanCompiler._collapse_gateways(
+                tasks, flows
+            )
         except ProcessCompilationError as exc:
             return {"error": str(exc), "source": source_id, "translator": translator}
         if not order:
-            return {"error": f"{translator}: only structural nodes, no steps", "source": source_id}
+            return {
+                "error": f"{translator}: only structural nodes, no steps",
+                "source": source_id,
+            }
 
         steps: list[dict[str, Any]] = []
         for tid in order:
@@ -305,7 +331,9 @@ class GovernanceImporter:
                     "id": _slug(label) or _slug(tid),
                     "label": label,
                     "kind": "gate" if looks_like_gate(props) else "task",
-                    "depends_on": sorted(_slug(str(tasks[d].get("name") or d)) for d in deps[tid]),
+                    "depends_on": sorted(
+                        _slug(str(tasks[d].get("name") or d)) for d in deps[tid]
+                    ),
                     "capability": None,
                 }
             )
@@ -354,10 +382,16 @@ class GovernanceImporter:
                     "is_parallel": not s["depends_on"],
                     "depends_on_json": json.dumps(s["depends_on"]),
                     "kind": s["kind"],
-                    "condition": "on_approval" if s["kind"] in ("gate", "approval") else "on_success",
+                    "condition": "on_approval"
+                    if s["kind"] in ("gate", "approval")
+                    else "on_success",
                     "timeout": 120.0,
                     "status": "pending",
-                    **({"boundCapability": s["capability"]} if s.get("capability") else {}),
+                    **(
+                        {"boundCapability": s["capability"]}
+                        if s.get("capability")
+                        else {}
+                    ),
                 },
             )
             self.engine.link_nodes(
@@ -419,7 +453,12 @@ def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | No
     if graph is not None:
         try:
             for _s, tgt, edata in graph.out_edges(wf_id, data=True):
-                if str((edata or {}).get("type") or (edata or {}).get("rel_type") or "") == "HAS_STEP":
+                if (
+                    str(
+                        (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
+                    )
+                    == "HAS_STEP"
+                ):
                     d = dict(graph.nodes[tgt])
                     steps.append((int(d.get("step_order", 0)), d))
         except Exception:  # noqa: BLE001
@@ -508,7 +547,7 @@ def _to_bpmn(name: str, steps: list[dict[str, Any]]) -> str:
     ids = {_step_id(s, i): i for i, s in enumerate(steps)}
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<bpmn2:definitions '
+        "<bpmn2:definitions "
         'xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL" '
         f'id="{proc_id}_defs" targetNamespace="http://agent-utilities.dev/bpmn">',
         f'  <bpmn2:process id="{proc_id}" name="{_xml_escape(name)}" isExecutable="true">',
