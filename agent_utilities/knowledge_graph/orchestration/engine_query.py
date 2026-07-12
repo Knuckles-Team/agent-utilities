@@ -252,7 +252,9 @@ class QueryMixin(_Base):
             logger.debug("sparql() row filtering skipped: %s", exc)
         return rows
 
-    def uql(self, query: str) -> list[dict[str, Any]]:
+    def uql(
+        self, query: str, *, include_epistemic: bool = False
+    ) -> list[dict[str, Any]]:
         """Run a UQL text query over the KG via the engine's unified surface (KG-2.214).
 
         CONCEPT:AU-KG.query.au-engine-execution-path — the AU→engine execution path for the engine's native
@@ -270,6 +272,17 @@ class QueryMixin(_Base):
         UQL surface (server built without the ``query`` feature, or a pure-Postgres
         mirror) raises a clear error rather than silently returning nothing — symmetric
         with :meth:`sql` / :meth:`sparql`.
+
+        Args:
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended to this cross-modal surface).
+                Default ``False`` — byte-for-byte the same ``[{"id", "score"}]``
+                rows. When ``True``, currency-upgrades the SAME ids (SAME order)
+                via the engine's ``explain_provenance_by_ids`` into
+                :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+                results. Degrades to ``[]`` (never raises) when the backend's
+                ``GraphComputeEngine`` has no ``explain_provenance_by_ids`` —
+                mirroring :meth:`KnowledgeGraph.query`'s documented contract.
         """
         graph = getattr(self.backend, "graph", None)
         client = getattr(graph, "_client", None)
@@ -281,7 +294,15 @@ class QueryMixin(_Base):
                 "UQL-on-the-KG requires the engine backend (build with the "
                 "'query' feature)."
             )
-        return list(uql_fn(query) or [])
+        rows = list(uql_fn(query) or [])
+        if not include_epistemic:
+            return rows
+        from agent_utilities.knowledge_graph.core.epistemic_row import (
+            attach_epistemic_rows,
+        )
+
+        fetch = getattr(graph, "explain_provenance_by_ids", None)
+        return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
 
     def resolve_temporal_contradiction(
         self,

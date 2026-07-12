@@ -175,8 +175,23 @@ class AGEBackend(PostgreSQLBackend):
                 pass
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — this backend has no id-seeded
+            # epistemic-envelope primitive (that lives on
+            # ``EpistemicGraphBackend``'s ``GraphComputeEngine``); degrade to
+            # ``[]`` rather than raising or silently returning plain ``dict``
+            # rows under a ``True`` request, matching the ABC contract.
+            logger.debug(
+                "AgeBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         params = params or {}
         cypher = (query or "").strip()
         if not cypher:

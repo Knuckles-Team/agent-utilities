@@ -648,9 +648,21 @@ class LadybugBackend(GraphBackend):
             return None
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query on LadybugDB."""
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
+            # primitive on this backend; degrade to ``[]`` per the ABC contract.
+            logger.debug(
+                "LadybugBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         # G1+G2+G3: Attempt centralized gateway routing with cached health + pooled client
         routed = self._route_to_gateway(query, params=params)
         if routed is not None:

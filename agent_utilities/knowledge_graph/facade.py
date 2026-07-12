@@ -452,7 +452,7 @@ class KnowledgeGraph:
         fabricates) when no compute engine is bound or nothing in ``rows`` carries
         a resolvable id.
         """
-        from .core.epistemic_row import EpistemicRow, row_ids_from_plain_rows
+        from .core.epistemic_row import attach_epistemic_rows
 
         compute = self.compute
         fetch = getattr(compute, "explain_provenance_by_ids", None)
@@ -462,15 +462,7 @@ class KnowledgeGraph:
                 "exposing explain_provenance_by_ids — returning no epistemic rows"
             )
             return []
-        id_props = row_ids_from_plain_rows(rows)
-        if not id_props:
-            return []
-        props_by_id = {ip["id"]: ip["properties"] for ip in id_props}
-        wire_rows = fetch([ip["id"] for ip in id_props]) or []
-        return [
-            EpistemicRow.from_wire(wr, properties=props_by_id.get(wr.get("id", ""), {}))
-            for wr in wire_rows
-        ]
+        return attach_epistemic_rows(rows, fetch)
 
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
         """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).

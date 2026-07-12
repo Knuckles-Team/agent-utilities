@@ -178,6 +178,35 @@ class EpistemicGraphBackend(GraphBackend):
     # --- GraphBackend ABC Implementation ---
 
     def execute(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute a Cypher query against the in-memory graph.
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1) is the
+        ``store.execute`` counterpart of
+        ``KnowledgeGraph.query(..., include_epistemic=True)`` for callers that
+        talk to this backend directly instead of through the guarded facade.
+        Default ``False`` — byte-for-byte the plain ``list[dict]`` rows
+        :meth:`_execute_rows` always returned. When ``True``, the SAME rows are
+        currency-upgraded via this backend's own
+        ``GraphComputeEngine.explain_provenance_by_ids`` (the exact engine this
+        query just ran against — unlike the facade's ``compute`` property, which
+        may fall back to an unrelated standalone engine for a non-epistemic
+        store) into ``list[EpistemicRow]``. See
+        ``docs/architecture/epistemic-columns-currency.md``.
+        """
+        rows = self._execute_rows(query, params)
+        if not include_epistemic:
+            return rows
+        from ..core.epistemic_row import attach_epistemic_rows
+
+        return attach_epistemic_rows(rows, self._graph.explain_provenance_by_ids)  # type: ignore[return-value]
+
+    def _execute_rows(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the in-memory graph.
