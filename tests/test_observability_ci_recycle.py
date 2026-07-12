@@ -16,7 +16,6 @@ import pytest
 
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 import agent_utilities.observability.ci_recycle as cr
-import agent_utilities.observability.escalation_policy as ep
 import agent_utilities.observability.health_ingest as hi
 
 pytestmark = pytest.mark.concept("AU-OS.host.report-only-remediation-proposal")
