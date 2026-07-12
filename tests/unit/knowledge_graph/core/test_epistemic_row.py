@@ -15,10 +15,16 @@ synthetic wire-shaped dicts.
 from __future__ import annotations
 
 from agent_utilities.knowledge_graph.core.epistemic_row import (
+    CONTESTED_LABEL,
+    NEUTRAL_CONFIDENCE,
     EpistemicRow,
     EvidenceSpan,
+    attach_epistemic_columns,
     attach_epistemic_rows,
+    epistemic_status,
+    is_contested_row,
     row_ids_from_plain_rows,
+    should_attach_epistemic_columns,
 )
 
 
@@ -187,3 +193,145 @@ def test_row_ids_from_plain_rows_still_used_by_attach_epistemic_rows() -> None:
     divergent id-extraction path was introduced for the new read surfaces."""
     rows = [{"id": "n1"}, {"n": {"id": "n2"}}]
     assert {ip["id"] for ip in row_ids_from_plain_rows(rows)} == {"n1", "n2"}
+
+
+class TestEpistemicStatus:
+    def test_unresolved_when_not_resolved(self) -> None:
+        assert (
+            epistemic_status(resolved=False, confidence=0.99, policy_labels=[])
+            == "unresolved"
+        )
+
+    def test_contested_from_label(self) -> None:
+        assert (
+            epistemic_status(
+                resolved=True, confidence=0.99, policy_labels=[CONTESTED_LABEL]
+            )
+            == "contested"
+        )
+
+    def test_contested_from_contradiction_count(self) -> None:
+        assert (
+            epistemic_status(
+                resolved=True,
+                confidence=0.99,
+                policy_labels=[],
+                contradiction_count=1,
+            )
+            == "contested"
+        )
+
+    def test_low_confidence_below_threshold(self) -> None:
+        assert (
+            epistemic_status(resolved=True, confidence=0.1, policy_labels=[])
+            == "low_confidence"
+        )
+
+    def test_confirmed_when_resolved_and_confident(self) -> None:
+        assert (
+            epistemic_status(resolved=True, confidence=0.95, policy_labels=[])
+            == "confirmed"
+        )
+
+
+class TestIsContestedRow:
+    def test_true_for_contested_label(self) -> None:
+        assert is_contested_row({"policy_labels": [CONTESTED_LABEL]}) is True
+
+    def test_true_for_low_confidence_property(self) -> None:
+        assert is_contested_row({"confidence": 0.1}) is True
+
+    def test_true_for_nested_node_dict(self) -> None:
+        assert is_contested_row({"n": {"confidence": 0.1}}) is True
+
+    def test_false_for_ordinary_row(self) -> None:
+        assert is_contested_row({"id": "n1", "name": "hello"}) is False
+
+
+class TestShouldAttachEpistemicColumns:
+    def test_always_true_when_default_is_true(self) -> None:
+        assert should_attach_epistemic_columns([{"id": "n1"}], default=True) is True
+
+    def test_false_when_default_off_and_nothing_contested(self) -> None:
+        rows = [{"id": "n1", "name": "hello"}]
+        assert should_attach_epistemic_columns(rows, default=False) is False
+
+    def test_auto_on_when_default_off_but_row_contested(self) -> None:
+        rows = [{"id": "n1", "policy_labels": [CONTESTED_LABEL]}]
+        assert should_attach_epistemic_columns(rows, default=False) is True
+
+
+class TestAttachEpistemicColumns:
+    def test_never_changes_return_type_or_row_count(self) -> None:
+        rows = [{"id": "n1"}, {"id": "n2"}]
+        result = attach_epistemic_columns(rows, None)
+        assert result is rows  # same list object, in place
+        assert isinstance(result, list)
+        assert all(isinstance(r, dict) for r in result)
+
+    def test_degrades_to_neutral_prior_when_fetch_is_none(self) -> None:
+        rows = [{"id": "n1", "name": "hello"}]
+        result = attach_epistemic_columns(rows, None)
+        assert result[0]["name"] == "hello"  # original data untouched
+        assert result[0]["confidence"] == NEUTRAL_CONFIDENCE
+        assert result[0]["source_refs"] == []
+        assert result[0]["evidence_refs"] == []
+        assert result[0]["policy_labels"] == []
+        assert result[0]["provenance"] == {
+            "resolved": False,
+            "valid_time": None,
+            "tx_time": None,
+        }
+
+    def test_degrades_to_neutral_prior_when_fetch_raises(self) -> None:
+        def fetch(ids: list[str]) -> list[dict]:
+            raise RuntimeError("engine unreachable")
+
+        rows = [{"id": "n1"}]
+        result = attach_epistemic_columns(rows, fetch)
+        assert result[0]["confidence"] == NEUTRAL_CONFIDENCE
+        assert result[0]["provenance"]["resolved"] is False
+
+    def test_merges_resolved_envelope_onto_matching_row(self) -> None:
+        rows = [{"id": "n1", "name": "hello"}]
+
+        def fetch(ids: list[str]) -> list[dict]:
+            assert ids == ["n1"]
+            return [
+                {
+                    "id": "n1",
+                    "confidence": 0.42,
+                    "source_refs": ["doc:1"],
+                    "evidence_spans": [{"DocumentSpan": {"document_id": "d1"}}],
+                    "policy_labels": [CONTESTED_LABEL],
+                    "valid_time": [1, 2],
+                    "tx_time": [3, 4],
+                }
+            ]
+
+        result = attach_epistemic_columns(rows, fetch)
+        row = result[0]
+        assert row["name"] == "hello"
+        assert row["confidence"] == 0.42
+        assert row["source_refs"] == ["doc:1"]
+        assert row["evidence_refs"] == [{"DocumentSpan": {"document_id": "d1"}}]
+        assert row["policy_labels"] == [CONTESTED_LABEL]
+        assert row["provenance"] == {
+            "resolved": True,
+            "valid_time": [1, 2],
+            "tx_time": [3, 4],
+        }
+
+    def test_never_clobbers_a_property_the_row_already_carries(self) -> None:
+        # A caller-selected `RETURN n.confidence AS confidence` column is a
+        # real property, not the injected epistemic default — must survive.
+        rows = [{"id": "n1", "confidence": 0.99}]
+
+        def fetch(ids: list[str]) -> list[dict]:
+            return [{"id": "n1", "confidence": 0.1}]
+
+        result = attach_epistemic_columns(rows, fetch)
+        assert result[0]["confidence"] == 0.99
+
+    def test_empty_rows_is_a_pure_noop(self) -> None:
+        assert attach_epistemic_columns([], None) == []

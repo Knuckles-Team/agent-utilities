@@ -85,6 +85,7 @@
     "embedding_model": "text-embedding-nomic-embed-text-v2-moe",
     "kg_backups": 3,
     "graph_direct_execution": true,
+    "epistemic_light_default": true,
     "secrets_backend": "inmemory",
     "secrets_sqlite_path": null,
     "vault_url": null,

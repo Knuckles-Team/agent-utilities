@@ -295,14 +295,26 @@ class QueryMixin(_Base):
                 "'query' feature)."
             )
         rows = list(uql_fn(query) or [])
-        if not include_epistemic:
-            return rows
+        fetch = getattr(graph, "explain_provenance_by_ids", None)
+        if include_epistemic:
+            from agent_utilities.knowledge_graph.core.epistemic_row import (
+                attach_epistemic_rows,
+            )
+
+            return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
+        from agent_utilities.core.config import config as _app_config
         from agent_utilities.knowledge_graph.core.epistemic_row import (
-            attach_epistemic_rows,
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
         )
 
-        fetch = getattr(graph, "explain_provenance_by_ids", None)
-        return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(rows, fetch)
+        return rows
 
     def resolve_temporal_contradiction(
         self,

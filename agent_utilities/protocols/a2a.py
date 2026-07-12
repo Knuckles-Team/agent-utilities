@@ -163,6 +163,145 @@ class A2AClient:
                 return f"A2A Communication Error: {e}"
         return "Error: A2A execution timed out or failed."
 
+    async def execute_task_with_epistemic(self, url: str, query: str) -> dict[str, Any]:
+        """Execute a task and return the RESULT ENVELOPE, including any
+        epistemic metadata the peer attached (CONCEPT:AU-KB-CURRENCY A2A
+        projection, `04-five-intersections.md` item 1: "epistemic columns
+        ... not a default field on ordinary MCP tool-call results").
+
+        :meth:`execute_task` (unchanged, still the primary/default entry
+        point every existing caller uses) collapses a result down to its
+        text content and drops the A2A Message's own ``metadata`` dict. This
+        sibling method is purely additive — same request/poll protocol, but
+        also surfaces that ``metadata`` under an ``epistemic`` key, picking
+        out the light-epistemic-layer vocabulary
+        (``confidence``/``status``/``contradiction_count``/
+        ``policy_labels``/``source_refs`` — CONCEPT:AU-KB-CURRENCY /
+        CONCEPT:EPI-P3-1) a peer MAY have set on its response message.
+        Never fabricates: a peer that sends no metadata (any non-epistemic-
+        aware A2A agent, including older versions of this same agent)
+        yields ``epistemic: {}``, not guessed values.
+
+        Returns:
+            ``{"content": str, "epistemic": dict, "metadata": dict, "error": str | None}``.
+            ``metadata`` is the FULL raw ``metadata`` dict the peer sent (for
+            a caller that wants more than the recognized epistemic keys);
+            ``epistemic`` is the subset of it under the recognized names.
+        """
+        epistemic_keys = (
+            "confidence",
+            "status",
+            "contradiction_count",
+            "policy_labels",
+            "source_refs",
+            "evidence_refs",
+        )
+        async with create_async_http_client(
+            timeout=self.timeout, verify=self.ssl_verify
+        ) as client:
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "kind": "message",
+                        "role": "user",
+                        "parts": [{"kind": "text", "text": query}],
+                        "messageId": str(uuid.uuid4()),
+                    }
+                },
+                "id": 1,
+            }
+            try:
+                resp = await client.post(url, json=payload)
+                if resp.status_code != 200:
+                    return {
+                        "content": "",
+                        "epistemic": {},
+                        "metadata": {},
+                        "error": f"A2A peer returned status {resp.status_code}",
+                    }
+
+                res_data = resp.json()
+                if "error" in res_data:
+                    return {
+                        "content": "",
+                        "epistemic": {},
+                        "metadata": {},
+                        "error": str(res_data["error"]),
+                    }
+
+                task_id = res_data.get("result", {}).get("id")
+                if not task_id:
+                    return {
+                        "content": "",
+                        "epistemic": {},
+                        "metadata": {},
+                        "error": "No task ID returned from A2A peer.",
+                    }
+
+                while True:
+                    await asyncio.sleep(2)
+                    poll_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "tasks/get",
+                        "params": {"id": task_id},
+                        "id": 2,
+                    }
+                    poll_resp = await client.post(url, json=poll_payload)
+                    if poll_resp.status_code != 200:
+                        return {
+                            "content": "",
+                            "epistemic": {},
+                            "metadata": {},
+                            "error": f"Polling failed with status {poll_resp.status_code}",
+                        }
+
+                    poll_data = poll_resp.json()
+                    if "error" in poll_data:
+                        return {
+                            "content": "",
+                            "epistemic": {},
+                            "metadata": {},
+                            "error": str(poll_data["error"]),
+                        }
+
+                    result = poll_data.get("result", {})
+                    state = result.get("status", {}).get("state")
+                    if state not in ["submitted", "running", "working"]:
+                        history = result.get("history", [])
+                        for msg in reversed(history):
+                            if msg.get("role") != "user":
+                                parts = msg.get("parts", [])
+                                content = "".join(
+                                    p.get("text", p.get("content", "")) for p in parts
+                                )
+                                raw_metadata = msg.get("metadata") or {}
+                                epistemic = {
+                                    k: raw_metadata[k]
+                                    for k in epistemic_keys
+                                    if k in raw_metadata
+                                }
+                                return {
+                                    "content": content,
+                                    "epistemic": epistemic,
+                                    "metadata": raw_metadata,
+                                    "error": None,
+                                }
+                        return {
+                            "content": "",
+                            "epistemic": {},
+                            "metadata": {},
+                            "error": "No result found in task history.",
+                        }
+            except Exception as e:
+                return {
+                    "content": "",
+                    "epistemic": {},
+                    "metadata": {},
+                    "error": f"A2A Communication Error: {e}",
+                }
+
     async def execute_bft_consensus(
         self, urls: list[str], query: str, threshold: float = 0.66
     ) -> Any:
