@@ -44,6 +44,13 @@ class ActorContext:
     roles: tuple[str, ...] = field(default_factory=tuple)
     tenant_id: str = ""
     authenticated: bool = False
+    # Raw IdP group memberships (Okta ``groups`` / Keycloak group mapper),
+    # provider-normalized. ``roles`` is the effective *capability* set (roles ∪
+    # scopes ∪ group-derived capabilities) that ACL checks read; ``groups`` is
+    # retained distinctly for identity propagation that needs the group names
+    # themselves — notably k8s ``Impersonate-Group``
+    # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance).
+    groups: tuple[str, ...] = field(default_factory=tuple)
 
     def with_tenant(self, tenant_id: str) -> ActorContext:
         return replace(self, tenant_id=tenant_id)

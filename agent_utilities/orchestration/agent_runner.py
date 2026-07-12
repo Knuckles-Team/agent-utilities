@@ -1288,9 +1288,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -2203,6 +2203,43 @@ from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
     sanitize_tool_args as _sanitize_tool_args,  # noqa: F401  (re-exported for callers/tests)
 )
 
+# Common id-shaped keys a tool call's sanitized args carry when the call acted on
+# an existing KG entity (an incident, ticket, spec proposal, governance gate, …).
+# Checked in order; the first present, existing node wins (CONCEPT:AU-KG.audit.tool-call-acted-on-reverse-index).
+_TOOL_ARG_TARGET_KEYS = (
+    "node_id",
+    "id",
+    "entity_id",
+    "target_id",
+    "ticket_id",
+    "incident_id",
+    "spec_id",
+)
+
+
+def _extract_tool_call_target(args: Any) -> str:
+    """Best-effort candidate target-entity id from a tool call's sanitized args.
+
+    ``args`` is the compact, secret-redacted JSON string ``sanitize_tool_args``
+    produces. Returns the first recognizable id-shaped key's value, or ``""`` when
+    none is present / args isn't decodable JSON.
+    """
+    if not args or not isinstance(args, str):
+        return ""
+    try:
+        import json as _json
+
+        decoded = _json.loads(args)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not isinstance(decoded, dict):
+        return ""
+    for key in _TOOL_ARG_TARGET_KEYS:
+        val = decoded.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
+
 
 def _persist_tool_calls(
     engine: IntelligenceGraphEngine | None,
@@ -2257,6 +2294,23 @@ def _persist_tool_calls(
             # the epistemic-graph for graph-os traversal queries.
             engine.link_nodes(trace_id, tc_id, "MADE_TOOL_CALL")
             written += 1
+            # CONCEPT:AU-KG.audit.tool-call-acted-on-reverse-index (G23) — when the call's args
+            # name an existing entity, link the ToolCall to it so
+            # Orchestrator.get_tool_calls_for_target can reconstruct "what happened to
+            # X" without a per-call round trip at read time. Best-effort: never fails
+            # the run, and never vivifies a phantom target node.
+            target_id = _extract_tool_call_target(tc.get("args", ""))
+            if target_id and target_id != tc_id:
+                try:
+                    if engine.graph.has_node(target_id):
+                        engine.link_nodes(tc_id, target_id, "ACTED_ON")
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "[KG-2.296] ACTED_ON link skipped (%s -> %s): %s",
+                        tc_id,
+                        target_id,
+                        exc,
+                    )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[KG-2.296] ToolCall persist failed (%s): %s", tc_id, exc)
             continue

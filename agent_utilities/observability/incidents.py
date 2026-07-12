@@ -23,6 +23,20 @@ Routing/remediation dispatch is REPORT-ONLY by design — see
 :func:`propose_remediation` for how an operator later turns either on.
 Everything here is engine-guarded and best-effort: with no reachable engine,
 every entry point degrades to an empty/no-op result rather than raising.
+
+:func:`actuate_remediation` is that "turn it on" seam, finally wired: a
+proposal for a narrow, safe restart-class action (see
+``_SAFE_ACTUATION_KINDS``) CAN now flow propose → the SAME fail-closed
+:class:`~agent_utilities.orchestration.action_policy.ActionPolicy` gate
+``fleet_reconciler.py`` already uses → (held). It is deliberately NOT a
+switch that turns on autonomous remediation: the shipped default policy tier
+for ``restart_service`` is ``approval_required``
+(``deploy/action-policy.default.yml``), so every call is held pending a
+human `ActionApproval` grant unless an operator explicitly relaxes that
+tier — nothing here auto-executes. The CronJob tick only even ATTEMPTS the
+gate when ``INCIDENT_ACTUATION_ENABLED`` is set (default off, CONCEPT:AU-OS.host.report-only-remediation-proposal), so the
+out-of-the-box behavior of :func:`run_incident_correlation` is byte-identical
+to before this seam existed: propose-and-hold, never autonomous.
 """
 
 import hashlib
@@ -324,6 +338,109 @@ def _proposed_action(root_cause_layer: str, signals: list[str]) -> dict[str, str
     return {"action": action, "package": package, "detail": detail}
 
 
+# proposedAction -> ActionPolicy `kind` for the NARROW set of remediation
+# proposals this module is willing to even OFFER to the actuation gate — safe,
+# reversible, restart-class operations only. Every other proposedAction
+# (fan-policy changes, tunnel failover, "investigate_*") has NO entry here and
+# so :func:`actuate_remediation` refuses it outright before it ever reaches
+# ActionPolicy; this table is the sole boundary of what "restart-class" means
+# for this module — grow it deliberately, one safe/reversible kind at a time.
+_SAFE_ACTUATION_KINDS: dict[str, str] = {
+    "restart_or_cordon_pod": "restart_service",
+}
+
+
+def actuate_remediation(
+    proposal: dict[str, Any],
+    *,
+    engine: Any = None,
+    actuator: Any = None,
+) -> dict[str, Any]:
+    """propose → gate → (held) — the ONLY path by which a proposal can ever
+    actuate, and only for the narrow, safe restart-class actions in
+    :data:`_SAFE_ACTUATION_KINDS`.
+
+    CONCEPT:AU-OS.host.report-only-remediation-proposal / CONCEPT:AU-OS.governance.action-policy-decision-point —
+    this is additive plumbing composed 100% from the existing actuation seam
+    (:mod:`agent_utilities.orchestration.action_policy` +
+    :mod:`agent_utilities.orchestration.fleet_actuation`), NOT a new
+    autonomy mechanism. Every call passes through the SAME fail-closed
+    :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`
+    ``fleet_reconciler.py`` already gates restart/scale/deploy actions
+    through — the shipped default tier for ``restart_service`` is
+    ``approval_required``, so by default this call always resolves to
+    ``"held"`` (a queued ``ActionApproval`` a human must grant), never
+    ``"executed"``. It only executes when a policy rule *explicitly* allows
+    the kind+target (``auto``/``auto_notify``) — exactly the same condition
+    that lets any other autonomous fleet action run.
+
+    A ``proposedAction`` outside :data:`_SAFE_ACTUATION_KINDS` never reaches
+    the policy gate at all — returns ``{"status": "not_actuatable", ...}``.
+    Best-effort: never raises; an internal error is reported as ``"error"``,
+    never surfaced as a silent allow.
+    """
+    proposed_action = str(proposal.get("proposedAction") or "")
+    kind = _SAFE_ACTUATION_KINDS.get(proposed_action)
+    if kind is None:
+        return {
+            "status": "not_actuatable",
+            "reason": f"{proposed_action or '(none)'} is not a safe restart-class action",
+        }
+
+    entity = str(proposal.get("entity") or "")
+    target = _asset_key(entity) if entity else ""
+    if not target:
+        return {"status": "not_actuatable", "reason": "no target entity on proposal"}
+
+    try:
+        from agent_utilities.orchestration.action_policy import (
+            ActionRequest,
+            get_action_policy,
+        )
+        from agent_utilities.orchestration.fleet_actuation import execute_action
+
+        request = ActionRequest(
+            kind=kind,
+            target=target,
+            source="incident-brain",
+            reason=str(
+                proposal.get("summary") or proposal.get("id") or "incident-brain"
+            ),
+            params={
+                "incident": str(proposal.get("incident") or ""),
+                "proposal": str(proposal.get("id") or ""),
+            },
+        )
+        decision = get_action_policy(engine).decide(request)
+    except Exception as e:  # noqa: BLE001 — the seam fails CLOSED, never silently allows
+        logger.warning(
+            "incident actuation: gate error for %s: %s", proposal.get("id"), e
+        )
+        return {"status": "error", "reason": str(e)}
+
+    result: dict[str, Any] = {
+        "status": "executed" if decision.allowed else "held",
+        "decision": decision.decision,
+        "tier": decision.tier,
+        "approval_id": decision.approval_id,
+        "reason": decision.reason,
+        "action_kind": kind,
+        "target": target,
+    }
+    if decision.allowed:
+        result["execution"] = execute_action(engine, request, actuator)
+        _notify(
+            f"[incident-brain] actuated {kind}({target}) for proposal "
+            f"{proposal.get('id')} — policy allowed ({decision.tier})"
+        )
+    else:
+        _notify(
+            f"[incident-brain] remediation HELD for {kind}({target}): "
+            f"{decision.reason} (approval_id={decision.approval_id})"
+        )
+    return result
+
+
 def propose_remediation(incident: dict[str, Any]) -> dict[str, Any] | None:
     """Map ``incident``'s root cause to a REPORT-ONLY remediation proposal.
 
@@ -397,10 +514,26 @@ def run_incident_correlation(*, window_s: int = 300, days: int = 1) -> dict[str,
     remediation proposal are both best-effort per incident — a failure on one
     incident never stops the pass. Best-effort throughout: with no reachable
     engine this returns an all-zero summary rather than raising.
+
+    Actuation (:func:`actuate_remediation`) is only even ATTEMPTED when
+    ``INCIDENT_ACTUATION_ENABLED`` is truthy (default off) — with the flag
+    off this function's behavior, including its returned summary shape, is
+    byte-identical to before the actuator seam existed: propose-and-hold,
+    report-only. With the flag on, every attempt still resolves through the
+    fail-closed ActionPolicy gate, so the default OUTCOME stays "held"
+    (see :func:`actuate_remediation`) — the flag only controls whether the
+    tick offers eligible proposals to that gate at all.
     """
+    from agent_utilities.core.config import setting
+
+    actuation_enabled = bool(setting("INCIDENT_ACTUATION_ENABLED", False, cast=bool))
+    engine = health_ingest._engine() if actuation_enabled else None
+
     incidents = correlate_incidents(window_s=window_s, days=days)
     routed = 0
     proposed = 0
+    actuated = 0
+    held = 0
     for incident in incidents:
         try:
             from agent_utilities.observability.incident_router import route_incident
@@ -409,22 +542,41 @@ def run_incident_correlation(*, window_s: int = 300, days: int = 1) -> dict[str,
                 routed += 1
         except Exception as e:  # noqa: BLE001 — routing must never break correlation
             logger.debug("incident routing failed for %s: %s", incident.get("id"), e)
+        proposal = None
         try:
-            if propose_remediation(incident) is not None:
+            proposal = propose_remediation(incident)
+            if proposal is not None:
                 proposed += 1
         except Exception as e:  # noqa: BLE001 — remediation must never break correlation
             logger.debug(
                 "remediation proposal failed for %s: %s", incident.get("id"), e
             )
+        if actuation_enabled and proposal is not None:
+            try:
+                outcome = actuate_remediation(proposal, engine=engine)
+                if outcome.get("status") == "executed":
+                    actuated += 1
+                elif outcome.get("status") == "held":
+                    held += 1
+            except Exception as e:  # noqa: BLE001 — actuation must never break correlation
+                logger.debug(
+                    "remediation actuation failed for %s: %s", incident.get("id"), e
+                )
 
     new = sum(1 for i in incidents if not i.get("deduped"))
-    return {
+    summary = {
         "incidents": len(incidents),
         "new": new,
         "deduped": len(incidents) - new,
         "routed": routed,
         "proposed": proposed,
     }
+    # Only present when actuation was attempted this pass — keeps the summary
+    # shape byte-identical to the pre-actuator-seam report-only default.
+    if actuation_enabled:
+        summary["actuated"] = actuated
+        summary["held"] = held
+    return summary
 
 
 def main() -> None:

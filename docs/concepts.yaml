@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 997
+total_concepts: 1002
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -3181,6 +3181,32 @@ concepts:
   - AU-ECO.messaging.eco-2
   canonical_pillar: AU-ECO
   needs_curation: false
+- id: AU-KG.audit.hash-chain-verify
+  name: routes to the engine
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/tools/audit_tools.py
+  doc: routes to the engine
+  dotted: AU-KG.audit.hash-chain-verify
+  aliases:
+  - AU-KG.audit.hash-chain-verify
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.audit.tool-call-acted-on-reverse-index
+  name: AU-KG.audit.tool-call-acted-on-reverse-index
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/manager.py
+  doc: AU-KG.audit.tool-call-acted-on-reverse-index
+  dotted: AU-KG.audit.tool-call-acted-on-reverse-index
+  aliases:
+  - AU-KG.audit.tool-call-acted-on-reverse-index
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.backend.age-postgresql-tier
   name: the durable PostgreSQL graph tier executed via a bounded regex
   pillar: AU-KG
@@ -4507,6 +4533,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/audit_tools.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/messaging/bus_log.py
@@ -4778,6 +4805,18 @@ concepts:
   - AU-KG.enrichment.community-reports
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.enrichment.compliance-posture-rollup
+  name: AU-KG.enrichment.compliance-posture-rollup
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/compliance_tools.py
+  doc: AU-KG.enrichment.compliance-posture-rollup
+  dotted: AU-KG.enrichment.compliance-posture-rollup
+  aliases:
+  - AU-KG.enrichment.compliance-posture-rollup
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.enrichment.contextual-retrieval-enrichment
   name: situate each chunk within the document and embed context+chunk for better recall
   pillar: AU-KG
@@ -4798,6 +4837,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/incident_tools.py
   - agent_utilities/observability/incidents.py
   doc: Reads recent
   dotted: AU-KG.enrichment.cross-layer-incident-correlation
@@ -6737,6 +6777,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
   - agent_utilities/knowledge_graph/governance_import.py
+  - agent_utilities/knowledge_graph/ontology/ops_causal_crosswalk.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
@@ -10471,6 +10512,7 @@ concepts:
   - agent_utilities/knowledge_graph/workflow_store.py
   - agent_utilities/models/sdd.py
   - agent_utilities/workflows/__init__.py
+  - agent_utilities/workflows/localized_repair.py
   - agent_utilities/workflows/runner.py
   doc: / ORCH-1.95 — Named Workflow Execution. Loads the stored
   dotted: AU-ORCH.execution.workflow-lifecycle-management
@@ -10939,12 +10981,14 @@ concepts:
   canonical_pillar: AU-ORCH
   needs_curation: false
 - id: AU-ORCH.routing.functional-role-resolution
-  name: when NO explicit/role model was
+  name: the model-tier hint this step ran
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/core/model_factory.py
-  doc: when NO explicit/role model was
+  - agent_utilities/models/sdd.py
+  - agent_utilities/workflows/runner.py
+  doc: the model-tier hint this step ran
   dotted: AU-ORCH.routing.functional-role-resolution
   aliases:
   - AU-ORCH.routing.functional-role-resolution
@@ -12574,6 +12618,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/observability/ci_recycle.py
   - agent_utilities/observability/escalation_policy.py
   - agent_utilities/observability/incidents.py
   - agent_utilities/observability/lifecycle_orchestrator.py
@@ -12662,6 +12707,35 @@ concepts:
   dotted: AU-OS.identity.identity-policy-check
   aliases:
   - AU-OS.identity.identity-policy-check
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.identity.identity-scoped-resource-autoload
+  name: AU-OS.identity.identity-scoped-resource-autoload
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/entitlements.py
+  doc: AU-OS.identity.identity-scoped-resource-autoload
+  dotted: AU-OS.identity.identity-scoped-resource-autoload
+  aliases:
+  - AU-OS.identity.identity-scoped-resource-autoload
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.identity.idp-agnostic-role-inheritance
+  name: No-op when the
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/middlewares.py
+  - agent_utilities/mcp/server_factory.py
+  - agent_utilities/security/brain_context.py
+  - agent_utilities/security/identity.py
+  - agent_utilities/security/request_identity.py
+  doc: No-op when the
+  dotted: AU-OS.identity.idp-agnostic-role-inheritance
+  aliases:
+  - AU-OS.identity.idp-agnostic-role-inheritance
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.identity.multisig-cryptographic-mutation

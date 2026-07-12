@@ -92,6 +92,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: env-var-drift
+    name: Env-var / config drift guard (.env.example matches the code-read surface)
+    entry: python3 -m agent_utilities.mcp.check_env_var_drift --check
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
     entry: python3 scripts/check_concept_gaps.py

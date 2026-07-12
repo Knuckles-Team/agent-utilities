@@ -59,6 +59,7 @@ nav:
       - Day-0 Deployment: guides/day0.md
       - Standard Private Repos + CI (per profile): guides/genesis-private-repos.md
       - Recipe — Tiny (all-local): recipes/tiny.md
+      - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
@@ -71,6 +72,7 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
       - Workspace Manifest (workspace.yml): guides/workspace-config.md
       - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
@@ -174,6 +176,7 @@ nav:
       - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
+      - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:

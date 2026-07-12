@@ -239,3 +239,125 @@ def test_shacl_required_shape_flags_missing_pipeline_run():
     # the MergeRequestMergeableShape no longer fires (TicketRoutedShape etc. target
     # other classes and have no instances here).
     assert conforms2 is True
+
+
+# --- reuse-lookup (Atomic Task Graph paper idea #2) ------------------------ #
+def test_find_reusable_matches_same_transition_class_different_entry():
+    """Two DIFFERENT incidents both needing a generate_spec hop -> the second
+    reuses the first's transition-class computation instead of re-deriving."""
+    target = {
+        "kind": "forward",
+        "fromStage": "ticket",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "SpecProposal",
+    }
+    prior = {
+        "id": "lifecycle:step:inc1:aaa",
+        "kind": "forward",
+        "fromStage": "ticket",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "SpecProposal",
+    }
+    out = lo.find_reusable(target, [("lifecycle:step:inc1:aaa", prior)])
+    assert out is not None
+    assert out["reusedFrom"] == "lifecycle:step:inc1:aaa"
+    assert out["reuseScore"] == 1.0
+
+
+def test_find_reusable_below_similarity_bar_returns_none():
+    target = {
+        "kind": "forward",
+        "fromStage": "ticket",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "SpecProposal",
+    }
+    # only 2/5 key_fields match -> well below the default 0.8 bar
+    prior = {
+        "kind": "backfill",
+        "fromStage": "code_change",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "MergeRequest",
+    }
+    out = lo.find_reusable(target, [("x", prior)])
+    assert out is None
+
+
+def test_find_reusable_picks_the_best_scoring_candidate():
+    target = {
+        "kind": "forward",
+        "fromStage": "ticket",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "SpecProposal",
+    }
+    partial = {  # 4/5 fields match
+        "kind": "forward",
+        "fromStage": "ticket",
+        "toStage": "spec",
+        "transition": "generate_spec",
+        "targetType": "DIFFERENT",
+    }
+    exact = dict(target)
+    out = lo.find_reusable(
+        target, [("partial", partial), ("exact", exact)], similarity=0.5
+    )
+    assert out is not None
+    assert out["reusedFrom"] == "exact"
+    assert out["reuseScore"] == 1.0
+
+
+def test_find_reusable_empty_candidates_returns_none():
+    assert lo.find_reusable({"transition": "x"}, []) is None
+
+
+def test_run_lifecycle_reuse_similar_stamps_but_still_proposes(monkeypatch):
+    """reuse_similar=True stamps reusedFrom/reuseScore on a fresh proposal that
+    matches a prior transition CLASS, but still writes its own instance — each
+    entry still needs its own ticket/spec/etc (paper idea #2's conservative
+    framing: skip re-DERIVING the class of work, not skip creating the entry's
+    own instance)."""
+    prior_step = {
+        "id": "lifecycle:step:inc0:prior",
+        "type": "LifecycleStep",
+        "kind": "forward",
+        "fromStage": "incident",
+        "toStage": "ticket",
+        "transition": "mint_ticket",
+        "targetType": "Ticket",
+        "signature": "prior-sig",
+    }
+    engine = _FakeEngine(by_label={"LifecycleStep": [(prior_step["id"], prior_step)]})
+    monkeypatch.setattr(native_ingest, "ingest_entities", _Capture())
+
+    out = lo.run_lifecycle(
+        {"id": "inc1", "type": "Incident"}, engine=engine, reuse_similar=True
+    )
+    mint = next(s for s in out["steps"] if s["transition"] == "mint_ticket")
+    assert mint["reusedFrom"] == prior_step["id"]
+    assert mint["reuseScore"] == 1.0
+    # still proposed as its own instance (not skipped/deduped away)
+    assert out["proposed"] == 9
+
+
+def test_run_lifecycle_reuse_similar_default_off_leaves_proposals_unstamped(
+    monkeypatch,
+):
+    prior_step = {
+        "id": "lifecycle:step:inc0:prior",
+        "kind": "forward",
+        "fromStage": "incident",
+        "toStage": "ticket",
+        "transition": "mint_ticket",
+        "targetType": "Ticket",
+        "signature": "prior-sig",
+    }
+    engine = _FakeEngine(by_label={"LifecycleStep": [(prior_step["id"], prior_step)]})
+    monkeypatch.setattr(native_ingest, "ingest_entities", _Capture())
+
+    out = lo.run_lifecycle({"id": "inc1", "type": "Incident"}, engine=engine)
+    mint = next(s for s in out["steps"] if s["transition"] == "mint_ticket")
+    assert "reusedFrom" not in mint

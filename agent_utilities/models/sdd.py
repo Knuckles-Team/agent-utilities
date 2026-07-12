@@ -121,6 +121,23 @@ class Task(BaseModel):
         "explicitly rejected, instead of the normal on_success dependents.",
     )
 
+    # CONCEPT:AU-ORCH.routing.functional-role-resolution — evidentiary model-tier routing
+    # hint (Atomic Task Graph paper idea #3, arXiv:2607.01942 — a well-scoped,
+    # already-decomposed atomic step is exactly the case a small/cheap model
+    # handles fine; reserve a bigger model for judgment-across-the-whole-DAG
+    # steps). ``model_tier`` is a coarse hint ("small"/"cheap" vs "standard"/
+    # "large") the executor MAY honor when ``model_id`` is not explicitly set
+    # (which still wins outright, per §CONCEPT:AU-ORCH.routing.conductor-per-step-model above).
+    # Deliberately NOT a new model registry: WorkflowRunner maps the tier onto
+    # the existing per-call ``reasoning_effort`` knob rather than introducing a
+    # tier->model-id table.
+    model_tier: str | None = Field(
+        default=None,
+        description="Optional coarse model-tier hint ('small'/'cheap' or "
+        "'standard'/'large') for this step, honored by the executor when "
+        "model_id is not explicitly set.",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def sync_aliases(cls, data: dict[str, Any] | Any) -> dict[str, Any] | Any:

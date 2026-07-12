@@ -52,10 +52,21 @@ from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 # ``os.getenv`` / ``os.environ.get`` / ``os.environ[...]`` (and ``from os import …`` forms)
 # are also real reads — count them so a live var is never mis-flagged DEAD. A subscript
 # ``os.environ["X"] = ...`` is a WRITE (cross-process signaling, not config to document),
-# so the subscript branch excludes an assignment via negative lookahead.
+# so the subscript branch excludes an assignment via negative lookahead. The third
+# alternative is the OTHER sanctioned accessor (AGENTS.md "Configuration discipline"): a
+# typed ``AgentConfig`` field declared ``Field(..., alias="VAR")`` — pydantic reads the env
+# var by that alias at parse time, so it is a real read even though no ``setting()``/
+# ``getenv`` call appears at the use site. Requiring an upper-case-first alias value keeps
+# this from matching unrelated (lower-case) pydantic/SQL/Cypher aliases (e.g. ``alias="r"``).
+# The fourth alternative is a one-level-indirect dynamic read: every writeback sink
+# declares ``enable_flag = "<SINK>_ENABLE_WRITE"`` (a class attribute), and the shared
+# runner reads it via ``setting(sink.enable_flag, False)`` — the literal var name never
+# appears next to a ``setting(``/``getenv(`` call, only next to its declaration.
 _ENV_READ = re.compile(
     r"""(?:setting|(?:os\.)?getenv|(?:os\.)?environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""
     r"""|(?:os\.)?environ\[\s*['"]([A-Z][A-Z0-9_]*)['"]\](?!\s*=(?!=))"""
+    r"""|\balias\s*=\s*['"]([A-Z][A-Z0-9_]*)['"]"""
+    r"""|\benable_flag\s*=\s*['"]([A-Z][A-Z0-9_]*)['"]"""
 )
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
 _REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
@@ -108,10 +119,83 @@ RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
         "PYTHONPATH",
         "LOG_LEVEL",
         "TZ",
+        # OS / desktop / shell conventions the code reads for interop (build a subprocess
+        # env, detect a display server, resolve an XDG override) — never app config to set
+        # in .env.example; the OS or shell sets these, not a deployer of this package.
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "PWD",
+        "TMPDIR",
+        "LANG",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "TMUX",
+        "VIRTUAL_ENV",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "SSH_AUTH_SOCK",
+        "SSH_AGENT_PID",
+        "CI",
+        "PYTEST_CURRENT_TEST",
+        "container",
+        # A well-known third-party ecosystem convention (HuggingFace's own cache-dir var,
+        # read for interop when pointing an embedding model at a shared cache) — not an
+        # agent-utilities-defined config surface.
+        "HF_HOME",
     }
 )
 # Library-owned runtime vars identified by prefix (consumed by the library, not our code).
 _RUNTIME_PREFIXES: tuple[str, ...] = ("FASTMCP_",)
+# Synthetic constants that exist ONLY to exercise the config-loading machinery itself in a
+# unit test (``tests/unit/core/test_setting_accessor.py`` probing ``setting()`` type
+# inference, ``test_load_config.py``/``test_base_utilities.py`` probing dotenv/config.json
+# loading, a stale probe in ``test_kg_autorouting.py``) — never real app config a deployer
+# would set, so they must not be pushed into ``.env.example``.
+TEST_FIXTURE_VARS: frozenset[str] = frozenset(
+    {
+        "AU_T_STR",
+        "AU_T_INT",
+        "AU_T_FLOAT",
+        "AU_T_BOOL",
+        "AU_T_LIST",
+        "MY_VERBOSE_TEST_KEY",
+        "PUSH_ENV_VAR_MARKER",
+        "LIGHTWEIGHT_MODEL",
+        # a fake writeback sink's enable_flag, defined only in
+        # tests/unit/knowledge_graph/enrichment/test_writeback_approval.py to exercise the
+        # approval flow — no real "TestHomeSink" sink or system-of-record exists.
+        "TESTHS_ENABLE_WRITE",
+    }
+)
+# Files that document the env-read patterns above USING those exact placeholder names as
+# prose (a ``setting`` call spelled out with a "VAR" placeholder, a getenv-style lookup
+# spelled out with an "X" placeholder), not a real read — skip them so the scanner doesn't
+# mistake its own documentation for a live var literally named "VAR"/"X".
+_SELF_DOC_FILES: frozenset[str] = frozenset(
+    {"check_env_var_drift.py", "check_no_env_sprawl.py"}
+)
+# docker/*.compose.yml recipes for bundled THIRD-PARTY infra images (see
+# ``_compose_env_keys``) — their ``environment:`` block belongs to that image, not to
+# agent-utilities' own code-read surface.
+_THIRD_PARTY_COMPOSE_FILES: frozenset[str] = frozenset(
+    {
+        "docker-compose.kafka.yml",
+        "kafka-kraft.compose.yml",
+        "egeria.compose.yml",
+        "jena_fuseki.compose.yml",
+        "neo4j.compose.yml",
+        "paradedb.compose.yml",
+        "pg-age.compose.yml",
+        "pg-age-full.compose.yml",
+        "falkordb.compose.yml",
+    }
+)
 
 
 _HOST_SUFFIXES = ("_BASE_URL", "_URL", "_HOST")
@@ -145,6 +229,8 @@ def _scan_setting_calls(root: Path) -> set[str]:
     for py in root.rglob("*.py"):
         if ".venv" in py.parts or "__pycache__" in py.parts:
             continue
+        if py.name in _SELF_DOC_FILES:
+            continue
         try:
             text = py.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -153,16 +239,25 @@ def _scan_setting_calls(root: Path) -> set[str]:
             for m in _ENV_READ.finditer(line):
                 if _in_string_literal(line, m.start()):
                     continue
-                found.add(m.group(1) or m.group(2))
+                found.add(m.group(1) or m.group(2) or m.group(3) or m.group(4))
     found.discard("")
     return found
 
 
 def _derive_toggle_vars(root: Path) -> set[str]:
-    """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name)."""
+    """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name).
+
+    Scans only production code, not ``tests/`` — unit tests routinely define a throwaway
+    ``def register_<fake_tag>_tools(mcp): pass`` test double to exercise the tool-surface
+    dispatch mechanism generically (e.g. ``tests/test_verbose_tools.py``,
+    ``tests/mcp/test_check_env_var_drift.py``), which is not a real registrar and would
+    otherwise mint a phantom ``<FAKE_TAG>TOOL`` var with no real toggle behind it.
+    """
     tags: set[str] = set()
     for py in root.rglob("*.py"):
         if ".venv" in py.parts or "__pycache__" in py.parts:
+            continue
+        if "tests" in py.parts or "test" in py.parts:
             continue
         try:
             tags.update(_REGISTRAR.findall(py.read_text(encoding="utf-8")))
@@ -187,6 +282,12 @@ def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
     blocks: list[tuple[Path, dict[str, str]]] = []
     for cfg in [*root.glob("mcp_config*.json"), *root.rglob("mcp_config*.json")]:
         if ".venv" in cfg.parts:
+            continue
+        if "data" in cfg.parts and cfg.name == "mcp_config.json":
+            # agent_utilities/data/mcp_config.json is a packaged SCAFFOLDING template
+            # (a generic "example-mcp" server) shipped for other packages/tools to copy
+            # the schema from — not a launch config for agent-utilities' own servers, so
+            # its placeholder env keys (e.g. a bare "API_KEY") are never a real read here.
             continue
         try:
             data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -243,13 +344,25 @@ def _readme_example_env_blocks(root: Path) -> list[dict[str, str]]:
 
 
 def _compose_env_keys(root: Path) -> dict[str, set[str]]:
-    """Env keys referenced in each ``*compose*.yml`` ``environment:`` section."""
+    """Env keys referenced in each ``*compose*.yml`` ``environment:`` section.
+
+    Skips ``_THIRD_PARTY_COMPOSE_FILES`` — recipe files that stand up a bundled
+    THIRD-PARTY infra image (a database/broker/platform: postgres, neo4j, kafka,
+    falkordb, egeria-platform, jena-fuseki) rather than agent-utilities' own service.
+    Their ``environment:`` block configures that upstream image's own entrypoint
+    script (e.g. the official postgres image reads ``POSTGRES_USER``/``_PASSWORD``/
+    ``_DB`` to bootstrap itself) — it is never a code-read surface for THIS package,
+    so cross-checking it against our ``setting()``/``Field(alias=...)`` surface would
+    only ever produce false "DEAD" findings.
+    """
     out: dict[str, set[str]] = {}
     candidates = [
         *root.glob("*compose*.y*ml"),
         *root.glob("docker/*compose*.y*ml"),
     ]
     for comp in candidates:
+        if comp.name in _THIRD_PARTY_COMPOSE_FILES:
+            continue
         try:
             lines = comp.read_text(encoding="utf-8").splitlines()
         except OSError:
@@ -282,6 +395,7 @@ def _is_framework_known(var: str, code_read: set[str]) -> bool:
         or var in INHERITED_ENV
         or var in FRAMEWORK_EXTRA
         or var in RUNTIME_ALLOWLIST
+        or var in TEST_FIXTURE_VARS
         or var.startswith(_RUNTIME_PREFIXES)
         or any(var.endswith(suf) for suf in _SAFE_SUFFIXES)
     )
@@ -336,6 +450,15 @@ def analyze(root: Path) -> dict:
     for var in sorted(documentable):
         # skip framework-inherited vars (shown in the inherited table)
         if var in INHERITED_ENV or var in FRAMEWORK_EXTRA:
+            continue
+        # skip system/OS/runtime vars the code reads for interop (e.g. PATH passthrough,
+        # an XDG override) — same allowlist that already suppresses these from DEAD; it
+        # must apply here too, or a runtime var flip-flops between DEAD and UNDOCUMENTED
+        # instead of being silently accepted like the framework vars above.
+        if var in RUNTIME_ALLOWLIST or var.startswith(_RUNTIME_PREFIXES):
+            continue
+        # skip synthetic config-machinery test fixtures (never real deployable config)
+        if var in TEST_FIXTURE_VARS:
             continue
         # skip a legacy host alias whose canonical host sibling is already documented
         # (e.g. legacy LANGFUSE_HOST when LANGFUSE_BASE_URL is in .env.example) — but

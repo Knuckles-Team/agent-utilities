@@ -147,6 +147,58 @@ read surface that returned bare rows:
   that doesn't parse as a recognized single-key-map shape is skipped, never
   fabricated. Proof: `tests/unit/knowledge_graph/core/test_epistemic_row.py`.
 
+## Light layer — default-on, additive columns (Native by default)
+
+Everything above is the HEAVY, opt-in, type-changing path (`include_epistemic=True`
+→ `list[EpistemicRow]`) — correct for a caller that wants the full typed envelope,
+but it stayed off by default because flipping a facade's return type from
+`list[dict]` to `list[EpistemicRow]` for every existing caller would be a breaking
+change, and a naive default flip would silently empty results on every backend
+except `EpistemicGraphBackend` (the documented "degrades to `[]`" contract above).
+
+`agent_utilities/knowledge_graph/core/epistemic_row.py`'s
+`attach_epistemic_columns(rows, fetch)` is the LIGHT counterpart that closes that
+gap without either problem: it merges `confidence`/`source_refs`/`evidence_refs`/
+`policy_labels`/`provenance` onto each row **in place** via `dict.setdefault`
+(never clobbers a property the row already carries under one of those names) and
+returns the SAME `list[dict]` — the return type never changes, so it is safe to run
+by default on every plain read.
+
+Wired, default-on, into the three primary read surfaces (right where
+`include_epistemic=False`'s branch used to just `return rows`):
+`KnowledgeGraph.query`, `GraphComputeEngine.query_unified`,
+`IntelligenceGraphEngine.uql`. Governed by `config.epistemic_light_default`
+(`KG_EPISTEMIC_LIGHT_DEFAULT`, default `true` — see `configuration.md`); when an
+operator opts it off, `should_attach_epistemic_columns` still forces the attach for
+a row that already shows a contested/low-confidence signal in its own properties
+(`is_contested_row`, a cheap local check, no RPC) — the light layer is auto-on for
+contested/low-confidence results even under an opt-out default. Degrades to a
+neutral prior (`confidence=0.5`, empty ref/label lists,
+`provenance={"resolved": false, ...}`) exactly where the heavy path degrades to
+`[]` — a backend with no `explain_provenance_by_ids` never errors and never loses
+the row's own data.
+
+`attach_epistemic_columns` also stamps the resolved envelope onto the CURRENT OTel
+span (best-effort, no-op without a configured pipeline) via
+`observability.get_telemetry_engine().annotate_epistemic` — `epistemic.confidence`/
+`epistemic.status`/`epistemic.contradiction_count`/`epistemic.policy_labels` +
+`gen_ai.response.source_count`, so the SAME light envelope that already reaches
+`ContextCompiler` (which reads these exact column names — CONCEPT:EPI-P3-1) is also
+visible on a plain Tempo/Grafana/Langfuse trace view, closing the
+`04-five-intersections.md` item 4 gap ("zero `gen_ai.*` hits anywhere in the
+package"). The same annotation call is wired into the A2A remote-agent execution
+path (`graph/executor.py`'s `_execute_agent_package_logic`) via
+`A2AClient.execute_task_with_epistemic` — the additive sibling of `execute_task`
+that also surfaces a peer's response `metadata` (including any epistemic fields it
+attached) instead of silently discarding it, and every agent-utilities A2A server's
+AgentCard now advertises an `epistemic-answer` skill
+(`epistemic_status`/`why`/`what_changed` over the shared KG, `server/app.py`).
+
+Proof: `tests/unit/knowledge_graph/core/test_epistemic_row.py` (`TestAttachEpistemicColumns`,
+`TestShouldAttachEpistemicColumns`, `TestIsContestedRow`, `TestEpistemicStatus`),
+`tests/unit/test_telemetry_engine.py` (`annotate_epistemic`), and
+`tests/unit/protocols/test_a2a.py` (`execute_task_with_epistemic`).
+
 ## What remains for full adoption (honest scope)
 
 One documented gap remains — the Arrow/columnar surface:
