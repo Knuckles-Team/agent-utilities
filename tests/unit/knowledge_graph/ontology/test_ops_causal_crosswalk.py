@@ -97,3 +97,74 @@ def test_edge_chain_stages_are_all_declared():
     for from_stage, _edge, to_stage, _mechanism, _reversed in OPS_CAUSAL_EDGE_CHAIN:
         assert from_stage in OPS_CAUSAL_STAGES
         assert to_stage in OPS_CAUSAL_STAGES
+
+
+# ── Governance-process connector crosswalk (G17) ────────────────────────────
+
+
+def test_governance_process_node_types_resolve_to_governance_stage():
+    """The descriptive process-definition nodes each connector actually writes
+    (confirmed against their own kg_ingest.py) join the GOVERNANCE stage —
+    same causal role as Policy/ComplianceControl/Evidence."""
+    governance_pairs = [
+        ("camunda-mcp", "BusinessProcess"),
+        ("aris-mcp", "ProcessModel"),
+        ("aris-mcp", "EPCFunction"),
+        ("aris-mcp", "EPCEvent"),
+        ("aris-mcp", "EPCRule"),
+        ("aris-mcp", "ProcessConnection"),
+        ("archimate-mcp", "BusinessProcess"),
+        ("archimate-mcp", "BusinessFunction"),
+        ("archimate-mcp", "BusinessInteraction"),
+        ("archimate-mcp", "ApplicationProcess"),
+        ("egeria-mcp", "GovernanceRule"),
+        ("onetrust-api", "AssessmentTemplate"),
+        ("governance-import", "WorkflowDefinition"),
+        ("governance-import", "WorkflowStep"),
+    ]
+    for connector, resource in governance_pairs:
+        hub = resolve_ops_causal_node_type(connector, resource)
+        assert hub is not None, f"{connector}.{resource} unresolved"
+        assert hub.stage == OpsCausalStage.GOVERNANCE
+
+
+def test_camunda_deployment_is_a_change_event():
+    hub = resolve_ops_causal_node_type("camunda-mcp", "Deployment")
+    assert hub is not None
+    assert hub.stage == OpsCausalStage.CHANGE
+
+
+def test_camunda_process_instance_and_onetrust_assessment_are_tickets():
+    """A running process instance / an in-flight DPIA assessment are the
+    tracked units of work being approved, not the governing procedure itself."""
+    instance = resolve_ops_causal_node_type("camunda-mcp", "ProcessInstance")
+    assert instance is not None
+    assert instance.stage == OpsCausalStage.TICKET
+
+    assessment = resolve_ops_causal_node_type("onetrust-api", "Assessment")
+    assert assessment is not None
+    assert assessment.stage == OpsCausalStage.TICKET
+
+
+def test_erpnext_agent_has_no_guessed_workflow_entry():
+    """erpnext-agent's kg_ingest.py doesn't ingest a Workflow/WorkflowState
+    doctype today — unresolved stays unresolved, never guessed."""
+    assert resolve_ops_causal_node_type("erpnext-agent", "Workflow") is None
+
+
+def test_workflow_definition_reverse_lookup():
+    assert stage_of("WorkflowDefinition") == OpsCausalStage.GOVERNANCE
+    assert stage_of("GovernanceRule") == OpsCausalStage.GOVERNANCE
+
+
+def test_new_governance_entries_do_not_disturb_existing_crosswalk():
+    """The pre-existing connectors/resources are byte-for-byte unaffected by
+    the G17 extension (additive-only)."""
+    langfuse_trace = resolve_ops_causal_node_type("langfuse-agent", "Trace")
+    assert langfuse_trace is not None
+    assert langfuse_trace.stage == OpsCausalStage.OBSERVABILITY
+    servicenow_change = resolve_ops_causal_node_type("servicenow-api", "Change")
+    assert servicenow_change is not None
+    assert servicenow_change.label == "ChangeRequest"
+    assert stage_of("Commit") == OpsCausalStage.CHANGE
+    assert stage_of("Incident") == OpsCausalStage.TICKET

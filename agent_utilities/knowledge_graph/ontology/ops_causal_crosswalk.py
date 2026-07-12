@@ -222,6 +222,91 @@ OPS_CAUSAL_NODE_CROSSWALK: dict[str, dict[str, OpsCausalHubType]] = {
             "System", OpsCausalStage.SERVICE, RegistryNodeType.SYSTEM
         ),
     },
+    # ── Governance-process connectors (G17) ──────────────────────────────────
+    # ``governance_import.py`` translates every one of these descriptive process
+    # models into the ONE executable ``:WorkflowDefinition``/``:WorkflowStep`` DAG
+    # (CONCEPT:AU-KG.ontology.connector-agnostic-proposal); this crosswalk joins their
+    # SOURCE-side nodes (and that shared translated output) onto the causal spine
+    # so a governance procedure — and the change/ticket it gates — is reachable
+    # by ``root_cause``/``blast_radius`` like any other stage, not left stranded
+    # off the chain. Node labels are the ones each connector's own
+    # ``kg_ingest.py`` actually writes (confirmed by grep) — never invented.
+    "camunda-mcp": {
+        # The descriptive process ``ProcessPlanCompiler`` compiles into a
+        # ``:WorkflowDefinition`` (REALIZES back-edge) — same governing-procedure
+        # role as Policy/ComplianceControl at the GOVERNANCE stage.
+        "BusinessProcess": OpsCausalHubType(
+            "BusinessProcess", OpsCausalStage.GOVERNANCE
+        ),
+        # A new process-definition version going live is a change event.
+        "Deployment": OpsCausalHubType("Deployment", OpsCausalStage.CHANGE),
+        # A running instance is a tracked unit of work, like a ticket.
+        "ProcessInstance": OpsCausalHubType(
+            "ProcessInstance", OpsCausalStage.TICKET
+        ),
+    },
+    "aris-mcp": {
+        "ProcessModel": OpsCausalHubType("ProcessModel", OpsCausalStage.GOVERNANCE),
+        "EPCFunction": OpsCausalHubType("EPCFunction", OpsCausalStage.GOVERNANCE),
+        "EPCEvent": OpsCausalHubType("EPCEvent", OpsCausalStage.GOVERNANCE),
+        "EPCRule": OpsCausalHubType("EPCRule", OpsCausalStage.GOVERNANCE),
+        "ProcessConnection": OpsCausalHubType(
+            "ProcessConnection", OpsCausalStage.GOVERNANCE
+        ),
+    },
+    "archimate-mcp": {
+        # Element ``type`` is passed through verbatim from the source model
+        # (``archimate_mcp/kg_ingest.py``) — these four are the exact literals
+        # ``governance_import.import_archimate``'s ``_is_behavior`` already
+        # filters on to find the process-flow subgraph.
+        "BusinessProcess": OpsCausalHubType(
+            "BusinessProcess", OpsCausalStage.GOVERNANCE
+        ),
+        "BusinessFunction": OpsCausalHubType(
+            "BusinessFunction", OpsCausalStage.GOVERNANCE
+        ),
+        "BusinessInteraction": OpsCausalHubType(
+            "BusinessInteraction", OpsCausalStage.GOVERNANCE
+        ),
+        "ApplicationProcess": OpsCausalHubType(
+            "ApplicationProcess", OpsCausalStage.GOVERNANCE
+        ),
+    },
+    "egeria-mcp": {
+        # egeria-mcp's own ``kg_ingest.py`` maps every governance-definition
+        # record onto ``GovernanceRule`` — there is no separate Policy/
+        # ComplianceControl/ApprovalWorkflow label to crosswalk onto today.
+        "GovernanceRule": OpsCausalHubType(
+            "GovernanceRule", OpsCausalStage.GOVERNANCE
+        ),
+    },
+    # erpnext-agent: the Frappe ``Workflow``/``WorkflowState`` doctype is NOT in
+    # its ``_DOCTYPE_MAPPERS`` (``kg_ingest.py``) — it ingests no distinct
+    # workflow/approval node type today, so there is nothing to crosswalk here
+    # yet ("unresolved stays unresolved — never guessed", same discipline as
+    # the rest of this module). An ERPNext approval gate imported through
+    # ``GovernanceImporter.import_approval_gate`` still joins the causal spine
+    # via the shared ``governance-import`` bucket below.
+    "onetrust-api": {
+        # A DPIA/PIA assessment record IS the compliance gate being approved —
+        # the tracked unit of work, not the policy/template itself.
+        "Assessment": OpsCausalHubType("Assessment", OpsCausalStage.TICKET),
+        "AssessmentTemplate": OpsCausalHubType(
+            "AssessmentTemplate", OpsCausalStage.GOVERNANCE
+        ),
+    },
+    # The shared translated-procedure shape every governance importer converges
+    # on (``agent_utilities.knowledge_graph.governance_import`` — camunda BPMN,
+    # ARIS EPC, ArchiMate business process, and OneTrust/ERPNext approval gates
+    # all compile into this ONE executable DAG). Not owned by one external
+    # connector, so bucketed by the first-party writer module rather than
+    # duplicated under all six connector keys above.
+    "governance-import": {
+        "WorkflowDefinition": OpsCausalHubType(
+            "WorkflowDefinition", OpsCausalStage.GOVERNANCE
+        ),
+        "WorkflowStep": OpsCausalHubType("WorkflowStep", OpsCausalStage.GOVERNANCE),
+    },
 }
 
 
