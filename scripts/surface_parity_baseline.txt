@@ -35,6 +35,11 @@ agent_utilities/harness/memorydata/samples.py
 agent_utilities/harness/memorydata/scoreboard.py
 agent_utilities/harness/online_scoring.py
 agent_utilities/harness/tool_judge.py
+# asset_mirror.py: the `python -m …writeback.asset_mirror` CLI entrypoint for one
+# multi-SoR mirror pass. The capability itself (run_asset_mirror) IS exposed on both
+# surfaces via graph_writeback(asset_mirror=true) + its REST twin — this module is the
+# co-located CLI transport, not a separate capability.
+agent_utilities/knowledge_graph/enrichment/writeback/asset_mirror.py
 agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
 agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py
 agent_utilities/knowledge_graph/retrieval/capability_context.py

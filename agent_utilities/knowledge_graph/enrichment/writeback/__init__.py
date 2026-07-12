@@ -23,7 +23,12 @@ from .core import (
     run_writeback,
 )
 from .findings import collect_risk_findings, push_findings
-from .inventory import collect_inventory_creations, push_inventory
+from .inventory import (
+    collect_inventory_creations,
+    enabled_mirror_targets,
+    push_inventory,
+    run_asset_mirror,
+)
 
 # Import sinks so they self-register (plugin pattern).
 from .sinks import ansible as _ansible  # noqa: F401
@@ -58,6 +63,8 @@ __all__ = [
     "resolve_writeback_fn",
     "push_inventory",
     "collect_inventory_creations",
+    "run_asset_mirror",
+    "enabled_mirror_targets",
     "push_findings",
     "collect_risk_findings",
     "ProposalQueue",

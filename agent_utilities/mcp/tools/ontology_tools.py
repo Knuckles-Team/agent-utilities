@@ -668,6 +668,10 @@ def register_ontology_tools(mcp):
             default=False,
             description="If true, collect the KG's reconciled inventory (infra/topology + LeanIX + TRM, deduped via ALIGNED_WITH) and create the items missing from the target CMDB/ERP.",
         ),
+        asset_mirror: bool = Field(
+            default=False,
+            description="If true, fan ONE inventory pass out to EVERY enabled CMDB sink (ASSET_MIRROR_TARGETS ⊆ servicenow/erpnext/egeria/twenty) — the multi-SoR asset mirror. Each sink stays fail-closed (<SINK>_ENABLE_WRITE) + dry-run-first. Ignores `target`.",
+        ),
         findings: bool = Field(
             default=False,
             description="If true, file the KG's risk findings (TRM TechnologyRisk: EOL/vuln) as issues in the target tracker (gitlab/github/plane). Pass project context via creations_json[0] or the route.",
@@ -683,6 +687,7 @@ def register_ontology_tools(mcp):
             approve_proposal,
             push_findings,
             push_inventory,
+            run_asset_mirror,
             run_writeback,
         )
 
@@ -697,6 +702,14 @@ def register_ontology_tools(mcp):
             if str(action) == "approve":
                 return json.dumps(
                     approve_proposal(str(proposal_id), backend=backend, engine=engine)
+                )
+            if bool(asset_mirror):
+                return json.dumps(
+                    run_asset_mirror(
+                        backend=backend,
+                        engine=engine,
+                        dry_run=bool(dry_run),
+                    )
                 )
             if bool(inventory):
                 return json.dumps(
