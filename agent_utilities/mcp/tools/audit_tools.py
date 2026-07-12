@@ -59,9 +59,7 @@ def register_audit_tools(mcp: Any) -> None:
         tags=["graph-os", "audit", "governance", "provenance"],
     )
     def graph_audit(
-        action: str = Field(
-            default="verify", description="verify | for_target"
-        ),
+        action: str = Field(default="verify", description="verify | for_target"),
         target_id: str = Field(
             default="",
             description="Entity id to reverse-index tool-call provenance for "
@@ -84,7 +82,11 @@ def register_audit_tools(mcp: Any) -> None:
                 )
             return json.dumps(_for_target(target_id), default=str)
         return json.dumps(
-            {"surface": "audit", "action": action, "error": f"unknown action {action!r}"}
+            {
+                "surface": "audit",
+                "action": action,
+                "error": f"unknown action {action!r}",
+            }
         )
 
     kg_server.REGISTERED_TOOLS["graph_audit"] = graph_audit

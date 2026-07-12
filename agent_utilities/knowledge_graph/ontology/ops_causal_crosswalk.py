@@ -241,9 +241,7 @@ OPS_CAUSAL_NODE_CROSSWALK: dict[str, dict[str, OpsCausalHubType]] = {
         # A new process-definition version going live is a change event.
         "Deployment": OpsCausalHubType("Deployment", OpsCausalStage.CHANGE),
         # A running instance is a tracked unit of work, like a ticket.
-        "ProcessInstance": OpsCausalHubType(
-            "ProcessInstance", OpsCausalStage.TICKET
-        ),
+        "ProcessInstance": OpsCausalHubType("ProcessInstance", OpsCausalStage.TICKET),
     },
     "aris-mcp": {
         "ProcessModel": OpsCausalHubType("ProcessModel", OpsCausalStage.GOVERNANCE),
@@ -276,9 +274,7 @@ OPS_CAUSAL_NODE_CROSSWALK: dict[str, dict[str, OpsCausalHubType]] = {
         # egeria-mcp's own ``kg_ingest.py`` maps every governance-definition
         # record onto ``GovernanceRule`` — there is no separate Policy/
         # ComplianceControl/ApprovalWorkflow label to crosswalk onto today.
-        "GovernanceRule": OpsCausalHubType(
-            "GovernanceRule", OpsCausalStage.GOVERNANCE
-        ),
+        "GovernanceRule": OpsCausalHubType("GovernanceRule", OpsCausalStage.GOVERNANCE),
     },
     # erpnext-agent: the Frappe ``Workflow``/``WorkflowState`` doctype is NOT in
     # its ``_DOCTYPE_MAPPERS`` (``kg_ingest.py``) — it ingests no distinct

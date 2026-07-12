@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools.audit_tools import register_audit_tools
 
