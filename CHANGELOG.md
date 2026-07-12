@@ -5,6 +5,19 @@ All notable changes to agent-utilities will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
+
+### Added
+- **`EvidenceBundle.from_engine_wire` wired onto a live path.** `graph_query` (the Cypher MCP
+  tool / `/graph/query` REST twin, same dispatch core) gains the same additive `envelope`
+  toggle `graph_ask`/`nl_query`/`graph_analyze action=code_context` already use:
+  `envelope='bundle'` (single-connection local Cypher only) currency-upgrades the plain rows
+  via `engine.graph.explain_provenance_by_ids` (`Method::ExplainProvenanceByIds`, mirroring
+  `KnowledgeGraph._attach_epistemic`'s per-row path) and folds the result into ONE aggregate
+  `EvidenceBundle` via `EvidenceBundle.from_engine_wire`, attached under `evidence_bundle`.
+  Previously `from_engine_wire` was implemented + unit-tested (D11) but had no caller anywhere
+  on a real path. `envelope='raw'` (the default) stays byte-identical.
+
 ## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
 
 Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/
