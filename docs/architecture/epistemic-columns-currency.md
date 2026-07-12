@@ -99,25 +99,87 @@ whose `confidence`/`valid_time`/`tx_time` match what was written AND whose
 `SUPPORTS` edge (not stored properties, not client-side echoes) — proving the
 envelope originated in the engine's `KnowledgeSet`, not fabricated AU-side.
 
+## Adoption path for other AU read surfaces (shipped)
+
+The keystone slice above shipped on ONE primary path (`KnowledgeGraph.query`). The
+follow-up workstream threaded the SAME pattern — a shared
+`agent_utilities.knowledge_graph.core.epistemic_row.attach_epistemic_rows(rows, fetch)`
+helper (extract ids in the rows' own order via `row_ids_from_plain_rows`, resolve
+them in one round-trip via an id-seeded `explain_provenance_by_ids`-shaped `fetch`,
+zip each engine row back with the plain row's own properties) — through every other
+read surface that returned bare rows:
+
+* **`GraphComputeEngine.query_unified(..., include_epistemic=True)`**
+  (`agent_utilities/knowledge_graph/core/graph_compute.py`) and
+  **`IntelligenceGraphEngine.uql(..., include_epistemic=True)`**
+  (`agent_utilities/knowledge_graph/orchestration/engine_query.py`) — the cross-modal
+  `UnifiedQuery`/`UnifiedQueryText` surfaces. Both default off (byte-for-byte the
+  existing `[{"id", "score"}]` rows) and, opted in, currency-upgrade the SAME ids in
+  the SAME post-`Rank` order into `list[EpistemicRow]`. Proof:
+  `tests/integration/knowledge_graph/test_kb_currency_epistemic_query_paths.py::test_query_unified_include_epistemic_carries_engine_envelope`
+  and `::test_uql_include_epistemic_carries_engine_envelope` — both seed a real
+  Claim+Evidence(+`SUPPORTS`) pair into a real ephemeral engine and assert the
+  returned confidence/bitemporal window/`source_refs`/`policy_labels` are the
+  engine's own resolution.
+* **`GraphBackend.execute(..., include_epistemic=True)`** (the ABC in
+  `agent_utilities/knowledge_graph/backends/base.py`) — the `store.execute`
+  counterpart of `KnowledgeGraph.query`'s opt-in, for internal/unscoped callers that
+  bypass the facade. `EpistemicGraphBackend.execute` (the one backend whose
+  `GraphComputeEngine` exposes `explain_provenance_by_ids`) implements it for real
+  (own `execute` body renamed to `_execute_rows`, with a thin wrapper attaching the
+  envelope). `FanOutBackend.execute` forwards the flag to its authority backend on
+  the read path (honored when the authority itself supports it). Every OTHER
+  concrete backend (`AGEBackend`/`PostgreSQLBackend`/`Neo4jBackend`/
+  `FalkorDBBackend`/`LadybugBackend`/`JenaFusekiBackend`/`StardogSparqlBackend`) has
+  no id-seeded epistemic-envelope primitive, so a `True` request degrades to `[]`
+  (never raises, never silently returns plain `dict` rows under a `True` request) —
+  the documented ABC contract. Proof:
+  `test_kb_currency_epistemic_query_paths.py::test_store_execute_include_epistemic_carries_engine_envelope`
+  (real engine) and `::test_store_execute_include_epistemic_degrades_on_unsupported_backend`
+  (the degrade contract, no engine needed).
+* **Typed evidence-span view** — `EpistemicRow.evidence_refs` still carries the
+  wire's raw `EvidenceSpanWire` dicts verbatim (never removed, so nothing regresses
+  for an existing caller), but a new `EpistemicRow.typed_evidence_refs` property and
+  `EvidenceSpan` dataclass (`core/epistemic_row.py`) parse each externally-tagged
+  `{"<Variant>": {...}}` wire entry into a typed, attribute-accessible view (one
+  dataclass covering all 11 `eg_modality::EvidenceSpan` variants' fields, plus a
+  `raw` escape hatch for a field this dataclass hasn't been widened for). An entry
+  that doesn't parse as a recognized single-key-map shape is skipped, never
+  fabricated. Proof: `tests/unit/knowledge_graph/core/test_epistemic_row.py`.
+
 ## What remains for full adoption (honest scope)
 
-This establishes the CURRENCY and the pattern on ONE primary path — it does not
-retrofit every AU read surface:
+One documented gap remains — the Arrow/columnar surface:
 
-* `GraphComputeEngine.unified`/`uql` (the cross-modal `UnifiedQuery`/`UnifiedQueryText`
-  surfaces) still return bare `[id, score]` rows; adopting the same pattern there
-  means the SAME `explain_provenance_by_ids` currency-upgrade, applied to a ranked
-  plan result instead of a Cypher result.
-* `store.execute` (the ungaurded, unaudited direct backend path some internal/
-  unscoped callers use instead of `KnowledgeGraph.query`) has no `include_epistemic`
-  parameter — only the facade's guarded `query` method does.
-* `EpistemicRow.evidence_refs` carries the wire's raw `EvidenceSpanWire` dicts
-  verbatim rather than a second AU-side typed dataclass per evidence-span variant —
-  a reasonable follow-up once a concrete consumer needs typed access to a specific
-  span kind (`CodeSymbol`/`TraceSpan`/…).
-* The KnowledgeBatch's Arrow/columnar surface (`to_record_batch`/`to_arrow_ipc_stream`)
-  is not threaded through at all yet — this seam adopts the per-row `KnowledgeSet`
-  shape (already exposed over the existing RPC transport), not the Arrow IPC stream;
-  a bulk/vectorized AU consumer wanting `RecordBatch`es directly is a separate,
-  larger wiring step (a new streamed wire method + a PyArrow-consuming AU client),
-  out of this workstream's scope.
+* **`KnowledgeBatch`'s Arrow/columnar surface is NOT wired to any AU caller, and
+  genuinely can't be with additive Python-only changes** — this was investigated,
+  not just deferred. Concretely, as of this workstream:
+  - `KnowledgeBatch`/`to_record_batch`/`ChunkedKnowledgeCursor::to_arrow_ipc_stream`
+    (`epistemic-graph/crates/eg-plan/src/knowledge_batch.rs`) exist and are unit-
+    tested, but live behind the `knowledge-batch` cargo feature
+    (`crates/eg-plan/Cargo.toml`), which is **not** part of `full`/`default` — a
+    stock server build (including the one this workstream tested against) links no
+    Arrow at all for this path.
+  - There is **no `Method` variant, no `eg-types` wire DTO, and no dispatch/handler**
+    (`src/server/dispatch.rs` / `src/protocol.rs` / `src/server/handlers/query.rs`)
+    that builds a `KnowledgeSet`/`KnowledgeBatch` and serializes it back over the
+    existing MessagePack RPC transport — `KnowledgeBatch` is reachable only from
+    Rust code already inside the `eg-plan` crate. The ONE existing server-side Arrow
+    export (`src/server/dataset_handle.rs`) is a completely separate path built from
+    `eg_query::exec_sql_arrow`, not from a `KnowledgeSet`, and isn't reused here.
+  - The Python client (`epistemic_graph/client.py`) has no Arrow/PyArrow dependency
+    or IPC-decoding method at all.
+  - **What shipping this for real needs** (EG-side, not a Python-only change): (1) a
+    new `Method::ExplainProvenanceBatch{ByIds}`-shaped variant + `eg-types` wire DTO
+    carrying raw Arrow IPC-stream bytes (`Vec<u8>`), gated behind `knowledge-batch`
+    (which the facade's `Cargo.toml` would need to additionally forward into `full`
+    or a new opt-in server feature); (2) a dispatch/handler arm that resolves a
+    `KnowledgeSet` (the SAME `RowSet::from_ids` primitive `ExplainProvenanceByIds`
+    already uses) and encodes it via `ChunkedKnowledgeCursor::to_arrow_ipc_stream`
+    into the response bytes; (3) an `epistemic_graph` Python client method that
+    depends on `pyarrow` to decode the IPC stream into a `RecordBatch`/`Table`; (4)
+    an AU consumer (e.g. `GraphComputeEngine.explain_provenance_batch_by_ids`)
+    exposing that `Table` to a bulk/vectorized caller. This is a genuinely new wire
+    surface spanning both repos, not an extension of the additive
+    `ExplainProvenanceByIds` pattern this seam otherwise reused everywhere else —
+    tracked as a separate, larger follow-up.

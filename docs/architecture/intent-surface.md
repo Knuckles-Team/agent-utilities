@@ -1,9 +1,16 @@
-# Intent Surface — Seam 8, Phases 2-3 (kickoff)
+# Intent Surface — Seam 8, Phases 2-5 (complete)
 
-> **Status:** shipped kickoff slice on `feat/au-intent-surface` (NOT merged/pushed — awaiting
-> review). Parent plan: `plans/program-design-2026-07-11-epistemic-tool-routing.md`. Concept:
+> **Status:** kickoff slice (Phases 2-3) shipped on `feat/au-intent-surface`; the CPD (Phase 1,
+> `feat/au-cpd`) and this doc's §7 remaining work (Phases 4-5 — CPD-backed ranking, the
+> calibrated-outcomes learning loop, resolution caching, the `kg-intent` skill, and the A/B
+> selection-accuracy harness) shipped on `feat/au-seam8-complete` (NOT merged/pushed — awaiting
+> review). Parent plan: `plans/program-design-2026-07-11-epistemic-tool-routing.md`. Concepts:
 > `CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse` (the surface collapse) /
-> `CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle` (the load→use→unload lifecycle).
+> `CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle` (the load→use→unload lifecycle) /
+> `CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking` (CPD-backed resolver ranking) /
+> `CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning` (the calibrated-outcomes learning loop) /
+> `CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache` (bounded resolution caching) /
+> `CONCEPT:AU-ECO.mcp.intent-surface-selection-accuracy` (the A/B measurement harness).
 
 ## 1. Problem
 
@@ -78,34 +85,58 @@ flowchart TD
    / `{"action": "load", ..., "auto_unload": true}`) — reclaiming context is a **manage**
    concern, not a 7th verb.
 
-## 3. Resolver design — today vs. the CPD seam
+## 3. Resolver design — CPD-backed, with a graceful pre-CPD fallback
 
-`resolve_intent`/`dispatch_intent` rank against a **local candidate table** built from the live
-`REGISTERED_TOOLS` (function docstrings) + `TOOL_VERBS` (a hand-authored verb map covering all
-~95 tools, from the design doc's verb table) + the generated `_graphos_action_manifest` (per-tool
-action lists, used for in-tool action ranking). This is the explicitly-designed **pre-CPD
-fallback**: the parallel `feat/au-cpd` branch (Capability Power Descriptor — `does`/`examples`/
-`eligibility`/`calibrated_outcomes` per capability) had not merged as of this kickoff (verified:
-identical to `main` at the time of writing). When it lands, swap `_score`/`_build_candidates`
-for a CPD-backed ranker — `CapabilityCandidate`/`resolve_intent`/`dispatch_intent`'s shape does
-not need to change, and the `routing.capability_source` field already documents which substrate
-produced the ranking.
+`resolve_intent`/`dispatch_intent` now rank each capability against its OWN generated
+**Capability Power Descriptor** (`docs/capabilities-power.json` — `one_line`/`examples`/`does[]`
+action names + `intent_verbs`, unioned with the hand-curated `TOOL_VERBS` entry so switching to
+the CPD only ever ADDS routing surface, never narrows it) when one exists for that tool. A tool
+absent from the CPD set (a brand-new tool ahead of the next `gen_capability_power.py --write`, or
+the CPD JSON missing entirely — a lean/headless install with no `docs/`) falls back
+per-capability to the original **local candidate table** (`REGISTERED_TOOLS` docstrings +
+`TOOL_VERBS` + `_graphos_action_manifest`) — never an error, never a silent gap.
+`CapabilityCandidate`/`resolve_intent`/`dispatch_intent`'s shape is unchanged, exactly as this
+kickoff's original design intended; `routing.capability_source` reports which substrate actually
+produced the winning ranking for that dispatch.
 
-## 4. What is intentionally NOT done in this kickoff slice
+On top of the CPD-backed ranking, two more seams landed in the same slice
+(`agent_utilities/mcp/tools/intent_tools.py`):
 
-- **No per-capability CPD.** Ranking is lexical, not the rich proof-carrying descriptor the
-  design doc specifies (§2b) — that is `feat/au-cpd`'s job. `routing.why`/`matched_terms` are an
-  honest, working substitute, not a placeholder pretending to be more.
-- **No `calibrated_outcomes` / bandit learning loop.** `CapabilityIndex.record_outcome` (X-3/X-4)
-  exists for *entity* designation elsewhere in the codebase; wiring intent-dispatch outcomes back
-  into it is a follow-up once the CPD's `calibrated_outcomes` field exists to receive them.
-- **No dedicated `kg-*` skill for the intent verbs themselves.** `ask`/`find`/`write`/`act`/
-  `manage`/`why` are in `skill_coverage.INTENTIONALLY_UNSKILLED` with a documented reason: they
-  wrap the WHOLE resolver, not one capability, and every tool they route to already has its own
-  `kg-*` skill (see §5). A dedicated "how to use the intent surface" skill is a natural Seam 8
-  follow-up.
-- **No A/B measurement** of selection accuracy vs. the 100-tool baseline (design doc §4, phase 4)
-  — this kickoff proves the mechanism end-to-end; the soak/measurement pass is separate.
+- **Calibrated-outcomes learning loop** (`CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning`). Every
+  `dispatch_intent` call feeds its success/failure back into `OutcomeRouter`
+  (`agent_utilities/orchestration/outcome_router.py`, itself a thin wrapper over
+  `CapabilityIndex.record_outcome`/`reward_of` — the SAME durable-bandit mechanism
+  `ReasonerRouter`/`variant_pool.evolve_profile` already share, not a second learner), keyed
+  `verb:tool`. `resolve_intent` blends each candidate's reward EMA into its lexical score, so a
+  capability that keeps failing under a verb sinks in the ranking and one that keeps succeeding
+  rises — real calibrated-outcomes routing, distinct from the CPD JSON's own (always-empty at
+  static-generation time) `calibrated_outcomes` field.
+- **Resolution caching** (`CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache`). Ranked (non-pinned)
+  resolutions are served from a small bounded in-process LRU keyed by `(verb, normalized intent,
+  hints, top_k)` plus two monotonic counters — the candidate-table generation (bumps when the
+  CPD/tool surface rebuilds) and the reward epoch (bumps on every recorded outcome) — so a
+  repeated intent is served from cache until the routing policy it was ranked under actually
+  changes.
+
+## 4. Kickoff-slice scope note (historical) — all closed by §7's follow-up work
+
+The original kickoff slice (Phases 2-3) deliberately shipped without a per-capability CPD, an
+outcome-learning loop, a dedicated intent-surface skill, or an A/B measurement — each was a named
+follow-up (§7). All four landed together on `feat/au-seam8-complete`:
+
+- **Per-capability CPD** — `feat/au-cpd` (Phase 1) shipped `docs/capabilities-power.json`; the
+  resolver now ranks against it (§3).
+- **Calibrated-outcomes / bandit learning loop** — `resolve_intent`/`dispatch_intent` now record
+  and blend in a learned reward EMA via `OutcomeRouter` (§3).
+- **Dedicated `kg-*` skill** — `agent_utilities/skills/kg-intent/SKILL.md` (`tier: meta`)
+  documents the resolver/dispatcher mechanism directly; `ask`/`find`/`write`/`act`/`manage`/`why`
+  remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly — a meta skill never claims verb
+  coverage), with the comment there updated to point at `kg-intent`.
+- **A/B selection-accuracy measurement** — `scripts/measure_intent_routing_accuracy.py` +
+  `agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (a 21-case hand-labelled
+  corpus across all five dispatching verbs) + the `tests/unit/test_intent_selection_accuracy.py`
+  regression tripwire. Measured 2026-07-11: **top-1 76.19%, top-3 85.71%** against this corpus (a
+  live run of the real resolver, not a fabricated number) — see §7.
 
 ## 5. Skill sweep — preserving every kg-\* skill under the condensed intent surface
 
@@ -236,15 +267,68 @@ specific tool-visibility default, so no edit was needed to keep them accurate.
   "phantom route" (every existing dynamic entry, e.g. `nl_query`, is added unconditionally on
   every build, so this gap never surfaced before).
 
-## 7. What remains for the full collapse (program phases 4-5)
+**§7 follow-up tests** (added on `feat/au-seam8-complete`):
 
-1. **Merge `feat/au-cpd`** and swap the resolver onto it (§3) — richer `does`/`eligibility`/
-   `examples` ranking, `calibrated_outcomes` for learned routing.
-2. **A/B measurement** — selection accuracy + task success, condensed vs. intent, across at
-   least one small/cheap model (design doc §4 phase 4).
-3. **Cache resolution** (Seam 6 KV-cache) — the design doc flags the extra resolution hop; ANN
-   is already fast, caching is the next latency win once CPD-backed ranking is live.
-4. **Feed dispatch outcomes back into `calibrated_outcomes`** (design doc §4 phase 5) once the
-   CPD field exists.
-5. **A dedicated `kg-*` (or `tier: meta`) skill for the intent surface itself**, teaching an
-   operator/agent the six verbs directly rather than only via each wrapped tool's own skill.
+- `tests/unit/test_intent_surface.py::test_resolver_ranks_against_the_generated_cpd_when_available`
+  and `::test_dispatch_reports_cpd_capability_source_for_a_cpd_backed_tool` — a real CPD-backed
+  tool (`graph_query`) is ranked using its CPD text and `dispatch_intent` reports the CPD as
+  `capability_source`.
+- `::test_outcome_learning_biases_a_later_resolution` — two lexically-tied fake tools; a recorded
+  success on one flips a LATER unpinned resolution's top pick in its favor.
+- `::test_resolution_cache_hits_repeat_intent_misses_a_different_one` — the same `(verb, intent)`
+  hits the bounded cache (identical ranking, no new entry); a different intent is a fresh miss.
+- `tests/unit/test_intent_selection_accuracy.py` — the A/B corpus is bounded (15-30 cases) and
+  covers all five dispatching verbs; live-measured accuracy stays above a floor set with headroom
+  below the measured baseline (top-1 76.19% / top-3 85.71%).
+- `tests/conftest.py` gained `_isolate_intent_outcome_learning` — resets the shared
+  `OutcomeRouter` + resolution cache between EVERY test in the suite (not just
+  `test_intent_surface.py`'s own local fixture), so a dispatch outcome recorded against a REAL
+  tool (e.g. `graph_query`) in one test file can never bias ranking in an unrelated, later test.
+
+## 7. Program phases 4-5 — CLOSED on `feat/au-seam8-complete`
+
+All five items below shipped together; each is cross-referenced to where it landed.
+
+1. **Merge `feat/au-cpd` and swap the resolver onto it** — DONE. `feat/au-cpd` (Phase 1) had
+   already merged to `main` ahead of this slice; `_build_candidates`/`resolve_intent` in
+   `agent_utilities/mcp/tools/intent_tools.py` now rank each capability against its own CPD
+   (`one_line`/`examples`/`does[]`/`intent_verbs`, unioned with `TOOL_VERBS`) with a graceful
+   per-capability fallback to the pre-CPD lexical table (§3). `CapabilityCandidate`/
+   `resolve_intent`/`dispatch_intent`'s shape is unchanged.
+2. **Calibrated-outcomes learning loop** — DONE (`CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning`).
+   `dispatch_intent` records every execution's success/failure into `OutcomeRouter` (reusing
+   `CapabilityIndex.record_outcome`/`reward_of` — no second learner); `resolve_intent` blends the
+   learned reward EMA into its lexical score. Proven by
+   `tests/unit/test_intent_surface.py::test_outcome_learning_biases_a_later_resolution` — two
+   lexically-tied fake tools, one recorded success, the later unpinned resolution flips to
+   prefer it.
+3. **Cache resolution** — DONE (`CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache`). A bounded
+   in-process LRU (`_RESOLUTION_CACHE`, 256 entries) keyed by `(verb, normalized intent, hints,
+   top_k, candidate-table generation, reward epoch)` — the last two counters make it a
+   policy-version-aware cache: a CPD/tool-surface rebuild or a freshly recorded outcome
+   invalidates exactly the entries that could have used it, without a manual flush. A bare
+   in-process cache was used rather than the Seam 6 KV-cache seam (that seam caches LLM KV
+   blocks keyed on prompt-prefix reuse; this cache holds ranked `CapabilityCandidate` lists keyed
+   on normalized intent — a different cache shape, better served by its own small LRU than by
+   overloading the LLM KV-cache layer). Proven by
+   `test_resolution_cache_hits_repeat_intent_misses_a_different_one`.
+4. **Feed dispatch outcomes back into calibrated routing** — DONE, folded into item 2. The
+   checked-in CPD JSON's own `calibrated_outcomes` field stays empty at static-generation time (no
+   live engine reachable when `gen_capability_power.py --write` runs) — the REAL calibrated-outcomes
+   signal for live routing is the in-process `OutcomeRouter` reward EMA the resolver blends in,
+   which is exactly what a bandit needs (fast, updated per-call) and is exposed per-dispatch as
+   `routing.calibrated_outcome_reward`.
+5. **A dedicated `kg-*`/`tier: meta` skill for the intent surface** — DONE:
+   `agent_utilities/skills/kg-intent/SKILL.md` — the six verbs, the CPD/learning/caching
+   mechanism, the load→use→unload lifecycle, and when to use `condensed` vs. `intent` mode.
+
+**A/B selection-accuracy measurement** (design doc §4 phase 4) also shipped in this slice:
+`scripts/measure_intent_routing_accuracy.py` (CLI) +
+`agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (the 21-case corpus +
+measurement function) + `tests/unit/test_intent_selection_accuracy.py` (CI regression tripwire).
+Measured against the real, CPD-backed resolver: **top-1 76.19% (16/21)**, **top-3 85.71%
+(18/21)** — a live run, not a fabricated number (see the module docstring for methodology and
+why "naming the tool directly" is the 100%-by-definition baseline this is traded against, not a
+competing measurement). A model-in-the-loop task-success soak (vs. a small/cheap model, per the
+original phase-4 wording) remains a natural follow-up once a model-eval harness is wired to this
+corpus — this slice measures resolver accuracy alone, which is the mechanism Seam 8 itself owns.

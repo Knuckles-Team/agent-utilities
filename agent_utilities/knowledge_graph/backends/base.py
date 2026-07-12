@@ -160,9 +160,32 @@ class GraphBackend(ABC):
 
     @abstractmethod
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Execute a graph query (e.g., Cypher) and return results."""
+        """Execute a graph query (e.g., Cypher) and return results.
+
+        Args:
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended to this unguarded/unaudited
+                direct-backend path — the counterpart of
+                ``KnowledgeGraph.query(..., include_epistemic=True)`` for callers
+                that use ``store.execute`` directly). Default ``False`` —
+                byte-for-byte the same ``list[dict]`` rows as before this
+                parameter existed. When ``True``, returns
+                ``list[EpistemicRow]`` (see
+                ``agent_utilities.knowledge_graph.core.epistemic_row``) instead:
+                the same rows widened with the engine's per-row epistemic
+                envelope. Only a backend with its own id-seeded provenance
+                primitive (``EpistemicGraphBackend``, whose ``GraphComputeEngine``
+                exposes ``explain_provenance_by_ids``) can honor this; any other
+                backend degrades to an empty list rather than raising or
+                silently ignoring the flag (never returns plain ``dict`` rows
+                under a ``True`` request).
+        """
         pass
 
     @abstractmethod

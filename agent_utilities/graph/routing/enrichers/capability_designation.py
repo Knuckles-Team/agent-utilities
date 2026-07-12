@@ -451,6 +451,7 @@ def record_capability_outcome(
     success: bool | None = None,
     reward: float | None = None,
     alpha: float = 0.3,
+    source_ids: list[str] | None = None,
 ) -> float:
     """Record a routing outcome DURABLY (CONCEPT:AU-P1-3 — durable contextual-bandit outcomes).
 
@@ -460,6 +461,19 @@ def record_capability_outcome(
     persist_capability_reward`), so the learned preference survives a process
     restart instead of resetting to the neutral 0.5 prior. Never raises — a
     failure on either side falls back to the other's result.
+
+    ``source_ids`` (X-6 / Seam 3, CONCEPT:EG-KG.epistemic.truth-maintenance) is
+    the SHARED writeback seam for THIS module's derived-data writeback: when a
+    caller passes the real id(s) of the observation the reward was just computed
+    from (e.g. :class:`~agent_utilities.knowledge_graph.research.claim_flywheel.
+    ClaimFlywheel.record_outcome`'s freshly-written ``ClaimOutcome`` node id —
+    never fabricated), and the durable persist above actually landed, this stamps
+    a ``:DerivedFrom`` edge from ``entity_id`` to each id and registers
+    ``entity_id`` as a live engine-side TruthMaintenance materialization off that
+    provenance — so a later change to the observation marks the durable reward
+    stale. Omitted (default) by callers with no discrete observation node to
+    point at — the durable write still lands, just unregistered, same as before
+    this parameter existed. Best-effort, never gates the write above.
     """
     updated: float | None = None
 
@@ -486,6 +500,10 @@ def record_capability_outcome(
         )
         if durable is not None:
             updated = durable
+            if source_ids:
+                _register_capability_reward_materialization(
+                    engine, entity_id, source_ids
+                )
     except Exception as e:  # noqa: BLE001 — durability is an augmentation, never load-bearing
         logger.debug(
             "record_capability_outcome: durable persistence failed for %r: %s",
@@ -494,6 +512,32 @@ def record_capability_outcome(
         )
 
     return updated if updated is not None else 0.5
+
+
+def _register_capability_reward_materialization(
+    engine: Any, entity_id: str, source_ids: list[str]
+) -> None:
+    """X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) — see
+    :func:`record_capability_outcome`'s ``source_ids`` docstring. Best-effort;
+    never raises into the caller's durable-write path."""
+    for source_id in source_ids:
+        try:
+            engine.add_edge(entity_id, source_id, relationship_type="DERIVED_FROM")
+        except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
+            logger.debug(
+                "record_capability_outcome: derived_from edge %r->%r failed: %s",
+                entity_id,
+                source_id,
+                e,
+            )
+    try:
+        engine.register_materialization(entity_id)
+    except Exception as e:  # noqa: BLE001 — TMS registration is best-effort
+        logger.debug(
+            "record_capability_outcome: register_materialization failed for %r: %s",
+            entity_id,
+            e,
+        )
 
 
 def explain_capability_eligibility(
