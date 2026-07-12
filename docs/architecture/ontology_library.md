@@ -89,6 +89,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_orchestration.ttl` | `…/kg/orchestration` | Orchestration: skill proposals, workflow/process distillation. |
 | `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
 | `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |
+| `ontology_sdlc_lifecycle.ttl` | `…/kg/sdlc_lifecycle` | SDLC lifecycle spine: the cross-cutting supertypes (`:Ticket`, `:PipelineRun`, `:CodeChange`, `:Validation`, `:ControlGate`, `:Approval`, `:EscalationRequest`, `:LifecycleStep`) + predicates (`:triggers`/`:specifies`/`:implements`/`:proposes`/`:triggersPipeline`/`:builds`/`:builtFrom`/`:deployedAs`/`:validatedBy`/`:resolves`) that unify the per-package incident/ticket/spec/MR/CI/image/deploy nodes into one enter-anywhere loop (`:Procedure`≡`:WorkflowDefinition`). |
 | `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
 | `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
@@ -133,6 +134,7 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | File | Role |
 |------|------|
 | `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
+| `shapes/sdlc_lifecycle.shapes.ttl` | SDLC lifecycle REQUIRED-shape constraints (design §1.3) — consulted in DIFF mode by the enter-anywhere orchestrator so "find the gaps" is a validation query (a merged `:CodeChange` REQUIRES a `:PipelineRun`, a resolving `:Deployment` REQUIRES `:validatedBy` evidence). |
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
 | `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
