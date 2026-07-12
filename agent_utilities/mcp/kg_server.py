@@ -2497,6 +2497,19 @@ def _resolve_read_engines(
 #: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
 DEFAULT_FANOUT_TIMEOUT_S = 30.0
 
+#: Per-target wall-clock budget (seconds) for an IMPLICIT-default read fan-out —
+#: a ``graph_search``/``graph_query`` call with no explicit ``target`` that
+#: resolves (CONCEPT:AU-KG.ingest.unified-query-routing) to the routed
+#: content-graph union: ``default`` + every active ``code:*``/``src:*`` graph,
+#: which can be dozens of per-repo connections and often includes idle/
+#: unreachable ones. Using the full ``DEFAULT_FANOUT_TIMEOUT_S`` there means one
+#: unreachable ``code:<repo>`` backend blocks the common no-target call for up to
+#: 30s each, flooding the result with "timed out" entries. A short budget keeps
+#: the default call fast — an unreachable graph is skipped, not waited on — while
+#: an explicit ``target='all'``/list (a deliberate cross-repo search) keeps the
+#: full ``DEFAULT_FANOUT_TIMEOUT_S``.
+DEFAULT_CONTENT_FANOUT_TIMEOUT_S = 3.0
+
 
 def fanout_execute(entries, fn, *, timeout=None):
     """Run ``fn(name, engine)`` for every fan-out target CONCURRENTLY under a shared
