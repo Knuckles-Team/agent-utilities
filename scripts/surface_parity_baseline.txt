@@ -37,8 +37,13 @@ agent_utilities/harness/online_scoring.py
 agent_utilities/harness/tool_judge.py
 agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
 agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py
+agent_utilities/knowledge_graph/retrieval/capability_context.py
 agent_utilities/knowledge_graph/retrieval/capability_descriptor.py
 agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py
+# context_compiler_serving.py: opt-in real-wire helper for ContextBundle
+# (Seam 6 deep half, vLLM prefix-cache reuse) — called directly by other
+# library code (enrichment/cards.py-style callers) and by
+# scripts/measure_bundle_kv_reuse.py, not itself a gateway/MCP capability.
 agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
 agent_utilities/knowledge_graph/retrieval/deploy_context.py
 agent_utilities/knowledge_graph/retrieval/entity_context.py

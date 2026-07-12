@@ -1281,9 +1281,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
