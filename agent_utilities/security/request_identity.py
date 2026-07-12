@@ -148,49 +148,41 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
 def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     """Mint an ``authenticated`` :class:`ActorContext` from validated JWT claims.
 
-    Mapping (first match wins):
+    Delegates claim parsing to the one IdP-agnostic normalizer
+    (:func:`agent_utilities.security.identity.normalize_identity`) so **Okta
+    groups and Keycloak roles are first-class and interchangeable**
+    (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance):
 
     * ``actor_id`` ← ``sub`` | ``client_id`` | ``azp``
-    * ``roles``    ← ``roles`` | ``realm_access.roles`` (Keycloak) |
-      space-separated ``scope``/``scp``
-    * ``tenant_id``← ``tenant_id`` | ``tenant`` | ``org_id`` | ``tid``
+    * ``roles`` ← the *base capability set* = role claims (``roles`` /
+      Keycloak ``realm_access.roles`` / ``resource_access.*.roles``) ∪
+      ``scope``/``scp`` ∪ group-derived capabilities (Okta ``groups`` /
+      Keycloak group mapper, via the optional ``IDENTITY_GROUP_CAPABILITY_MAP``
+      config; a group defaults to a same-named capability). This is what ACL
+      checks read, so a group membership natively grants access with no
+      per-consumer change.
+    * ``groups`` ← the raw normalized group set (retained for k8s impersonation).
+    * ``tenant_id`` ← ``tenant_id`` | ``tenant`` | ``org_id`` | ``tid`` | ``org``
     * ``actor_type`` ← HUMAN when an ``email`` claim is present, else
       AUTOMATED_SERVICE (provenance only — not used for access decisions).
     """
-    actor_id = str(
-        claims.get("sub") or claims.get("client_id") or claims.get("azp") or "jwt"
+    from agent_utilities.core.config import config
+
+    from .identity import base_capabilities, normalize_identity
+
+    identity = normalize_identity(claims)
+    group_map = getattr(config, "identity_group_capability_map", None)
+
+    actor_type = (
+        ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
     )
-
-    roles: Any = claims.get("roles")
-    if not roles:
-        realm = claims.get("realm_access")
-        if isinstance(realm, dict):
-            roles = realm.get("roles")
-    if not roles:
-        scope = claims.get("scope") or claims.get("scp")
-        if isinstance(scope, str):
-            roles = scope.split()
-        elif isinstance(scope, list):
-            roles = scope
-    if isinstance(roles, str):
-        roles = [r.strip() for r in roles.split(",") if r.strip()]
-    role_tuple = tuple(str(r) for r in (roles or ()))
-
-    tenant = str(
-        claims.get("tenant_id")
-        or claims.get("tenant")
-        or claims.get("org_id")
-        or claims.get("tid")
-        or ""
-    )
-
-    actor_type = ActorType.HUMAN if claims.get("email") else ActorType.AUTOMATED_SERVICE
     return ActorContext(
-        actor_id=actor_id,
+        actor_id=identity.subject,
         actor_type=actor_type,
-        roles=role_tuple,
-        tenant_id=tenant,
+        roles=base_capabilities(identity, group_map),
+        tenant_id=identity.tenant,
         authenticated=True,
+        groups=identity.groups,
     )
 
 
