@@ -416,6 +416,74 @@ def compute_bundle_cache_key(
     return f"ctxbundle:{digest}"
 
 
+def _record_kv_cache_outcome(outcome: str) -> None:
+    """Bump the Seam-6 bundle-cache hit/miss counter (WS-4, additive, best-effort).
+
+    CONCEPT:AU-KG.retrieval.context-compiler-kv-seam. Mirrors
+    :func:`~agent_utilities.observability.TelemetryEngine.annotate_epistemic`'s
+    posture: a metrics-recording failure (extra absent, registry quirk) must
+    never break ``compile()`` — this is purely additive observability over an
+    already-decided branch, not a new decision point.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            CONTEXT_COMPILER_KV_CACHE,
+        )
+
+        CONTEXT_COMPILER_KV_CACHE.labels(outcome=outcome).inc()
+    except Exception as exc:  # noqa: BLE001 — metrics must never break compile()
+        logger.debug("context-compiler kv-cache metric recording failed: %s", exc)
+
+
+def _record_compile_metrics(bundle: ContextBundle, tokens_in: int) -> None:
+    """Emit the WS-4 ContextCompiler efficiency metrics for one ``compile()`` call.
+
+    CONCEPT:AU-KG.retrieval.context-compiler. Records the Prometheus counters/
+    histogram (``observability.gateway_metrics.CONTEXT_COMPILER_*`` — no-op
+    wherever the ``metrics`` extra is absent) and widens the current OTel span
+    via :meth:`~agent_utilities.observability.TelemetryEngine.annotate_context_compiler`
+    (no-op wherever no tracing pipeline is active). Best-effort: any failure here
+    is logged and swallowed, never raised — this is pure observability over an
+    already-assembled bundle, never part of the selection/assembly contract.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            CONTEXT_COMPILER_ITEMS,
+            CONTEXT_COMPILER_TOKENS,
+        )
+
+        CONTEXT_COMPILER_ITEMS.labels(outcome="selected").inc(len(bundle.items))
+        CONTEXT_COMPILER_ITEMS.labels(outcome="dropped_policy").inc(
+            bundle.dropped_policy
+        )
+        CONTEXT_COMPILER_ITEMS.labels(outcome="dropped_redundant").inc(
+            bundle.dropped_redundant
+        )
+        CONTEXT_COMPILER_ITEMS.labels(outcome="dropped_budget").inc(
+            bundle.dropped_budget
+        )
+        CONTEXT_COMPILER_TOKENS.labels(kind="in").observe(tokens_in)
+        CONTEXT_COMPILER_TOKENS.labels(kind="selected").observe(bundle.tokens_used)
+    except Exception as exc:  # noqa: BLE001 — metrics must never break compile()
+        logger.debug("context-compiler metric recording failed: %s", exc)
+
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().annotate_context_compiler(
+            items_selected=len(bundle.items),
+            tokens_in=tokens_in,
+            tokens_selected=bundle.tokens_used,
+            token_budget=bundle.token_budget,
+            dropped_policy=bundle.dropped_policy,
+            dropped_redundant=bundle.dropped_redundant,
+            dropped_budget=bundle.dropped_budget,
+            kv_cache_hit=bundle.kv_cache_hit if bundle.cache_key else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — tracing must never break compile()
+        logger.debug("context-compiler span annotation failed: %s", exc)
+
+
 def _node_id(node: dict[str, Any]) -> str:
     for key in ("id", "node_id", "_id"):
         val = node.get(key)
@@ -703,7 +771,11 @@ class ContextCompiler:
                         cache_key,
                         len(cached_bundle.items),
                     )
+                    _record_kv_cache_outcome("hit")
                     return cached_bundle
+            # A miss (no cached bytes, or a cached blob that failed to
+            # deserialize) falls through to the normal assembly path below.
+            _record_kv_cache_outcome("miss")
 
         # ---- 1/3/4. RELEVANCE (normalized) + EVIDENCE QUALITY + FRESHNESS.
         raw_scores = [self._raw_relevance(n) for n in allowed]
@@ -781,6 +853,14 @@ class ContextCompiler:
                         "composite_score": round(rec["composite"], 4),
                     }
                 )
+
+        # WS-4: "tokens-in" for the efficiency metrics below — the token cost of
+        # the MMR-ranked pool as handed to the budget fit, i.e. before any
+        # budget-driven truncation (the selection-efficiency signal is
+        # tokens_selected / tokens_in).
+        tokens_in = sum(
+            _estimate_item_tokens(self._text_of(r["node"])) for r in selected
+        )
 
         # ---- 5. TOKEN COST — fit the MMR-ranked selection within budget.
         mgr = RetrievalBudgetManager(token_budget)
@@ -868,6 +948,7 @@ class ContextCompiler:
             bundle.dropped_redundant,
             dropped_budget,
         )
+        _record_compile_metrics(bundle, tokens_in)
 
         # ---- Seam 6: register the freshly-assembled bundle with the KV-cache
         # layer under the SAME key just computed, so the next caller with an
