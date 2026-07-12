@@ -237,15 +237,45 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 f"Unauthenticated callers may only use: {sorted(ANONYMOUS_READ_TOOLS)}."
             )
 
+    import asyncio
+
+    # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
+    # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
+    # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
+    # surface, a bad action, a wedged backend) freezes the whole graph-os child and
+    # disconnects EVERY connected MCP client. Run sync tools on a worker thread and bound
+    # every call with a timeout so a hung tool FAILS LOUD and frees the loop instead of taking
+    # the gateway down. The timeout is > the delegation wall-clock so execute_agent isn't
+    # killed. Threads propagate the current contextvars (actor/session) via to_thread.
+    _TOOL_CALL_TIMEOUT_S = 320.0
+
     async def _run() -> Any:
         if inspect.iscoroutinefunction(tool_func):
-            return await tool_func(**kwargs)
-        return tool_func(**kwargs)
+            return await asyncio.wait_for(
+                tool_func(**kwargs), timeout=_TOOL_CALL_TIMEOUT_S
+            )
+        return await asyncio.wait_for(
+            asyncio.to_thread(tool_func, **kwargs), timeout=_TOOL_CALL_TIMEOUT_S
+        )
 
-    if actor is None:
-        return await _run()
-    with use_actor(actor):
-        return await _run()
+    async def _guarded() -> Any:
+        try:
+            if actor is None:
+                return await _run()
+            with use_actor(actor):
+                return await _run()
+        except (asyncio.TimeoutError, TimeoutError):
+            return {
+                "error": (
+                    f"tool {tool_name!r} exceeded the {_TOOL_CALL_TIMEOUT_S:.0f}s dispatch "
+                    "timeout and was abandoned; the gateway stayed responsive (fail-loud "
+                    "dispatch isolation)."
+                ),
+                "tool": tool_name,
+                "degraded": True,
+            }
+
+    return await _guarded()
 
 
 def get_existing_disabled(engine, node_id: str) -> bool:
