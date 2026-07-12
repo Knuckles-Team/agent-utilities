@@ -195,6 +195,7 @@ class Orchestrator:
         open_channel: bool = False,
         memento_source: str | None = None,
         execution_profile: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -227,6 +228,7 @@ class Orchestrator:
             open_channel=open_channel,
             memento_source=memento_source,
             execution_profile=execution_profile,
+            reasoning_effort=reasoning_effort,
         )
         return result
 

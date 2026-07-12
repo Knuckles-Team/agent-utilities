@@ -11,7 +11,8 @@ until it overruns the wall-clock and is mis-attributed to a blocked tool. These 
 1. the merge (not clobber): the model's reasoning settings reach the winning agent layer;
 2. per-model reasoning opt-in (e.g. "high") is preserved;
 3. an explicit ``reasoning_effort`` arg wins; and
-4. the single-server / focused-tools executor forces ``reasoning_effort="none"``.
+4. delegation leaves reasoning OFF by default (inherits) but is an opt-in CAPABILITY —
+   a run turns it ON per-execution via ``reasoning_effort`` (run_agent/execute_agent).
 """
 
 from __future__ import annotations
@@ -74,8 +75,8 @@ def test_create_agent_threads_explicit_reasoning_effort():
     assert dict(ms).get("extra_body", {}).get("reasoning_effort") == "none"
 
 
-def test_single_server_delegation_disables_reasoning(monkeypatch):
-    """LIVE PATH: ``_execute_single_server`` passes ``reasoning_effort='none'`` to create_agent."""
+def _run_single_server(monkeypatch, config: dict) -> dict:
+    """Drive _execute_single_server with a captured, faked create_agent; return kwargs."""
     from agent_utilities.agent import factory as factory_mod
     from agent_utilities.orchestration import agent_runner
 
@@ -96,18 +97,43 @@ def test_single_server_delegation_disables_reasoning(monkeypatch):
     # create_agent`` inside the function, so patch it at the factory module.
     monkeypatch.setattr(factory_mod, "create_agent", _fake_create_agent)
     monkeypatch.setattr(agent_runner, "_extract_tool_calls", lambda _r: [])
-
-    config = {
+    base = {
         "mcp_toolsets": [object()],  # non-empty so it doesn't fail-loud on "no toolset"
         "provider": "openai",
         "agent_model": "qwen/qwen3.6-27b",
         "base_url": "http://vllm.arpa/v1",
         "api_key": None,
     }
-    out = asyncio.run(
+    base.update(config)
+    asyncio.run(
         agent_runner._execute_single_server(
-            config, "list things", 4, {"type": "server"}, "scholarx-mcp"
+            base, "list things", 4, {"type": "server"}, "scholarx-mcp"
         )
     )
-    assert captured.get("reasoning_effort") == "none", captured
-    assert out["results"]["output"] == "done"
+    return captured
+
+
+def test_single_server_delegation_inherits_off_by_default(monkeypatch):
+    """No opt-in => reasoning_effort=None => create_agent inherits the model's OFF default."""
+    captured = _run_single_server(monkeypatch, {})
+    assert captured.get("reasoning_effort") is None, captured
+
+
+def test_single_server_delegation_honors_reasoning_opt_in(monkeypatch):
+    """A run that needs deliberation turns reasoning ON via config (like RLM)."""
+    captured = _run_single_server(monkeypatch, {"reasoning_effort": "high"})
+    assert captured.get("reasoning_effort") == "high", captured
+
+
+def test_run_agent_threads_reasoning_effort_onto_config():
+    """run_agent(reasoning_effort=...) is the per-execution capability seam onto config."""
+    import inspect
+
+    from agent_utilities.orchestration import agent_runner, manager
+
+    # both the entry point and the manager expose the opt-in param
+    assert "reasoning_effort" in inspect.signature(agent_runner.run_agent).parameters
+    assert (
+        "reasoning_effort"
+        in inspect.signature(manager.Orchestrator.execute_agent).parameters
+    )
