@@ -262,7 +262,7 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
     default because that graph is what unlocks how to use everything else.
     """
     try:
-        from universal_skills.core.skill_installer.scripts import install as inst
+        from universal_skills.core import skill_installer as inst
     except ImportError:
         return {
             "error": "universal-skills is not installed",
