@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **Light epistemic layer, default-on.** `KnowledgeGraph.query` / `GraphComputeEngine.
+  query_unified` / `IntelligenceGraphEngine.uql` now attach the light epistemic envelope
+  (`confidence`/`source_refs`/`evidence_refs`/`policy_labels`/`provenance`) onto every plain
+  `list[dict]` read by default (`epistemic_row.attach_epistemic_columns`, additive —
+  NEVER changes the return type, unlike the pre-existing opt-in `include_epistemic=True`
+  path which stays untouched). Governed by the new `config.epistemic_light_default`
+  (`KG_EPISTEMIC_LIGHT_DEFAULT`, default `true`); a contested/low-confidence row forces the
+  attach even when an operator opts the default off. Degrades cleanly to a neutral prior
+  (`confidence=0.5`, empty ref lists, `provenance={"resolved": false}`) when a backend has no
+  `explain_provenance_by_ids` — never an error, never an emptied result set.
+- **Epistemic OTel span attributes.** `observability.TelemetryEngine.annotate_epistemic`
+  (+ process-wide `get_telemetry_engine()` singleton) stamps `epistemic.confidence`/
+  `epistemic.status`/`epistemic.contradiction_count`/`epistemic.policy_labels` +
+  `gen_ai.response.source_count`/`gen_ai.request.model` onto the CURRENT active OTel span —
+  wired into the light-epistemic-layer attach above and into the A2A remote-agent execution
+  path (`graph/executor.py`). No-op when no OTel pipeline is configured anywhere (reads the
+  ambient current span via the OTel API rather than requiring its own provider).
+- **AgentCard epistemic capability + A2A envelope.** Every `agent-utilities` A2A server now
+  advertises an `epistemic-answer` `Skill` on its AgentCard (`epistemic_status`/`why`/
+  `what_changed` over the shared KG). `A2AClient.execute_task_with_epistemic` (additive
+  sibling of `execute_task`) surfaces a peer's response `metadata` — including any epistemic
+  fields it attached — instead of silently discarding it.
 - **`EvidenceBundle.from_engine_wire` wired onto a live path.** `graph_query` (the Cypher MCP
   tool / `/graph/query` REST twin, same dispatch core) gains the same additive `envelope`
   toggle `graph_ask`/`nl_query`/`graph_analyze action=code_context` already use:

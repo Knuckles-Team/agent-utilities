@@ -203,7 +203,14 @@ async def test_execute_agent_package_logic_remote_a2a():
 
     with patch("agent_utilities.protocols.a2a.A2AClient") as mock_client_class:
         mock_client = mock_client_class.return_value
-        mock_client.execute_task = AsyncMock(return_value="a2a result")
+        mock_client.execute_task_with_epistemic = AsyncMock(
+            return_value={
+                "content": "a2a result",
+                "epistemic": {},
+                "metadata": {},
+                "error": None,
+            }
+        )
 
         result = await executor._execute_agent_package_logic(ctx, "peer_agent", meta)
         assert result == "execution_joiner"

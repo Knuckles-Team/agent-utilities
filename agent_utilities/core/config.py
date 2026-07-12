@@ -1877,6 +1877,20 @@ class AgentConfig(BaseSettings):
     and invoke graph execution directly.  Set to False to restore the
     legacy agent -> run_graph_flow -> graph pipeline."""
 
+    epistemic_light_default: bool = Field(
+        default=True, alias="KG_EPISTEMIC_LIGHT_DEFAULT"
+    )
+    """Attach the LIGHT epistemic envelope (confidence/source_refs/evidence_refs/
+    policy_labels/provenance — CONCEPT:AU-KB-CURRENCY) onto every plain read-path
+    row by default (Native by default). This is the cheap, ADDITIVE column-merge
+    (`epistemic_row.attach_epistemic_columns`) that keeps a caller's existing
+    `list[dict]` shape — never the heavy, type-changing `include_epistemic=True`
+    round trip (`EpistemicRow`), which stays opt-in. Set False only for a
+    deployment that must skip the extra batched `explain_provenance_by_ids`
+    round trip on every read; a row already showing a contested/low-confidence
+    signal in its own properties is still resolved regardless (safety auto-on,
+    see `epistemic_row.should_attach_epistemic_columns`)."""
+
     sparql_endpoints: list[str] = Field(
         default=["https://query.wikidata.org/sparql"], alias="SPARQL_ENDPOINTS"
     )
