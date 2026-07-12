@@ -61,7 +61,7 @@ class FakeEngine:
 
 def _diamond_plan():
     """prep -> [branchA -> mergeA]
-             -> [branchB -> mergeB]   (independent sibling branch of branchA)
+    -> [branchB -> mergeB]   (independent sibling branch of branchA)
     """
     return GraphPlan(
         steps=[
@@ -79,7 +79,9 @@ def _fake_agent(monkeypatch):
     ran: list[str] = []
     seen_efforts: dict[str, str | None] = {}
 
-    async def _fake_run_agent(agent_name, task, engine=None, reasoning_effort=None, **kw):
+    async def _fake_run_agent(
+        agent_name, task, engine=None, reasoning_effort=None, **kw
+    ):
         ran.append(agent_name)
         seen_efforts[agent_name] = reasoning_effort
         return f"ok:{agent_name}"
@@ -90,7 +92,9 @@ def _fake_agent(monkeypatch):
     return ran, seen_efforts
 
 
-async def test_resume_localized_only_reruns_the_invalidated_branch(_fake_agent, monkeypatch):
+async def test_resume_localized_only_reruns_the_invalidated_branch(
+    _fake_agent, monkeypatch
+):
     ran, _efforts = _fake_agent
     engine = FakeEngine()
     runner = WorkflowRunner()
@@ -187,7 +191,9 @@ async def test_model_id_pin_wins_over_model_tier_hint(_fake_agent):
     _ran, efforts = _fake_agent
     engine = FakeEngine()
     plan = GraphPlan(
-        steps=[ExecutionStep(id="pinned_step", model_tier="small", model_id="exact-model")]
+        steps=[
+            ExecutionStep(id="pinned_step", model_tier="small", model_id="exact-model")
+        ]
     )
     runner = WorkflowRunner()
     await runner._execute_plan_via_agents(
