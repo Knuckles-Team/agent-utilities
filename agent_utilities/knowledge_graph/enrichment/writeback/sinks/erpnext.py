@@ -36,6 +36,21 @@ def _doctype_for(node_type: str) -> tuple[str, str]:
     return _DOCTYPE_MAP.get((node_type or "").lower(), ("Item", "item_code"))
 
 
+def _extract_doc_name(res: Any, fallback: str | None = None) -> str | None:
+    """Best-effort pull of the created Frappe doc ``name`` from the return shape."""
+    if isinstance(res, str):
+        return res or fallback
+    for obj in (res, getattr(res, "data", None)):
+        if isinstance(obj, dict):
+            inner = obj.get("data")
+            if isinstance(inner, dict) and inner.get("name"):
+                return str(inner["name"])
+            if obj.get("name"):
+                return str(obj["name"])
+    name = getattr(res, "name", None)
+    return str(name) if name else fallback
+
+
 class ErpNextSink:
     """Write-back sink for ERPNext Items & Assets."""
 
@@ -78,8 +93,14 @@ class ErpNextSink:
                 )
                 continue
             try:
-                client.create_document(doctype, data)  # type: ignore[union-attr]  # client None-checked above
+                res = client.create_document(doctype, data)  # type: ignore[union-attr]  # client None-checked above
                 result.created += 1
+                ctx.stamp_external_id(
+                    c.get("node"),
+                    self.domain,
+                    _extract_doc_name(res, fallback=name),
+                    node_type=c.get("type", ""),
+                )
             except Exception:  # noqa: BLE001
                 logger.debug("erpnext create_document failed", exc_info=True)
                 result.errors += 1

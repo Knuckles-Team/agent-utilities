@@ -78,6 +78,12 @@ class EgeriaSink:
                 )
                 if isinstance(res, dict) and res.get("guid"):
                     result.created += 1
+                    ctx.stamp_external_id(
+                        c.get("node"),
+                        self.domain,
+                        str(res.get("guid")),
+                        node_type=c.get("type", ""),
+                    )
                 else:
                     result.errors += 1
             except Exception:  # noqa: BLE001

@@ -22,6 +22,22 @@ _METHODS: dict[str, tuple[str, str]] = {
 }
 
 
+def _extract_record_id(res: Any) -> str | None:
+    """Best-effort pull of the created Twenty record id from the return shape."""
+    if isinstance(res, str):
+        return res or None
+    for obj in (res, getattr(res, "data", None)):
+        if isinstance(obj, dict):
+            for key in ("id", "recordId"):
+                if obj.get(key):
+                    return str(obj[key])
+            inner = obj.get("data")
+            if isinstance(inner, dict) and inner.get("id"):
+                return str(inner["id"])
+    rid = getattr(res, "id", None)
+    return str(rid) if rid else None
+
+
 class TwentySink:
     domain = "twenty"
     enable_flag = "TWENTY_ENABLE_WRITE"
@@ -62,8 +78,14 @@ class TwentySink:
             try:
                 method = getattr(client, create_m, None)
                 if method is not None:
-                    method(name)
+                    res = method(name)
                     result.created += 1
+                    ctx.stamp_external_id(
+                        c.get("node"),
+                        self.domain,
+                        _extract_record_id(res),
+                        node_type=c.get("type", ""),
+                    )
             except Exception:  # noqa: BLE001
                 logger.debug("twenty %s failed", create_m, exc_info=True)
                 result.errors += 1

@@ -1136,6 +1136,17 @@ class AgentConfig(BaseSettings):
     continuous_stardog_mirror: bool = Field(
         default=False, alias="CONTINUOUS_STARDOG_MIRROR"
     )
+    # Multi-SoR asset mirror (CONCEPT:AU-KG.ingest.enterprise-source-extractor). The
+    # canonical :Asset/CI model lives in the graph; each named CMDB sink is a
+    # PROJECTION of it. This list (like ``CONTINUOUS_STARDOG_MIRROR`` for Stardog)
+    # selects which sinks the ``asset-mirror`` pass fans out to — a subset of
+    # ``servicenow``/``erpnext``/``egeria``/``twenty``. Empty by default, so every
+    # sink (ServiceNow included) stays available-but-inert until opted in. A listed
+    # sink still enforces its own ``<SINK>_ENABLE_WRITE`` for live writes and is
+    # dry-run-first, so listing it only enables report-only previews by default.
+    asset_mirror_targets: list[str] | None = Field(
+        default=None, alias="ASSET_MIRROR_TARGETS"
+    )
     # Ingest task-queue selection (CONCEPT:AU-KG.backend.selectable-queue-backend): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the

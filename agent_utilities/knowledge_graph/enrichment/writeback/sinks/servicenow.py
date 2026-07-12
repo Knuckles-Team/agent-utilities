@@ -19,8 +19,11 @@ logger = logging.getLogger(__name__)
 
 _SOURCE = "agent-utilities"
 
-# KG node type → ServiceNow CMDB class for created inventory.
+# KG node type → ServiceNow CMDB class for created inventory. Covers the fleet's
+# emitted infra/container/host types (see INVENTORY_TYPES), not just the generic
+# EA/TRM ones; unmapped types fall back to the generic ``cmdb_ci``.
 _CLASS_MAP: dict[str, str] = {
+    # generic EA / TRM / CMDB
     "server": "cmdb_ci_server",
     "hardwarenode": "cmdb_ci_server",
     "service": "cmdb_ci_service",
@@ -30,11 +33,47 @@ _CLASS_MAP: dict[str, str] = {
     "technologyproduct": "cmdb_model",
     "assetinstance": "alm_hardware",
     "configurationitem": "cmdb_ci",
+    # hosts / nodes
+    "host": "cmdb_ci_server",
+    "node": "cmdb_ci_server",
+    "swarmnode": "cmdb_ci_server",
+    "hostgroup": "cmdb_ci_cluster",
+    # container / orchestration workloads
+    "containerimage": "cmdb_model",
+    "pod": "cmdb_ci_docker_container",
+    "deployment": "cmdb_ci_appl",
+    "workload": "cmdb_ci_appl",
+    "k8sservice": "cmdb_ci_service",
+    "swarmservice": "cmdb_ci_service",
+    "namespace": "cmdb_ci_cloud_namespace",
+    "stack": "cmdb_ci_appl",
+    "repository": "cmdb_model",
+    # network / storage components
+    "networkinterface": "cmdb_ci_network_adapter",
+    "diskvolume": "cmdb_ci_storage_volume",
+    "tunnel": "cmdb_ci_ip_network",
 }
 
 
 def _class_for(node_type: str, default: str = "cmdb_ci") -> str:
     return _CLASS_MAP.get((node_type or "").lower(), default)
+
+
+def _extract_sys_id(res: Any) -> str | None:
+    """Best-effort pull of the created CI's sys_id from the client return shape."""
+    if res is None:
+        return None
+    if isinstance(res, str):
+        return res or None
+    for obj in (res, getattr(res, "data", None), getattr(res, "result", None)):
+        if isinstance(obj, dict):
+            inner = obj.get("result")
+            if isinstance(inner, dict) and inner.get("sys_id"):
+                return str(inner["sys_id"])
+            if obj.get("sys_id"):
+                return str(obj["sys_id"])
+    sid = getattr(res, "sys_id", None)
+    return str(sid) if sid else None
 
 
 class ServiceNowSink:
@@ -78,10 +117,17 @@ class ServiceNowSink:
                 )
                 continue
             try:
-                client.create_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
+                res = client.create_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
                     className=class_name, attributes=attrs, source=_SOURCE
                 )
                 result.created += 1
+                # Round-trip the sys_id back onto the source node → idempotent re-runs.
+                ctx.stamp_external_id(
+                    c.get("node"),
+                    self.domain,
+                    _extract_sys_id(res),
+                    node_type=c.get("type", ""),
+                )
             except Exception:  # noqa: BLE001
                 logger.debug("servicenow create_cmdb_instance failed", exc_info=True)
                 result.errors += 1

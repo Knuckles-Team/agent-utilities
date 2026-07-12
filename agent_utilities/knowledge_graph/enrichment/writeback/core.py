@@ -60,6 +60,54 @@ class WritebackContext:
     def resolver(self, domain: str) -> Callable[[str], str | None]:
         return resolve_external_id(self.backend, domain)
 
+    def stamp_external_id(
+        self,
+        node_id: str | None,
+        target: str,
+        external_id: str | None,
+        *,
+        node_type: str = "",
+    ) -> bool:
+        """Round-trip the SoR's returned CI id back onto the source KG node.
+
+        After a sink creates a CI/asset/record it calls this with the returned id
+        so the node carries three stamps: ``<target>_ci_id`` (the per-sink identity
+        used to dedupe re-runs — idempotency across ALL sinks), and the shared
+        ``domain`` / ``externalToolId`` federation key the resolver reads. Writing
+        the stamp turns the next :func:`~.inventory.collect_inventory_creations`
+        pass into a skip/update instead of a duplicate create.
+
+        Best-effort (fail-closed): a stamp failure never breaks the sink write —
+        it only means the node may be re-proposed next pass.
+        """
+        if not (node_id and external_id) or self.engine is None:
+            return False
+        eid = str(external_id)
+        props = {
+            f"{(target or '').lower().strip()}_ci_id": eid,
+            "externalToolId": eid,
+            "domain": (target or "").lower().strip(),
+        }
+        add_node = getattr(self.engine, "add_node", None)
+        if add_node is None:
+            return False
+        label = node_type or "ConfigurationItem"
+        try:
+            # IntelligenceGraphEngine.add_node(node_id, node_type, properties) — merge-upsert.
+            add_node(node_id, label, props)
+            return True
+        except TypeError:
+            try:
+                # Alternate signature: add_node(node_id, label="", **properties).
+                add_node(node_id, label=label, **props)
+                return True
+            except Exception:  # noqa: BLE001 - stamping is best-effort
+                logger.debug("stamp_external_id fallback failed", exc_info=True)
+                return False
+        except Exception:  # noqa: BLE001 - stamping is best-effort
+            logger.debug("stamp_external_id failed for %s", node_id, exc_info=True)
+            return False
+
 
 @runtime_checkable
 class WritebackSink(Protocol):
