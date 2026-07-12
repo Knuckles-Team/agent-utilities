@@ -11226,7 +11226,7 @@
     skos:prefLabel "negative vector component parses" .
 
 <http://knuckles.team/kg/concept/EG/KG/compute/no-embedder-bound-op> a :GovernedConcept ;
-    :dottedId "AU-KG.query.uql-rank-text-preembed" ;
+    :dottedId "EG-KG.compute.no-embedder-bound-op" ;
     :flatId "EG-411" ;
     :partOf <http://knuckles.team/kg/concept/EG/KG/compute> ;
     skos:broader <http://knuckles.team/kg/concept/EG/KG/compute> ;
