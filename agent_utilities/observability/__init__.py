@@ -422,6 +422,76 @@ class TelemetryEngine:
         except Exception as e:  # noqa: BLE001 — tracing must never break a read
             logger.debug("TelemetryEngine: epistemic span annotation failed: %s", e)
 
+    def annotate_context_compiler(
+        self,
+        *,
+        items_selected: int | None = None,
+        tokens_in: int | None = None,
+        tokens_selected: int | None = None,
+        token_budget: int | None = None,
+        dropped_policy: int | None = None,
+        dropped_redundant: int | None = None,
+        dropped_budget: int | None = None,
+        kv_cache_hit: bool | None = None,
+    ) -> None:
+        """Stamp ``ContextCompiler.compile()`` efficiency onto the CURRENT OTel span.
+
+        CONCEPT:AU-KG.retrieval.context-compiler / CONCEPT:AU-KG.retrieval.context-compiler-kv-seam
+        (WS-4) — the answer-path counterpart of :meth:`annotate_epistemic`: same
+        "widen the ambient current span, never open one of our own" shape, same
+        default-on-wherever-tracing-is-on / clean-no-op-otherwise posture. This is
+        the OTEL-span half of the WS-4 instrumentation; the Prometheus counters/
+        histograms (``observability.gateway_metrics.CONTEXT_COMPILER_*``) are the
+        other, so a single compile() call is visible in both a trace waterfall
+        (this) and a dashboard (those) without maintaining two separate stats.
+
+        Args:
+            items_selected: Final ``len(bundle.items)``.
+            tokens_in: Tokens in the MMR-selected pool offered to the token-budget
+                fit (before truncation).
+            tokens_selected: ``bundle.tokens_used`` — tokens actually kept.
+            token_budget: The caller's token budget for this call.
+            dropped_policy: ``bundle.dropped_policy``.
+            dropped_redundant: ``bundle.dropped_redundant``.
+            dropped_budget: ``bundle.dropped_budget``.
+            kv_cache_hit: ``bundle.kv_cache_hit`` when ``compile(kv_backend=...)``
+                was used, ``None`` when the Seam-6 cache wasn't in play.
+        """
+        try:
+            from opentelemetry import trace as otel_trace
+
+            span = otel_trace.get_current_span()
+            if span is None or not span.is_recording():
+                return
+            if items_selected is not None:
+                span.set_attribute("context_compiler.items_selected", int(items_selected))
+            if tokens_in is not None:
+                span.set_attribute("context_compiler.tokens_in", int(tokens_in))
+            if tokens_selected is not None:
+                span.set_attribute(
+                    "context_compiler.tokens_selected", int(tokens_selected)
+                )
+            if token_budget is not None:
+                span.set_attribute("context_compiler.token_budget", int(token_budget))
+            if dropped_policy is not None:
+                span.set_attribute(
+                    "context_compiler.dropped_policy", int(dropped_policy)
+                )
+            if dropped_redundant is not None:
+                span.set_attribute(
+                    "context_compiler.dropped_redundant", int(dropped_redundant)
+                )
+            if dropped_budget is not None:
+                span.set_attribute(
+                    "context_compiler.dropped_budget", int(dropped_budget)
+                )
+            if kv_cache_hit is not None:
+                span.set_attribute("context_compiler.kv_cache_hit", bool(kv_cache_hit))
+        except Exception as e:  # noqa: BLE001 — tracing must never break a compile
+            logger.debug(
+                "TelemetryEngine: context-compiler span annotation failed: %s", e
+            )
+
     def is_otel_configured(self) -> bool:
         """Whether :meth:`_setup_otel` configured a REAL TracerProvider/MeterProvider.
 

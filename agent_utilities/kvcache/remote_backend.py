@@ -83,6 +83,25 @@ except Exception:  # noqa: BLE001 - any import failure ⇒ standalone mode
 LMCACHE_AVAILABLE = _LMCACHE_BASE is not None
 
 
+def _record_kvcache_client_outcome(outcome: str) -> None:
+    """Bump the client-side KV-cache lookup counter (WS-4, additive, best-effort).
+
+    Local import + broad except so this hot-path connector never takes on a
+    hard dependency on the ``metrics`` extra, and a metrics-recording failure
+    (extra absent, registry quirk) never turns into a cache miss/exception on
+    the inference path — same posture the rest of this connector already
+    applies to the network calls themselves.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            KVCACHE_CLIENT_REQUESTS,
+        )
+
+        KVCACHE_CLIENT_REQUESTS.labels(outcome=outcome).inc()
+    except Exception as exc:  # noqa: BLE001 — metrics must never break the connector
+        logger.debug("kvcache client metric recording failed: %s", exc)
+
+
 class KvCacheStats(BaseModel):
     """Parsed ``GET /kv/stats`` response (CONCEPT:AU-KG.backend.remote-kvcache-contract).
 
@@ -184,13 +203,22 @@ class EpistemicGraphKVBackend:
 
         Returns the block bytes on a ``200`` hit, ``None`` on a ``404`` miss, and
         ``None`` (a miss) on any transport/protocol error — never raises.
+
+        CONCEPT:AU-KG.backend.remote-kvcache-contract (WS-4) — bumps the
+        client-side ``agent_utilities_kvcache_client_requests_total{outcome}``
+        counter on every call (hit|miss|error), a thin, additive, best-effort
+        instrumentation of this hot inference-path lookup. This is the
+        PER-PROCESS local signal; ``GET /kv/stats`` (:meth:`stats`) is the
+        engine's own aggregate occupancy/dedup counters across every caller.
         """
         try:
             resp = self._client.get(self._path(key))
         except httpx.HTTPError as exc:
             logger.warning("kvcache get(%s) failed, treating as miss: %s", key, exc)
+            _record_kvcache_client_outcome("error")
             return None
         if resp.status_code == 200:
+            _record_kvcache_client_outcome("hit")
             return resp.content
         if resp.status_code != 404:
             logger.warning(
@@ -198,6 +226,9 @@ class EpistemicGraphKVBackend:
                 key,
                 resp.status_code,
             )
+            _record_kvcache_client_outcome("error")
+            return None
+        _record_kvcache_client_outcome("miss")
         return None
 
     def put(self, key: str, value: bytes) -> bool:
