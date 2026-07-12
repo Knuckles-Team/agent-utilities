@@ -57,6 +57,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/quant>,
         <http://knuckles.team/kg/sdd>,
+        <http://knuckles.team/kg/sdlc_lifecycle>,
         <http://knuckles.team/kg/servicenow>,
         <http://knuckles.team/kg/social>,
         <http://knuckles.team/kg/software>,
