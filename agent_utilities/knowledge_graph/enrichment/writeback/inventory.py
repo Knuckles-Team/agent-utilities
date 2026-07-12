@@ -203,15 +203,25 @@ def push_inventory(
     engine: Any = None,
     node_types: tuple[str, ...] | None = None,
     dry_run: bool = True,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     """Collect the reconciled inventory and create the missing items in ``target``.
 
     Fail-closed + dry-run-first via :func:`run_writeback` (the target's
-    ``*_ENABLE_WRITE`` gate still applies).
+    ``*_ENABLE_WRITE`` gate still applies). ``as_of`` (ISO-8601,
+    CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) is the bitemporal valid-time this
+    mirror pass asserts its creations are valid as of — defaults to ``None``
+    ("now" at stamp time), so an existing caller that never passes it behaves
+    byte-for-byte as before.
     """
     creations = collect_inventory_creations(backend, target, node_types=node_types)
     result = run_writeback(
-        target, backend=backend, engine=engine, dry_run=dry_run, creations=creations
+        target,
+        backend=backend,
+        engine=engine,
+        dry_run=dry_run,
+        as_of=as_of,
+        creations=creations,
     )
     if isinstance(result, dict):
         result["inventory_candidates"] = len(creations)
@@ -278,6 +288,7 @@ def run_asset_mirror(
     targets: list[str] | None = None,
     node_types: tuple[str, ...] | None = None,
     dry_run: bool = True,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     """Fan ONE inventory pass out to every enabled CMDB sink (multi-SoR mirror).
 
@@ -287,6 +298,10 @@ def run_asset_mirror(
     * ``ASSET_MIRROR_TARGETS`` selects which sinks participate (empty ⇒ no-op).
     * each sink still enforces its own ``<SINK>_ENABLE_WRITE`` for live writes
       (via :func:`run_writeback`), and ``dry_run`` (default True) previews only.
+
+    ``as_of`` (ISO-8601, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) is the
+    bitemporal valid-time asserted for every sink in this pass — defaults to
+    ``None`` ("now"), so an existing caller is unaffected.
 
     Returns one manifest keyed by sink plus a rollup, so a single scheduled pass
     (the ``asset-mirror`` CronJob / ``python -m ...writeback.asset_mirror``)
@@ -302,6 +317,7 @@ def run_asset_mirror(
             engine=engine,
             node_types=node_types,
             dry_run=dry_run,
+            as_of=as_of,
         )
         per_sink[target] = res
         if isinstance(res, dict):
