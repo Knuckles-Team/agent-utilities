@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 999
+total_concepts: 1001
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -12694,6 +12694,35 @@ concepts:
   dotted: AU-OS.identity.identity-policy-check
   aliases:
   - AU-OS.identity.identity-policy-check
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.identity.identity-scoped-resource-autoload
+  name: AU-OS.identity.identity-scoped-resource-autoload
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/entitlements.py
+  doc: AU-OS.identity.identity-scoped-resource-autoload
+  dotted: AU-OS.identity.identity-scoped-resource-autoload
+  aliases:
+  - AU-OS.identity.identity-scoped-resource-autoload
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.identity.idp-agnostic-role-inheritance
+  name: No-op when the
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/middlewares.py
+  - agent_utilities/mcp/server_factory.py
+  - agent_utilities/security/brain_context.py
+  - agent_utilities/security/identity.py
+  - agent_utilities/security/request_identity.py
+  doc: No-op when the
+  dotted: AU-OS.identity.idp-agnostic-role-inheritance
+  aliases:
+  - AU-OS.identity.idp-agnostic-role-inheritance
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.identity.multisig-cryptographic-mutation
