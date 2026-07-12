@@ -883,11 +883,24 @@ class GraphComputeEngine:
             )
             or []
         )
-        if not include_epistemic:
-            return rows
-        from .epistemic_row import attach_epistemic_rows
+        if include_epistemic:
+            from .epistemic_row import attach_epistemic_rows
 
-        return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
+            return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
+        from agent_utilities.core.config import config as _app_config
+
+        from .epistemic_row import (
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
+        )
+
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(rows, self.explain_provenance_by_ids)
+        return rows
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
         """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).

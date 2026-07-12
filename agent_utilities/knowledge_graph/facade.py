@@ -435,9 +435,29 @@ class KnowledgeGraph:
             except Exception as exc:  # pragma: no cover - never block a legacy read
                 logger.debug("fine-grained enforce skipped: %s", exc)
         audit_read([], summary="query", actor=session.actor)
-        if not include_epistemic:
-            return rows
-        return self._attach_epistemic(rows)  # type: ignore[return-value]
+        if include_epistemic:
+            return self._attach_epistemic(rows)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default):
+        # additive confidence/source_refs/evidence_refs/policy_labels/
+        # provenance columns merged onto the SAME plain rows, default-on —
+        # distinct from the heavy `include_epistemic=True` path above, which
+        # stays opt-in (type-changing to `EpistemicRow`, an extra round trip
+        # a caller must explicitly ask for). Never changes the return type,
+        # so every existing `list[dict]` caller is unaffected.
+        from agent_utilities.core.config import config as _app_config
+
+        from .core.epistemic_row import (
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
+        )
+
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(
+                rows, getattr(self.compute, "explain_provenance_by_ids", None)
+            )
+        return rows
 
     def _attach_epistemic(self, rows: list[dict[str, Any]]) -> list[Any]:
         """CONCEPT:AU-KB-CURRENCY (Seam 1) — currency-upgrade plain ``rows`` into

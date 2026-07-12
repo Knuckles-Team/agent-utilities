@@ -204,6 +204,7 @@ hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
 | Flag | Default | What it gates |
 |---|---|---|
 | `KG_ALLOW_FULL_SCAN` | `false` | Permit an unscoped Cypher query to enumerate the whole graph (AU-ORCH.session.session-anchored-collections-native). Off by default so a buggy unscoped query can never silently full-scan; deliberate opt-in only. Typed `config.kg_allow_full_scan`, read in `backends/epistemic_graph_backend.py`. |
+| `KG_EPISTEMIC_LIGHT_DEFAULT` | `true` | Attach the light epistemic envelope (confidence/source_refs/evidence_refs/policy_labels/provenance) onto every plain read-path row by default (CONCEPT:AU-KB-CURRENCY) — additive, never changes a caller's `list[dict]` shape. Opt-out for a deployment that must skip the extra batched `explain_provenance_by_ids` round trip on every read; a row already showing a contested/low-confidence signal is still resolved regardless (auto-on override). Typed `config.epistemic_light_default`, read in `knowledge_graph/core/epistemic_row.py`. |
 
 ## C. Ingest-throughput knobs — REMOVED ✓
 

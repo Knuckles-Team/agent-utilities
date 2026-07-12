@@ -157,6 +157,120 @@ async def test_a2a_client_fetch_card_async_exception():
         assert await client.fetch_card("http://x") is None
 
 
+class _HttpxAsyncSequence:
+    """Minimal ``httpx.AsyncClient`` stand-in that returns queued responses
+    for successive ``post()`` calls, mirroring the message/send → tasks/get
+    polling ``A2AClient.execute_task*`` performs."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+
+    def __call__(self, *a, **k):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None):
+        return self._responses.pop(0)
+
+
+def _fake_response(status_code=200, json_data=None):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_execute_task_with_epistemic_surfaces_peer_metadata():
+    """A peer that attaches epistemic metadata to its response Message ⇒ the
+    envelope surfaces it under `epistemic`, while `content` matches exactly
+    what plain `execute_task` would have returned (CONCEPT:AU-KB-CURRENCY
+    A2A projection)."""
+    from agent_utilities.protocols.a2a import A2AClient
+
+    send_resp = _fake_response(json_data={"result": {"id": "task-1"}})
+    poll_resp = _fake_response(
+        json_data={
+            "result": {
+                "status": {"state": "completed"},
+                "history": [
+                    {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
+                    {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": "the answer"}],
+                        "metadata": {
+                            "confidence": 0.42,
+                            "status": "confirmed",
+                            "policy_labels": ["epistemic:contested"],
+                            "unrelated_field": "ignored-by-epistemic-subset",
+                        },
+                    },
+                ],
+            }
+        }
+    )
+    client = A2AClient(timeout=1.0)
+    sequence = _HttpxAsyncSequence([send_resp, poll_resp])
+    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
+        envelope = await client.execute_task_with_epistemic("http://peer", "q")
+
+    assert envelope["content"] == "the answer"
+    assert envelope["error"] is None
+    assert envelope["epistemic"] == {
+        "confidence": 0.42,
+        "status": "confirmed",
+        "policy_labels": ["epistemic:contested"],
+    }
+    assert envelope["metadata"]["unrelated_field"] == "ignored-by-epistemic-subset"
+
+
+@pytest.mark.asyncio
+async def test_execute_task_with_epistemic_degrades_to_empty_when_peer_sends_none():
+    """A peer with no epistemic awareness (no `metadata`, e.g. any other A2A
+    agent) yields `epistemic: {}` — never fabricated."""
+    from agent_utilities.protocols.a2a import A2AClient
+
+    send_resp = _fake_response(json_data={"result": {"id": "task-1"}})
+    poll_resp = _fake_response(
+        json_data={
+            "result": {
+                "status": {"state": "completed"},
+                "history": [
+                    {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
+                    {"role": "agent", "parts": [{"kind": "text", "text": "plain"}]},
+                ],
+            }
+        }
+    )
+    client = A2AClient(timeout=1.0)
+    sequence = _HttpxAsyncSequence([send_resp, poll_resp])
+    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
+        envelope = await client.execute_task_with_epistemic("http://peer", "q")
+
+    assert envelope["content"] == "plain"
+    assert envelope["epistemic"] == {}
+    assert envelope["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_execute_task_with_epistemic_reports_error_on_bad_status():
+    from agent_utilities.protocols.a2a import A2AClient
+
+    client = A2AClient(timeout=1.0)
+    sequence = _HttpxAsyncSequence([_fake_response(status_code=500)])
+    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
+        envelope = await client.execute_task_with_epistemic("http://peer", "q")
+
+    assert envelope["content"] == ""
+    assert envelope["epistemic"] == {}
+    assert "500" in envelope["error"]
+
+
 def test_register_a2a_peer_no_engine(monkeypatch):
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a

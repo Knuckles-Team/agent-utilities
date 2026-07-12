@@ -31,16 +31,36 @@ populated regardless of the engine's ``epistemic`` build feature;
 honestly reported via the wire's ``resolved`` flag) when that feature is off.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "EpistemicRow",
     "EvidenceSpan",
     "attach_epistemic_rows",
     "row_ids_from_plain_rows",
+    "attach_epistemic_columns",
+    "should_attach_epistemic_columns",
+    "is_contested_row",
+    "epistemic_status",
+    "NEUTRAL_CONFIDENCE",
+    "CONTESTED_LABEL",
 ]
+
+#: Neutral confidence prior used when no epistemic envelope resolves for a row
+#: (mirrors ``retrieval/context_compiler.py``'s ``_NEUTRAL_CONFIDENCE`` — the
+#: SAME "no information yet" belief-strength default; kept as its own constant
+#: here, rather than imported, because ``knowledge_graph/core`` sits BELOW
+#: ``knowledge_graph/retrieval`` in the layering and must not import it).
+NEUTRAL_CONFIDENCE = 0.5
+
+#: Policy label the engine (and ``retrieval/context_compiler.py``) uses to
+#: flag a disputed/contested claim.
+CONTESTED_LABEL = "epistemic:contested"
 
 # The field names every ``eg_modality::EvidenceSpan`` variant contributes, unioned —
 # see ``EvidenceSpanWire`` in ``epistemic-graph/crates/eg-types/src/protocol.rs`` for
@@ -319,3 +339,215 @@ def attach_epistemic_rows(
             EpistemicRow.from_wire(wr, properties=props_by_id.get(ip["id"], {}))
         )
     return result
+
+
+def epistemic_status(
+    *,
+    resolved: bool,
+    confidence: float,
+    policy_labels: list[str] | tuple[str, ...],
+    contradiction_count: int = 0,
+    low_confidence_threshold: float = NEUTRAL_CONFIDENCE,
+) -> str:
+    """Derive a coarse, human/OTel-friendly status label for one row's light
+    epistemic envelope (CONCEPT:AU-KB-CURRENCY light layer).
+
+    A DERIVED label, never a wire field — the engine has no ``status``
+    concept of its own at this primitive; this just names the same signal
+    :func:`attach_epistemic_columns` already carries so a caller (or an OTel
+    span attribute, see ``observability.TelemetryEngine.annotate_epistemic``)
+    doesn't have to re-derive it:
+
+    - ``"unresolved"``: no envelope was found for this row's id — the
+      neutral-prior case (no compute engine, id not found, request failed).
+    - ``"contested"``: the engine tagged the row :data:`CONTESTED_LABEL`, or
+      the caller supplied a positive ``contradiction_count``.
+    - ``"low_confidence"``: resolved, not contested, confidence below
+      ``low_confidence_threshold``.
+    - ``"confirmed"``: resolved, not contested, confidence at/above
+      threshold.
+    """
+    if not resolved:
+        return "unresolved"
+    if contradiction_count > 0 or CONTESTED_LABEL in policy_labels:
+        return "contested"
+    if confidence < low_confidence_threshold:
+        return "low_confidence"
+    return "confirmed"
+
+
+def is_contested_row(row: dict[str, Any]) -> bool:
+    """Cheap, LOCAL (no RPC) contested/low-confidence check on a plain row's
+    OWN already-materialized properties — e.g. a ``confidence``/
+    ``policy_labels`` property some write path already stamped on the node,
+    independent of any ``explain_provenance_by_ids`` round trip.
+
+    Used by :func:`should_attach_epistemic_columns` to auto-force the light
+    epistemic attach even when a deployment has opted the default off
+    (CONCEPT:AU-KB-CURRENCY — the "auto-on for contested/low-confidence
+    results" contract): a row that already LOOKS contested/uncertain from
+    data it already carries is never silently served without resolving its
+    full epistemic context.
+    """
+    candidates: list[dict[str, Any]] = [row]
+    for value in row.values():
+        if isinstance(value, dict):
+            candidates.append(value)
+    for node in candidates:
+        labels = node.get("policy_labels") or []
+        if isinstance(labels, list | tuple) and CONTESTED_LABEL in labels:
+            return True
+        conf = node.get("confidence")
+        if conf is not None:
+            try:
+                if float(conf) < NEUTRAL_CONFIDENCE:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
+def should_attach_epistemic_columns(
+    rows: list[dict[str, Any]], *, default: bool
+) -> bool:
+    """Whether the light epistemic attach (:func:`attach_epistemic_columns`)
+    should run for this batch of plain rows (CONCEPT:AU-KB-CURRENCY light
+    layer — the "Native by default" resolution for ``config.
+    epistemic_light_default``).
+
+    ``default`` is the deployment's configured default. When it is ``True``
+    (the platform default), this always returns ``True`` — the light
+    envelope attaches on every read. When an operator has opted it ``False``
+    (a deployment that must skip the extra batched
+    ``explain_provenance_by_ids`` round trip on every read), this STILL
+    returns ``True`` if any row already shows a contested/low-confidence
+    signal in its own properties (:func:`is_contested_row`, a cheap, local,
+    no-RPC check) — a disputed/uncertain result is never silently served
+    without its epistemic context.
+    """
+    if default:
+        return True
+    return any(is_contested_row(row) for row in rows if isinstance(row, dict))
+
+
+def _row_id(row: dict[str, Any]) -> str | None:
+    """Best-effort id extraction for ONE plain row — the single-row sibling
+    of :func:`row_ids_from_plain_rows`, used to zip the light-attach
+    envelope back onto its originating row without disturbing row
+    order/identity."""
+    for value in row.values():
+        if isinstance(value, dict) and isinstance(value.get("id"), str) and value["id"]:
+            return value["id"]
+    top_id = row.get("id")
+    if isinstance(top_id, str) and top_id:
+        return top_id
+    return None
+
+
+def attach_epistemic_columns(
+    rows: list[dict[str, Any]],
+    fetch: Callable[[list[str]], list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    """LIGHT, additive epistemic-columns attach (CONCEPT:AU-KB-CURRENCY light
+    layer) — the non-breaking counterpart to :func:`attach_epistemic_rows`.
+
+    Merges ``confidence``/``source_refs``/``evidence_refs``/
+    ``policy_labels``/``provenance`` onto each row IN PLACE via
+    ``dict.setdefault`` (never clobbers a property the row already carries
+    under one of those names) and returns the SAME ``list[dict]`` — unlike
+    :func:`attach_epistemic_rows`, this NEVER changes the caller's return
+    type, so it is safe to run BY DEFAULT on every plain read path
+    (:meth:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph.query`,
+    ``GraphComputeEngine.query_unified``, ``IntelligenceGraphEngine.uql``)
+    without breaking any existing caller expecting ``list[dict]`` rows.
+
+    Degrades cleanly (the documented neutral-prior contract): when ``fetch``
+    is unavailable, raises, or a specific row's id can't be resolved, that
+    row keeps 100% of its original data and gets a neutral prior
+    (``confidence=NEUTRAL_CONFIDENCE``, empty ref/label lists,
+    ``provenance={"resolved": False, ...}``) instead of being dropped or the
+    whole call raising/emptying — a backend with no epistemic support
+    degrades to "unknown", never to an error or a truncated result set.
+
+    Also stamps the resolved envelope onto the current OTel span (best
+    effort, no-op when tracing isn't configured — CONCEPT:AU-KB-CURRENCY OTel
+    projection) via ``observability.get_telemetry_engine().annotate_epistemic``,
+    using the highest ``contradiction_count``/lowest ``confidence`` seen
+    across the batch so a contested/low-confidence result is visible on the
+    span that produced it.
+    """
+    if not rows:
+        return rows
+    wire_by_id: dict[str, dict[str, Any]] = {}
+    if fetch is not None:
+        try:
+            id_props = row_ids_from_plain_rows(rows)
+            ids = [ip["id"] for ip in id_props]
+            if ids:
+                wire_rows = fetch(ids) or []
+                wire_by_id = {
+                    wr["id"]: wr
+                    for wr in wire_rows
+                    if isinstance(wr, dict) and isinstance(wr.get("id"), str)
+                }
+        except Exception as exc:  # pragma: no cover - never break a plain read
+            logger.debug("light epistemic-columns attach skipped: %s", exc)
+            wire_by_id = {}
+
+    worst_confidence = 1.0
+    any_contested = False
+    all_policy_labels: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rid = _row_id(row)
+        wr = wire_by_id.get(rid) if rid else None
+        resolved = wr is not None
+        if resolved:
+            confidence = float(
+                wr.get("confidence", NEUTRAL_CONFIDENCE) or NEUTRAL_CONFIDENCE
+            )
+            source_refs = list(wr.get("source_refs") or [])
+            evidence_refs = list(wr.get("evidence_spans") or [])
+            policy_labels = list(wr.get("policy_labels") or [])
+            provenance: dict[str, Any] = {
+                "resolved": True,
+                "valid_time": wr.get("valid_time"),
+                "tx_time": wr.get("tx_time"),
+            }
+        else:
+            confidence = NEUTRAL_CONFIDENCE
+            source_refs = []
+            evidence_refs = []
+            policy_labels = []
+            provenance = {"resolved": False, "valid_time": None, "tx_time": None}
+        row.setdefault("confidence", confidence)
+        row.setdefault("source_refs", source_refs)
+        row.setdefault("evidence_refs", evidence_refs)
+        row.setdefault("policy_labels", policy_labels)
+        row.setdefault("provenance", provenance)
+
+        worst_confidence = min(worst_confidence, confidence)
+        all_policy_labels.update(policy_labels)
+        if CONTESTED_LABEL in policy_labels:
+            any_contested = True
+
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().annotate_epistemic(
+            confidence=worst_confidence,
+            status=epistemic_status(
+                resolved=bool(wire_by_id),
+                confidence=worst_confidence,
+                policy_labels=tuple(all_policy_labels),
+                contradiction_count=1 if any_contested else 0,
+            ),
+            contradiction_count=1 if any_contested else 0,
+            policy_labels=sorted(all_policy_labels),
+            source_count=len(rows),
+        )
+    except Exception as exc:  # pragma: no cover - tracing must never break a read
+        logger.debug("epistemic OTel span annotation skipped: %s", exc)
+
+    return rows
