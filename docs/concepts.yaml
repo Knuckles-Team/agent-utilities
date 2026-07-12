@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 988
+total_concepts: 989
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -2130,6 +2130,18 @@ concepts:
   dotted: AU-ECO.mcp.intent-surface-condensed-collapse
   aliases:
   - AU-ECO.mcp.intent-surface-condensed-collapse
+  canonical_pillar: AU-ECO
+  needs_curation: false
+- id: AU-ECO.mcp.intent-surface-selection-accuracy
+  name: hand-labelled corpus, one case per
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py
+  doc: hand-labelled corpus, one case per
+  dotted: AU-ECO.mcp.intent-surface-selection-accuracy
+  aliases:
+  - AU-ECO.mcp.intent-surface-selection-accuracy
   canonical_pillar: AU-ECO
   needs_curation: false
 - id: AU-ECO.mcp.intent-surface-tool-lifecycle
