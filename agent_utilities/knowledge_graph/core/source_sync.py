@@ -3575,6 +3575,24 @@ def _parse_memory_file(path: Any) -> tuple[str, str, str, str, str, list[str]]:
     return slug, name, description, mtype, body.strip(), links
 
 
+def _sync_package_install(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
+
+    Thin wiring over :func:`~..ingestion.package_install_ingest.sync_package_install`
+    (the actual logic lives there, next to ``skill_workflow_ingest``/
+    ``change_envelope`` — kept out of this already-large module): reads the
+    universal-installer's ``install-manifest.json`` as a change signal and
+    re-drives the EXISTING prompt-registry / ontology-federation /
+    workflow-skill reloads rather than reimplementing ingestion. See that
+    module's docstring for the full design.
+    """
+    from ..ingestion.package_install_ingest import sync_package_install
+
+    return sync_package_install(engine, mode=mode, ids=ids, client=client)
+
+
 def _sync_claude_memory(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -3692,6 +3710,7 @@ def _sync_claude_memory(
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "package_install": _sync_package_install,
     "claude_memory": _sync_claude_memory,
     "leanix": _sync_leanix,
     "archivebox": _sync_archivebox,
@@ -3752,8 +3771,15 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
 # versionless container entity — see :func:`_ingest_entities_via_envelope`'s
 # docstring for why), so it is re-asserted whenever that entity is new/changed.
 #
-# 7 handlers remain LEGACY, each for a documented, judgment-call reason — not a
+# 8 handlers remain LEGACY, each for a documented, judgment-call reason — not a
 # silently-deferred gap:
+#   * ``package_install`` — a pure orchestration trigger, not an entity writer: it
+#     never builds an ``entities``/``rels`` batch (or a ChangeEnvelope) itself at
+#     all — it re-drives three ALREADY-envelope-or-upsert-native ingestion
+#     primitives (the prompt registry, ontology federation, workflow-skill
+#     ingest) that each own their own write shape/idempotency. Wrapping those
+#     calls in a synthetic envelope would just relabel their existing
+#     idempotent upserts, not add real crash-resume granularity.
 #   * ``gitlab`` — the ORIGINAL documented exception: its resolved call-graph edges
 #     can cross arbitrary projects/repos OUTSIDE the current indexing batch, and the
 #     entity/relationship construction happens entirely inside the opaque

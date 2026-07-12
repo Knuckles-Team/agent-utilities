@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1002
+total_concepts: 1003
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -5485,6 +5485,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
   - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
@@ -5839,6 +5840,20 @@ concepts:
   dotted: AU-KG.ingest.over-same-tree-fan
   aliases:
   - AU-KG.ingest.over-same-tree-fan
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.package-install-autoingest
+  name: auto-extend
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
+  doc: auto-extend
+  dotted: AU-KG.ingest.package-install-autoingest
+  aliases:
+  - AU-KG.ingest.package-install-autoingest
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.per-agent-token-usage
@@ -8305,6 +8320,8 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/observability/__init__.py
+  - agent_utilities/observability/gateway_metrics.py
   doc: MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations
     + a proof graph, instead of the plain relevance-sorted text the other modes return
   dotted: AU-KG.retrieval.context-compiler
@@ -8319,6 +8336,8 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+  - agent_utilities/observability/__init__.py
+  - agent_utilities/observability/gateway_metrics.py
   doc: the serving-layer half of Seam 6. Builds
   dotted: AU-KG.retrieval.context-compiler-kv-seam
   aliases:
@@ -8835,6 +8854,9 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/bitemporal.py
   - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/core.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/findings.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/inventory.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/models/knowledge_graph.py
@@ -12326,6 +12348,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/observability/incidents.py
   - agent_utilities/orchestration/action_policy.py
   doc: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
