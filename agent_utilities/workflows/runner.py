@@ -88,8 +88,10 @@ default ``None`` keeps the legacy behavior bit-for-bit.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +104,68 @@ logger = logging.getLogger(__name__)
 
 # Registry for tracking workflow runs (both active and completed) within this process
 _active_workflows: dict[str, WorkflowResult] = {}
+
+# CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — governance gate/approval step kind
+# (autonomous-sdlc-loop-design.md §7.1 delta 3). A step whose ``kind`` is one of these is
+# a suspend/resume checkpoint, not an ordinary agent-executed step.
+GATE_KINDS = frozenset({"gate", "approval"})
+
+# Statuses a StepResult can carry beyond "completed"/"failed" for a gate step.
+STATUS_BLOCKED = "blocked_on_approval"
+STATUS_REJECTED = "rejected"
+STATUS_SKIPPED = "skipped"
+
+
+def _is_gate_step(step: Any) -> bool:
+    return str(getattr(step, "kind", "task") or "task").lower() in GATE_KINDS
+
+
+def _default_gate_checker(engine: Any, step: Any) -> str | None:
+    """Default gate satisfaction check (§7.1 delta 3).
+
+    A gate step is satisfied when an out-edge ``step -[:satisfiedBy]-> X``
+    exists on the graph (written externally — an approval recorded, a Camunda
+    user task completed, a DPIA approved). Returns ``"approved"``,
+    ``"rejected"`` (edge carries ``decision: "rejected"``), or ``None``
+    (pending — the run stays suspended). Best-effort: any read failure or a
+    missing engine degrades to ``None`` (never silently auto-approves).
+    """
+    step_id = getattr(step, "id", "") or ""
+    if not step_id or engine is None:
+        return None
+
+    def _decision(edata: dict[str, Any]) -> str:
+        return (
+            "rejected"
+            if str(edata.get("decision") or "").lower() == "rejected"
+            else "approved"
+        )
+
+    graph = getattr(engine, "graph", None)
+    if graph is not None:
+        try:
+            for _src, _tgt, edata in graph.out_edges(step_id, data=True):
+                rel = str(
+                    (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
+                )
+                if rel == "satisfiedBy":
+                    return _decision(edata or {})
+        except Exception as exc:  # noqa: BLE001 — read is best-effort
+            logger.debug("[ORCH.gate] compute-graph gate check failed: %s", exc)
+
+    backend = getattr(engine, "backend", None)
+    if backend is not None:
+        try:
+            rows = backend.execute(
+                "MATCH (s)-[r:satisfiedBy]->(x) WHERE s.id = $sid "
+                "RETURN r.decision AS decision LIMIT 1",
+                {"sid": step_id},
+            )
+            if rows:
+                return _decision({"decision": rows[0].get("decision")})
+        except Exception as exc:  # noqa: BLE001 — read is best-effort
+            logger.debug("[ORCH.gate] backend gate check failed: %s", exc)
+    return None
 
 
 @dataclass
@@ -220,6 +284,7 @@ class WorkflowRunner:
         self,
         max_steps_per_agent: int = 10,
         lineage_sink: Any | None = None,
+        gate_checker: Callable[[Any, Any], str | None] | None = None,
     ) -> None:
         """Initialize the runner.
 
@@ -230,9 +295,17 @@ class WorkflowRunner:
                 module docstring). Lets a deployment wire egeria-mcp's
                 ``assert_lineage`` (or any lineage SoR) without
                 agent-utilities depending on it. Best-effort; default None.
+            gate_checker: Optional ``(engine, step) -> "approved"|"rejected"|None``
+                callable consulted for every ``kind="gate"``/``"approval"`` step
+                (CONCEPT:AU-ORCH.execution.gate-step-suspend-resume, §7.1 delta 3). Defaults to
+                :func:`_default_gate_checker` (a ``:satisfiedBy`` out-edge on the
+                step). Overridable so a deployment can bind gate satisfaction to
+                its own governance system (Camunda task completion, an
+                ``:EscalationRequest`` resolution, ...).
         """
         self.max_steps_per_agent = max_steps_per_agent
         self.lineage_sink = lineage_sink
+        self.gate_checker = gate_checker or _default_gate_checker
 
     async def execute_via_parallel_engine(
         self,
@@ -500,6 +573,119 @@ class WorkflowRunner:
             task=task,
         )
 
+    async def resume(
+        self,
+        workflow_name: str,
+        engine: IntelligenceGraphEngine,
+        session_id: str,
+        task: str | None = None,
+    ) -> WorkflowResult:
+        """Resume a run that :meth:`_execute_plan_via_agents` SUSPENDED on a gate.
+
+        CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 delta 3. A suspended run
+        persisted its per-step state as a ``:WorkflowRun {status:"suspended"}`` node
+        (see :meth:`_persist_run_state`). Resuming reloads that state and re-drives
+        the DAG from where it blocked; each still-blocked gate is re-checked via
+        ``gate_checker`` (now that an ``:satisfiedBy`` edge — an approval / Camunda
+        task completion / :EscalationRequest resolution — may have been recorded)
+        and, if satisfied, the run continues. Idempotent: already-completed steps are
+        NOT re-executed. Falls back to a fresh run when no suspended state exists.
+        """
+        from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
+        store = WorkflowStore(engine)
+        plan = store.load_workflow(workflow_name)
+        if plan is None:
+            raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
+        prior = self._load_run_state(engine, session_id)
+        return await self._execute_plan_via_agents(
+            plan=plan,
+            engine=engine,
+            workflow_name=workflow_name,
+            trace_session=session_id,
+            task=task,
+            resume_state=prior,
+        )
+
+    # ------------------------------------------------------------------
+    # Suspend/resume state persistence (CONCEPT:AU-ORCH.execution.gate-step-suspend-resume, §7.1 delta 3)
+    # ------------------------------------------------------------------
+
+    def _persist_run_state(
+        self,
+        engine: Any,
+        session_id: str,
+        workflow_name: str,
+        status: str,
+        completed: dict[str, StepResult],
+        satisfied: set[str],
+        blocked_on: list[str],
+    ) -> None:
+        """Best-effort persist a run's step state so it can be resumed after a gate.
+
+        Writes a ``:WorkflowRun`` node keyed on the session id carrying JSON of the
+        completed step outputs + statuses, the satisfied set, and the blocked gate
+        ids. Never raises — persistence must not fail a suspend.
+        """
+        if engine is None:
+            return
+        try:
+            payload = {
+                sid: {"output": r.output, "status": r.status, "node_id": r.node_id}
+                for sid, r in completed.items()
+            }
+            engine.add_node(
+                f"workflowrun:{session_id}",
+                "WorkflowRun",
+                properties={
+                    "session_id": session_id,
+                    "workflow_name": workflow_name,
+                    "status": status,
+                    "completed_json": json.dumps(payload, default=str),
+                    "satisfied_json": json.dumps(sorted(satisfied)),
+                    "blocked_on_json": json.dumps(sorted(blocked_on)),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — persistence is best-effort
+            logger.debug("[ORCH.gate] run-state persist skipped: %s", exc)
+
+    def _load_run_state(self, engine: Any, session_id: str) -> dict[str, Any]:
+        """Reload a suspended run's persisted step state (``{}`` if none)."""
+        if engine is None:
+            return {}
+        node_id = f"workflowrun:{session_id}"
+        raw: dict[str, Any] = {}
+        graph = getattr(engine, "graph", None)
+        if graph is not None:
+            try:
+                data = graph.nodes[node_id]
+                if data:
+                    raw = dict(data)
+            except Exception:  # noqa: BLE001 — fall through to backend
+                raw = {}
+        if not raw:
+            backend = getattr(engine, "backend", None)
+            if backend is not None:
+                try:
+                    rows = backend.execute(
+                        "MATCH (r:WorkflowRun) WHERE r.id = $rid RETURN r",
+                        {"rid": node_id},
+                    )
+                    if rows and isinstance(rows[0].get("r"), dict):
+                        raw = dict(rows[0]["r"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("[ORCH.gate] run-state load failed: %s", exc)
+        if not raw:
+            return {}
+        try:
+            return {
+                "completed": json.loads(raw.get("completed_json") or "{}"),
+                "satisfied": set(json.loads(raw.get("satisfied_json") or "[]")),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
+            return {}
+
     async def _execute_plan_via_agents(
         self,
         plan: GraphPlan,
@@ -507,6 +693,7 @@ class WorkflowRunner:
         workflow_name: str,
         trace_session: str | None = None,
         task: str | None = None,
+        resume_state: dict[str, Any] | None = None,
     ) -> WorkflowResult:
         """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
 
@@ -517,6 +704,15 @@ class WorkflowRunner:
         threaded into a dependent step's context. ``run_agent`` records each step's
         own RunTrace + :ToolCall nodes, so workflow execution is fully visible over
         graph-os with zero extra plumbing.
+
+        CONCEPT:AU-ORCH.execution.gate-step-suspend-resume — §7.1 delta 3: a ready step whose
+        ``kind`` is ``"gate"``/``"approval"`` is NOT run by an agent; instead the
+        ``gate_checker`` is consulted. Approved → the step completes and its
+        on-success dependents proceed; rejected → the step and its on-success
+        downstream are marked skipped (its ``on_reject`` target, if any, still runs);
+        pending → the whole run SUSPENDS: state is persisted (``:WorkflowRun``) and a
+        ``status="suspended"`` WorkflowResult is returned rather than blocking. Call
+        :meth:`resume` once the gate's ``:satisfiedBy`` edge is recorded.
         """
         import time as _time
 
@@ -535,21 +731,119 @@ class WorkflowRunner:
             by_id[sid] = s
         completed: dict[str, StepResult] = {}
         outputs: dict[str, str] = {}
-        wave_idx = 0
-        remaining = list(steps)
+        # ``satisfied`` = step ids whose ON-SUCCESS path is cleared (completed tasks +
+        # approved gates). A gate that rejected/pends is in ``completed`` but NOT here,
+        # so its on-success dependents don't spuriously advance.
+        satisfied: set[str] = set()
 
-        while remaining:
+        # Rehydrate a resumed run's already-finished steps (idempotent resume).
+        if resume_state:
+            for sid, rec in (resume_state.get("completed") or {}).items():
+                completed[sid] = StepResult(
+                    step_index=0,
+                    node_id=str(rec.get("node_id") or sid),
+                    task="",
+                    output=str(rec.get("output") or ""),
+                    status=str(rec.get("status") or "completed"),
+                    duration_ms=0.0,
+                    trace_id=session_id,
+                )
+                outputs[sid] = str(rec.get("output") or "")
+            satisfied |= set(resume_state.get("satisfied") or set())
+
+        skipped: set[str] = set()
+        wave_idx = 0
+        suspended_gate: str | None = None
+
+        def _mark_reject_downstream(gate_id: str, keep: str | None) -> None:
+            """Skip the on-success transitive downstream of a rejected gate (except
+            an explicit ``on_reject`` branch target ``keep``)."""
+            frontier = [gate_id]
+            seen: set[str] = set()
+            while frontier:
+                cur = frontier.pop()
+                for s in steps:
+                    sid = getattr(s, "id", "") or ""
+                    if not sid or sid == keep or sid in seen:
+                        continue
+                    if cur in (getattr(s, "depends_on", None) or []):
+                        seen.add(sid)
+                        skipped.add(sid)
+                        frontier.append(sid)
+
+        def _remaining() -> list[Any]:
+            return [
+                s
+                for s in steps
+                if (getattr(s, "id", "") or "") not in completed
+                and (getattr(s, "id", "") or "") not in skipped
+            ]
+
+        while _remaining() and suspended_gate is None:
+            remaining = _remaining()
             ready = [
                 s
                 for s in remaining
                 if all(
-                    dep in completed for dep in (getattr(s, "depends_on", None) or [])
+                    dep in completed or dep in skipped
+                    for dep in (getattr(s, "depends_on", None) or [])
                 )
             ]
             if not ready:
                 # A dependency cycle / dangling dep — run the rest as one wave rather
                 # than deadlock (the SHACL gate upstream guards malformed DAGs).
                 ready = list(remaining)
+
+            # Gate/approval steps are resolved by the gate_checker, not an agent.
+            gate_steps = [s for s in ready if _is_gate_step(s)]
+            agent_steps = [s for s in ready if not _is_gate_step(s)]
+
+            gate_progressed = False
+            for gstep in gate_steps:
+                gsid = getattr(gstep, "id", "") or f"gate-{wave_idx}"
+                verdict = self.gate_checker(engine, gstep)
+                if verdict == "approved":
+                    completed[gsid] = StepResult(
+                        step_index=wave_idx,
+                        node_id=gsid,
+                        task=str(getattr(gstep, "refined_subtask", "") or gsid),
+                        output="gate approved",
+                        status="completed",
+                        duration_ms=0.0,
+                        trace_id=session_id,
+                    )
+                    outputs[gsid] = "gate approved"
+                    satisfied.add(gsid)
+                    gate_progressed = True
+                elif verdict == "rejected":
+                    completed[gsid] = StepResult(
+                        step_index=wave_idx,
+                        node_id=gsid,
+                        task=str(getattr(gstep, "refined_subtask", "") or gsid),
+                        output="gate rejected",
+                        status=STATUS_REJECTED,
+                        duration_ms=0.0,
+                        error="gate rejected",
+                        trace_id=session_id,
+                    )
+                    outputs[gsid] = "gate rejected"
+                    _mark_reject_downstream(gsid, getattr(gstep, "on_reject", None))
+                    gate_progressed = True
+                else:
+                    # Pending → suspend the whole run at the first blocking gate.
+                    suspended_gate = gsid
+                    break
+
+            if suspended_gate is not None:
+                break
+
+            if not agent_steps:
+                # Only gates this wave — if none progressed we would loop forever;
+                # that can't happen here (a non-progressing gate suspends above).
+                if not gate_progressed:
+                    break
+                wave_idx += 1
+                continue
 
             async def _run_step(step: Any, wave: int = wave_idx) -> StepResult:
                 sid = getattr(step, "id", "") or f"step-{wave}"
@@ -599,15 +893,76 @@ class WorkflowRunner:
                         trace_id=session_id,
                     )
 
-            results = await asyncio.gather(*(_run_step(s) for s in ready))
-            for step, res in zip(ready, results, strict=False):
+            results = await asyncio.gather(*(_run_step(s) for s in agent_steps))
+            for step, res in zip(agent_steps, results, strict=False):
                 sid = getattr(step, "id", "") or res.node_id
                 completed[sid] = res
                 outputs[sid] = res.output
-            remaining = [
-                s for s in remaining if (getattr(s, "id", "") or "") not in completed
-            ]
+                if res.status == "completed":
+                    satisfied.add(sid)
             wave_idx += 1
+
+        # A suspended run persists its state and returns early (not completed/failed).
+        if suspended_gate is not None:
+            for s in steps:
+                if (getattr(s, "id", "") or "") == suspended_gate:
+                    completed[suspended_gate] = StepResult(
+                        step_index=wave_idx,
+                        node_id=suspended_gate,
+                        task=str(getattr(s, "refined_subtask", "") or suspended_gate),
+                        output="",
+                        status=STATUS_BLOCKED,
+                        duration_ms=0.0,
+                        error="awaiting gate satisfaction",
+                        trace_id=session_id,
+                    )
+                    break
+            step_results = [
+                completed[getattr(s, "id", "")]
+                for s in steps
+                if getattr(s, "id", "") in completed
+            ]
+            result = WorkflowResult(
+                workflow_name=workflow_name,
+                session_id=session_id,
+                step_results=step_results,
+                total_duration_ms=(_time.monotonic() - wf_started) * 1000,
+                status="suspended",
+                mermaid=plan.to_mermaid(title=workflow_name)
+                if hasattr(plan, "to_mermaid")
+                else "",
+            )
+            _active_workflows[session_id] = result
+            self._persist_run_state(
+                engine,
+                session_id,
+                workflow_name,
+                "suspended",
+                {k: v for k, v in completed.items() if v.status != STATUS_BLOCKED},
+                satisfied,
+                [suspended_gate],
+            )
+            logger.info(
+                "[ORCH.gate] workflow %s suspended on gate %s (session %s)",
+                workflow_name,
+                suspended_gate,
+                session_id,
+            )
+            return result
+
+        # Skipped (rejected-downstream) steps are recorded for visibility.
+        for sid in skipped:
+            if sid not in completed:
+                completed[sid] = StepResult(
+                    step_index=wave_idx,
+                    node_id=sid,
+                    task="",
+                    output="",
+                    status=STATUS_SKIPPED,
+                    duration_ms=0.0,
+                    error="skipped (upstream gate rejected)",
+                    trace_id=session_id,
+                )
 
         step_results = [
             completed[getattr(s, "id", "")]
