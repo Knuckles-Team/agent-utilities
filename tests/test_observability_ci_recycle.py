@@ -27,7 +27,11 @@ class _Capture:
 
     def __call__(self, entities, relationships=None, *, source, domain, **kw):
         self.calls.append(
-            {"entities": entities, "relationships": relationships or [], "source": source}
+            {
+                "entities": entities,
+                "relationships": relationships or [],
+                "source": source,
+            }
         )
         return {"nodes": len(entities), "edges": len(relationships or [])}
 
