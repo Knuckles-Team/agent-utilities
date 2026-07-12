@@ -66,6 +66,7 @@ class QueryMixin(_Base):
         as_of: str | None = None,
         *,
         session: GraphSession | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the persistent Graph store.
 
@@ -85,6 +86,20 @@ class QueryMixin(_Base):
                 trace in one object). When omitted, one is derived from today's
                 ambient actor via ``GraphSession.from_ambient()`` so existing
                 callers are unaffected.
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended to the MCP-facing Cypher
+                surface). Default ``False`` — byte-for-byte the same
+                ``list[dict]`` rows as before this parameter existed. When
+                ``True``, the SAME rows (after ``as_of``/visibility filtering)
+                are currency-upgraded via :func:`~agent_utilities.knowledge_graph
+                .core.epistemic_row.attach_epistemic_rows` into
+                :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+                results — confidence, bitemporal valid/tx window, evidence
+                provenance, policy labels — resolved server-side via the read
+                backend's own ``explain_provenance_by_ids``, never fabricated.
+                Degrades to ``[]`` (never raises) when the backend has no such
+                primitive, mirroring :meth:`KnowledgeGraph.query`'s documented
+                contract.
         """
         if params is None:
             params = {}
@@ -155,7 +170,16 @@ class QueryMixin(_Base):
             from agent_utilities.knowledge_graph.core.bitemporal import filter_as_of
 
             rows = filter_as_of(rows, as_of)
-        return rows
+        if not include_epistemic:
+            return rows
+
+        from agent_utilities.knowledge_graph.core.epistemic_row import (
+            attach_epistemic_rows,
+        )
+
+        graph = getattr(read_backend, "graph", None)
+        fetch = getattr(graph, "explain_provenance_by_ids", None)
+        return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
 
     def sql(self, query: str) -> list[dict[str, Any]]:
         """Run read-only SQL over the KG via the engine's DataFusion surface (KG-2.243).

@@ -88,6 +88,22 @@ def _persist_sections(
     return ok
 
 
+def _json_default(obj: Any) -> Any:
+    """``json.dumps(default=...)`` helper that dataclass-serializes an
+    :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+    (or any other dataclass instance) instead of stringifying it (CONCEPT:AU-KB-CURRENCY).
+
+    Used wherever a tool's result may carry ``include_epistemic=True`` rows —
+    plain dicts pass through ``json.dumps`` untouched; only genuinely
+    non-serializable values (dataclass instances) reach this hook.
+    """
+    import dataclasses
+
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    return str(obj)
+
+
 def is_aggregation_cypher(cypher: str) -> bool:
     """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
 
@@ -360,6 +376,21 @@ def register_query_tools(mcp):
             "coverage/contradictions — as an EvidenceBundle via "
             "`Method::ExplainProvenanceByIds`). Additive/opt-in.",
         ),
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in, single-connection local Cypher only "
+                "(ignored on scope='sql'/'sparql'/'federated' and on a fan-out "
+                "target). When true, each result row is currency-upgraded via the "
+                "engine's `explain_provenance_by_ids` into a per-row epistemic "
+                "envelope — confidence, bitemporal valid/tx time, evidence "
+                "provenance, policy labels — alongside the row's own properties "
+                "(never fabricated, resolved server-side). Overrides `envelope`: "
+                "the response becomes a JSON array of these widened rows instead "
+                "of the plain/bundle shape. Degrades to an empty array when the "
+                "connected backend has no epistemic primitive."
+            ),
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         parsed_params = json.loads(params) if params else {}
@@ -479,7 +510,27 @@ def register_query_tools(mcp):
             # Single connection (default or one named) — identical shape to legacy
             # when envelope='raw' (the default).
             _name, engine = entries[0]
+            # Same raw-call defensive normalization as `envelope` below (a direct
+            # call bypassing FastMCP schema resolution binds an omitted bool Field
+            # to its FieldInfo, not the `False` default).
+            include_epistemic_flag = (
+                include_epistemic if isinstance(include_epistemic, bool) else False
+            )
             try:
+                if include_epistemic_flag:
+                    # Only pass the new kwarg when actually requested — keeps the
+                    # default call shape byte-identical for any `query_cypher`
+                    # implementation (real or test double) that predates this
+                    # parameter and doesn't accept it.
+                    results = engine.query_cypher(
+                        cypher,
+                        parsed_params,
+                        as_of=as_of or None,
+                        include_epistemic=True,
+                    )
+                    # Per-row epistemic envelope takes precedence over `envelope`
+                    # (there is no aggregate-bundle-of-epistemic-rows shape).
+                    return json.dumps(results, default=_json_default)
                 results = engine.query_cypher(
                     cypher, parsed_params, as_of=as_of or None
                 )
@@ -565,6 +616,18 @@ def register_query_tools(mcp):
             "(additionally wrap the result as an EvidenceBundle under "
             "`evidence_bundle`). Additive/opt-in.",
         ),
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in. Only takes effect when the "
+                "generated (or forced) query resolves to the 'cypher' dialect "
+                "(sql/sparql have no epistemic-envelope surface, so this is a "
+                "silent no-op for those). When true and honored, `results` holds "
+                "per-row epistemic envelopes (confidence, bitemporal valid/tx "
+                "time, evidence provenance, policy labels) instead of plain rows, "
+                "and `citations` degrades to an empty list."
+            ),
+        ),
     ) -> str:
         from agent_utilities.knowledge_graph.core.nl_query import nl_to_query
 
@@ -579,12 +642,13 @@ def register_query_tools(mcp):
                 dialect=str(dialect),
                 execute=bool(execute),
                 limit=int(limit),
+                include_epistemic=bool(include_epistemic),
             )
             # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
             # that omits `envelope` binds it to the Field(...) descriptor itself, not
             # the string default — normalize defensively so that degrades to "raw".
             envelope_mode = envelope if isinstance(envelope, str) else "raw"
-            if envelope_mode.strip().lower() == "bundle":
+            if envelope_mode.strip().lower() == "bundle" and not include_epistemic:
                 from agent_utilities.models.evidence_bundle import EvidenceBundle
 
                 result = {
@@ -593,7 +657,7 @@ def register_query_tools(mcp):
                         result
                     ).model_dump(),
                 }
-            return json.dumps(result, default=str)
+            return json.dumps(result, default=_json_default)
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 

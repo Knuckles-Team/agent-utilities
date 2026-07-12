@@ -102,12 +102,24 @@ def _is_mutation(query: str) -> bool:
     )
 
 
-def _execute(engine: Any, dialect: str, query: str) -> list[dict[str, Any]]:
-    """Run the generated query through the matching engine surface."""
+def _execute(
+    engine: Any, dialect: str, query: str, *, include_epistemic: bool = False
+) -> list[dict[str, Any]]:
+    """Run the generated query through the matching engine surface.
+
+    ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY) only applies to the ``cypher``
+    dialect — ``engine.sql``/``engine.sparql`` have no epistemic-envelope
+    parameter, so it is silently not passed for those (never raises).
+    """
     if dialect == "sql":
         return engine.sql(query)
     if dialect == "sparql":
         return engine.sparql(query)
+    if include_epistemic:
+        # Only pass the new kwarg when actually requested — keeps the default
+        # call shape byte-identical for any `query_cypher` implementation
+        # (real or test double) that predates this parameter.
+        return engine.query_cypher(query, include_epistemic=True)
     return engine.query_cypher(query)
 
 
@@ -134,6 +146,7 @@ def nl_to_query(
     dialect: str = "auto",
     execute: bool = True,
     limit: int = 50,
+    include_epistemic: bool = False,
 ) -> dict[str, Any]:
     """Translate ``question`` to a query, execute it, and return a grounded answer.
 
@@ -143,6 +156,13 @@ def nl_to_query(
         dialect: ``auto`` (let the model choose) or pin to ``cypher``/``sql``/``sparql``.
         execute: when False, return only the generated query (dry-run / preview).
         limit: max result rows returned.
+        include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY). Only takes effect
+            when the model (or a forced ``dialect``) resolves to ``cypher`` —
+            see :func:`_execute`. When true and honored, ``results`` holds
+            :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+            instances instead of plain dicts, and ``citations`` degrades to
+            ``[]`` (the id/source-uri extraction only recognizes plain-dict
+            rows) rather than raising.
 
     Returns ``{question, dialect, generated_query, results, row_count, citations,
     schema}`` — or ``{error: ...}`` on failure.
@@ -193,7 +213,12 @@ def nl_to_query(
         return out
 
     try:
-        rows = _execute(engine, parsed["dialect"], parsed["query"])
+        rows = _execute(
+            engine,
+            parsed["dialect"],
+            parsed["query"],
+            include_epistemic=include_epistemic,
+        )
         rows = list(rows or [])[:limit]
         out["results"] = rows
         out["row_count"] = len(rows)
