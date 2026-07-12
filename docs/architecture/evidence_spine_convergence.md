@@ -107,34 +107,114 @@ Together the two prove the round trip without requiring a live server built
 with the (opt-in, non-default) `evidence-graph` Cargo feature in this repo's
 test harness — see "What remains" below.
 
-## Pattern for the other modalities (not yet wired)
+## All eleven loci now wired (AU half) — Seam 2 completion
 
-`eg_modality::EvidenceSpan` defines eleven located-locus variants; this seam
-wires exactly one (`PageBox`) end-to-end. The SAME pattern extends unchanged
-to the rest — each needs only:
+`eg_modality::EvidenceSpan` defines eleven located-locus variants. The
+page-box slice above proved the pattern for `PageBox`; the SAME pattern now
+extends to the remaining ten via a shared private skeleton,
+`MediaStore._store_located_evidence` (`agent_utilities/knowledge_graph/
+memory/media_store.py`) — the generalized form of
+`store_document_page_evidence`'s steps 2-4 (upsert `:SourceObject`, write the
+`:Evidence` node with `evidence_span`/`occurrence_id`/`blob_ref`, the
+`extractedFrom` edge, and the `SUPPORTS` edge when `claim_id` is given),
+parameterized over `about_id` (whichever locus field identifies the owning
+artifact) and the caller-built externally-tagged `evidence_span` dict. Each
+public wrapper below returns the (identically-shaped) `EvidenceLocus`
+dataclass and is opt-in exactly like `store_document_page_evidence` — nothing
+about `store_media`/`store_rendition` changes.
 
-1. An AU-side write path that already has (or can derive) the modality's
-   locus fields (e.g. an image ingestion path has `x`/`y`/`width`/`height` in
-   pixel space for `ImageRegion`; an ASR/transcription path has
-   `start_ms`/`end_ms` for `AudioSegment`; a code-intelligence path has
-   `file_path`/`symbol`/`start_line`/`end_line` for `CodeSymbol`).
-2. An `:Evidence` node whose `evidence_span` is that variant's externally
-   tagged shape (`{"<Variant>": {...}}`), plus `occurrence_id`/`blob_ref`
-   pointing at the SAME `AssetOccurrence`/`Blob` identity chain
-   `MediaStore.store_media` already writes.
-3. The SAME `relationship_type: "SUPPORTS"` edge convention to link it to a
-   claim, when one exists.
+| Locus (`eg_modality::EvidenceSpan`) | `MediaStore` method | Producer wiring |
+|---|---|---|
+| `PageBox` | `store_document_page_evidence` | Shipped Seam 2 slice (pre-existing) |
+| `DocumentSpan` | `store_document_span_evidence` | Not wired — see below |
+| `TableCellRange` | `store_table_cell_evidence` | Not wired — see below |
+| `ImageRegion` | `store_image_region_evidence` | Not wired — see below |
+| `AudioSegment` | `store_audio_segment_evidence` | Not wired — see below |
+| `VideoShot` | `store_video_shot_evidence` | No natural producer (see below) |
+| `VideoFrameRange` | `store_video_frame_range_evidence` | No natural producer (see below) |
+| `MetricWindow` | `store_metric_window_evidence` | Not wired — see below |
+| `RowVersion` | `store_row_version_evidence` | Not wired — see below |
+| `CodeSymbol` | `store_code_symbol_evidence` | Not wired — see below |
+| `TraceSpan` | `store_trace_span_evidence` | Not wired — see below |
 
-No new engine capability is needed for any of them — `evidence_citations`
-already decodes any `EvidenceSpan` variant identically; only the AU-side
-locus-field plumbing differs per modality.
+**Proof:** `tests/unit/knowledge_graph/test_media_store_evidence_spine.py`'s
+`test_store_locus_evidence_writes_the_full_identity_chain` /
+`test_store_locus_evidence_links_supports_edge_when_claim_given` are
+parametrized over all ten new loci (`LOCUS_CASES`), each asserting the exact
+`evidence_span` literal plus `occurrence_id`/`blob_ref` and the structural
+`hasOccurrence`/`extractedFrom`/`hasBlob` edges, mirroring the page-box test's
+approach node-for-node.
+
+### Producer wiring — surveyed, deliberately not forced this pass
+
+Every remaining locus was matched against a candidate AU producer (a real
+ingestion/extraction path that already has, or nearly has, that modality's
+locus fields):
+
+* **`AudioSegment`** — `agent_utilities/messaging/voice.py`'s
+  `_FasterWhisper.transcribe()` calls `faster-whisper`, whose `segments`
+  objects natively carry `.start`/`.end`; today only `seg.text` is kept. The
+  messaging router (`agent_utilities/messaging/router.py`) already resolves a
+  `MediaStore` (`_resolve_media_store`) and separately downloads+stores voice
+  attachment bytes (`_persist_media`) — but transcription
+  (`_transcribe_attachments` → `transcribe_voice`) is a second, independent
+  download that discards timing and never sees the stored occurrence.
+* **`DocumentSpan`** — `agent_utilities/knowledge_graph/extraction/
+  fact_extractor.py`'s `ExtractedFact.evidence_span` is a *verbatim substring*
+  of the source text (offsets are derivable via `str.find`), but
+  `persist_facts()` writes through a different facade (`store.add_node`/
+  `store.add_edge`, not `MediaStore`'s `client.nodes.add`/`client.blob`/
+  `client.txn`) and never sees the raw document bytes — the same loose
+  `evidence_span` *string* property already lives on the fact edge for a
+  different (narrative, not located-locus) purpose.
+* **`CodeSymbol`** — `agent_utilities/knowledge_graph/enrichment/extractors/
+  code_test.py`'s `entities_from_parse_result()` has `file_path`/`name`/`line`
+  from the Rust AST parse (an `end_line` prop already exists on the engine
+  node, per `agent_utilities/models/codemap.py`, just not read here yet) but
+  is a pure mapper by design ("this module only maps... no Python AST
+  walking") with no engine-client/MediaStore coupling to add to.
+  `agent_utilities/harness/trace_backend.py`'s `KGTraceBackend.record_event()`
+  is the strongest **`TraceSpan`** candidate (already takes `trace_id`/
+  `span_id` explicitly) but writes through the same non-`MediaStore`
+  `add_node`/`link_nodes` facade.
+* **`TableCellRange`** — `agent_utilities/knowledge_graph/extraction/
+  readers_office.py`/`readers.py` (`read_xlsx`/`read_csv`/`read_delimited`)
+  iterate rows/cells in order but flatten to joined text, discarding indices;
+  wiring would change the return shape of shared reader utilities several
+  other callers depend on.
+* **`RowVersion`** — `agent_utilities/protocols/source_connectors/connectors/
+  database.py`'s `DatabaseConnector.poll()` already tracks `row_id` + an
+  `updated_at` watermark, but has no explicit `table` field and, like the
+  others above, no `MediaStore` reach from a connector poll loop.
+* **`MetricWindow`** — `agent_utilities/knowledge_graph/memory/timeseries/
+  engine_backend.py`'s `EngineTimeSeriesBackend.query()` already takes a
+  `symbol`/time range and per-metric fields, but it is a *read* path
+  (answering a query), not an ingestion path that would naturally mint new
+  evidence.
+* **`ImageRegion`** — `agent_utilities/knowledge_graph/extraction/
+  readers_media.py`'s `_ocr_with_rapidocr()` gets `[box, text, score]` rows
+  from RapidOCR but keeps only the text; `_ocr_with_pytesseract()` doesn't
+  request box data at all.
+* **`VideoShot`/`VideoFrameRange`** — no shot-detection or frame-accurate
+  video-processing path exists in AU today; `agent_utilities/tools/
+  media_tools.py`'s `generate_video()` only generates video, it does not
+  analyze one.
+
+None of these is a same-file, no-risk addition: each needs either a
+client-shape bridge (the extractor/connector writes through a different KG
+facade than `MediaStore`), a behavior change to a shared utility several
+other callers depend on (discarding data that would need to start flowing
+through), or new context plumbing (an `audio_id`/`claim_id` that doesn't
+reach the call site today). Per this seam's own charter ("no new engine
+capability is needed... only the AU-side locus-field plumbing differs per
+modality"), the `MediaStore` methods above are the complete, tested AU-side
+half; wiring any one of them into its candidate producer is a scoped,
+single-locus follow-up rather than part of this pass.
 
 ## What remains for full convergence
 
-* **Only one modality wired** (document page-box). `ImageRegion`,
-  `AudioSegment`, `VideoShot`/`VideoFrameRange`, `TableCellRange`,
-  `DocumentSpan`, `RowVersion`, `CodeSymbol`, `TraceSpan`, `MetricWindow` are
-  documented (above) but not yet plumbed into a concrete AU ingestion path.
+* **Ten loci have a tested `MediaStore` method but no live AU producer call**
+  (see the survey above) — each is opt-in and ready for a caller to adopt.
 * **No live-engine round-trip test in AU's own suite.** `evidence-graph` is an
   opt-in, non-default Cargo feature (not folded into any tier, including
   `full`/`default`) — AU's shared ephemeral-engine test fixture
