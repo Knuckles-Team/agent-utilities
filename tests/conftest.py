@@ -143,6 +143,36 @@ def _isolate_registered_tools():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_intent_outcome_learning():
+    """Reset the Seam 8 intent-surface calibrated-outcomes learner between tests.
+
+    ``intent_tools`` keeps its outcome-learned reward-EMA
+    (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) and its resolution cache
+    (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache) as process-wide module state so a
+    dispatch in one test never biases (or cache-serves a stale ranking into) a
+    LATER, unrelated test that happens to route to the same real tool under
+    the same verb. A fresh router + empty cache each test keeps that state
+    hermetic per-test while still letting a test that WANTS to prove the
+    learning loop record and observe it within itself.
+    """
+    try:
+        from agent_utilities.mcp.tools import intent_tools
+    except ImportError:
+        # Same lean-install tolerance as ``_isolate_registered_tools`` above —
+        # the intent surface lives on top of the optional ``[mcp]`` extra.
+        yield
+        return
+
+    intent_tools._OUTCOME_ROUTER = None
+    intent_tools._RESOLUTION_CACHE.clear()
+    try:
+        yield
+    finally:
+        intent_tools._OUTCOME_ROUTER = None
+        intent_tools._RESOLUTION_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
 def clean_graph_globals(monkeypatch, tmp_path):
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
