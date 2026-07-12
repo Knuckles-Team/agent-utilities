@@ -1304,23 +1304,50 @@ def register_query_tools(mcp):
         if not fanout:
             return _run_search(entries[0][1])
 
-        # Fan-out — per-target timeout so one slow backend can't stall the set.
         # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
         # (no ``target`` passed, or explicitly "default") fans across every active
-        # content graph, which can be dozens of ``code:<repo>`` connections and
-        # often includes idle/unreachable ones. Use the SHORT per-backend budget
-        # there so those are skipped quickly instead of the call blocking up to
-        # the full fan-out timeout per graph. An explicit ``target='all'``/list
-        # (a deliberate cross-repo search) keeps the full budget.
+        # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
+        # connections, often idle/unreachable. An explicit ``target='all'``/list is
+        # a deliberate cross-repo search and keeps the full per-backend budget.
         is_implicit_target = target is None or (
             isinstance(target, str) and target.strip().lower() in ("", "default")
         )
-        fanout_timeout = (
-            kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S if is_implicit_target else None
-        )
-        results, fan_errors = kg_server.fanout_execute(
-            entries, lambda name, engine: _run_search(engine), timeout=fanout_timeout
-        )
+        if is_implicit_target:
+            # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
+            # legacy ``__commons__`` + control-plane content and is the source of
+            # the real ranked hits. So run it separately at the normal budget
+            # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
+            # supplementary content backends. Under a wide implicit fan-out (~70
+            # ``code:*`` graphs) a single shared short wall-clock across ALL targets
+            # starved the primary — it was queued behind the hung code backends and
+            # timed out too, so the search returned zero results even though the
+            # engine was healthy. Splitting the primary out fixes that: a search
+            # still returns the primary's real hits in a few seconds when every
+            # supplementary backend is dead.
+            primary = [(n, e) for n, e in entries if n == "default"]
+            supplementary = [(n, e) for n, e in entries if n != "default"]
+            # Robustness: if the resolver produced no ``default`` entry, treat the
+            # first as primary so SOMETHING always grounds at the full budget.
+            if not primary and entries:
+                primary, supplementary = [entries[0]], entries[1:]
+            results: dict[str, Any] = {}
+            fan_errors: dict[str, str] = {}
+            for name, engine in primary:
+                results[name] = _run_search(engine)
+            if supplementary:
+                sup_results, sup_errors = kg_server.fanout_execute(
+                    supplementary,
+                    lambda name, engine: _run_search(engine),
+                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                )
+                results.update(sup_results)
+                fan_errors.update(sup_errors)
+        else:
+            # Explicit cross-repo fan-out — per-target timeout at the full budget so
+            # one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(
+                entries, lambda name, engine: _run_search(engine)
+            )
         out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
         out_lines += [
             f"=== {name} (error) ===\n{err}"

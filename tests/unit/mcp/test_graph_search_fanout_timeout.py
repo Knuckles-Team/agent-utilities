@@ -10,14 +10,22 @@ unreachable, the default call blocked up to 30s on each one, flooding the
 result with "timed out after 30s" entries even though the primary/default
 backend answered in milliseconds.
 
-These tests prove: (1) an implicit-default fan-out uses the SHORT
-``DEFAULT_CONTENT_FANOUT_TIMEOUT_S`` budget, not the full 30s
-``DEFAULT_FANOUT_TIMEOUT_S``; (2) an explicit ``target='all'`` (a deliberate
-cross-repo search) keeps the full budget; and (3), end-to-end with real
-``fanout_execute`` concurrency, that a default search grounds the primary
-backend's real hits and returns quickly even when several content-graph
-backends never respond — it does NOT block for the full fan-out budget per
-unreachable graph.
+These tests prove: (1) an implicit-default fan-out applies the SHORT
+``DEFAULT_CONTENT_FANOUT_TIMEOUT_S`` skip-budget to the SUPPLEMENTARY content
+backends, not the full 30s ``DEFAULT_FANOUT_TIMEOUT_S``; (2) an explicit
+``target='all'`` (a deliberate cross-repo search) keeps the full budget; and
+(3), end-to-end with real ``fanout_execute`` concurrency, that a default search
+grounds the primary backend's real hits and returns quickly even when the
+content-graph backends never respond.
+
+Regression guard (the second fix): the PRIMARY/``default`` backend is queried
+SEPARATELY at the normal budget and is NEVER part of the short-timeout
+supplementary fan-out. Under a wide implicit fan-out (~70 ``code:*`` graphs) a
+single shared short wall-clock across all targets starved the primary — it was
+queued behind the hung code backends and timed out too, returning ZERO results.
+So we also assert the primary grounds even when every supplementary backend
+times out AND even when the hung supplementary backends saturate the fan-out
+worker pool.
 
 Mirrors the ``kg_server._resolve_read_engines`` monkeypatch pattern of
 ``test_graph_query_evidence_bundle.py`` / ``test_graph_query_include_epistemic.py``
@@ -97,6 +105,7 @@ def test_graph_search_default_target_uses_short_fanout_timeout(monkeypatch):
 
     def _spy(entries_arg, fn, *, timeout=None):
         seen["timeout"] = timeout
+        seen["names"] = [n for n, _ in entries_arg]
         return real_fanout_execute(entries_arg, fn, timeout=timeout)
 
     monkeypatch.setattr(kg_server, "fanout_execute", _spy)
@@ -107,6 +116,10 @@ def test_graph_search_default_target_uses_short_fanout_timeout(monkeypatch):
 
     assert seen["timeout"] == kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S
     assert seen["timeout"] < kg_server.DEFAULT_FANOUT_TIMEOUT_S
+    # The short skip-timeout fan-out covers ONLY the supplementary content
+    # backends — the primary/default is queried separately and must NOT be in it.
+    assert "default" not in seen["names"]
+    assert seen["names"] == ["code:repo-a", "code:repo-b"]
 
 
 def test_graph_search_target_default_string_also_uses_short_timeout(monkeypatch):
@@ -214,3 +227,61 @@ def test_graph_search_default_grounds_primary_backend_and_skips_slow_backends(
     for i in range(5):
         assert f"=== code:repo-{i} (error) ===" in out
         assert "timed out" in out
+
+
+# ── (4) regression: primary grounds even when supplementary starve the pool ─
+
+
+def test_graph_search_primary_grounds_when_all_supplementary_time_out(monkeypatch):
+    """The reported regression: under a wide implicit fan-out where EVERY
+    supplementary ``code:*`` backend hangs — enough of them to saturate the
+    fan-out worker pool (min(8, N)) — the primary/``default`` backend must STILL
+    ground its real ranked hits. Before the primary was split out of the
+    short-timeout set, it was queued behind the hung backends and timed out too,
+    so the search returned zero results even though the engine was healthy."""
+    _register_query_tools()
+    monkeypatch.setattr(kg_server, "DEFAULT_CONTENT_FANOUT_TIMEOUT_S", 0.5)
+
+    # 20 hung supplementary backends (each 5s) >> the 8-thread fan-out pool, so a
+    # primary placed INSIDE this set could never be scheduled within 0.5s.
+    entries = [("default", _FakeSearchEngine(_GROUNDED_HIT))] + [
+        (f"code:repo-{i}", _FakeSearchEngine(delay=5.0)) for i in range(20)
+    ]
+    monkeypatch.setattr(
+        kg_server, "_resolve_read_engines", _fake_resolve_read_engines_multi(entries)
+    )
+
+    started = time.monotonic()
+    out = asyncio.run(
+        kg_server._execute_tool("graph_search", query="delegation router")
+    )
+    elapsed = time.monotonic() - started
+
+    # Primary grounded — NOT zero results — and the whole call stayed fast.
+    assert "=== default ===" in out
+    assert "DelegationRouter" in out
+    assert "concept:delegation-router" in out
+    assert elapsed < 3.0
+    # Every supplementary backend timed out; none blocked the primary.
+    assert out.count("timed out") >= 20
+
+
+def test_graph_search_primary_grounds_when_no_default_named_entry(monkeypatch):
+    """Robustness: if the resolver ever produces a fan-out with no entry named
+    ``default``, the first entry is treated as primary and queried at the normal
+    budget so SOMETHING always grounds (never a fully-skipped, empty result)."""
+    _register_query_tools()
+    monkeypatch.setattr(kg_server, "DEFAULT_CONTENT_FANOUT_TIMEOUT_S", 0.3)
+    entries = [
+        ("code:primary", _FakeSearchEngine(_GROUNDED_HIT)),
+        ("code:repo-a", _FakeSearchEngine(delay=1.5)),
+    ]
+    monkeypatch.setattr(
+        kg_server, "_resolve_read_engines", _fake_resolve_read_engines_multi(entries)
+    )
+    out = asyncio.run(
+        kg_server._execute_tool("graph_search", query="delegation router")
+    )
+    assert "=== code:primary ===" in out
+    assert "DelegationRouter" in out
+    assert "=== code:repo-a (error) ===" in out
