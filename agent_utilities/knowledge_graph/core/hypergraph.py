@@ -12,8 +12,17 @@ novel edge intersections based purely on their structural positional interaction
 import logging
 import math
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+try:
+    from agent_utilities.numeric import NDArray
+    from agent_utilities.numeric import xp as np
+except ImportError:  # numeric kernel absent (e.g. lean messaging install without the compiled
+    # epistemic_graph.numeric .so) — a socket-listener that never runs EncPI must still import
+    # cleanly. ``np``/``NDArray`` fall back; EncPI call sites fail loudly at call time. Mirrors
+    # retrieval/capability_index.py + retrieval/temporal_semantic_id.py.
+    from typing import Any
+
+    NDArray = Any  # type: ignore[assignment,misc]
+    np = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
