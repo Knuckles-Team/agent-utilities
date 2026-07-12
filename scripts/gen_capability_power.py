@@ -444,6 +444,13 @@ def generate(
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
 
+    # Generate CPDs over the FULL granular surface, independent of the deployment
+    # default. Now that `MCP_TOOL_MODE=intent` is the default (Seam 8), an
+    # unforced build would list the six intent verb-tools instead of / on top of
+    # the ~95 granular capabilities the CPD must describe (the resolver's
+    # substrate). Pin `condensed` so the CPD stays deterministic + drift-stable
+    # regardless of what the running server defaults to.
+    os.environ["MCP_TOOL_MODE"] = "condensed"
     args, mcp, _mw = kg_server._build_server(bootstrap=False)
 
     manifest_by_tool: dict[str, list[str | None]] = {}
