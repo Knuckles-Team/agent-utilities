@@ -44,7 +44,17 @@ class WiringSweep:
     then cross-references against concept registries and docs.
     """
 
-    CONCEPT_RE = re.compile(r"CONCEPT:([A-Z]+-\d+\.\d+)")
+    # Matches the current OKF-CIS concept-ID scheme (CONCEPT:<SLUG>-<PILLAR>.<domain>.<concept>,
+    # e.g. CONCEPT:AU-KG.retrieval.synthesized-cited-answer) — kept in sync with the
+    # canonical ``OKF_MARKER_RE`` in ``agent_utilities/governance/concept_hierarchy.py``.
+    # The legacy numeric alternative (pillar-major "dot" minor, no domain segment) is
+    # retained so a repo mid-migration (or one that never migrated) still scores correctly.
+    CONCEPT_RE = re.compile(
+        r"CONCEPT:("
+        r"[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+"
+        r"|[A-Z]+-\d+\.\d+"
+        r")"
+    )
     TOOL_FLAG_RE = re.compile(r"^[A-Z]+TOOL$")
 
     def __init__(self, project_root: str | Path):
@@ -227,8 +237,16 @@ class WiringSweep:
             except Exception:
                 continue
 
-            # Match both "CONCEPT:X-Y.Z" and bare "X-Y.Z" in docs
-            concepts = re.findall(r"(?:CONCEPT:)?([A-Z]+-\d+\.\d+)", text)
+            # Match both the "CONCEPT:"-prefixed and bare forms of the current
+            # OKF-CIS scheme (AU-KG.domain.name) plus the legacy numeric one,
+            # in docs.
+            concepts = re.findall(
+                r"(?:CONCEPT:)?("
+                r"[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+"
+                r"|[A-Z]+-\d+\.\d+"
+                r")",
+                text,
+            )
             rel = str(md_file.relative_to(self.root))
             for c in set(concepts):
                 self.concept_to_docs[c].append(rel)
@@ -253,7 +271,13 @@ class WiringSweep:
             return
         try:
             content = concept_map.read_text(encoding="utf-8", errors="ignore")
-            matches = re.findall(r"`([A-Z]+-\d+\.\d+)`", content)
+            matches = re.findall(
+                r"`("
+                r"[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+"
+                r"|[A-Z]+-\d+\.\d+"
+                r")`",
+                content,
+            )
             for m in matches:
                 self.valid_concepts.add(m)
         except Exception:
@@ -561,12 +585,13 @@ class WiringSweep:
     def _compute_health_score(self) -> None:
         """Compute an overall health score (0-100)."""
         total_concepts = self.results.get("concept_gaps", {}).get(
-            "total_concepts_in_code", 1
+            "total_concepts_in_code", 0
         )
         gaps = self.results.get("concept_gaps", {}).get("gaps", [])
         orphans = self.results.get("orphans", {}).get("count", 0)
         dead = self.results.get("potentially_dead", {}).get("count", 0)
         syntax_errors = len(self.results.get("source", {}).get("syntax_errors", []))
+        total_files_scanned = self.results.get("source", {}).get("total_files", 0)
 
         # Build results for mermaid diagrams
         self.results["mermaid_diagrams"] = {
@@ -586,7 +611,22 @@ class WiringSweep:
         # - No dead code: 25 points
         # - No syntax errors: 10 points
 
-        concept_score = max(0, 30 * (1 - len(gaps) / max(total_concepts, 1)))
+        if total_concepts == 0 and total_files_scanned > 0:
+            # 0 CONCEPT: tags found across a non-trivial codebase almost always means
+            # CONCEPT_RE is stale relative to the project's actual concept-ID scheme,
+            # not that the project genuinely has none. Score 0 instead of the
+            # formula's false "perfect" (30 pts when gaps==[] because there was
+            # nothing to find gaps in) and surface a warning so it's never silent.
+            concept_score = 0.0
+            self.results.setdefault("warnings", []).append(
+                "concept_coverage: 0 CONCEPT: tags matched across "
+                f"{total_files_scanned} scanned source files — CONCEPT_RE is "
+                "likely stale for this project's concept-ID scheme. Verify with "
+                '`grep -rho "CONCEPT:[A-Za-z0-9._-]*" <root> --include=*.py | head` '
+                "and update WiringSweep.CONCEPT_RE if it doesn't match."
+            )
+        else:
+            concept_score = max(0, 30 * (1 - len(gaps) / max(total_concepts, 1)))
 
         # Mermaid score calculation with invalid concept penalty
         if self.mermaid_total_nodes > 0:
@@ -628,6 +668,12 @@ class WiringSweep:
             f"**Generated**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
         )
         lines.append(f"**Project**: `{self.root.name}`\n")
+
+        warnings = self.results.get("warnings", [])
+        if warnings:
+            lines.append("\n## ⚠️ Warnings\n")
+            for w in warnings:
+                lines.append(f"- {w}")
 
         # Health Score
         hs = self.results.get("health_score", {})

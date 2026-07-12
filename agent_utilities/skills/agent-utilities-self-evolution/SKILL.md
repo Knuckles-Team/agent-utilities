@@ -165,16 +165,34 @@ sequence and scope cuts (documented in the method docstring).
 
 ### Step 1: Topic Detection (KG-First)
 
-Query the Knowledge Graph for research topics that haven't been addressed yet:
+Query the Knowledge Graph for research topics that haven't been addressed yet. The
+engine's native Cypher parser (`eg-query`) has **no `EXISTS {...}` subquery support**
+(`WHERE NOT exists { MATCH ... }` is rejected outright: `expected Dot, found
+Some(Colon)`), and the grammar-legal alternative — `OPTIONAL MATCH ... WHERE
+p.id IS NULL` — parses but is **live-verified to return 0 rows** instead of "every
+unaddressed concept" (property access on the unbound optional variable does not
+evaluate to a comparable `NULL` on this engine). So express the negation as a
+**set difference over two supported queries** instead of one — the same pattern
+already used by `topic_resolver.unresolved_topics`
+(`agent_utilities/knowledge_graph/adaptation/topic_resolver.py`):
 
 ```
-Use mcp_agent-utilities-kg_kg_query with:
+Use mcp_agent-utilities-kg_kg_query twice:
 
-cypher: "MATCH (c) WHERE (c:ConceptNode OR c:Concept)
-         AND NOT exists { MATCH (c)-[:ADDRESSED_BY]->(:SDDPlan) }
-         RETURN c.id AS id, c.name AS name, c.description AS description
-         ORDER BY c.name LIMIT 15"
+1. cypher: "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
+   -> the set of already-addressed concept ids
+
+2. cypher: "MATCH (c:Concept) RETURN c.id AS id, c.name AS name, c.description AS description
+            ORDER BY c.name LIMIT 150"
+   -> candidate topics (raise the LIMIT and retry if fewer than 15 survive the filter below,
+      mirroring topic_resolver.unresolved_topics's adaptive limit)
+
+Then subtract in-agent: unresolved = [row for row in (2) if row.id not in ids_from(1)][:15]
 ```
+
+Note: `ConceptNode` is not a live label in the graph (0 nodes) — `Concept` is the
+one real label the topic set lives under; the original query's
+`(c:ConceptNode OR c:Concept)` label alternation has been dropped.
 
 **Fallback topic sources** (if no unresolved concepts found):
 1. Extract from `Concept` nodes with pillar tags (ORCH, KG, AHE, ECO, OS)
@@ -451,7 +469,7 @@ As part of each evolution cycle, verify:
 
 ## References
 
-- [research-scanner](../research-scanner/SKILL.md) — Paper discovery and scoring
-- [comparative-analysis](../comparative-analysis/SKILL.md) — Feature extraction
-- [kg-ingest](../../automation/kg-ingest/SKILL.md) — Bulk ingestion
-- [sdd-implementer](../../development/sdd-implementer/SKILL.md) — Task execution
+- [research-scanner](../../../../skills/universal-skills/universal_skills/research/research-scanner/SKILL.md) — Paper discovery and scoring (lives in the sibling `universal-skills` package)
+- [comparative-analysis](../../../../skills/universal-skills/universal_skills/research/comparative-analysis/SKILL.md) — Feature extraction (lives in the sibling `universal-skills` package)
+- [kg-ingest](../kg-ingest/SKILL.md) — Bulk ingestion
+- [sdd-implementer](../../../../skills/universal-skills/universal_skills/development/sdd-implementer/SKILL.md) — Task execution (lives in the sibling `universal-skills` package)
