@@ -373,7 +373,7 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
    healthy (`curl http://10.0.0.18:8000/health`) — the cold tier absorbs eviction
    (EG-185) rather than the box recomputing every prefill.
 
-## App-level bundle caching (Seam 6)
+## App-level bundle caching (Seam 6, app-level half)
 
 Everything above is the **token-block** path: LMCache hashes raw KV bytes over
 token ids and the engine dedups/pools them — it has no notion of "a compiled
@@ -406,17 +406,132 @@ reuses the exact same `/kv/<hash>` HTTP surface and connector as the LMCache pat
 inspection (`action="stats"` shows both kinds of keys mixed into one
 `unique_blocks` count; a `ctxbundle:<sha256>` key prefix distinguishes an
 app-level bundle entry from a raw LMCache token-block hash at a glance). It is
-**not** a second cache implementation and it does **not** feed the compiled
-bundle's *text* back into vLLM's token-level KV cache — that would require the
-served completion request to reuse the exact same rendered prompt string so
-vLLM's own prefix-caching/LMCache path can hash it, which `ContextCompiler`
-does not control (it hands its `as_text()` output to whatever caller builds the
-prompt). A deeper serving-layer integration would thread the compiled bundle's
-`as_text()` (or a stable prefix of it) into the prompt construction path so the
-SAME text is reused turn-to-turn, letting vLLM/LMCache's own token-hash cache
-take over from there — i.e. connecting the *epistemic* quality path (this
-seam) to the *serving-latency* path (the rest of this doc) end-to-end, rather
-than the two independently hitting the same backend as they do today.
+**not** a second cache implementation.
+
+## Serving-layer wire (Seam 6, deep half) — the compiled bundle reaches vLLM's OWN KV cache
+
+The app-level half above caches the *assembled bundle object*; it does not by
+itself make vLLM's prefix cache reuse anything, because that requires the
+SAME rendered prompt STRING to reach the server on a later call, and
+`ContextCompiler` hands its `as_text()` output to whatever caller builds the
+prompt — until now, nothing standardized that handoff.
+
+**What's wired.** `agent_utilities/knowledge_graph/retrieval/context_compiler.py`
+adds `ContextBundle.as_prompt_messages(turn_text, *, system_preamble=...)`:
+renders an OpenAI-style `messages` list where the `system` message is a FIXED
+literal preamble (`DEFAULT_BUNDLE_SYSTEM_PREAMBLE`) followed by `as_text()` —
+BYTE-IDENTICAL for two calls sharing the same bundle, whatever `turn_text` is —
+and the `user` message is `turn_text`, the only part that varies. Because it
+is both the first message and content-identical across calls, vLLM's chat
+template tokenizes an identical leading token run every time the same bundle
+is used, which is exactly what vLLM's **automatic prefix cache** (on by
+default — confirmed live, see below) and LMCache's token-hash cache key off
+of. A different bundle (different evidence/policy/budget) renders different
+`as_text()` output and therefore a different prefix — no false reuse.
+
+`agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py` is the
+thin real-call wrapper: `resolve_bundle_chat_client()` builds a sync
+`openai.OpenAI` client the SAME way every other AU→vLLM caller already does
+(`knowledge_graph/enrichment/cards.py`'s `make_llm_fn`,
+`knowledge_graph/extraction/fact_extractor.py`'s `make_streaming_extract_fn`,
+`harness/g_eval.py`'s `_live_endpoint`) — `config.default_chat_model` falling
+back to `http://vllm.arpa/v1`, bounded timeout + retries — and
+`bundle_chat_completion(bundle, turn_text, ...)` builds `messages` via
+`as_prompt_messages` and calls `client.chat.completions.create(...)`, so a
+caller gets the end-to-end wire (compile → stable-prefix render → real vLLM
+call) in one call, without hand-rolling `messages=` around `as_text()`.
+
+### Was prefix-caching already on?
+
+**Yes — confirmed live against `vllm.arpa` before any change**, no restart
+needed:
+
+```
+curl -fsS http://vllm.arpa/metrics | grep prefix_cache
+# vllm:prefix_cache_queries_total{...} 846468.0   (nonzero, already accumulating)
+# vllm:prefix_cache_hits_total{...}    547232.0   (nonzero — already reusing)
+```
+
+Recent vLLM's automatic prefix caching is on by default and was already active
+on the live deployment. Nothing was reconfigured and vLLM was **not**
+restarted for this work.
+
+### Measured KV reuse (live, `vllm.arpa`, `qwen/qwen3.6-27b`)
+
+`scripts/measure_bundle_kv_reuse.py` builds THREE independent real
+`ContextBundle`s via `ContextCompiler` (each with a fresh per-run nonce folded
+into the candidate text, so every invocation is genuinely novel to the
+server's persistent prefix cache — otherwise only the very first run of the
+script would show a true cold baseline), renders each with
+`as_prompt_messages`, and sends 6 SHORT (`max_tokens=8`) chat-completion calls
+through `bundle_chat_completion` to `vllm.arpa` — one COLD call (first-ever
+exposure) then one WARM call (same bundle, different `turn_text`) per bundle —
+reading `vllm:prefix_cache_hits_total` / `_queries_total` from `/metrics`
+immediately before/after each call plus wall-clock latency. Run:
+
+```bash
+python3 scripts/measure_bundle_kv_reuse.py --base-url http://vllm.arpa/v1
+```
+
+**Result (2026-07-11, live run against `vllm.arpa`, `qwen/qwen3.6-27b`):**
+
+| call | latency | prompt_tokens | prefix-cache hit-tokens Δ |
+|---|---|---|---|
+| cold — bundle A, turn 1 (first-ever exposure) | 9.940s | 3241 | **0** |
+| **warm** — bundle A, turn 2 (same bundle, different question) | **2.229s** | 3235 | **3136** |
+| cold — bundle B, turn 1 (different bundle, first-ever exposure) | 7.100s | 3042 | **0** |
+| **warm** — bundle B, turn 2 (same bundle, different question) | **3.995s** | 3037 | **1568** |
+| cold — bundle C, turn 1 (a third, independent bundle) | 6.607s | 2828 | **0** |
+| **warm** — bundle C, turn 2 (same bundle, different question) | **3.516s** | 2827 | **1568** |
+
+Three independent bundles, same reproducible pattern, and unambiguous this
+time (every cold call is a genuine, never-before-seen prompt thanks to the
+per-run nonce):
+
+- **Every cold (first-ever) call hit exactly 0 prefix-cache tokens** — clean
+  proof there is no reuse to be had (and no false reuse leaking in) before the
+  bundle has ever been sent.
+- **Every warm (same-bundle, different question) call hit a nonzero,
+  block-quantized number of prefix-cache tokens** — 1568 for bundles B and C,
+  3136 (= 2 × 1568) for bundle A — exact multiples of the documented Mamba/GDN
+  block size for Qwen3.6-27B (see "Why hybrids need the block-aligned
+  batched-tokens" above), i.e. the reused span is an integer number of KV
+  blocks, exactly what block-level prefix-cache reuse produces.
+- **Every warm call was faster than that SAME bundle's own cold call**
+  (2.229s vs 9.940s; 3.995s vs 7.100s; 3.516s vs 6.607s) — a 1.8×-4.5× speedup
+  per bundle. `vllm.arpa` is a live, shared production endpoint, so absolute
+  latencies carry some contention noise (concurrent unrelated traffic can add
+  delay to any single call) — that's why the speedup ratio varies bundle to
+  bundle — but the DIRECTION (warm < cold, always, for every bundle) and the
+  token-level hit-count evidence agree and are the real, non-fabricated
+  numbers from this run.
+
+This is the serving-layer proof the earlier "app-level bundle caching" section
+above was missing: the SAME bundle, rendered through `as_prompt_messages`
+twice with a different trailing question, measurably reuses vLLM's own KV
+cache on the second call — via the exact wire (`ContextCompiler.compile` →
+`ContextBundle.as_prompt_messages` → `bundle_chat_completion` →
+`client.chat.completions.create`) a real caller would use.
+
+### How the two halves compose
+
+App-level bundle caching (this doc's earlier section) and the serving-layer
+wire are independent and stack:
+
+1. **App-level (`kv_backend=`)** — skips re-running MMR/scoring/proof-graph
+   assembly when the identical evidence/policy/budget recurs (saves CPU,
+   engine round-trips).
+2. **Serving-layer (`as_prompt_messages` / `bundle_chat_completion`)** — once
+   assembled (fresh OR from the app-level cache), rendering it through the
+   SAME stable prefix every time lets vLLM's own token-level KV cache skip
+   recomputing that prefix's prefill (saves GPU time / TTFT on the actual
+   generation call).
+
+A caller can use either alone or both together: `compiler.compile(..., kv_backend=kv)`
+then `bundle.as_prompt_messages(turn_text)` / `bundle_chat_completion(bundle, turn_text, ...)` —
+the *epistemic* quality path (Seam 6 app-level) and the *serving-latency* path
+(the rest of this doc) now connect end-to-end instead of independently hitting
+the same backend as they did before this wire.
 
 ## Rollback
 

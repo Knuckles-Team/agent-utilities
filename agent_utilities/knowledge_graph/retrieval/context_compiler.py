@@ -110,6 +110,7 @@ __all__ = [
     "ContextBundle",
     "ContextCompiler",
     "compute_bundle_cache_key",
+    "DEFAULT_BUNDLE_SYSTEM_PREAMBLE",
 ]
 
 # Neutral evidence-quality prior — matches retrieval_quality.TRUST_PRIOR so an
@@ -120,6 +121,17 @@ _NEUTRAL_FRESHNESS = 0.5
 # The epistemic policy label EPI-P3-1's KnowledgeBatch column layout documents
 # for a contested claim (see eg-plan/src/knowledge_batch.rs module docs).
 _CONTESTED_LABEL = "epistemic:contested"
+
+# Seam 6 serving-layer wire (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) — the fixed literal
+# that opens every rendered prompt, BEFORE the bundle's own text. It is a constant
+# string (never templated with per-call values), so it contributes the same
+# leading tokens on every call and never itself breaks prefix-cache reuse; see
+# :meth:`ContextBundle.as_prompt_messages`.
+DEFAULT_BUNDLE_SYSTEM_PREAMBLE = (
+    "You are a careful assistant. Use ONLY the context below — with its "
+    "citations and proof graph — to answer the user's next message. If the "
+    "context does not support an answer, say so explicitly.\n\nContext:"
+)
 
 
 @dataclass(frozen=True)
@@ -276,6 +288,56 @@ class ContextBundle:
         if proof:
             parts.append(f"Proof graph:\n{proof}")
         return "\n\n".join(parts)
+
+    def as_prompt_messages(
+        self,
+        turn_text: str,
+        *,
+        system_preamble: str = DEFAULT_BUNDLE_SYSTEM_PREAMBLE,
+    ) -> list[dict[str, str]]:
+        """Render an OpenAI-style ``messages`` list with this bundle as the STABLE PREFIX.
+
+        CONCEPT:AU-KG.retrieval.context-compiler-kv-seam (serving-layer half). The
+        prior half of Seam 6 (:meth:`ContextCompiler.compile`'s ``kv_backend=``)
+        caches the *assembled bundle object* app-side; this method is the wire from
+        that bundle into the actual request vLLM sees, so its own automatic prefix
+        cache can reuse the KV blocks of a repeated bundle turn-to-turn.
+
+        The returned messages are ``[system, user]`` where the ``system`` message's
+        content is ``system_preamble + as_text()`` — BYTE-IDENTICAL for two calls
+        with the same bundle and preamble, regardless of ``turn_text`` — and the
+        ``user`` message is ``turn_text``, the only part that varies call-to-call.
+        Because it is both the first message and content-identical across calls,
+        an OpenAI-compatible server that applies a deterministic chat template
+        (vLLM's default) tokenizes an identical leading token run for every call
+        sharing this bundle, which is exactly what vLLM's automatic prefix-cache
+        (on by default) and LMCache's token-hash cache key off of — no template or
+        server change required, just calling this instead of hand-rolling
+        ``messages=`` around ``as_text()``.
+
+        A DIFFERENT bundle (different evidence ids, different policy_version, a
+        different ``as_of``/budget — anything that changes :meth:`as_text`'s
+        output) renders a different ``system`` content and therefore a different
+        token prefix, so it never falsely reuses another bundle's cached KV.
+
+        Args:
+            turn_text: The turn-specific suffix (the caller's actual question/
+                instruction for this call) — appended as the final ``user``
+                message, after the stable bundle prefix.
+            system_preamble: Fixed literal prepended before :meth:`as_text`'s
+                output. Keep this a CONSTANT across calls (the default is) — a
+                templated/varying preamble would itself break the stable prefix
+                this method exists to produce.
+
+        Returns:
+            ``[{"role": "system", "content": <preamble><as_text()>}, {"role":
+            "user", "content": <turn_text>}]`` — hand this straight to
+            ``client.chat.completions.create(messages=...)``.
+        """
+        return [
+            {"role": "system", "content": f"{system_preamble}{self.as_text()}"},
+            {"role": "user", "content": turn_text},
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return {
