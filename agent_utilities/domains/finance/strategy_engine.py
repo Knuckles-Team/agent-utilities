@@ -43,13 +43,15 @@ class StrategyEngine:
         strategy_id = f"Strat_{name.replace(' ', '_')}"
 
         self.engine.add_node(
-            id=strategy_id,
+            node_id=strategy_id,
             node_type="TradingStrategy",
-            name=name,
-            version="1.0.0",
-            status=StrategyStage.DRAFT,
-            code_ref=code_ref,
-            author=author,
+            properties={
+                "name": name,
+                "version": "1.0.0",
+                "status": StrategyStage.DRAFT,
+                "code_ref": code_ref,
+                "author": author,
+            },
         )
         logger.info(f"Registered new strategy: {strategy_id}")
         return strategy_id
@@ -60,12 +62,14 @@ class StrategyEngine:
         # Link backtest to strategy
         bt_id = f"BT_{strategy_id}_{hash(str(metrics.sharpe))}"
         self.engine.add_node(
-            id=bt_id,
+            node_id=bt_id,
             node_type="BacktestResult",
-            sharpe=metrics.sharpe,
-            max_drawdown=metrics.max_drawdown,
-            win_rate=metrics.win_rate,
-            profit_factor=metrics.profit_factor,
+            properties={
+                "sharpe": metrics.sharpe,
+                "max_drawdown": metrics.max_drawdown,
+                "win_rate": metrics.win_rate,
+                "profit_factor": metrics.profit_factor,
+            },
         )
         self.engine.add_edge(bt_id, strategy_id, "VALIDATES")
 

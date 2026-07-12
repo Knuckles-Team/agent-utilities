@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+logger = logging.getLogger(__name__)
 
 
 def register_analysis_tools(mcp):
@@ -95,7 +98,70 @@ def register_analysis_tools(mcp):
                     [f"[{n['type']}] {n['id']} (Depth: {n['depth']})" for n in radius]
                 )
             elif action == "inspect":
-                return engine.inspect(target)
+                # Structural/subgraph inspection (KG-2.134 docs): a node's own
+                # properties + its immediate neighbors + degree. No such method
+                # exists on IntelligenceGraphEngine — build the snapshot from
+                # REAL, already-wired read primitives instead of inventing one:
+                # ``query_cypher`` (parameterized — never f-string the target
+                # into Cypher) for properties, falling back to the bounded
+                # single-node reader, plus ``graph_compute`` for O(1) neighbor/
+                # degree lookups (never a whole-graph scan).
+                import json as _json
+
+                ident = (target or query or node_id or "").strip()
+                if not ident:
+                    return "Error: target (or query/node_id) required for inspect"
+
+                props: dict[str, Any] = {}
+                try:
+                    rows = engine.query_cypher(
+                        "MATCH (n {id: $ident}) RETURN n AS node, labels(n) AS labels LIMIT 1",
+                        {"ident": ident},
+                    )
+                except Exception as e:  # noqa: BLE001 — fall back below
+                    logger.warning(
+                        "inspect: query_cypher lookup failed for %s: %s", ident, e
+                    )
+                    rows = None
+                if rows:
+                    node = rows[0].get("node")
+                    if isinstance(node, dict):
+                        props = dict(node)
+                    labels = rows[0].get("labels") or []
+                    if labels and "type" not in props:
+                        props["type"] = labels[0]
+                if not props:
+                    from agent_utilities.knowledge_graph.core.bounded_read import (
+                        get_node_data,
+                    )
+
+                    props = get_node_data(engine.graph_compute, ident) or {}
+
+                neighbors: list[str] = []
+                degree = 0
+                try:
+                    neighbors = list(engine.graph_compute.neighbors(ident))
+                    degree = engine.graph_compute.degree(ident)
+                except Exception as e:  # noqa: BLE001 — best-effort structural read
+                    logger.warning(
+                        "inspect: neighbor/degree lookup failed for %s: %s", ident, e
+                    )
+
+                if not props and not neighbors:
+                    return f"No node found for {ident!r}."
+
+                limit = top_k if isinstance(top_k, int) and top_k > 0 else 10
+                return _json.dumps(
+                    {
+                        "id": ident,
+                        "properties": props,
+                        "degree": degree,
+                        "neighbor_count": len(neighbors),
+                        "neighbors": neighbors[:limit],
+                    },
+                    indent=2,
+                    default=str,
+                )
             # ── KG-2.8: Per-category enrichment coverage gauge ──
             elif action == "enrichment_coverage":
                 import json as _json
