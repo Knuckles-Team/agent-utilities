@@ -383,8 +383,17 @@ class ClaimFlywheel:
                 record_capability_outcome,
             )
 
+            # X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the just-
+            # written ``ClaimOutcome`` node above (``outcome_id``) is the REAL base
+            # fact this reward was computed from — pass it through so the durable
+            # reward on ``durable_key or claim_id`` registers as a live
+            # TruthMaintenance materialization (see ``record_capability_outcome``'s
+            # ``source_ids`` docstring). Never fabricated: the same id just persisted.
             persisted_reward = record_capability_outcome(
-                self.engine, durable_key or claim_id, reward=bandit_reward
+                self.engine,
+                durable_key or claim_id,
+                reward=bandit_reward,
+                source_ids=[outcome_id],
             )
         except Exception as e:  # noqa: BLE001 — durability is an augmentation, never load-bearing
             logger.debug(
