@@ -15,7 +15,7 @@ metadata:
 
 # kg-gis
 
-> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_gis` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_gis"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_gis` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+> **Condensed intent-surface note (Seam 8).** Under the default intent surface (`MCP_TOOL_MODE=intent`), `graph_gis` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_gis"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_gis` for you and returns the result plus a routing justification. Set `MCP_TOOL_MODE=condensed`/`verbose`/`both` to expose the granular tools eagerly instead.
 
 
 `graph_gis` (CONCEPT:AU-KG.coordination.engine-message-broker) is action-routed 1:1 over the engine geo methods: `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` (a named geospatial job). All structured args go via `params_json`. Degrades cleanly when the engine build has no GIS surface.

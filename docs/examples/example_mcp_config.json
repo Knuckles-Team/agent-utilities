@@ -7,7 +7,7 @@
         "WORKSPACE_PATH": "/home/apps/workspace",
         "AGENT_UTILITIES_CONFIG_DIR": "/home/user/.config/agent-utilities",
         "GRAPH_PERSISTENCE_PATH": "/home/user/.local/share/agent-utilities/graph_state",
-        "MCP_TOOL_MODE": "condensed",
+        "MCP_TOOL_MODE": "intent",
         "LLM_API_KEY": "llama"
       },
       "disabled": false

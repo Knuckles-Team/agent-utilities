@@ -102,7 +102,7 @@ def render_tools_table(mcp: Any) -> str:
 
     lines = [START, ""]
     lines.append(
-        "#### Condensed action-routed tools (default — `MCP_TOOL_MODE=condensed`)"
+        "#### Condensed action-routed tools (`MCP_TOOL_MODE=condensed`)"
     )
     lines.append("")
     lines += _table(condensed)
@@ -124,10 +124,11 @@ def render_tools_table(mcp: Any) -> str:
         lines.append("</details>")
         lines.append("")
     lines.append(
-        f"_{len(condensed)} action-routed tool(s) (default) · {len(verbose)} verbose "
+        f"_{len(condensed)} action-routed tool(s) · {len(verbose)} verbose "
         "1:1 tool(s). Each is enabled unless its `<DOMAIN>TOOL` toggle is set false; "
-        "`MCP_TOOL_MODE` selects the surface (`condensed` default · `verbose` 1:1 · "
-        "`both`). Auto-generated — do not edit._"
+        "`MCP_TOOL_MODE` selects the surface (**`intent` default** — the six "
+        "verb-tools, granular set loaded on demand · `condensed` action-routed · "
+        "`verbose` 1:1 · `both`). Auto-generated — do not edit._"
     )
     lines.append(END)
     return "\n".join(lines)

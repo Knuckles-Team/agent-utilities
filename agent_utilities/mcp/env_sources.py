@@ -96,7 +96,7 @@ def example_env_pairs(root: Path) -> list[tuple[str, str]]:
             env_example.read_text(encoding="utf-8")
         ):
             values[name] = example
-    pairs: list[tuple[str, str]] = [("MCP_TOOL_MODE", "condensed")]
+    pairs: list[tuple[str, str]] = [("MCP_TOOL_MODE", "intent")]
     for var in sorted(package_env_vars(root)):
         value = values.get(var) or (
             INHERITED_ENV[var][0] if var in INHERITED_ENV else ""

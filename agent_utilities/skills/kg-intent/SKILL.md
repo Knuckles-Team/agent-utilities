@@ -18,14 +18,16 @@ metadata:
 
 # kg-intent — the intent surface (Seam 8)
 
-graph-os's default (`condensed`) MCP surface exposes ~95 `graph_*`/`engine_*`/
-`ontology_*`/`object_*`/`source_*` tools directly. Past a point, more tools *lowers*
-LLM tool-selection accuracy — worst for Haiku/local/small-context models. The **intent
-surface** (`MCP_TOOL_MODE=intent`, opt-in) is graph-os's small/cheap-LLM profile: it
+graph-os's granular surface has ~95 `graph_*`/`engine_*`/`ontology_*`/`object_*`/
+`source_*` tools. Past a point, more tools *lowers* LLM tool-selection accuracy — worst
+for Haiku/local/small-context models — and blows past the ~100-128 client tool cap. So
+the **intent surface** (`MCP_TOOL_MODE=intent`) is now graph-os's **DEFAULT** profile: it
 still registers every granular tool exactly as before (nothing removed, REST +
-`_execute_tool` unaffected), but additionally gates them from the DEFAULT session tool
-list and fronts the whole surface with six tiny, fixed-schema verb-tools. This is a
-**meta** skill — it documents the resolver/dispatcher mechanism itself, not one verb.
+`_execute_tool` unaffected), but additionally gates them from the default session tool
+list and fronts the whole surface with six tiny, fixed-schema verb-tools. The granular
+tools are loaded on demand via `load_tools`; set `MCP_TOOL_MODE=condensed`/`verbose`/`both`
+to expose them eagerly instead. This is a **meta** skill — it documents the
+resolver/dispatcher mechanism itself, not one verb.
 
 ## The six intent verbs
 
@@ -98,14 +100,14 @@ Nothing is destroyed by `unload` — `load` brings the tool straight back at any
 
 ## Condensed vs. intent — when to use which
 
-- **`MCP_TOOL_MODE=condensed`** (default, unaffected by any of the above): a capable
-  model with enough context — call the granular `graph_*`/`engine_*` tool directly. Every
-  `kg-*` skill besides this one documents that path.
-- **`MCP_TOOL_MODE=intent`**: a small/cheap/local model, or any session where trimming
-  the default tool list matters. State the intent via one of the six verbs above; the
-  resolver picks the tool and shows its work. `load_tools`/pinning via `hints_json={"tool":
-  ...}` always reaches an EXACT granular tool when you already know which one you want —
-  you are never forced through ranking.
+- **`MCP_TOOL_MODE=intent`** (the **default**): state the intent via one of the six verbs
+  above and the resolver picks the tool and shows its work; or `load_tools`/pin via
+  `hints_json={"tool": ...}` to reach an EXACT granular tool when you already know which one
+  you want — you are never forced through ranking. Best for small/cheap/local models and
+  any session where the ~100-tool cap or tool-selection accuracy matters (i.e. the default).
+- **`MCP_TOOL_MODE=condensed`/`verbose`/`both`** (opt-in): a capable model with enough
+  context that wants every granular `graph_*`/`engine_*` tool exposed eagerly — call it
+  directly. Every `kg-*` skill besides this one documents that direct path.
 
 Both profiles reach the exact same ~95 granular tools and identical REST routes — this
 skill is about **which front door** an LLM session uses, never about lost capability.

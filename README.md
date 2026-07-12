@@ -374,7 +374,7 @@ database, no daemon, no Docker — just the one stdio process:
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "both"
+        "MCP_TOOL_MODE": "intent"
       }
     }
   }
@@ -411,7 +411,7 @@ and a Keycloak-protected `*-mcp` fleet, set the engine-connection + fleet-auth g
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "both",
+        "MCP_TOOL_MODE": "intent",
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
 
         "ENGINE_MODE": "remote",
