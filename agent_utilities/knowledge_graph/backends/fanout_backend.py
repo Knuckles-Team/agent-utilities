@@ -326,11 +326,23 @@ class FanOutBackend(GraphBackend):
         params: dict[str, Any] | None = None,
         *,
         is_write: bool | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Reads → authority; writes → authority (sync) then mirrored durably."""
+        """Reads → authority; writes → authority (sync) then mirrored durably.
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1) forwards straight to
+        the authority backend's own ``execute`` on the read path — it is only
+        honored when the authority is an ``EpistemicGraphBackend`` (or another
+        backend that itself supports it); otherwise it degrades to ``[]`` exactly
+        as the authority's own ``execute`` documents. Ignored on the write path
+        (a write's return value is the mutation result, not a query result to
+        currency-upgrade).
+        """
         write = _is_write(query) if is_write is None else is_write
         if not write:
-            return self._authority.execute(query, params)
+            return self._authority.execute(
+                query, params, include_epistemic=include_epistemic
+            )
         result = self._authority.execute(query, params)
         self._authority_writes += 1
         # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct

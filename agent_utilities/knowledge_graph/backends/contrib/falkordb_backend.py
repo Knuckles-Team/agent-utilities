@@ -55,8 +55,20 @@ class FalkorDBBackend(GraphBackend):
         logger.info(f"Initialized FalkorDB backend at {host}:{port}")
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
+            # primitive on this backend; degrade to ``[]`` per the ABC contract.
+            logger.debug(
+                "FalkorDBBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         # coerce_cypher_property first (Map/nested → JSON string so FalkorDB doesn't
         # reject a Map-valued prop and stall a mirror), then strip control chars.
         params = {
