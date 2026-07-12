@@ -16,6 +16,9 @@ metadata:
 
 # kg-goals
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_goals`, `spec_ticket` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_goals"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `graph_goals` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_goals` orchestrates autonomous goal loops. Actions: `create` (a `goal` description + `max_iterations`), `list`, `iterations` (progress for a `goal_id`), `cancel`.
 
 ## Invoke

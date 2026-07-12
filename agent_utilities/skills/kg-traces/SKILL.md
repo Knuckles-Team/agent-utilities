@@ -15,6 +15,9 @@ metadata:
 
 # kg-traces
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `graph_traces` is held back from the default tool list (nothing removed — REST + `_execute_tool` still reach it exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["graph_traces"])` once per session (as below), then proceed exactly as documented; or (2) call the `ask` intent verb with the same natural-language request — the resolver routes to `graph_traces` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 `graph_traces` (CONCEPT:AU-KG.coordination.engine-message-broker) searches or fetches distributed traces. `action='search'` (filter by `service`/`operation`/free-form `query`, capped by `limit`) or `action='get'` (a single `trace_id`). Extra engine kwargs via `params_json`. Degrades cleanly when the engine build has no trace surface.
 
 ## Invoke

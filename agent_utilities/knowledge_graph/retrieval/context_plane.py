@@ -59,6 +59,14 @@ _BUILTIN_PROVIDERS: dict[str, tuple[str, str]] = {
         "agent_utilities.knowledge_graph.retrieval.entity_context",
         "entity_context",
     ),
+    # Seam 8 Phase 1 (CONCEPT:AU-KG.retrieval.capability-power-descriptor) — "what
+    # can this tool do, when should I use it, how reliable is it" for ANY
+    # graph-os capability, via the same universal plane every other domain
+    # uses: target="capability:<tool name>" (or "capability:list").
+    "capability": (
+        "agent_utilities.knowledge_graph.retrieval.capability_context",
+        "capability_power_context",
+    ),
 }
 
 #: Registered (dynamic) providers win over built-ins.

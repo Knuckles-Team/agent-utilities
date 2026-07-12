@@ -1952,8 +1952,19 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "status":
+                # CONCEPT:AU-ORCH.execution.run-trace-status-tool — route a delegated
+                # ``execute_agent``/``execute_workflow`` run's handle (``run_id="run:<hex>"``
+                # or a workflow's ``session_id="wf-<hex>"``, both returned by those actions,
+                # ORCH-1.97) to the REAL ``:RunTrace``/``:ToolCall`` provenance instead of the
+                # ``:Task``-node lookup, which only ever covers ``action="dispatch"`` jobs and
+                # returned ``not_found`` for every delegated run (the run's provenance lives
+                # under a completely different id namespace/node type it never queried).
                 if not job_id:
                     return "Error: job_id required"
+                if job_id.startswith("run:") or job_id.startswith("trace:"):
+                    return json.dumps(orch.get_run_trace(job_id), default=str)
+                if job_id.startswith("wf-") or job_id.startswith("session:"):
+                    return json.dumps(orch.get_session_runs(job_id), default=str)
                 return str(orch.get_task_status(job_id))
             elif action == "request_approval":
                 return f"Approval requested for job {job_id}"

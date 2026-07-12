@@ -20,6 +20,9 @@ metadata:
 
 # KG Modality — Channels & Broker (dynamic pub/sub + message broker)
 
+> **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile (`MCP_TOOL_MODE=intent`), `engine_channels`, `engine_broker` are held back from the default tool list (nothing removed — REST + `_execute_tool` still reach them exactly as documented below). Two ways to use this skill unchanged: (1) `load_tools(tools=["engine_channels"])` once per session (as below), then proceed exactly as documented; or (2) call the `act` intent verb with the same natural-language request — the resolver routes to `engine_channels` for you and returns the result plus a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+
+
 Fronts two epistemic-graph engine communication domains:
 
 - **`channels`** — dynamic agent-communication channels: create channels,
