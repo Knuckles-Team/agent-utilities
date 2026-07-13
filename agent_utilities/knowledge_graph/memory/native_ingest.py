@@ -144,8 +144,15 @@ def ingest_documents(
     """Write text records as ``:Document`` nodes (semantic-search fodder).
 
     Each doc: ``{"id":..., "text":..., "title"?:..., "source_uri"?:..., ...props}``.
-    The ``:Document`` carries the text + provenance; hub-side enrichment chunks and
-    embeds it. Returns ``{"nodes":n, "edges":0}`` or ``None``.
+    The ``:Document`` carries the text + full provenance (``source_uri``, ``title``,
+    ``fetched_at``, ``backend``, ``content_hash``). A connector runs OUTSIDE the
+    hub process (no heavy engine available here), so it cannot itself chunk/embed/
+    concept-extract/topic-classify — every write is stamped ``needs_enrichment=true``
+    so the hub-side catch-up sweep (:func:`enrich_pending_documents`, CONCEPT:AU-KG.enrichment.topic-classification-topology)
+    can find it and run it through the SAME unified DocumentProcessor + central
+    ``_enrich_text`` seam every other ingestion path gets — so a searxng/RSS/etc.
+    connector document is never a permanently-shallower write than a directly
+    ingested one. Returns ``{"nodes":n, "edges":0}`` or ``None``.
     """
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     nodes: list[dict[str, Any]] = []
@@ -159,6 +166,13 @@ def ingest_documents(
         node["type"] = "Document"
         node["text"] = text
         node.setdefault("created_at", now)
+        node.setdefault("fetched_at", now)
+        node.setdefault("backend", "native_ingest")
+        if "content_hash" not in node:
+            import hashlib
+
+            node["content_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        node["needs_enrichment"] = True
         nodes.append(node)
     if not nodes:
         return None
@@ -169,6 +183,78 @@ def ingest_documents(
     return _write_nodes(
         client, graph or _DEFAULT_GRAPH, nodes, None, source=source, domain=domain
     )
+
+
+async def enrich_pending_documents(engine: Any, *, limit: int = 200) -> dict[str, int]:
+    """Hub-side catch-up sweep: run every ``needs_enrichment`` ``:Document`` through
+    the SAME unified pipeline a direct ingest gets (CONCEPT:AU-KG.enrichment.topic-classification-topology).
+
+    Connector-written documents (:func:`ingest_documents` — searxng-mcp results,
+    any future ``native_ingest`` producer) land as a raw ``:Document`` node with
+    just text + provenance, because the connector process has no heavy engine to
+    chunk/embed/enrich with. This sweep — run hub-side, where the full
+    ``IntelligenceGraphEngine`` IS available — finds those pending nodes, runs
+    :class:`~agent_utilities.knowledge_graph.ontology.document_processing.DocumentProcessor`
+    (chunk + contextual-retrieval enrichment) and the central
+    ``IngestionEngine._enrich_text`` seam (concepts + facts + WorldView topic
+    classification) over each, then clears the flag so it isn't reprocessed.
+    Best-effort per document — one bad document never aborts the sweep. Callable
+    via ``graph_ingest action=enrich_pending_documents`` (MCP + REST twin).
+    """
+    result = {"scanned": 0, "enriched": 0, "failed": 0}
+    query_cypher = getattr(engine, "query_cypher", None)
+    backend = getattr(engine, "backend", None)
+    if not callable(query_cypher) or backend is None:
+        return result
+    try:
+        rows = query_cypher(
+            "MATCH (d:Document) WHERE d.needs_enrichment = true "
+            f"RETURN d LIMIT {int(limit)}"
+        )
+    except Exception as exc:  # noqa: BLE001 — sweep never raises
+        logger.warning("enrich_pending_documents: query failed: %s", exc)
+        return result
+    if not rows:
+        return result
+
+    from agent_utilities.knowledge_graph.ingestion.engine import IngestionEngine
+    from agent_utilities.knowledge_graph.ontology.document_processing import (
+        ChunkingConfig,
+        DocumentProcessor,
+    )
+
+    proc = DocumentProcessor(backend, chunking=ChunkingConfig(), contextual=True)
+    ing = IngestionEngine(kg_engine=engine)
+    add_node = getattr(backend, "add_node", None)
+
+    for row in rows:
+        d = row.get("d") if isinstance(row, dict) else None
+        if not isinstance(d, dict) or not d.get("id"):
+            continue
+        result["scanned"] += 1
+        doc_id = d["id"]
+        text = d.get("text") or ""
+        title = d.get("title") or d.get("name") or doc_id
+        source_uri = d.get("source_uri") or d.get("source") or ""
+        try:
+            proc.process(
+                text,
+                document_id=doc_id,
+                title=title,
+                doc_type=d.get("doc_type") or "document",
+                source=source_uri,
+                persist=True,
+            )
+            await ing._enrich_text(doc_id, text, d.get("domain") or "document", title)
+            if callable(add_node):
+                add_node(doc_id, type="Document", needs_enrichment=False)
+            result["enriched"] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad document never aborts the sweep
+            result["failed"] += 1
+            logger.debug(
+                "enrich_pending_documents: %s failed: %s", doc_id, exc, exc_info=True
+            )
+    return result
 
 
 def media_store() -> Any | None:

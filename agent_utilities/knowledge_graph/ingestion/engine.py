@@ -685,7 +685,7 @@ class IngestionEngine:
         never raises into ingestion. Mutates ``result`` with the enrichment counts
         (matching the original inline behaviour) and returns them.
         """
-        enriched = {"concepts": 0, "facts": 0}
+        enriched = {"concepts": 0, "facts": 0, "topics": 0}
         if not (
             result.status == "success"
             and result.enrichable
@@ -696,6 +696,7 @@ class IngestionEngine:
             counts = await self._enrich_payload(payload, manifest.content_type.value)
             enriched["concepts"] += counts["concepts"]
             enriched["facts"] += counts["facts"]
+            enriched["topics"] += counts.get("topics", 0)
         result.nodes_created += enriched["concepts"]
         result.edges_created += enriched["facts"]
         result.details.setdefault("enrichment", enriched)
@@ -1149,9 +1150,28 @@ class IngestionEngine:
                 *(_facts_for(w) for w in windows), return_exceptions=True
             )
             facts = sum(r for r in results if isinstance(r, int))
+
+        # Topic classification (CONCEPT:AU-KG.enrichment.topic-classification-topology) — default-on
+        # WorldView subject/topic classification, once per document (a topic
+        # assignment is a whole-document judgment, not per-window like concepts/
+        # facts). Mints/links the :Topic hierarchy under ontology_worldview.ttl.
+        # Best-effort: never breaks ingestion.
+        topics = 0
+        if windows:
+            try:
+                from ..enrichment.topic_classifier import classify_and_link_topics
+
+                topic_result = await classify_and_link_topics(
+                    self.backend, source_id, text, title=title, source_type=source_type
+                )
+                topics = 1 if topic_result.get("status") == "classified" else 0
+            except Exception:  # noqa: BLE001 — topic classification never breaks ingest
+                topics = 0
+
         summary: dict[str, Any] = {
             "concepts": concepts,
             "facts": facts,
+            "topics": topics,
             "structure": structure,
         }
         return summary

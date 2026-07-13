@@ -65,6 +65,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/trading>,
         <http://knuckles.team/kg/trm>,
         <http://knuckles.team/kg/wellness>,
+        <http://knuckles.team/kg/worldview>,
         <https://agent-utilities.dev/ontology/infrastructure> .
 
 :Agreement a owl:Class ;
@@ -411,10 +412,16 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
 
 :classifiedAs a owl:ObjectProperty ;
     rdfs:label "classified as" ;
-    rdfs:comment """Links an entity to its classification category.
-Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
+    rdfs:comment "Links an entity to its classification category. Works for DataClassification, SecurityClearance, risk tier, etc." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000031 .
+
+:classifiedAsTopic a owl:ObjectProperty ;
+    rdfs:label "classified as topic" ;
+    rdfs:comment "Links content to its PRIMARY (most-specific) Topic classification (CONCEPT:AU-KG.enrichment.topic-classification-topology); the classifier's confidence score is stored as a property on the edge itself. A distinct property from the pre-existing :classifiedAs (DataClassification/SecurityClearance markings) to avoid conflating their ranges." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range :Topic ;
+    rdfs:subPropertyOf :hasTopic .
 
 :contains a owl:ObjectProperty ;
     rdfs:label "contains" ;
@@ -622,6 +629,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Incident ;
     rdfs:range :Task .
 
+:hasTopic a owl:ObjectProperty ;
+    rdfs:label "has topic" ;
+    rdfs:comment "Links a Document (or other content-bearing entity) to a Topic it was classified under, at any level of the WorldView hierarchy (CONCEPT:AU-KG.enrichment.topic-classification-topology)." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range :Topic .
+
 :influenced a owl:ObjectProperty ;
     rdfs:label "influenced" ;
     rdfs:comment "Active influence. Inverse of influencedBy." ;
@@ -704,6 +717,18 @@ Works for versions, phases, events, role transitions, etc.""" ;
 :GovernanceRule a owl:Class ;
     rdfs:label "Governance Rule" ;
     rdfs:comment "A durable rule (forbid/prefer/demote) consulted at retrieval time." .
+
+:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment """A subject/knowledge-domain classification node (CONCEPT:AU-KG.enrichment.topic-classification-topology). BFO:GenericallyDependentContinuant, aligned to skos:Concept.
+Every Topic is transitively skos:broader-linked up to exactly one root
+:WorldViewDomain (ontology_worldview.ttl, CONCEPT:AU-KG.enrichment.worldview-subject-ontology)
+— deeper, context-derived sub-topics are minted at ingestion time as
+skos:narrower children of the nearest existing Topic, so the whole ingested
+corpus organizes under the one WorldView taxonomy instead of floating
+per-document tags.""" ;
+    rdfs:subClassOf bfo:0000031,
+        skos:Concept .
 
 :approvedBy a owl:ObjectProperty ;
     rdfs:label "approved by" ;

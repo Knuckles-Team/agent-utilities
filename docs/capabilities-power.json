@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-12T02:39:50Z",
-  "count": 95,
+  "generated_at": "2026-07-12T23:56:41Z",
+  "count": 99,
   "capabilities": [
     {
       "id": "ask_data",
@@ -136,7 +136,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -319,7 +319,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -476,7 +476,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -632,7 +632,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -814,7 +814,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -1106,7 +1106,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -1577,7 +1577,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -1839,7 +1839,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -2000,7 +2000,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -2193,7 +2193,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -2454,7 +2454,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -3723,7 +3723,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -4308,7 +4308,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -4467,7 +4467,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -4644,7 +4644,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -4941,7 +4941,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -5382,7 +5382,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -5821,7 +5821,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -6315,7 +6315,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -6460,7 +6460,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -6721,7 +6721,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -6842,7 +6842,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -7086,7 +7086,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -7364,7 +7364,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -7528,7 +7528,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -7676,7 +7676,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -8099,7 +8099,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -8262,6 +8262,11 @@
         },
         {
           "action": "evolve_variants",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "executable_rag",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -8565,7 +8570,7 @@
       },
       "side_effects": {
         "matched_action_count": 1,
-        "unmatched_action_count": 67,
+        "unmatched_action_count": 68,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -8621,7 +8626,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -8681,6 +8686,13 @@
             "required": false,
             "default": "raw",
             "description": "'raw' (default; byte-identical legacy shape) or 'bundle' (additionally wrap the result as an EvidenceBundle under `evidence_bundle`). Additive/opt-in."
+          },
+          {
+            "name": "include_epistemic",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "description": "CONCEPT:AU-KB-CURRENCY \u2014 opt-in. Only takes effect when the generated (or forced) query resolves to the 'cypher' dialect (sql/sparql have no epistemic-envelope surface, so this is a silent no-op for those). When true and honored, `results` holds per-row epistemic envelopes (confidence, bitemporal valid/tx time, evidence provenance, policy labels) instead of plain rows, and `citations` degrades to an empty list."
           }
         ],
         "input_schema": {
@@ -8709,6 +8721,11 @@
               "default": "raw",
               "description": "'raw' (default; byte-identical legacy shape) or 'bundle' (additionally wrap the result as an EvidenceBundle under `evidence_bundle`). Additive/opt-in.",
               "type": "string"
+            },
+            "include_epistemic": {
+              "default": false,
+              "description": "CONCEPT:AU-KB-CURRENCY \u2014 opt-in. Only takes effect when the generated (or forced) query resolves to the 'cypher' dialect (sql/sparql have no epistemic-envelope surface, so this is a silent no-op for those). When true and honored, `results` holds per-row epistemic envelopes (confidence, bitemporal valid/tx time, evidence provenance, policy labels) instead of plain rows, and `citations` degrades to an empty list.",
+              "type": "boolean"
             }
           },
           "required": [
@@ -8768,7 +8785,141 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
+      }
+    },
+    {
+      "id": "graph_audit",
+      "title": "graph audit",
+      "one_line": "Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mutation audit log (Rust `epistemic-graph/src/audit.rs`, SHA-256 per (graph, seq)) and reconstructs 'what happened to entity X' from the KG's own :ToolCall provenance.",
+      "intent_verbs": [
+        "act"
+      ],
+      "does": [
+        {
+          "action": "for_target",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "verify",
+          "eg_method": "AuditVerify",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "audit",
+            "verify"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "security:audit",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/audit",
+        "tags": [
+          "audit",
+          "governance",
+          "granular",
+          "graph-os",
+          "provenance"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "verify",
+            "description": "verify | for_target"
+          },
+          {
+            "name": "target_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Entity id to reverse-index tool-call provenance for (required for for_target)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "verify",
+              "description": "verify | for_target",
+              "type": "string"
+            },
+            "target_id": {
+              "default": "",
+              "description": "Entity id to reverse-index tool-call provenance for (required for for_target).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 1,
+        "unmatched_action_count": 1,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "Snapshot"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
+      },
+      "scopes": [
+        "security:audit"
+      ],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "graph_audit: Tamper-evident audit ledger (G23): verifies the engine's hash-chained",
+        "graph_audit action=for_target",
+        "graph_audit action=verify"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "audit",
+          "governance",
+          "granular",
+          "graph-os",
+          "provenance"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -8969,7 +9120,7 @@
         "source_method_eg": "BrokerAck",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -9320,7 +9471,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -9477,7 +9628,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -9660,7 +9811,168 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
+      }
+    },
+    {
+      "id": "graph_compliance",
+      "title": "graph compliance",
+      "one_line": "Compliance posture rollup + redacted bulk export \u2014 an aggregation layer over primitives that already exist (no new compliance/redaction logic).",
+      "intent_verbs": [
+        "act"
+      ],
+      "does": [
+        {
+          "action": "graph_compliance",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/compliance",
+        "tags": [
+          "audit",
+          "compliance",
+          "governance",
+          "granular",
+          "graph-os",
+          "redaction"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "posture",
+            "description": "posture | export"
+          },
+          {
+            "name": "cypher",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Read-only Cypher selecting an 'id' column of nodes to export (export action; ignored when node_ids is non-empty). E.g. \"MATCH (n:Control) RETURN n.id AS id LIMIT 100\"."
+          },
+          {
+            "name": "node_ids",
+            "type": "string",
+            "required": false,
+            "default": "[]",
+            "description": "JSON array of explicit node ids to export (export action)."
+          },
+          {
+            "name": "disclosure_level",
+            "type": "string",
+            "required": false,
+            "default": "Full",
+            "description": "Full | Skeleton | ExistenceOnly \u2014 policy-aware redaction applied to every exported node (export action)."
+          },
+          {
+            "name": "as_of",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional ISO-8601 instant \u2014 bitemporal cutoff for the cypher id selection (export action)."
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "default": 200,
+            "description": "Max nodes exported in one call (export action)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "posture",
+              "description": "posture | export",
+              "type": "string"
+            },
+            "cypher": {
+              "default": "",
+              "description": "Read-only Cypher selecting an 'id' column of nodes to export (export action; ignored when node_ids is non-empty). E.g. \"MATCH (n:Control) RETURN n.id AS id LIMIT 100\".",
+              "type": "string"
+            },
+            "node_ids": {
+              "default": "[]",
+              "description": "JSON array of explicit node ids to export (export action).",
+              "type": "string"
+            },
+            "disclosure_level": {
+              "default": "Full",
+              "description": "Full | Skeleton | ExistenceOnly \u2014 policy-aware redaction applied to every exported node (export action).",
+              "type": "string"
+            },
+            "as_of": {
+              "default": "",
+              "description": "Optional ISO-8601 instant \u2014 bitemporal cutoff for the cypher id selection (export action).",
+              "type": "string"
+            },
+            "limit": {
+              "default": 200,
+              "description": "Max nodes exported in one call (export action).",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 0,
+        "unmatched_action_count": 1,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [],
+        "txn_participation_values_seen": [],
+        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+      },
+      "scopes": [],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "graph_compliance: Compliance posture rollup + redacted bulk export \u2014 an aggregation layer over",
+        "graph_compliance action=graph_compliance"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "audit",
+          "compliance",
+          "governance",
+          "granular",
+          "graph-os",
+          "redaction"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -9962,7 +10274,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -10156,7 +10468,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -10385,7 +10697,209 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
+      }
+    },
+    {
+      "id": "graph_epistemic",
+      "title": "graph epistemic",
+      "one_line": "Purpose-named epistemic-answer surface over the engine's belief/provenance primitives (CONCEPT:AU-KB-CURRENCY) \u2014 'why do we believe this', 'what changed between two points in time', 'resolve this contradiction'.",
+      "intent_verbs": [
+        "ask"
+      ],
+      "does": [
+        {
+          "action": "graph_epistemic",
+          "eg_method": "EpistemicStatus",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "epistemic"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "explain:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/epistemic",
+        "tags": [
+          "belief",
+          "engine",
+          "epistemic",
+          "granular",
+          "graph-os",
+          "provenance"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "why",
+            "description": "status | why | what_changed | resolve_conflict"
+          },
+          {
+            "name": "node_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Claim/node id (status, why)."
+          },
+          {
+            "name": "node_ids",
+            "type": "string",
+            "required": false,
+            "default": "[]",
+            "description": "JSON array of contradicting node ids (resolve_conflict)."
+          },
+          {
+            "name": "disclosure_level",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Full | Skeleton | ExistenceOnly \u2014 policy-aware redaction (why). Empty = engine default (full disclosure)."
+          },
+          {
+            "name": "tx_from",
+            "type": "integer",
+            "required": false,
+            "default": 0,
+            "description": "Lower transaction-time bound (what_changed)."
+          },
+          {
+            "name": "tx_to",
+            "type": "integer",
+            "required": false,
+            "default": 0,
+            "description": "Upper transaction-time bound (what_changed)."
+          },
+          {
+            "name": "semantics",
+            "type": "string",
+            "required": false,
+            "default": "grounded",
+            "description": "Argumentation semantics for resolve_conflict (e.g. 'grounded')."
+          },
+          {
+            "name": "graph",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Target graph name (empty = deployment default)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "why",
+              "description": "status | why | what_changed | resolve_conflict",
+              "type": "string"
+            },
+            "node_id": {
+              "default": "",
+              "description": "Claim/node id (status, why).",
+              "type": "string"
+            },
+            "node_ids": {
+              "default": "[]",
+              "description": "JSON array of contradicting node ids (resolve_conflict).",
+              "type": "string"
+            },
+            "disclosure_level": {
+              "default": "",
+              "description": "Full | Skeleton | ExistenceOnly \u2014 policy-aware redaction (why). Empty = engine default (full disclosure).",
+              "type": "string"
+            },
+            "tx_from": {
+              "default": 0,
+              "description": "Lower transaction-time bound (what_changed).",
+              "type": "integer"
+            },
+            "tx_to": {
+              "default": 0,
+              "description": "Upper transaction-time bound (what_changed).",
+              "type": "integer"
+            },
+            "semantics": {
+              "default": "grounded",
+              "description": "Argumentation semantics for resolve_conflict (e.g. 'grounded').",
+              "type": "string"
+            },
+            "graph": {
+              "default": "",
+              "description": "Target graph name (empty = deployment default).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 1,
+        "unmatched_action_count": 0,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "Snapshot"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
+      },
+      "scopes": [
+        "explain:read"
+      ],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "You need the raw, low-level engine primitive directly (1:1 over the epistemic-graph wire protocol) \u2014 precise control, or the condensed `graph_*` tool doesn't expose the operation you need."
+      ],
+      "when_not": [
+        "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
+      ],
+      "examples": [
+        "graph_epistemic: Purpose-named epistemic-answer surface over the engine's belief/provenance",
+        "graph_epistemic action=graph_epistemic"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "belief",
+          "engine",
+          "epistemic",
+          "granular",
+          "graph-os",
+          "provenance"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": "EpistemicStatus",
+        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -10586,7 +11100,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -10743,7 +11257,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -10916,7 +11430,7 @@
         "source_method_eg": "ExplainBelief",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11067,7 +11581,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11240,7 +11754,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11390,7 +11904,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11582,7 +12096,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11707,7 +12221,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11860,7 +12374,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -11957,7 +12471,166 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
+      }
+    },
+    {
+      "id": "graph_incident",
+      "title": "graph incident",
+      "one_line": "Incident Brain (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation): browse the cross-layer :HealthAnomaly -> :Incident correlation the incidents CronJob already runs.",
+      "intent_verbs": [
+        "ask"
+      ],
+      "does": [
+        {
+          "action": "graph_incident",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/incident",
+        "tags": [
+          "aiops",
+          "granular",
+          "graph-os",
+          "incident",
+          "observability"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "list",
+            "description": "correlate | list | get"
+          },
+          {
+            "name": "incident_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Incident id (required for get)."
+          },
+          {
+            "name": "window_s",
+            "type": "integer",
+            "required": false,
+            "default": 300,
+            "description": "Correlation clustering window, seconds (correlate)."
+          },
+          {
+            "name": "days",
+            "type": "integer",
+            "required": false,
+            "default": 1,
+            "description": "Lookback window in days (correlate)."
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Filter by status, e.g. 'open' (list). Empty = no filter."
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "default": 50,
+            "description": "Max incidents returned (list)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "list",
+              "description": "correlate | list | get",
+              "type": "string"
+            },
+            "incident_id": {
+              "default": "",
+              "description": "Incident id (required for get).",
+              "type": "string"
+            },
+            "window_s": {
+              "default": 300,
+              "description": "Correlation clustering window, seconds (correlate).",
+              "type": "integer"
+            },
+            "days": {
+              "default": 1,
+              "description": "Lookback window in days (correlate).",
+              "type": "integer"
+            },
+            "status": {
+              "default": "",
+              "description": "Filter by status, e.g. 'open' (list). Empty = no filter.",
+              "type": "string"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Max incidents returned (list).",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 0,
+        "unmatched_action_count": 1,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [],
+        "txn_participation_values_seen": [],
+        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+      },
+      "scopes": [],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "graph_incident: Incident Brain (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation):",
+        "graph_incident action=graph_incident"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "aiops",
+          "granular",
+          "graph-os",
+          "incident",
+          "observability"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -12194,7 +12867,7 @@
             "type": "string",
             "required": false,
             "default": "ingest",
-            "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor."
+            "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor."
           },
           {
             "name": "job_id",
@@ -12252,7 +12925,7 @@
             },
             "action": {
               "default": "ingest",
-              "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
+              "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
               "type": "string"
             },
             "job_id": {
@@ -12337,7 +13010,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -12482,7 +13155,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -12649,7 +13322,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -12673,6 +13346,11 @@
         },
         {
           "action": "list",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "placement_control",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -12926,7 +13604,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 9,
+        "unmatched_action_count": 10,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -12976,7 +13654,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -13115,7 +13793,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -13339,7 +14017,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -13646,7 +14324,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -13797,7 +14475,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -13932,7 +14610,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -14218,7 +14896,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -14229,11 +14907,6 @@
         "ask"
       ],
       "does": [
-        {
-          "action": "root_cause",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
         {
           "action": "blast_radius",
           "eg_method": null,
@@ -14251,6 +14924,11 @@
         },
         {
           "action": "join",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "root_cause",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -14388,9 +15066,9 @@
       ],
       "examples": [
         "graph_ops_causal: Enterprise operations causal graph (Codex X-2): joins Langfuse traces ->",
-        "graph_ops_causal action=root_cause",
         "graph_ops_causal action=blast_radius",
-        "graph_ops_causal action=change_risk"
+        "graph_ops_causal action=change_risk",
+        "graph_ops_causal action=control_evidence"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -14415,7 +15093,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -14599,6 +15277,11 @@
         },
         {
           "action": "trigger_cron_job",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "verify_action",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -14844,7 +15527,7 @@
       },
       "side_effects": {
         "matched_action_count": 1,
-        "unmatched_action_count": 33,
+        "unmatched_action_count": 34,
         "any_action_mutates": true,
         "all_matched_actions_mutate": true,
         "durability_values_seen": [
@@ -14900,7 +15583,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -15093,7 +15776,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -15177,6 +15860,13 @@
             "required": false,
             "default": "raw",
             "description": "'raw' (default; byte-identical legacy shape \u2014 a bare JSON row array) or 'bundle' (single-connection local Cypher only: return `{\"rows\": [...], \"evidence_bundle\": {...}}`, wrapping the rows' engine-resolved epistemic envelope \u2014 confidence/provenance/bitemporal coverage/contradictions \u2014 as an EvidenceBundle via `Method::ExplainProvenanceByIds`). Additive/opt-in."
+          },
+          {
+            "name": "include_epistemic",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "description": "CONCEPT:AU-KB-CURRENCY \u2014 opt-in, single-connection local Cypher only (ignored on scope='sql'/'sparql'/'federated' and on a fan-out target). When true, each result row is currency-upgraded via the engine's `explain_provenance_by_ids` into a per-row epistemic envelope \u2014 confidence, bitemporal valid/tx time, evidence provenance, policy labels \u2014 alongside the row's own properties (never fabricated, resolved server-side). Overrides `envelope`: the response becomes a JSON array of these widened rows instead of the plain/bundle shape. Degrades to an empty array when the connected backend has no epistemic primitive."
           }
         ],
         "input_schema": {
@@ -15215,6 +15905,11 @@
               "default": "raw",
               "description": "'raw' (default; byte-identical legacy shape \u2014 a bare JSON row array) or 'bundle' (single-connection local Cypher only: return `{\"rows\": [...], \"evidence_bundle\": {...}}`, wrapping the rows' engine-resolved epistemic envelope \u2014 confidence/provenance/bitemporal coverage/contradictions \u2014 as an EvidenceBundle via `Method::ExplainProvenanceByIds`). Additive/opt-in.",
               "type": "string"
+            },
+            "include_epistemic": {
+              "default": false,
+              "description": "CONCEPT:AU-KB-CURRENCY \u2014 opt-in, single-connection local Cypher only (ignored on scope='sql'/'sparql'/'federated' and on a fan-out target). When true, each result row is currency-upgraded via the engine's `explain_provenance_by_ids` into a per-row epistemic envelope \u2014 confidence, bitemporal valid/tx time, evidence provenance, policy labels \u2014 alongside the row's own properties (never fabricated, resolved server-side). Overrides `envelope`: the response becomes a JSON array of these widened rows instead of the plain/bundle shape. Degrades to an empty array when the connected backend has no epistemic primitive.",
+              "type": "boolean"
             }
           },
           "required": [
@@ -15279,7 +15974,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -15499,7 +16194,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -15656,7 +16351,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -15722,6 +16417,26 @@
         },
         {
           "action": "status",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "twin_capture",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "twin_counterfactual",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "twin_incident",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "twin_replay",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -15893,7 +16608,7 @@
       },
       "side_effects": {
         "matched_action_count": 2,
-        "unmatched_action_count": 5,
+        "unmatched_action_count": 9,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -15954,7 +16669,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16078,7 +16793,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16239,7 +16954,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16426,7 +17141,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16617,7 +17332,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16787,7 +17502,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -16932,7 +17647,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -17070,7 +17785,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -17293,7 +18008,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -17484,7 +18199,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -17867,7 +18582,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18096,7 +18811,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18243,7 +18958,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18419,7 +19134,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18639,7 +19354,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18758,7 +19473,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:49Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -18925,7 +19640,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19182,7 +19897,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19358,7 +20073,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19507,7 +20222,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19520,6 +20235,11 @@
       "does": [
         {
           "action": "conforms",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "explain_routing_eligibility",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -19654,7 +20374,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 4,
+        "unmatched_action_count": 5,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -19681,8 +20401,8 @@
       "examples": [
         "ontology_interface: Ontology interfaces: resolve implementers (targeting), check conformance, or",
         "ontology_interface action=conforms",
-        "ontology_interface action=implementers",
-        "ontology_interface action=list"
+        "ontology_interface action=explain_routing_eligibility",
+        "ontology_interface action=implementers"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -19703,7 +20423,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19798,7 +20518,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -19941,7 +20661,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -20077,7 +20797,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -20247,7 +20967,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -20383,7 +21103,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -20692,7 +21412,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -20923,7 +21643,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -21088,7 +21808,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -21197,7 +21917,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -21318,7 +22038,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -21525,7 +22245,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     },
     {
@@ -21796,7 +22516,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-12T02:39:50Z"
+        "generated_at": "2026-07-12T23:56:41Z"
       }
     }
   ]
