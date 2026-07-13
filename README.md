@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 1.26.1*
+*Version: 1.26.2*
 
 > **New here?** Read **[docs/start-here.md](docs/start-here.md)** — one page: what
 > this is, the three ways to use it, and the zero-infra knowledge graph. For AIs,
