@@ -464,7 +464,9 @@ class TelemetryEngine:
             if span is None or not span.is_recording():
                 return
             if items_selected is not None:
-                span.set_attribute("context_compiler.items_selected", int(items_selected))
+                span.set_attribute(
+                    "context_compiler.items_selected", int(items_selected)
+                )
             if tokens_in is not None:
                 span.set_attribute("context_compiler.tokens_in", int(tokens_in))
             if tokens_selected is not None:
