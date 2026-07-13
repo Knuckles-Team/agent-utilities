@@ -24,6 +24,17 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class ChannelNotFoundError(LookupError):
+    """Raised by :func:`receive` when ``channel_id`` does not resolve to a live
+    channel (BUG-8) — distinguishes "channel doesn't exist" from "channel
+    exists, nothing new to read" so callers (``graph_message``) don't have to
+    infer it from an always-empty result."""
+
+    def __init__(self, channel_id: str) -> None:
+        self.channel_id = channel_id
+        super().__init__(f"channel not found: {channel_id!r}")
+
+
 def _channels(engine: Any) -> Any | None:
     """Reach the engine's channels sub-client (None if unavailable)."""
     client = getattr(getattr(engine, "graph_compute", None), "_client", None)
@@ -177,6 +188,12 @@ def receive(
         msgs = ch.get_messages(channel_id) or []
     except Exception as exc:  # noqa: BLE001
         logger.warning("channel receive failed (%s): %s", channel_id, exc)
+        # BUG-8: "not found" used to collapse into the same silent ``([], since)``
+        # as "channel exists, nothing new" — the caller (``graph_message``) had no
+        # way to tell the two apart even though the engine's own error text says
+        # exactly which one happened. Surface it as a typed error instead.
+        if "not found" in str(exc).lower():
+            raise ChannelNotFoundError(channel_id) from exc
         return [], since
     new = msgs[since:] if since < len(msgs) else []
     return new, len(msgs)

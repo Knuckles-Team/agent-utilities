@@ -16,6 +16,14 @@ from agent_utilities.mcp import kg_server
 
 logger = logging.getLogger(__name__)
 
+# BUG-1 (CRITICAL, kg-exhaustive-smoke.md): a hard ceiling on the ``object_set``
+# tool's ``limit`` field so a caller can't defeat the guard by simply passing an
+# absurdly large explicit limit — ``of_type``/``from_ids``/``union``/
+# ``intersect``/``subtract`` used to call ``ObjectSet.ids()`` with NO bound at
+# all, materializing the entire matching id set (13,793 ``Concept`` nodes out of
+# 139,655 total in the deployment that OOM-killed the live graph-os pod).
+_OBJECT_SET_HARD_CAP = 10_000
+
 
 def _run_coro(coro: Any) -> Any:
     """Run an async coroutine from a sync MCP handler, loop-running or not.
@@ -1631,10 +1639,19 @@ def register_ontology_tools(mcp):
             return json.dumps({"error": "node_id is required"})
         try:
             if action == "org":
-                _ts.share_with_org(node_id)
+                # BUG-6: share_with_org now returns False (no-op) for an id that
+                # doesn't resolve to a real node, instead of silently "succeeding".
+                if not _ts.share_with_org(node_id):
+                    return json.dumps(
+                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
+                    )
                 return json.dumps({"node_id": node_id, "shared_scope": "org"})
             if action == "commons":
                 ok = _ts.promote_to_commons(node_id)
+                if not ok:
+                    return json.dumps(
+                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
+                    )
                 return json.dumps(
                     {"node_id": node_id, "shared_scope": "commons", "promoted": ok}
                 )
@@ -1646,7 +1663,11 @@ def register_ontology_tools(mcp):
                 _ts.share(node_id, marking)
                 return json.dumps({"node_id": node_id, "marking": marking})
             if action == "private":
-                _ts.make_private(node_id)
+                # BUG-6: same existence guard as 'org' — no silent success.
+                if not _ts.make_private(node_id):
+                    return json.dumps(
+                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
+                    )
                 return json.dumps({"node_id": node_id, "shared_scope": "private"})
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
@@ -1698,8 +1719,25 @@ def register_ontology_tools(mcp):
             else:
                 base = ont.object_set_of_type(type_or_interface)
 
+            # BUG-1: clamp to a safe, non-zero, hard-capped limit for the
+            # actions that used to materialize an UNBOUNDED id list
+            # (of_type/from_ids/union/intersect/subtract) — a DYNAMIC
+            # ``ObjectSet`` (of_type) scans every node in the graph and would
+            # otherwise return every match with no cap, which OOM-crashed the
+            # live pod. ``search`` already had its own bound; leave it as-is.
+            effective_limit = max(
+                1, min(int(limit) if limit else 50, _OBJECT_SET_HARD_CAP)
+            )
+
             if action in ("of_type", "from_ids"):
-                return json.dumps({"ids": base.ids(), "count": base.count()})
+                ids = base.ids(limit=effective_limit)
+                return json.dumps(
+                    {
+                        "ids": ids,
+                        "count": len(ids),
+                        "limited": len(ids) >= effective_limit,
+                    }
+                )
             if action == "search":
                 res = base.search(query, limit=limit)
                 return json.dumps({"ids": res.ids(), "count": res.count()})
@@ -1738,8 +1776,17 @@ def register_ontology_tools(mcp):
                     if type_or_interface
                     else ont.object_set([])
                 )
-                combined = getattr(base, action)(other)
-                return json.dumps({"ids": combined.ids(), "count": combined.count()})
+                # BUG-1: bound both operands AND the combined result — ``other``
+                # can itself be an unbounded of_type() DYNAMIC set.
+                combined = getattr(base, action)(other, limit=effective_limit)
+                ids = combined.ids(limit=effective_limit)
+                return json.dumps(
+                    {
+                        "ids": ids,
+                        "count": len(ids),
+                        "limited": len(ids) >= effective_limit,
+                    }
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})

@@ -145,6 +145,33 @@ def test_manifest_required_empty_by_default():
     assert gate.manifest_required("archivebox") is False
 
 
+# ── rdflib packaging gap (kg-exhaustive-smoke.md): the compile-before-sync
+# gate needs rdflib (deliberately excluded from the lean `serving` plane,
+# CONCEPT:KG-2.242 — it lives only in the `[owl]` extra) to parse/hash the
+# compiled manifest. When it's absent this must degrade to ONE clear,
+# actionable violation line, not a bare ModuleNotFoundError bubbling up as a
+# generic "manifest does not compile cleanly" message. ──────────────────────
+
+
+def test_check_manifest_bytes_degrades_clearly_when_rdflib_missing(
+    tmp_path: Path, monkeypatch
+):
+    path = _write_clean_manifest(tmp_path, "widget-mcp")
+
+    # Force `import rdflib` to raise, without needing to actually uninstall it
+    # from the dev/test environment (which has it via the `[owl]`/`[test]` extras).
+    monkeypatch.setitem(__import__("sys").modules, "rdflib", None)
+
+    violations = gate.check_manifest_bytes(path)
+
+    assert len(violations) == 1
+    assert violations[0].startswith("[dependency]")
+    assert "owl" in violations[0]
+    assert "pip install" in violations[0]
+    # must NOT be conflated with a generic compile failure
+    assert "does not compile cleanly" not in violations[0]
+
+
 def test_manifest_required_reads_allowlist(monkeypatch):
     monkeypatch.setenv("CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE", "ArchiveBox, Twenty ,")
     assert gate.enterprise_required_sources() == set(gate.MANDATORY_NAMED_CONNECTOR_SOURCES) | {

@@ -161,8 +161,10 @@ class _FakeStore:
 
 
 def test_share_with_org_sets_scope():
-    store = _FakeStore()
-    ts.share_with_org("n1", store=store)
+    # BUG-6 (kg-exhaustive-smoke.md): _set_scope now existence-checks first —
+    # the fake store must report the node as found for the SET call to happen.
+    store = _FakeStore(rows=[{"id": "n1"}])
+    assert ts.share_with_org("n1", store=store) is True
     cypher, params = store.calls[-1]
     assert "_shared_scope = $scope" in cypher
     assert params["scope"] == ts.SCOPE_ORG
@@ -170,11 +172,32 @@ def test_share_with_org_sets_scope():
 
 
 def test_make_private_sets_owner_to_caller():
-    store = _FakeStore()
-    ts.make_private("n1", store=store, actor=_user("bob", "acme"))
+    store = _FakeStore(rows=[{"id": "n1"}])
+    assert ts.make_private("n1", store=store, actor=_user("bob", "acme")) is True
     cypher, params = store.calls[-1]
     assert params["scope"] == ts.SCOPE_PRIVATE
     assert params["owner"] == "bob"
+
+
+# --- BUG-6: share_with_org / make_private no-op (and report False) for a
+# nonexistent node id, instead of silently "succeeding" with a MATCH that
+# matched zero rows ------------------------------------------------------
+
+
+def test_share_with_org_missing_node_returns_false():
+    store = _FakeStore(rows=[])  # existence check finds nothing
+    assert ts.share_with_org("does-not-exist", store=store) is False
+    # No SET was ever issued — only the existence-check read happened.
+    assert all("SET" not in cypher for cypher, _ in store.calls)
+
+
+def test_make_private_missing_node_returns_false():
+    store = _FakeStore(rows=[])
+    assert (
+        ts.make_private("does-not-exist", store=store, actor=_user("bob", "acme"))
+        is False
+    )
+    assert all("SET" not in cypher for cypher, _ in store.calls)
 
 
 def test_promote_to_commons_copies_node():

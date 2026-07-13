@@ -239,9 +239,61 @@ def register_analysis_tools(mcp):
                 "causal",
                 "invariant",
             ):
-                return f"Action '{action}' executed successfully."
+                # BUG-5: these used to be hardcoded canned-success strings that did
+                # nothing regardless of input — a silent no-op masquerading as a
+                # real result. No real implementation of any of these exists on
+                # THIS surface (confirmed by source search), so fail honestly with
+                # a pointer to the real tool/service instead of faking success.
+                # forecast/evolve_model stay out of agent-utilities on purpose
+                # (heavy ML training belongs in data-science-mcp — anti-sprawl).
+                _NOT_IMPLEMENTED_HINT = {
+                    "evaluate": (
+                        "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
+                        "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
+                    ),
+                    "evolve_model": (
+                        "the data-science-mcp model-training/evolution surface "
+                        "(heavy ML training does not belong in agent-utilities)"
+                    ),
+                    "forecast": (
+                        "engine_timeseries (native TSDB) or "
+                        "graph_mine_deep(action='deep_forecast'), which delegates to data-science-mcp"
+                    ),
+                    "causal": (
+                        "graph_ops_causal (agent_utilities/mcp/tools/ops_causal_tools.py) — "
+                        "a real root-cause/causal-graph implementation already exists there"
+                    ),
+                    "invariant": (
+                        "agent_utilities.knowledge_graph.core.formal_reasoning_core."
+                        "FiniteStateMachine (add_invariant/validate_invariants) directly, "
+                        "or 'check_constraints' on this surface for a different kind of check"
+                    ),
+                }
+                return json.dumps(
+                    {
+                        "status": "not_implemented",
+                        "error": (
+                            f"Action '{action}' is not implemented on this surface — "
+                            f"use {_NOT_IMPLEMENTED_HINT[action]}."
+                        ),
+                        "action": action,
+                    }
+                )
             elif action == "security_scan":
-                return f"Security scan executed on {target}."
+                # BUG-5: was a hardcoded canned-success string; no real scan ever ran.
+                return json.dumps(
+                    {
+                        "status": "not_implemented",
+                        "error": (
+                            "Action 'security_scan' is not implemented on this surface — "
+                            "use the security-vulnerability-scan / security-patch-sweep "
+                            "skill, or engine_rbac / graph_audit for KG-native access and "
+                            "integrity checks."
+                        ),
+                        "action": action,
+                        "target": target,
+                    }
+                )
             elif action == "placement_plan":
                 # Multi-objective workload placement over the infra subgraph
                 # (efficiency/security/cost/resilience), propose-only (CONCEPT:AU-KG.ingest.enterprise-source-extractor).

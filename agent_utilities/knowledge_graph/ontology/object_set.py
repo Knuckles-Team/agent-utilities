@@ -495,8 +495,19 @@ class ObjectSet:
             raise ValueError("a DYNAMIC object set requires a predicate")
 
     # ── membership ───────────────────────────────────────────────────────────
-    def ids(self) -> list[str]:
-        """The current member ids, evaluated per :attr:`kind` (real evaluation)."""
+    def ids(self, *, limit: int | None = None) -> list[str]:
+        """The current member ids, evaluated per :attr:`kind` (real evaluation).
+
+        ``limit`` (BUG-1 guard, CONCEPT:AU-KG.ontology.link-type-pivot) bounds how
+        many ids are materialized/returned. For a DYNAMIC set — whose membership
+        is computed by scanning ``node_ids()`` and testing each object's
+        properties against the predicate — the scan stops as soon as ``limit``
+        matches are found, so ``ids(limit=...)`` never fully materializes an
+        unbounded id list (the OOM this guards against: ``of_type("Concept")``
+        over a 139k-node graph previously scanned + returned every match with no
+        cap). ``limit=None`` (the default) preserves the original unbounded
+        behavior for every existing caller that doesn't opt in.
+        """
         if self.kind is ObjectSetKind.DYNAMIC:
             pred = self._predicate
             assert pred is not None  # enforced in __init__
@@ -505,6 +516,8 @@ class ObjectSet:
                 try:
                     if pred(self._view.props(nid)):
                         out.append(nid)
+                        if limit is not None and len(out) >= limit:
+                            break
                 except Exception:  # nosec B112 — a bad predicate skips that node, not the query
                     continue
             return out
@@ -512,7 +525,8 @@ class ObjectSet:
             if self._source is not None:
                 self._ids = list(self._source())
             self._snapshot_at = time.monotonic()
-        return list(self._ids)
+        ids = list(self._ids)
+        return ids[:limit] if limit is not None else ids
 
     def _is_expired(self) -> bool:
         if self._ttl_seconds is None:
@@ -818,23 +832,40 @@ class ObjectSet:
         )
 
     # ── set algebra ──────────────────────────────────────────────────────────
-    def union(self, other: ObjectSet) -> ObjectSet:
-        """Return the union of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot)."""
-        a = self.ids()
+    def union(self, other: ObjectSet, *, limit: int | None = None) -> ObjectSet:
+        """Return the union of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot).
+
+        ``limit`` (BUG-1 guard) bounds both operands' materialization AND the
+        merged result the same way :meth:`ids` does — ``None`` preserves the
+        original unbounded behavior.
+        """
+        a = self.ids(limit=limit)
         seen = set(a)
-        merged = a + [i for i in other.ids() if i not in seen]
+        merged = a + [i for i in other.ids(limit=limit) if i not in seen]
+        if limit is not None:
+            merged = merged[:limit]
         return self._derive(merged, "union", other)
 
-    def intersect(self, other: ObjectSet) -> ObjectSet:
-        """Return the intersection of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot)."""
-        b = set(other.ids())
-        kept = [i for i in self.ids() if i in b]
+    def intersect(self, other: ObjectSet, *, limit: int | None = None) -> ObjectSet:
+        """Return the intersection of this set and ``other`` (CONCEPT:AU-KG.ontology.link-type-pivot).
+
+        ``limit`` (BUG-1 guard) bounds both operands + the result; see :meth:`union`.
+        """
+        b = set(other.ids(limit=limit))
+        kept = [i for i in self.ids(limit=limit) if i in b]
+        if limit is not None:
+            kept = kept[:limit]
         return self._derive(kept, "intersect", other)
 
-    def subtract(self, other: ObjectSet) -> ObjectSet:
-        """Return this set minus ``other`` (set difference, CONCEPT:AU-KG.ontology.link-type-pivot)."""
-        b = set(other.ids())
-        kept = [i for i in self.ids() if i not in b]
+    def subtract(self, other: ObjectSet, *, limit: int | None = None) -> ObjectSet:
+        """Return this set minus ``other`` (set difference, CONCEPT:AU-KG.ontology.link-type-pivot).
+
+        ``limit`` (BUG-1 guard) bounds both operands + the result; see :meth:`union`.
+        """
+        b = set(other.ids(limit=limit))
+        kept = [i for i in self.ids(limit=limit) if i not in b]
+        if limit is not None:
+            kept = kept[:limit]
         return self._derive(kept, "subtract", other)
 
     # operator sugar

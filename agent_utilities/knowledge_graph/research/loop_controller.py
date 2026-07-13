@@ -532,7 +532,11 @@ class LoopController:
         """Watermark of the assimilation input state. Unchanged ⇒ nothing to do.
 
         Fast path: an input-scoped count via Cypher (no embedding fetch). Fallback:
-        hash of ((id, status, content_hash)) over the input node types.
+        hash of ((id, status, content_hash)) over the input node types, fetched via
+        the engine's BOUNDED per-label index (``iter_typed_nodes``, the same helper
+        ``dedup_features`` uses) — never an unscoped ``graph.nodes(data=True)``,
+        which at ecosystem scale is a whole-graph ``GetNodes`` dump the response
+        guard refuses (``RESULT_TOO_LARGE``, CONCEPT:EG-KG.ingest.resets-socket-so-assimilation).
         """
         c = self._cheap_input_count()
         if c is not None:
@@ -540,19 +544,55 @@ class LoopController:
         graph = getattr(self.engine, "graph", None)
         if graph is None:
             return ""
+        from ..assimilation.dedup import iter_typed_nodes
+
         try:
-            node_iter = graph.nodes(data=True)
-        except TypeError:
+            node_iter = iter_typed_nodes(graph, tuple(_WATERMARK_TYPES))
+        except Exception:  # noqa: BLE001 - defensive; keep the watermark best-effort
             return ""
         items = sorted(
             (nid, str(d.get("status", "")), str(d.get("content_hash", "")))
             for nid, d in node_iter
             if isinstance(d, dict)
-            and str(d.get("type", "")).lower() in _WATERMARK_TYPES
         )
         return hashlib.sha256(repr(items).encode("utf-8")).hexdigest()[:16]
 
     def _load_watermark(self) -> str | None:
+        """Read the persisted watermark hash — a BOUNDED single-id lookup.
+
+        This runs on every ``assimilate`` call (before dedup/gap/synergy/rank even
+        start), so it must never fall back to an unscoped ``graph.nodes(data=True)``
+        on a live engine: at ecosystem scale that is a whole-graph ``GetNodes`` dump
+        that the response guard refuses outright (``RESULT_TOO_LARGE``,
+        CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) — reproduced live at
+        139,657 nodes > the 50,000 cap. Try the same bounded single-row Cypher
+        id-match already used elsewhere for this exact shape (e.g.
+        ``change_publisher.py``, ``durable_outcome_store.py``:
+        ``MATCH (n) WHERE n.id = $id RETURN ... LIMIT 1``). A successful call is
+        trusted even when it returns no row — "no watermark persisted yet" (the
+        first cycle) is a real, valid answer here, unlike a whole-graph scan there
+        is no cheaper way to get. Fall back to the ``graph.nodes()`` scan only when
+        ``query_cypher`` itself is unavailable or raises (e.g. a minimal test
+        double with no Cypher support at all).
+        """
+        q = getattr(self.engine, "query_cypher", None)
+        if callable(q):
+            try:
+                rows = q(
+                    "MATCH (n) WHERE n.id = $id RETURN n.hash AS hash LIMIT 1",
+                    {"id": _WATERMARK_NODE},
+                )
+            except Exception:  # noqa: BLE001 - fall back to the full scan
+                rows = None
+            else:
+                if not rows:
+                    return None
+                row = rows[0]
+                if isinstance(row, dict):
+                    return row.get("hash")
+                if isinstance(row, list | tuple) and row:
+                    return row[0]
+                return None
         graph = getattr(self.engine, "graph", None)
         if graph is None:
             return None

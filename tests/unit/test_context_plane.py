@@ -94,6 +94,39 @@ def test_infer_domain():
     assert context_plane.infer_domain("the task queue dead_letter backlog") == "ops"
 
 
+# ── BUG-3 (kg-exhaustive-smoke.md): default is `entity`, NOT a blind `code` ───
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_infer_domain_plain_concept_question_does_not_default_to_code():
+    # The exact repro: a plain-English KG/concept question that hits none of the
+    # ops/troubleshoot/code hints used to fall through to the hardcoded "code"
+    # default and get a false "no code symbol matched" answer.
+    domain = context_plane.infer_domain("What is the 1:1:1 traceability rule?")
+    assert domain != "code"
+    assert domain == "entity"
+
+
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_infer_domain_still_routes_real_code_questions_to_code():
+    # A code keyword still routes to `code` even with no snake_case identifier.
+    assert context_plane.infer_domain("what does this function do") == "code"
+    assert context_plane.infer_domain("show me the class definition") == "code"
+    # A bare snake_case identifier is its own signal.
+    assert context_plane.infer_domain("what is build_code_context for") == "code"
+
+
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_synthesize_context_default_domain_routes_to_entity_not_code():
+    class _EmptyEngine:
+        def query_cypher(self, cypher, params):
+            return []
+
+    res = context_plane.synthesize_context(
+        _EmptyEngine(), query="What is the 1:1:1 traceability rule?"
+    )
+    assert res["domain"] == "entity"
+    assert res["status"] == "ok"
+
+
 @pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
 def test_list_context_domains_has_builtins():
     domains = {d["domain"] for d in context_plane.list_context_domains()}
