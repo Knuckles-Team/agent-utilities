@@ -114,6 +114,10 @@ class OptimizationResult:
     optimized_instruction: str = ""
     trainset_size: int = 0
     optimizer: str = ""
+    # CONCEPT:AU-AHE.optimization.trace-derived-training-examples — how much of the trainset was real KG
+    # provenance vs self-supervised filler, so a caller/reviewer can see the closed loop worked.
+    trace_derived_count: int = 0
+    trace_failure_count: int = 0
 
 
 @dataclass
@@ -309,14 +313,31 @@ def run_dspy_optimization(
     metric: DspyMetric | None = None,
     optimizer_name: str = "BootstrapFewShot",
     holdout_fraction: float = 0.3,
+    engine: Any = None,
 ) -> OptimizationResult | None:
     """Compile a target with DSPy, refine its demos, and return the result.
 
-    CONCEPT:AU-AHE.optimization.optimizable-target-registry/3.43. Splits ``trainset`` into a feedback set (used by the optimizer)
-    and a held-out set (used by :func:`refine_demos`), compiles the target's Signature with
-    the selected optimizer under the real metric, prunes the bootstrapped demos, and
-    returns an :class:`OptimizationResult` (compiled state + kept demos). Returns ``None``
-    when DSPy is unavailable or the trainset is empty. Never raises.
+    CONCEPT:AU-AHE.optimization.optimizable-target-registry/3.43. Splits the BLENDED trainset into a feedback set (used by
+    the optimizer) and a held-out set (used by :func:`refine_demos`), compiles the target's
+    Signature with the selected optimizer under the real metric, prunes the bootstrapped
+    demos, and returns an :class:`OptimizationResult` (compiled state + kept demos). Returns
+    ``None`` when DSPy is unavailable or there is nothing to train on. Never raises.
+
+    CONCEPT:AU-AHE.optimization.trace-derived-training-examples — closing the cohesive-loop gap: before compiling, ``trainset``
+    (the caller's self-supervised examples — may be empty) is BLENDED with real
+    KG-trace-derived examples for this exact target
+    (:func:`agent_utilities.harness.trace_examples.blend_trainset`) — recent
+    ``Episode``/``ToolCall``/``OutcomeEvaluation`` provenance attributed to this
+    prompt/tool/skill, success and failure alike. A prompt/tool/skill with FAILED
+    traces now feeds the optimizer a real, KG-observed negative example (blank
+    response, ``reward`` below threshold, ``failure_reason`` carrying WHY), and the
+    metric blends in that real reward (:func:`~agent_utilities.harness.trace_examples.
+    trace_reward_fn`) whenever no caller-supplied ``metric`` overrides it — so
+    "traces observed" becomes "training signal used" without a second code path.
+    ``engine`` is optional and DEFAULT-ON: when omitted, :func:`trace_examples.
+    gather_trace_examples` best-effort resolves the process-wide active KG engine
+    instead, so this degrades to self-supervised-only rather than needing every
+    caller to thread an engine through.
 
     The actual compile — and any demo-refinement re-scoring — runs under
     :func:`agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard` (endpoint-
@@ -324,19 +345,32 @@ def run_dspy_optimization(
     is also endpoint-safe when called from the evolution cycle (``EvolveAgent.
     _dspy_optimize_cluster``), not just the tick/``optimize_component`` surfaces.
     """
-    if not trainset:
+    from agent_utilities.harness.trace_examples import (
+        blend_trainset,
+        record_trace_derived_finding,
+        trace_reward_fn,
+    )
+
+    blended, trace_stats = blend_trainset(engine, target, artifact, trainset)
+    if not blended:
         return None
     from agent_utilities.harness.dspy_lm_adapter import dspy_optimization_guard
 
     try:
         from agent_utilities.prompting.dspy_compiler import AgentTaskModule
 
-        metric = metric or make_optimization_metric(return_bool=True)
+        if metric is None:
+            reward_weight = 0.3 if trace_stats["trace_derived"] else 0.0
+            metric = make_optimization_metric(
+                return_bool=True,
+                reward_fn=trace_reward_fn,
+                reward_weight=reward_weight,
+            )
         signature = target.build_signature(artifact)
         program = AgentTaskModule(signature)
 
-        split = max(1, int(len(trainset) * (1.0 - holdout_fraction)))
-        feedback, holdout = trainset[:split], trainset[split:]
+        split = max(1, int(len(blended) * (1.0 - holdout_fraction)))
+        feedback, holdout = blended[:split], blended[split:]
 
         with dspy_optimization_guard(f"run_dspy_optimization:{target.component_type}"):
             optimizer = build_optimizer(optimizer_name, metric)
@@ -348,14 +382,18 @@ def run_dspy_optimization(
                 else getattr(compiled, "demos", [])
             )
 
+        record_trace_derived_finding(engine, trace_stats)
+
         return OptimizationResult(
             component_type=target.component_type,
             file_path=str(artifact.get("__file_path__", "")),
             compiled_state=compiled.dump_state(),
             demos=[d.toDict() if hasattr(d, "toDict") else dict(d) for d in kept],
             optimized_instruction=str(getattr(signature, "__doc__", "") or ""),
-            trainset_size=len(trainset),
+            trainset_size=len(blended),
             optimizer=optimizer_name,
+            trace_derived_count=trace_stats["trace_derived"],
+            trace_failure_count=trace_stats["trace_failures"],
         )
     except Exception as e:  # noqa: BLE001 - optimization is best-effort
         logger.warning(
