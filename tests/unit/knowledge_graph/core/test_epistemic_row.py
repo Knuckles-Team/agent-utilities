@@ -139,6 +139,34 @@ class TestEpistemicRowTypedEvidenceRefs:
         assert row.calibration == row.confidence == 0.42
 
 
+class TestEpistemicRowFromWireContradictionAndProofIds:
+    """SURPASS gap-closure: `proof_ids`/`contradiction_ids` exist on the Arrow
+    `KnowledgeBatch` server-side but weren't threaded into `EpistemicRow` -- these
+    prove `from_wire` now picks up both columns from a raw
+    `ExplainProvenanceRowWire`-shaped dict, exactly like every other column."""
+
+    def test_from_wire_populates_both_new_columns(self) -> None:
+        row = EpistemicRow.from_wire(
+            {
+                "id": "claim:1",
+                "kind": "Claim",
+                "score": 0.5,
+                "confidence": 0.8,
+                "contradiction_ids": ["claim:2"],
+                "proof_ids": ["evidence:1", "claim:base"],
+            }
+        )
+        assert row.contradiction_ids == ["claim:2"]
+        assert row.proof_ids == ["evidence:1", "claim:base"]
+
+    def test_from_wire_defaults_both_to_empty_when_absent(self) -> None:
+        # An older/non-epistemic engine build's wire dict simply lacks these keys
+        # -- from_wire must default cleanly, never raise a KeyError.
+        row = EpistemicRow.from_wire({"id": "n1", "kind": "Claim", "confidence": 1.0})
+        assert row.contradiction_ids == []
+        assert row.proof_ids == []
+
+
 class TestAttachEpistemicRows:
     def test_degrades_to_empty_when_fetch_is_none(self) -> None:
         rows = [{"id": "n1"}]
@@ -277,6 +305,8 @@ class TestAttachEpistemicColumns:
         assert result[0]["source_refs"] == []
         assert result[0]["evidence_refs"] == []
         assert result[0]["policy_labels"] == []
+        assert result[0]["contradiction_ids"] == []
+        assert result[0]["proof_ids"] == []
         assert result[0]["provenance"] == {
             "resolved": False,
             "valid_time": None,
@@ -304,6 +334,8 @@ class TestAttachEpistemicColumns:
                     "source_refs": ["doc:1"],
                     "evidence_spans": [{"DocumentSpan": {"document_id": "d1"}}],
                     "policy_labels": [CONTESTED_LABEL],
+                    "contradiction_ids": ["claim:rival"],
+                    "proof_ids": ["evidence:e1", "claim:base"],
                     "valid_time": [1, 2],
                     "tx_time": [3, 4],
                 }
@@ -316,11 +348,50 @@ class TestAttachEpistemicColumns:
         assert row["source_refs"] == ["doc:1"]
         assert row["evidence_refs"] == [{"DocumentSpan": {"document_id": "d1"}}]
         assert row["policy_labels"] == [CONTESTED_LABEL]
+        # SURPASS gap-closure: contradiction_ids/proof_ids now thread through the
+        # SAME merge path as every other epistemic column above.
+        assert row["contradiction_ids"] == ["claim:rival"]
+        assert row["proof_ids"] == ["evidence:e1", "claim:base"]
         assert row["provenance"] == {
             "resolved": True,
             "valid_time": [1, 2],
             "tx_time": [3, 4],
         }
+
+    def test_contradiction_count_uses_real_ids_not_just_the_label_proxy(
+        self, monkeypatch
+    ) -> None:
+        """SURPASS gap-closure: before `contradiction_ids` reached this far, the
+        OTel `contradiction_count` annotation was a boolean proxy (1 iff
+        `CONTESTED_LABEL` was present, 0 otherwise). Now that the real column is
+        threaded through, a row with a NON-EMPTY `contradiction_ids` list but NO
+        `CONTESTED_LABEL` must still report its real count."""
+        captured: dict[str, object] = {}
+
+        class _FakeTelemetry:
+            def annotate_epistemic(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "agent_utilities.observability.get_telemetry_engine",
+            lambda: _FakeTelemetry(),
+        )
+
+        rows = [{"id": "n1"}]
+
+        def fetch(ids: list[str]) -> list[dict]:
+            return [
+                {
+                    "id": "n1",
+                    "confidence": 0.9,
+                    "policy_labels": [],  # NOT contested by label
+                    "contradiction_ids": ["claim:a", "claim:b"],
+                }
+            ]
+
+        attach_epistemic_columns(rows, fetch)
+        assert captured["contradiction_count"] == 2
+        assert captured["status"] == "contested"
 
     def test_never_clobbers_a_property_the_row_already_carries(self) -> None:
         # A caller-selected `RETURN n.confidence AS confidence` column is a
