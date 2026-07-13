@@ -283,11 +283,21 @@ def trace_reward_fn(example: Any) -> float:
     (CONCEPT:AU-AHE.optimization.trace-derived-training-examples) — reads the real
     ``:OutcomeEvaluation``-derived reward :func:`gather_trace_examples` stamped
     onto the example, defaulting to a neutral ``0.5`` for self-supervised
-    examples that never carried one. Never raises."""
+    examples that never carried one. Never raises.
+
+    Deliberately checks for ``None`` (missing), not falsiness — a genuine
+    ``reward == 0.0`` (the worst, most informative failure) must reach the
+    metric as ``0.0``, not get silently coerced back to the neutral default.
+    """
+    raw = (
+        example.get("reward")
+        if isinstance(example, dict)
+        else getattr(example, "reward", None)
+    )
+    if raw is None:
+        return 0.5
     try:
-        if isinstance(example, dict):
-            return float(example.get("reward", 0.5) or 0.5)
-        return float(getattr(example, "reward", 0.5) or 0.5)
+        return float(raw)
     except (TypeError, ValueError):  # noqa: BLE001 - a malformed reward never breaks the metric
         return 0.5
 
@@ -329,7 +339,10 @@ def blend_trainset(
 
 
 def record_trace_derived_finding(
-    engine: Any, stats: dict[str, Any], *, node_type: str = "DSPyTraceOptimizationFinding"
+    engine: Any,
+    stats: dict[str, Any],
+    *,
+    node_type: str = "DSPyTraceOptimizationFinding",
 ) -> str | None:
     """Emit a structured log + a best-effort KG note recording that an
     optimization pass drew from real traces (CONCEPT:AU-AHE.optimization.trace-derived-training-examples) — the
@@ -366,7 +379,9 @@ def record_trace_derived_finding(
     )
     if engine is None or not hasattr(engine, "add_node"):
         return None
-    finding_id = f"dspy_trace_finding:{component_type}:{identifier}:{uuid.uuid4().hex[:10]}"
+    finding_id = (
+        f"dspy_trace_finding:{component_type}:{identifier}:{uuid.uuid4().hex[:10]}"
+    )
     try:
         engine.add_node(
             finding_id,

@@ -388,6 +388,7 @@ class EvolveAgent:
             artifact,
             trainset,
             optimizer_name=getattr(self, "dspy_optimizer_type", "BootstrapFewShot"),
+            engine=self.knowledge_engine,
         )
         if result is None:
             return edits
@@ -728,6 +729,7 @@ class EvolveAgent:
                 artifact,
                 list(trainset),
                 optimizer_name=self.dspy_optimizer_type,
+                engine=self.knowledge_engine,
             )
         # Use the DSPy-bootstrapped demos when the compile produced any; otherwise (no LM
         # reachable to roll out a bootstrap) fall back to the agent's labeled successes as

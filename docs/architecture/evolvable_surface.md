@@ -233,6 +233,7 @@ distiller → optimizer → variant-pool → KG-bridge spine.
 | 5 | Skill SOP/trigger | AU-AHE.optimization.agent-skill-sop-description | `skill` registry target (SOP already reaches the model via ORCH-1.28) |
 | 6 | Concept-matching + routing | AU-AHE.optimization.concept-matching-routing-policy | `policy_optimization.optimize_concept_matcher` / `optimize_routing_policy` |
 | 7 | **Scheduled sweep + promotion gate** | AU-AHE.optimization.candidate-replaces-incumbent-only | `run_optimization_sweep` · `should_promote` · daemon tick |
+| 8 | **Trace-derived training examples** | AU-AHE.optimization.trace-derived-training-examples | `trace_examples.gather_trace_examples` / `blend_trainset`, wired into `run_dspy_optimization` |
 
 Each was a registry target or a self-supervised optimizer reusing the one
 metric/driver/persist spine — not new infrastructure.
@@ -281,11 +282,69 @@ flowchart LR
 What remains is genuinely operational tuning: a reachable LLM for the compile, and
 populated graph data for the gatherers to draw on.
 
+## Closing the loop — trace-derived training examples (AU-AHE.optimization.trace-derived-training-examples)
+
+Everything above still compiled against a **self-supervised** trainset — passing
+traces pulled out of the `EvidenceCorpus`, or synthetic pairs. The observability
+flywheel already mines the *same* `Episode -[:USED_TOOL]-> ToolCall
+-[:PRODUCED_OUTCOME]-> OutcomeEvaluation` provenance for FAILURE patterns
+(`knowledge_graph/research/trace_pattern_miner.py`,
+`engine_ahe.propose_new_skill_from_experience`) but nothing fed that signal back
+into the optimizer itself — a prompt/tool/skill that kept producing failing traces
+in production never became a labeled negative example the metric penalized.
+`harness/trace_examples.py` closes that gap:
+
+```mermaid
+flowchart LR
+    EP["Episode -USED_TOOL-> ToolCall<br/>-PRODUCED_OUTCOME-> OutcomeEvaluation"] --> GTE["gather_trace_examples<br/>dispatches on target.component_type"]
+    GTE -->|"tool_description"| QT["query by tool_name"]
+    GTE -->|"skill / system_prompt"| QG["query by Episode tag"]
+    QT --> ROW["_row_to_example<br/>reward < 0.5 -> FAILURE (blank response, failure_reason kept)"]
+    QG --> ROW
+    ROW --> BLEND["blend_trainset<br/>trace-derived FIRST + self-supervised trainset SECOND"]
+    SS["caller's self-supervised trainset"] --> BLEND
+    BLEND --> COMPILE["run_dspy_optimization<br/>optimizer.compile(...) under dspy_optimization_guard"]
+    COMPILE --> METRIC["make_optimization_metric(reward_fn=trace_reward_fn)<br/>blends the REAL OutcomeEvaluation reward into the score"]
+    COMPILE --> FIND["record_trace_derived_finding<br/>:DSPyTraceOptimizationFinding (best-effort)"]
+```
+
+- **Gather** — `gather_trace_examples(engine, target, artifact)` queries the KG for
+  recent episodes attributable to the target (bounded `LIMIT 50`, mirroring every
+  other mining pass's row cap) and turns each row into a `TraceExample`: a real
+  `OutcomeEvaluation.reward` below `0.5` is a labeled FAILURE (response deliberately
+  left blank so `BootstrapFewShot` can never mistake a known-bad output for a
+  demonstration to imitate; `feedback_text` carries *why* it failed), at or above is a
+  labeled SUCCESS (a real positive demonstration). No engine, no resolvable name, or a
+  failed query all degrade to `[]` — never raise.
+- **Blend** — `blend_trainset` puts trace-derived examples FIRST, the caller's
+  self-supervised examples SECOND, and returns `(trainset, stats)` — `stats` is the
+  observability record (`trace_derived`/`trace_failures`/`trace_successes`/
+  `self_supervised`/`total`) callers report provenance from. No traces for this target
+  → the result is exactly the self-supervised trainset (cold-start still works).
+- **Wired at the one choke point** — `run_dspy_optimization` (`dspy_optimization.py`)
+  calls `blend_trainset` before `optimizer.compile`, and defaults `reward_fn` to
+  `trace_reward_fn` (weight `0.3`) whenever the blend actually drew traces, so the
+  metric is steered by the real outcome, not just text-quality overlap. Every caller —
+  `EvolveAgent._dspy_optimize_cluster`, `EvolveAgent.harden_agent_prompt`, and any
+  future registry-target caller — gets this for free; `engine` is optional and
+  DEFAULT-ON (falls back to `IntelligenceGraphEngine.get_active()` when a caller
+  doesn't thread one through, though both `EvolveAgent` call sites pass
+  `self.knowledge_engine` explicitly).
+- **Propose-only, endpoint-safe** — this module only ever reads the graph and builds
+  plain data; the compile itself still runs under `dspy_optimization_guard`
+  (concurrency-bounded + priority-yielding LM). No new LLM call, no new trace store.
+- **Observable** — `record_trace_derived_finding` always logs (visible even with no
+  engine/persistence) and best-effort persists a `:DSPyTraceOptimizationFinding` node
+  when the engine supports `add_node` — the queryable tail of "traces observed" →
+  "training signal used".
+
 ## Code paths
 
 - `agent_utilities/harness/dspy_optimization.py` — **the spine**: `make_optimization_metric`
   (AU-AHE.optimization.real-optimization-metric), `OPTIMIZABLE_TARGETS`/`OptimizableTarget` (AHE-3.40), `refine_demos`
   (AU-AHE.optimization.few-shot-demo-set), `run_dspy_optimization`, `run_component_optimization`.
+- `agent_utilities/harness/trace_examples.py` — AU-AHE.optimization.trace-derived-training-examples:
+  `gather_trace_examples`, `blend_trainset`, `trace_reward_fn`, `record_trace_derived_finding`.
 - `agent_utilities/knowledge_graph/extraction/extraction_optimizer.py` — AU-AHE.optimization.dspy-optimization-kg-extraction:
   `extraction_quality` (self-supervised metric), `optimize_extraction_prompt`.
 - `agent_utilities/harness/policy_optimization.py` — AU-AHE.optimization.concept-matching-routing-policy: `classification_accuracy`,

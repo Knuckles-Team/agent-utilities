@@ -114,8 +114,8 @@ class OptimizationResult:
     optimized_instruction: str = ""
     trainset_size: int = 0
     optimizer: str = ""
-    # CONCEPT:AU-AHE.optimization.trace-derived-training-examples — how much of the trainset was real KG
-    # provenance vs self-supervised filler, so a caller/reviewer can see the closed loop worked.
+    # CONCEPT:AU-AHE.optimization.trace-derived-training-examples — KG-trace-derived training examples blended into the DSPy trainset
+    # how much of the trainset was real KG provenance vs self-supervised filler, so a caller/reviewer can see the closed loop worked.
     trace_derived_count: int = 0
     trace_failure_count: int = 0
 
@@ -317,7 +317,7 @@ def run_dspy_optimization(
 ) -> OptimizationResult | None:
     """Compile a target with DSPy, refine its demos, and return the result.
 
-    CONCEPT:AU-AHE.optimization.optimizable-target-registry/3.43. Splits the BLENDED trainset into a feedback set (used by
+    CONCEPT:AU-AHE.optimization.optimizable-target-registry — splits the BLENDED trainset into a feedback set (used by
     the optimizer) and a held-out set (used by :func:`refine_demos`), compiles the target's
     Signature with the selected optimizer under the real metric, prunes the bootstrapped
     demos, and returns an :class:`OptimizationResult` (compiled state + kept demos). Returns

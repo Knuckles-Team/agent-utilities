@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1008
+total_concepts: 1009
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -1338,6 +1338,19 @@ concepts:
   dotted: AU-AHE.optimization.telemetry-optimization
   aliases:
   - AU-AHE.optimization.telemetry-optimization
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.optimization.trace-derived-training-examples
+  name: KG-trace-derived training examples blended into the DSPy trainset
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  - agent_utilities/harness/trace_examples.py
+  doc: KG-trace-derived training examples blended into the DSPy trainset
+  dotted: AU-AHE.optimization.trace-derived-training-examples
+  aliases:
+  - AU-AHE.optimization.trace-derived-training-examples
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.optimization.workflow-distillation
