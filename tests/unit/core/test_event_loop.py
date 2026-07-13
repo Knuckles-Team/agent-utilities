@@ -11,11 +11,12 @@ call site poisoned 100+ unrelated async tests in a full-suite run.
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import nest_asyncio
 import pytest
 
-from agent_utilities.core.event_loop import allow_nested_run_sync
+from agent_utilities.core.event_loop import allow_nested_run_sync, run_sync_isolated
 
 
 def test_no_running_loop_does_not_patch(monkeypatch):
@@ -81,6 +82,57 @@ def test_event_loop_stays_usable_after_sync_call():
             return asyncio.current_task() is not None
 
     assert asyncio.run(probe()) is True
+
+
+def test_run_sync_isolated_runs_inline_with_no_running_loop():
+    """No running loop on this thread -> ``fn`` runs directly, same thread."""
+    this_thread = threading.current_thread()
+    seen: dict[str, threading.Thread] = {}
+
+    def fn() -> int:
+        seen["thread"] = threading.current_thread()
+        return 42
+
+    assert run_sync_isolated(fn) == 42
+    assert seen["thread"] is this_thread
+
+
+async def test_run_sync_isolated_offloads_to_worker_thread_inside_a_running_loop():
+    """BUG-2 (kg-exhaustive-smoke.md): called from inside a running event loop,
+    ``fn`` must run on a different (worker) thread, not raise/deadlock."""
+    this_thread = threading.current_thread()
+    seen: dict[str, threading.Thread] = {}
+
+    def fn() -> int:
+        seen["thread"] = threading.current_thread()
+        return 7
+
+    result = run_sync_isolated(fn)
+
+    assert result == 7
+    assert seen["thread"] is not this_thread
+
+
+async def test_run_sync_isolated_survives_a_real_run_sync_style_nested_loop():
+    """The exact failure mode: a callable that itself spins ``asyncio.run()``
+    (mirroring ``pydantic_ai.Agent.run_sync``) must not raise "This event loop
+    is already running" when invoked from inside a running loop."""
+
+    def fake_agent_run_sync() -> str:
+        async def _inner() -> str:
+            return "planned"
+
+        return asyncio.run(_inner())
+
+    assert run_sync_isolated(fake_agent_run_sync) == "planned"
+
+
+async def test_run_sync_isolated_propagates_exceptions():
+    def boom() -> None:
+        raise ValueError("nope")
+
+    with pytest.raises(ValueError, match="nope"):
+        run_sync_isolated(boom)
 
 
 if __name__ == "__main__":
