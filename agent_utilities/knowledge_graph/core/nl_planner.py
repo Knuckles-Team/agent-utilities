@@ -146,30 +146,22 @@ class AuNlPlanner:
 
     def _default_run(self, prompt: str, system_prompt: str) -> str:
         """Call the AU-configured fleet LLM once and return its raw text output."""
-        import asyncio
-
         from pydantic_ai import Agent
 
+        from agent_utilities.core.event_loop import run_sync_isolated
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role=self._role)
         agent = Agent(model=model, system_prompt=system_prompt)
 
-        def _call() -> str:
-            return str(agent.run_sync(prompt).output)
-
         # ``nl_query`` is a SYNC entrypoint but the MCP/gateway dispatch calls it from
         # inside a running event loop. ``agent.run_sync`` spins its own loop and raises
         # "This event loop is already running" when one is already active on this thread.
-        # Detect that and run the sync call on a worker thread (which has no running loop).
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return _call()
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(_call).result()
+        # :func:`run_sync_isolated` detects that and runs the sync call on a worker
+        # thread (which has no running loop) — the shared form of this exact guard,
+        # also used by the sibling ``nl_query.nl_to_query`` / ``data_analyst``
+        # call sites (BUG-2, kg-exhaustive-smoke.md).
+        return str(run_sync_isolated(lambda: agent.run_sync(prompt)).output)
 
     def plan(
         self,

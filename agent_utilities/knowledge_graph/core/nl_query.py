@@ -233,9 +233,16 @@ def nl_to_query(
         prompt += f"\nYou MUST use the '{forced}' dialect.\n"
 
     try:
+        from agent_utilities.core.event_loop import run_sync_isolated
+
         model = create_model(role="generator")
         agent = Agent(model=model, system_prompt=_SYSTEM_PROMPT)
-        result = agent.run_sync(prompt)
+        # BUG-2 (kg-exhaustive-smoke.md): ``agent.run_sync`` spins its own event
+        # loop and raises "This event loop is already running" when called (as
+        # every real graph_ask/ask_data MCP/REST call is) from inside the
+        # gateway's already-running loop. Sibling call site to the fixed
+        # ``nl_planner.AuNlPlanner._default_run`` — same worker-thread guard.
+        result = run_sync_isolated(lambda: agent.run_sync(prompt))
         parsed = _parse_llm_query(result.output)
     except Exception as exc:  # noqa: BLE001 — LLM / parse failure is reported, not raised
         return {"error": f"nl->query generation failed: {exc}", "schema": schema}

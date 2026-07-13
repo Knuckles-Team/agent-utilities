@@ -227,6 +227,61 @@ def test_kg_2_308_uses_au_fleet_llm_for_synthesis_when_configured(monkeypatch):
     assert out["answer"] == "Synthesized: 2 customers."
 
 
+def test_kg_2_308_synthesis_survives_call_from_inside_a_running_event_loop(
+    monkeypatch,
+):
+    """BUG-2 (kg-exhaustive-smoke.md): ``ask_data`` -> :meth:`analyze` ->
+    :meth:`_default_synthesize`, invoked from inside the gateway's
+    already-running event loop (every real MCP/REST tool dispatch runs inside
+    FastMCP/Starlette's live loop). Before the fix, the synthesis step's
+    ``Agent.run_sync`` -- which itself spins its own ``asyncio.run()`` --
+    collided with that loop and raised "This event loop is already running",
+    silently swallowed by ``_default_synthesize``'s own ``except Exception``
+    into the deterministic fallback answer instead of the real synthesized
+    one. The fake Agent's ``run_sync`` genuinely calls ``asyncio.run()``
+    internally (mirroring the real pydantic-ai facade) so a regression
+    reproduces the exact failure mode.
+    """
+    import asyncio
+
+    monkeypatch.setattr(nl_planner, "is_llm_configured", lambda: True)
+
+    class _FakeAgent:
+        def __init__(self, *a, **k):
+            pass
+
+        def run_sync(self, prompt):
+            async def _inner():
+                class _R:
+                    output = "Synthesized: 2 customers."
+
+                return _R()
+
+            return asyncio.run(_inner())
+
+    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **k: object()
+    )
+    eng = _FakeEngine()
+    agent = data_analyst.DataAnalystAgent(
+        eng,
+        planner=_canned('{"dialect": "sql", "query": "SELECT customer FROM nodes"}'),
+    )
+
+    async def _call_from_running_loop():
+        # analyze() is a plain sync method called directly (not awaited) from
+        # inside a running loop -- exactly how the async ask_data MCP tool
+        # handler reaches it in production.
+        return agent.analyze("summarize customers")
+
+    out = asyncio.run(_call_from_running_loop())
+
+    # A real synthesized answer, NOT the deterministic fallback the
+    # event-loop RuntimeError used to silently degrade to.
+    assert out["answer"] == "Synthesized: 2 customers."
+
+
 def test_kg_2_308_ask_data_mcp_tool_registered():
     from agent_utilities.mcp import kg_server
     from agent_utilities.mcp.tools.query_tools import register_query_tools

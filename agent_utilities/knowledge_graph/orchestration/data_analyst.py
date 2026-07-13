@@ -231,15 +231,20 @@ class DataAnalystAgent:
         try:
             from pydantic_ai import Agent
 
+            from agent_utilities.core.event_loop import run_sync_isolated
             from agent_utilities.core.model_factory import create_model
 
             model = create_model(role="generator")
             agent = Agent(model=model, system_prompt=_ANSWER_SYSTEM_PROMPT)
             payload = json.dumps(rows[:20], default=str)
             prompt = f"Question: {question}\n\nRows (JSON): {payload}"
-            return str(agent.run_sync(prompt).output).strip() or _fallback_answer(
-                question, rows
-            )
+            # BUG-2 (kg-exhaustive-smoke.md): sibling call site to the fixed
+            # ``nl_planner.AuNlPlanner._default_run`` — ``agent.run_sync``
+            # collides with the gateway's already-running event loop
+            # (``ask_data`` → :meth:`analyze` → this synthesis step) unless
+            # run off-thread. Same worker-thread guard.
+            result = run_sync_isolated(lambda: agent.run_sync(prompt))
+            return str(result.output).strip() or _fallback_answer(question, rows)
         except Exception as exc:  # noqa: BLE001 — synthesis failure degrades gracefully
             logger.debug("answer synthesis failed, using fallback: %s", exc)
             return _fallback_answer(question, rows)

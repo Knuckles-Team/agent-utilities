@@ -193,3 +193,49 @@ def test_concept_count_question_grounds_on_type_column(monkeypatch):
     assert "`type`" in captured_prompt["text"]
     assert out["generated_query"] == "SELECT COUNT(*) FROM nodes WHERE type = 'Concept'"
     assert out["results"] == [{"count(*)": 13792}]
+
+
+def test_nl_to_query_survives_call_from_inside_a_running_event_loop(monkeypatch):
+    """BUG-2 (kg-exhaustive-smoke.md): ``graph_ask``/``ask_data`` route through
+    ``nl_to_query``, invoked from inside the gateway's already-running event
+    loop (every real MCP/REST tool dispatch runs inside FastMCP/Starlette's
+    live loop). Before the fix, ``Agent.run_sync`` — which itself spins its own
+    ``asyncio.run()`` — collided with that loop and raised
+    ``RuntimeError: This event loop is already running`` instead of returning
+    a grounded answer (``{"error": "nl->query generation failed: This event
+    loop is already running", ...}``). The fake Agent's ``run_sync`` genuinely
+    calls ``asyncio.run()`` internally (mirroring the real pydantic-ai facade)
+    so a regression reproduces the exact failure mode, not just a trivial mock.
+    """
+    import asyncio
+
+    class _FakeAgent:
+        def __init__(self, *a, **k):
+            pass
+
+        def run_sync(self, prompt):
+            async def _inner():
+                return _FakeResult(
+                    '{"dialect": "cypher", "query": "MATCH (a:Agent) RETURN a"}'
+                )
+
+            return asyncio.run(_inner())
+
+    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **k: object()
+    )
+
+    eng = _FakeEngine()
+
+    async def _call_from_running_loop():
+        # nl_to_query is a plain sync function called directly (not awaited)
+        # from inside a running loop -- exactly how the async MCP tool handler
+        # reaches it in production.
+        return nl_query.nl_to_query(eng, "who are the agents")
+
+    out = asyncio.run(_call_from_running_loop())
+
+    assert "error" not in out, out
+    assert out["generated_query"] == "MATCH (a:Agent) RETURN a"
+    assert out["results"] == [{"id": "n1", "name": "alpha"}]
