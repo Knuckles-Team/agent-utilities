@@ -873,6 +873,18 @@ class AgentConfig(BaseSettings):
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=9000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
+    # CONCEPT:AU-OS.deployment.airgap-mode — sovereign/self-hosted gate
+    # (reports/surpass-6mo/04-five-intersections.md §3). The ONE flag: when
+    # set, the canonical outbound HTTP factory (agent_utilities/core/http_client.py)
+    # and the LLM client constructor (core/model_factory.py) refuse any request
+    # whose target host is not loopback/private/link-local, fail-closed with
+    # AirgapViolation instead of silently phoning out. Off by default — flipping
+    # it on is an explicit sovereign-deployment decision, not a background
+    # behavior change (config discipline: no second knob for the allowlist —
+    # point air-gapped endpoints at their private/loopback IP).
+    airgap_mode: bool = Field(default=False, alias="AIRGAP_MODE")
+    """When true, block outbound HTTP requests to non-local hosts (see
+    :mod:`agent_utilities.core.http_client`'s ``airgap_guard_transport``)."""
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
     enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
     enable_web_logs: bool = Field(default=True, alias="ENABLE_WEB_LOGS")

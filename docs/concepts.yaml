@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1006
+total_concepts: 1007
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -5295,11 +5295,13 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: the one-call form the ingestion engine / MCP wrapper invokes
   dotted: AU-KG.ingest.chunk-overlap-stage
   aliases:
@@ -5526,6 +5528,7 @@ concepts:
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
   - agent_utilities/knowledge_graph/memory/native_ingest.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
@@ -7633,6 +7636,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/event_loop.py
   - agent_utilities/knowledge_graph/core/nl_planner.py
   - agent_utilities/knowledge_graph/core/nl_query.py
   - agent_utilities/knowledge_graph/orchestration/data_analyst.py
@@ -12134,6 +12138,20 @@ concepts:
   dotted: AU-OS.deployment.agent-factory-autoload
   aliases:
   - AU-OS.deployment.agent-factory-autoload
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.deployment.airgap-mode
+  name: sovereign/self-hosted gate
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/http_client.py
+  - agent_utilities/core/model_factory.py
+  doc: sovereign/self-hosted gate
+  dotted: AU-OS.deployment.airgap-mode
+  aliases:
+  - AU-OS.deployment.airgap-mode
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.connector-coverage-check

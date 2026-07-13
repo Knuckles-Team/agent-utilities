@@ -374,13 +374,26 @@ def _create_model_impl(
         # (Dependency discipline). It is only needed once a model is actually built.
         import httpx
 
+        from agent_utilities.core.http_client import airgap_guard_transport
+
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
         timeout_obj = httpx.Timeout(timeout, connect=30.0)
+        # CONCEPT:AU-OS.deployment.airgap-mode — a no-op (returns None) unless
+        # AIRGAP_MODE is set; when set, this is the model-call egress path
+        # (the sovereign guide's "one external dependency"), so it gets the
+        # same fail-closed host guard as the fleet HTTP client library.
+        _transport = airgap_guard_transport(
+            None, is_async=True, verify=ssl_verify, limits=limits
+        )
         # ``auth=_oauth2_auth`` (None when no oauth2 is configured — zero behaviour change)
         # mints/renews the bearer transparently on every request this client sends, which is
         # exactly ONE model's worth of client since this factory builds a single model per call.
         http_client = httpx.AsyncClient(
-            verify=ssl_verify, timeout=timeout_obj, limits=limits, auth=_oauth2_auth
+            verify=ssl_verify,
+            timeout=timeout_obj,
+            limits=limits,
+            auth=_oauth2_auth,
+            transport=_transport,
         )
 
     if _provider == "openai":
