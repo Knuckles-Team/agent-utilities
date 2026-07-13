@@ -259,6 +259,8 @@ graph TD
 |---|---|---|
 | ECO-4.0 | Tool Interface & MCP Factory | MCP server factory, skill loading, tool assignment |
 | ECO-4.1 | A2A Network & Consensus 🔬 | Agent-to-agent discovery, delegation, consensus |
+| ECO-4.6 | Web/Social Content KG Ingestion | Ingest external web/social content (posts, articles) into the KG as documents for assimilation |
+| ECO-4.7 | Infrastructure Telemetry Monitoring | Connector-sourced infrastructure/service telemetry ingestion and monitoring into the KG |
 | AU-ECO.toolkit.journey-map-narrative | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
 | AU-ECO.ui.company-infrastructure-orchestration | Market Data KG Node Models | Connector/fetch-record ontology nodes for data-source provenance |
 | AU-ECO.toolkit.journey-map-adoption | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
