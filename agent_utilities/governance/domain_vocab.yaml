@@ -42,6 +42,7 @@ pillars:
     graphlearn:    [graphlearn, graph-learning, link-predictor, edge-function, kan, graph_learn]
     identity:      [identity, media_store, asset-occurrence, evidence-spine, blob-identity, content-digest]
     epistemic:     [epistemic, truth-maintenance, belief, paraconsistent, argumentation]
+    audit:         [audit, hash-chain, tamper-evident, ledger-verify, integrity, provenance-audit]
 
   # ─────────────────────────────────────────────────────────────────────────
   ORCH: # Graph Orchestration Engine — planning, routing, execution, the Loop.
