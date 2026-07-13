@@ -336,28 +336,55 @@ def _store(store: Any = None) -> Any:
     return KnowledgeGraph().store
 
 
-def _set_scope(node_id: str, scope: str, store: Any, owner: str | None = None) -> None:
+def _node_exists(node_id: str, store: Any) -> bool:
+    """Whether ``node_id`` resolves to a real node in ``store`` (BUG-6 guard)."""
+    rows = (
+        store.execute("MATCH (n {id: $id}) RETURN n.id AS id LIMIT 1", {"id": node_id})
+        or []
+    )
+    return bool(rows)
+
+
+def _set_scope(node_id: str, scope: str, store: Any, owner: str | None = None) -> bool:
+    """Flip the share-scope property of ``node_id``, iff it exists.
+
+    Returns ``True`` when the node was found and updated, ``False`` (no-op) when
+    ``node_id`` does not resolve to a real node — the Cypher ``MATCH`` used to
+    silently match zero rows with no signal back to the caller (BUG-6), letting
+    ``graph_share`` report success for ids that were never written.
+    """
+    if not _node_exists(node_id, store):
+        return False
     sets = [f"n.{SCOPE_KEY} = $scope"]
     params: dict[str, Any] = {"id": node_id, "scope": scope}
     if owner is not None:
         sets.append(f"n.{OWNER_KEY} = $owner")
         params["owner"] = owner
     store.execute(f"MATCH (n {{id: $id}}) SET {', '.join(sets)}", params)
+    return True
 
 
 def share_with_org(
     node_id: str, store: Any = None, actor: ActorContext | None = None
-) -> None:
-    """Make ``node_id`` visible to everyone in the owner's org (in-place flip)."""
-    _set_scope(node_id, SCOPE_ORG, _store(store))
+) -> bool:
+    """Make ``node_id`` visible to everyone in the owner's org (in-place flip).
+
+    Returns ``False`` (no-op) if ``node_id`` does not exist (BUG-6).
+    """
+    return _set_scope(node_id, SCOPE_ORG, _store(store))
 
 
 def make_private(
     node_id: str, store: Any = None, actor: ActorContext | None = None
-) -> None:
-    """Restrict ``node_id`` back to its owner (defaults the owner to the caller)."""
+) -> bool:
+    """Restrict ``node_id`` back to its owner (defaults the owner to the caller).
+
+    Returns ``False`` (no-op) if ``node_id`` does not exist (BUG-6).
+    """
     actor = actor or current_actor()
-    _set_scope(node_id, SCOPE_PRIVATE, _store(store), owner=actor.actor_id or None)
+    return _set_scope(
+        node_id, SCOPE_PRIVATE, _store(store), owner=actor.actor_id or None
+    )
 
 
 def share(node_id: str, marking: Any) -> None:

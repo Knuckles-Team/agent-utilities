@@ -8776,6 +8776,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
   doc: the synthesized, cited
   dotted: AU-KG.retrieval.synthesized-cited-answer
   aliases:
@@ -13899,6 +13900,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/assimilation/dedup.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: and resets the socket, so the assimilation
   dotted: EG-KG.ingest.resets-socket-so-assimilation
   aliases:
@@ -14051,7 +14053,7 @@ concepts:
   canonical_pillar: EG-KG
   needs_curation: false
 - id: EG-KG.txn.per-graph-write-isolation
-  name: a label-scoped MATCH
+  name: never an unscoped whole-graph
   pillar: EG-KG
   status: live
   code_paths:
@@ -14063,7 +14065,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/bounded_read.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
-  doc: a label-scoped MATCH
+  doc: never an unscoped whole-graph
   dotted: EG-KG.txn.per-graph-write-isolation
   aliases:
   - EG-KG.txn.per-graph-write-isolation

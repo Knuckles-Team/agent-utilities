@@ -203,18 +203,36 @@ def _rel_of(props: Any) -> str:
 def is_closed(engine: Any, feature_id: str, status: str = "") -> bool:
     """True if ``feature_id`` is satisfied/superseded or closed by status.
 
-    When ``status`` is not supplied, the node's stored ``status`` is consulted, so
-    ``is_closed(engine, fid)`` is self-sufficient.
+    When ``status`` is not supplied, the node's stored ``status`` is consulted via
+    :func:`_node_data_by_id` (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — a bounded per-id fetch, NOT a
+    whole-graph ``nodes(data=True)`` scan for one id — so ``is_closed(engine, fid)``
+    stays self-sufficient without risking a ``RESULT_TOO_LARGE`` whole-graph dump on
+    a large engine. IMPORTANT: once a bounded per-id surface exists on the graph, a
+    "not found" answer from it is trusted as-is (no status) — it is NEVER treated as
+    a signal to fall back to a full scan, since a live engine returns an empty dict
+    for a genuinely missing id (not an error), and re-scanning on every miss would
+    reopen the same ``RESULT_TOO_LARGE`` risk. The full per-node scan is reserved
+    for graphs with NO bounded per-id surface at all (e.g. a minimal test double) —
+    on a real engine this branch never fires.
     """
     graph = getattr(engine, "graph", None)
     if not status and graph is not None:
-        try:
-            for nid, data in graph.nodes(data=True):
-                if nid == feature_id and isinstance(data, dict):
-                    status = str(data.get("status", ""))
-                    break
-        except TypeError:  # pragma: no cover
-            pass
+        has_bounded_lookup = any(
+            callable(getattr(graph, m, None))
+            for m in ("get_node_properties", "_get_node_properties")
+        )
+        if has_bounded_lookup:
+            data = _node_data_by_id(graph, feature_id)
+            if isinstance(data, dict):
+                status = str(data.get("status", ""))
+        else:
+            try:
+                for nid, d in graph.nodes(data=True):
+                    if nid == feature_id and isinstance(d, dict):
+                        status = str(d.get("status", ""))
+                        break
+            except TypeError:  # pragma: no cover - non-standard graph
+                pass
     if (status or "").lower() in _CLOSED_STATUS:
         return True
     if graph is None:
@@ -236,29 +254,21 @@ def _closed_feature_index(
 ) -> tuple[set[str], dict[str, dict[str, Any]]]:
     """``(closed_ids, all_features)`` — feature ids closed by status or a closing edge.
 
-    BATCHED: one node scan + one bulk edge scan
+    BATCHED: a BOUNDED per-label node collection (:func:`_collect_rich` — the same
+    ``get_nodes_by_label``-preferring collector used elsewhere in this module,
+    CONCEPT:EG-KG.txn.per-graph-write-isolation, never an unscoped whole-graph
+    ``nodes(data=True)`` dump) plus one bulk edge scan
     (:func:`~assimilation.dedup.iter_all_edges`), instead of ``O(features)``
     per-node ``out_edges``/``in_edges`` round-trips — the live-backend scaling fix.
     Falls back to the per-node :func:`is_closed` when the graph has no bulk edge
     view (test doubles), preserving identical semantics.
     """
     graph = getattr(engine, "graph", None)
-    feats: dict[str, dict[str, Any]] = {}
     closed: set[str] = set()
     if graph is None:
-        return closed, feats
-    try:
-        node_iter = graph.nodes(data=True)
-    except TypeError:  # pragma: no cover
-        return closed, feats
-    wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
-    for nid, data in node_iter:
-        if (
-            not isinstance(data, dict)
-            or str(data.get("type", "")).lower() not in wanted
-        ):
-            continue
-        feats[nid] = data
+        return closed, {}
+    feats = _collect_rich(engine, feature_types)
+    for nid, data in feats.items():
         if str(data.get("status", "")).lower() in _CLOSED_STATUS:
             closed.add(nid)
 

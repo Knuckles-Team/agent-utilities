@@ -4138,6 +4138,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                     meta["extract_papers"] = (
                         ep if isinstance(ep, bool) else str(ep).lower() == "true"
                     )
+                # CONCEPT:AU-KG.ingest.chunk-overlap-stage — ``ingest_url`` defaults these ON (set by the
+                # MCP tool) so a URL ingest gets first-class embedded Chunk objects
+                # + contextual-retrieval enrichment, at parity with connector
+                # ingestion (KG-2.50) rather than only the plain idea_block chunks.
+                for _bool_key in ("chunk_objects", "contextual"):
+                    _val = tprops.get(_bool_key)
+                    if _val is not None:
+                        meta[_bool_key] = (
+                            _val
+                            if isinstance(_val, bool)
+                            else str(_val).lower() == "true"
+                        )
                 ing = IngestionEngine(kg_engine=self)
                 r = await ing.ingest(
                     IngestionManifest(
