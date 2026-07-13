@@ -713,7 +713,27 @@ def _dispatch(
     # parameter and the caller didn't already supply one via ``params_json``.
     if "graph" not in params:
         try:
-            sig = inspect.signature(fn)
+            # BUG-4 follow-up: ``fn`` itself is USELESS for this check.
+            # ``SyncEpistemicGraphClient`` wraps every async namespace method
+            # in a generic ``sync_wrapper(*args, **kwargs)`` closure (see
+            # ``epistemic_graph.client.SyncEpistemicGraphClient._SyncWrapper.
+            # __getattr__``) that erases the real parameter names —
+            # ``inspect.signature(fn)`` on that closure always comes back as
+            # ``(*args, **kwargs)``, so ``"graph" in sig.parameters`` never
+            # fires and the graph-threading fix above was silent dead code
+            # for every ``_SyncWrapper``-mediated domain (streaming, blob,
+            # channels, ledger, …). Unwrap to the wrapper's private
+            # ``_namespace`` (the real async object whose *unbound* coroutine
+            # function still carries its true signature — never called
+            # directly, only introspected) so the check actually sees
+            # ``graph`` when the underlying wire method declares it.
+            introspect_target = fn
+            raw_namespace = getattr(getattr(client, domain, None), "_namespace", None)
+            if raw_namespace is not None:
+                async_fn = getattr(raw_namespace, action, None)
+                if async_fn is not None:
+                    introspect_target = async_fn
+            sig = inspect.signature(introspect_target)
         except (TypeError, ValueError):
             sig = None
         if sig is not None and "graph" in sig.parameters:
