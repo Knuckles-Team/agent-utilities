@@ -199,6 +199,20 @@ class EpistemicRow:
     valid_time: tuple[int | None, int | None] = (None, None)
     tx_time: tuple[int | None, int | None] = (None, None)
     policy_labels: list[str] = field(default_factory=list)
+    #: SURPASS gap-closure ("wire `proof_ids`/`contradiction_ids` from the Arrow
+    #: `KnowledgeBatch` into `EpistemicRow`") — ids this row CONTRADICTS/ATTACKS or is
+    #: contradicted/attacked BY (SYMMETRIC), straight off the wire's
+    #: ``ExplainProvenanceRowWire.contradiction_ids`` (same column
+    #: ``eg_plan::KnowledgeBatch``'s Arrow-columnar surface already carries — this
+    #: row-shaped path is the one that actually reaches a Python caller). Empty when
+    #: the engine's ``epistemic`` feature is off, or the row has no classified
+    #: contradiction/attack edge — never fabricated.
+    contradiction_ids: list[str] = field(default_factory=list)
+    #: SURPASS gap-closure (see ``contradiction_ids`` above) — the transitive
+    #: justification/premise chain underneath this row's belief, deduped, excluding
+    #: the row's own id, off ``ExplainProvenanceRowWire.proof_ids``. Empty when
+    #: ``epistemic`` is off or the row has no evidence neighbourhood.
+    proof_ids: list[str] = field(default_factory=list)
     #: The plain node-property dict the ORIGINAL (non-epistemic) query projected
     #: for this id, when the caller supplied one (see
     #: :meth:`KnowledgeGraph.query`'s ``include_epistemic`` path) — so opting into
@@ -262,6 +276,8 @@ class EpistemicRow:
             valid_time=_pair(row.get("valid_time")),
             tx_time=_pair(row.get("tx_time")),
             policy_labels=list(row.get("policy_labels") or []),
+            contradiction_ids=list(row.get("contradiction_ids") or []),
+            proof_ids=list(row.get("proof_ids") or []),
             properties=dict(properties or {}),
         )
 
@@ -496,6 +512,7 @@ def attach_epistemic_columns(
 
     worst_confidence = 1.0
     any_contested = False
+    max_contradiction_count = 0
     all_policy_labels: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
@@ -510,6 +527,13 @@ def attach_epistemic_columns(
             source_refs = list(wr.get("source_refs") or [])
             evidence_refs = list(wr.get("evidence_spans") or [])
             policy_labels = list(wr.get("policy_labels") or [])
+            # SURPASS gap-closure ("wire proof_ids/contradiction_ids into
+            # EpistemicRow"): straight off the wire, same as every other column
+            # above -- a row's REAL contradiction count, not just the
+            # `CONTESTED_LABEL` policy-label proxy `any_contested` used before
+            # these columns reached here.
+            contradiction_ids = list(wr.get("contradiction_ids") or [])
+            proof_ids = list(wr.get("proof_ids") or [])
             provenance: dict[str, Any] = {
                 "resolved": True,
                 "valid_time": wr.get("valid_time"),
@@ -520,17 +544,29 @@ def attach_epistemic_columns(
             source_refs = []
             evidence_refs = []
             policy_labels = []
+            contradiction_ids = []
+            proof_ids = []
             provenance = {"resolved": False, "valid_time": None, "tx_time": None}
         row.setdefault("confidence", confidence)
         row.setdefault("source_refs", source_refs)
         row.setdefault("evidence_refs", evidence_refs)
         row.setdefault("policy_labels", policy_labels)
+        row.setdefault("contradiction_ids", contradiction_ids)
+        row.setdefault("proof_ids", proof_ids)
         row.setdefault("provenance", provenance)
 
         worst_confidence = min(worst_confidence, confidence)
         all_policy_labels.update(policy_labels)
+        max_contradiction_count = max(max_contradiction_count, len(contradiction_ids))
         if CONTESTED_LABEL in policy_labels:
             any_contested = True
+
+    # A row can be contested via either signal: the engine's own `CONTESTED_LABEL`
+    # policy label, OR a non-empty `contradiction_ids` list now that it actually
+    # reaches this far -- take the real count when present, else fall back to the
+    # boolean label-only proxy so a build/row still missing the column (e.g. an
+    # older engine) behaves exactly as it did before this gap-closure.
+    contradiction_count = max_contradiction_count or (1 if any_contested else 0)
 
     try:
         from agent_utilities.observability import get_telemetry_engine
@@ -541,9 +577,9 @@ def attach_epistemic_columns(
                 resolved=bool(wire_by_id),
                 confidence=worst_confidence,
                 policy_labels=tuple(all_policy_labels),
-                contradiction_count=1 if any_contested else 0,
+                contradiction_count=contradiction_count,
             ),
-            contradiction_count=1 if any_contested else 0,
+            contradiction_count=contradiction_count,
             policy_labels=sorted(all_policy_labels),
             source_count=len(rows),
         )
