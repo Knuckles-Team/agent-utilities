@@ -231,6 +231,21 @@ def check_manifest_bytes(path: Path) -> list[str]:
 
         g = rdflib.Graph()
         g.parse(data=ttl, format="turtle")
+    except ImportError as exc:
+        # rdflib is deliberately excluded from the lean `serving` plane
+        # (see KG-2.242) and lives only in the `[owl]` extra — but THIS gate
+        # (the mandatory D17 compile-before-sync check for the 12 named
+        # AU-P1-6 connectors, leanix included) has no engine-native fallback and
+        # genuinely needs it to parse/hash the compiled ontology. Degrade to one
+        # clear, actionable line instead of a bare ModuleNotFoundError bubbling
+        # up as "manifest does not compile cleanly".
+        return [
+            f"[dependency] {path}: the connector-manifest compile-before-sync "
+            "gate needs rdflib to parse/hash the compiled ontology, and it is "
+            "not installed on this deployment — install the 'owl' extra "
+            "(pip install 'agent-utilities[owl]', or add it to this service's "
+            f"image) to enable manifest-gated sync for this source. ({exc})"
+        ]
     except Exception as exc:  # noqa: BLE001
         return [f"[compile] {path}: manifest does not compile cleanly: {exc}"]
 
