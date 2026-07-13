@@ -256,6 +256,15 @@ def _crawl_via_script(
                     or 1000
                 )
             ),
+            # This subprocess is an internal acquisition backend — the crawl4ai
+            # single-page resolver (``web_fetch._fetch_via_crawl4ai``, which itself
+            # backs ``ingest_url``) AND the skill-graph corpus builder (which runs
+            # its own separate ``sources.json``-tracked KG ingestion afterward).
+            # The web-crawler skill's own KG ingestion defaults ON for direct/
+            # user-facing runs — force it OFF here so neither caller recurses into
+            # ``ingest_url`` (which would call back into this same resolver) or
+            # double-ingests the acquired pages under a different granularity.
+            "--no-kg-ingest",
         ]
         if spec.options.get("disable_magic_js"):
             cmd.append("--disable-magic-js")

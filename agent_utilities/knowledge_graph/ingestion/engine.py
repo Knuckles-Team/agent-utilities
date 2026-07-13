@@ -2031,6 +2031,7 @@ class IngestionEngine:
                     **manifest.metadata,
                     "source_url": url,
                     "fetch_backend": "requests",
+                    "fetched_at": _now(),
                 },
                 force=manifest.force,
             )
@@ -2062,6 +2063,7 @@ class IngestionEngine:
                 **manifest.metadata,
                 "source_url": url,
                 "fetch_backend": page.backend,
+                "fetched_at": _now(),
             },
             force=manifest.force,
         )
@@ -2138,6 +2140,27 @@ class IngestionEngine:
                 manifest=manifest, status="failed", error="backend.add_node unavailable"
             )
         source_url = manifest.metadata.get("source_url") or doc.file_path
+
+        # Provenance (CONCEPT:AU-KG.ingest.enterprise-source-extractor): a URL-fetched document must
+        # carry WHICH resolver backend served it (archivebox/crawl4ai/requests) and
+        # WHEN it was fetched, not just the source_url — the `fetch_backend`/
+        # `fetched_at` keys are already threaded through IngestionManifest.metadata
+        # by ``_ingest_document_url`` but were previously computed and discarded.
+        # ``stamp_source`` also tags the doc as an external "web" source
+        # (source_system/domain) — a no-op for local file/dir ingestion where
+        # source_url isn't a real URL.
+        from ..enrichment.provenance import stamp_source
+
+        prov_props: dict[str, Any] = {}
+        fetch_backend = manifest.metadata.get("fetch_backend")
+        if fetch_backend:
+            prov_props["fetch_backend"] = fetch_backend
+        fetched_at = manifest.metadata.get("fetched_at")
+        if fetched_at:
+            prov_props["fetched_at"] = fetched_at
+        if str(source_url).startswith(("http://", "https://")):
+            stamp_source(prov_props, "web")
+
         add_node(
             doc.id,
             type="Document",
@@ -2148,6 +2171,7 @@ class IngestionEngine:
             content=doc.content,
             source_url=source_url,
             metadata=_json.dumps(doc.metadata)[:4000],
+            **prov_props,
         )
         for c in concepts:
             add_node(

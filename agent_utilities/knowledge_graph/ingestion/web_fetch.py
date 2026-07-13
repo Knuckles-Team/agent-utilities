@@ -195,7 +195,7 @@ def _records(result: Any) -> list[dict[str, Any]]:
 
 
 def _fetch_via_crawl4ai(url: str, timeout: float) -> FetchedPage | None:
-    """Fetch one page with the crawl4ai web-crawler (depth 0, single page)."""
+    """Fetch one page with the crawl4ai web-crawler (single page, no recursion)."""
     from agent_utilities.knowledge_graph.distillation.skill_graph_pipeline import (
         SourceSpec,
         _crawl_via_script,
@@ -206,8 +206,16 @@ def _fetch_via_crawl4ai(url: str, timeout: float) -> FetchedPage | None:
     if crawler is None:
         return None
     crawler_py, script = crawler
+    # ``max_depth: 1`` (not 0) — the recursive strategy's ``for depth in
+    # range(max_depth)`` loop body is what actually fetches+saves a page, so
+    # ``max_depth=0`` crawled ZERO pages and this backend always returned None.
+    # ``no_sitemap: True`` keeps this a genuine single-page fetch — without it,
+    # a seed URL whose domain publishes a sitemap.xml auto-upgrades to a
+    # whole-site ``sitemap-parallel`` crawl, defeating "one page" semantics.
     spec = SourceSpec(
-        "web", url, {"max_depth": 0, "max_pages": 1, "crawl_timeout": timeout}
+        "web",
+        url,
+        {"max_depth": 1, "max_pages": 1, "crawl_timeout": timeout, "no_sitemap": True},
     )
     docs = _crawl_via_script(spec, crawler_py, script)
     if not docs:

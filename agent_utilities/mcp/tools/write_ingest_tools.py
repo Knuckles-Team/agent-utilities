@@ -555,7 +555,17 @@ def register_write_ingest_tools(mcp):
                 if not target_path:
                     return "Error: target_path (a URL) required for ingest_url"
                 url = target_path.strip()
-                prov: dict[str, Any] = {"agent_id": agent_id, "source_url": url}
+                # Default ON (CONCEPT:AU-KG.ingest.chunk-overlap-stage): first-class embedded Chunk objects +
+                # contextual-retrieval enrichment, at parity with connector ingestion
+                # (KG-2.50) — makes this tool's documented "chunking + contextual
+                # enrichment + embeddings" behavior real instead of only the plain
+                # idea_block text chunks.
+                prov: dict[str, Any] = {
+                    "agent_id": agent_id,
+                    "source_url": url,
+                    "chunk_objects": True,
+                    "contextual": True,
+                }
                 flag = (description or "").strip().lower()
                 if flag in ("extract_papers", "papers", "extract_papers=true", "true"):
                     prov["extract_papers"] = True
