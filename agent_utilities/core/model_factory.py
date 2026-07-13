@@ -14,7 +14,7 @@ clients, and SSL verification settings.
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agent_utilities.core.config import config, setting
 
@@ -382,8 +382,11 @@ def _create_model_impl(
         # AIRGAP_MODE is set; when set, this is the model-call egress path
         # (the sovereign guide's "one external dependency"), so it gets the
         # same fail-closed host guard as the fleet HTTP client library.
-        _transport = airgap_guard_transport(
-            None, is_async=True, verify=ssl_verify, limits=limits
+        _transport = cast(
+            "httpx.AsyncBaseTransport | None",
+            airgap_guard_transport(
+                None, is_async=True, verify=ssl_verify, limits=limits
+            ),
         )
         # ``auth=_oauth2_auth`` (None when no oauth2 is configured — zero behaviour change)
         # mints/renews the bearer transparently on every request this client sends, which is

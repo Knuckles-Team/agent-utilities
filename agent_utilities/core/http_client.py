@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -176,7 +176,9 @@ def airgap_guard_transport(
             else httpx.HTTPTransport(**transport_kwargs)
         )
     return (
-        _AsyncAirgapGuardTransport(inner) if is_async else _AirgapGuardTransport(inner)
+        _AsyncAirgapGuardTransport(cast("httpx.AsyncBaseTransport", inner))
+        if is_async
+        else _AirgapGuardTransport(cast("httpx.BaseTransport", inner))
     )
 
 

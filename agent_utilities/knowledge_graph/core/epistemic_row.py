@@ -520,7 +520,7 @@ def attach_epistemic_columns(
         rid = _row_id(row)
         wr = wire_by_id.get(rid) if rid else None
         resolved = wr is not None
-        if resolved:
+        if wr is not None:
             confidence = float(
                 wr.get("confidence", NEUTRAL_CONFIDENCE) or NEUTRAL_CONFIDENCE
             )

@@ -202,7 +202,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 if _resolved is not PydanticUndefined:
                     kwargs[_name] = _resolved
                 elif getattr(_default, "default_factory", None) is not None:
-                    kwargs[_name] = _default.default_factory()  # type: ignore[misc]
+                    kwargs[_name] = _default.default_factory()  # type: ignore[misc, call-arg]
                 else:
                     # Required param (Field with no default) omitted: without this the
                     # raw FieldInfo would bind and later blow up deep in the tool with a
