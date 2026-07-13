@@ -1353,16 +1353,28 @@ class AgentConfig(BaseSettings):
     kg_failure_regression_dataset: bool = Field(
         default=False, alias="KG_FAILURE_REGRESSION_DATASET"
     )
-    # DSPy optimization sweep (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) — opt-in, off by default because each
-    # pass runs an LLM-gated DSPy compile per target. The scheduled twin of the
-    # `graph_orchestrate action=optimize_component` MCP action: a daemon tick periodically
-    # optimizes the self-supervised targets (extraction / concept_match / routing) and
-    # records propose-only optimization trajectories (auto-apply stays gated, like
+    # DSPy optimization sweep (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) — default ON: every real DSPy
+    # LM call in this sweep (extraction / concept_match / routing; also the
+    # evolution-cycle system_prompt/tool_description/skill compile) routes through
+    # ``agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard`` — a
+    # concurrency-bounded (model_concurrency.resolve_capacity) + priority-yielding
+    # (resource_priority — DSPy classed BACKGROUND_INGESTION, so it never oversubscribes
+    # the shared LLM endpoint or starves interactive/orchestration traffic) LM, plus the
+    # global background-work throttle and usage telemetry (source=dspy_optimization) —
+    # so it is native-by-default AND endpoint-safe on a deployment with a hard cap on
+    # parallel LLM endpoints. The scheduled twin of the `graph_orchestrate
+    # action=optimize_component` MCP action: a daemon tick periodically optimizes the
+    # self-supervised targets (extraction / concept_match / routing) and records
+    # propose-only optimization trajectories (auto-apply stays gated, like
     # KG_GOLDEN_AUTO_MERGE).
-    kg_dspy_optimization: bool = Field(default=False, alias="KG_DSPY_OPTIMIZATION")
+    kg_dspy_optimization: bool = Field(default=True, alias="KG_DSPY_OPTIMIZATION")
     kg_dspy_optimization_interval: float = Field(
-        default=3600.0, alias="KG_DSPY_OPTIMIZATION_INTERVAL"
+        default=10800.0, alias="KG_DSPY_OPTIMIZATION_INTERVAL"
     )
+    """Seconds between DSPy optimization sweeps (default 3h — a deliberately slow
+    cadence for an LLM-gated compile pass sharing the fleet's few parallel endpoints;
+    endpoint safety itself is enforced per-call by ``dspy_optimization_guard``, not by
+    this interval)."""
     # Agent-facing auto-apply gate (CONCEPT:AU-AHE.harness.hardening-transparency-surface) — the high-impact half of the
     # hardening loop. A DSPy-optimized *system prompt* that beats baseline on its
     # agent's eval-corpus slice is only written to source (StructuredPrompt.save) when

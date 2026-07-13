@@ -297,8 +297,8 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | daemon tick interval (s) |
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
 | `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
-| `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) |
-| `KG_DSPY_OPTIMIZATION_INTERVAL` | `3600` | DSPy optimization sweep interval (s) |
+| `KG_DSPY_OPTIMIZATION` | `True` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only). Default-on AND endpoint-safe: every DSPy LM call (this tick, the on-demand `graph_orchestrate action=optimize_component`, and the evolution-cycle system_prompt/tool_description/skill compile) routes through `agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard` — concurrency-bounded to the model's `model_concurrency.resolve_capacity`, classed `BACKGROUND_INGESTION` under the resource-priority edict (yields to interactive/orchestration on the shared LLM endpoint), gated by the global background-work throttle, and usage-tracked (`source=dspy_optimization`) — so it cannot oversubscribe a deployment with a hard cap on parallel LLM endpoints |
+| `KG_DSPY_OPTIMIZATION_INTERVAL` | `10800` | DSPy optimization sweep interval (s) — 3h, a deliberately slow cadence for an LLM-gated compile pass sharing the fleet's few parallel endpoints |
 
 **`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:AU-KG.ontology.authoritative-tbox`), typed on
 `AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology

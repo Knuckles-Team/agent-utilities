@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1007
+total_concepts: 1008
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -1168,6 +1168,18 @@ concepts:
   dotted: AU-AHE.optimization.dspy-optimization-kg-extraction
   aliases:
   - AU-AHE.optimization.dspy-optimization-kg-extraction
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.optimization.endpoint-safe-dspy-optimization
+  name: a concurrency-bounded, priority-yielding, usage-tracked DSPy LM
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_lm_adapter.py
+  doc: a concurrency-bounded, priority-yielding, usage-tracked DSPy LM
+  dotted: AU-AHE.optimization.endpoint-safe-dspy-optimization
+  aliases:
+  - AU-AHE.optimization.endpoint-safe-dspy-optimization
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.optimization.eval-distillation
@@ -11662,6 +11674,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/resource_priority.py
+  - agent_utilities/harness/dspy_lm_adapter.py
   doc: AU-ORCH.scheduling.resource-priority-edict
   dotted: AU-ORCH.scheduling.resource-priority-edict
   aliases:
@@ -12043,6 +12056,7 @@ concepts:
   code_paths:
   - agent_utilities/core/model_factory.py
   - agent_utilities/gateway/daemon.py
+  - agent_utilities/harness/dspy_lm_adapter.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/harness/tracing.py
   - agent_utilities/models/knowledge_graph.py
@@ -12960,6 +12974,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/harness/dspy_lm_adapter.py
   - agent_utilities/observability/token_tracker.py
   doc: Granular Token Analytics
   dotted: AU-OS.observability.granular-token-analytics

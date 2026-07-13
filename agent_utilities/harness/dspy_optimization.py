@@ -27,6 +27,7 @@ supplies the *optimize side* they were missing.
 """
 
 import logging
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -316,9 +317,17 @@ def run_dspy_optimization(
     the selected optimizer under the real metric, prunes the bootstrapped demos, and
     returns an :class:`OptimizationResult` (compiled state + kept demos). Returns ``None``
     when DSPy is unavailable or the trainset is empty. Never raises.
+
+    The actual compile — and any demo-refinement re-scoring — runs under
+    :func:`agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard` (endpoint-
+    safety: concurrency-bounded + priority-yielding LM, background throttle), so this
+    is also endpoint-safe when called from the evolution cycle (``EvolveAgent.
+    _dspy_optimize_cluster``), not just the tick/``optimize_component`` surfaces.
     """
     if not trainset:
         return None
+    from agent_utilities.harness.dspy_lm_adapter import dspy_optimization_guard
+
     try:
         from agent_utilities.prompting.dspy_compiler import AgentTaskModule
 
@@ -329,14 +338,15 @@ def run_dspy_optimization(
         split = max(1, int(len(trainset) * (1.0 - holdout_fraction)))
         feedback, holdout = trainset[:split], trainset[split:]
 
-        optimizer = build_optimizer(optimizer_name, metric)
-        compiled = optimizer.compile(program, trainset=feedback)
+        with dspy_optimization_guard(f"run_dspy_optimization:{target.component_type}"):
+            optimizer = build_optimizer(optimizer_name, metric)
+            compiled = optimizer.compile(program, trainset=feedback)
 
-        kept = (
-            refine_demos(compiled, holdout, metric)
-            if holdout
-            else getattr(compiled, "demos", [])
-        )
+            kept = (
+                refine_demos(compiled, holdout, metric)
+                if holdout
+                else getattr(compiled, "demos", [])
+            )
 
         return OptimizationResult(
             component_type=target.component_type,
@@ -392,13 +402,25 @@ def run_component_optimization(
 ) -> dict[str, Any]:
     """Dispatch a DSPy optimization pass for any target (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
 
-    The single reusable entry point both surfaces call. For the registry targets
+    The single reusable entry point both surfaces call — the scheduled
+    ``dspy_optimization`` tick (over every :data:`SCHEDULABLE_TARGETS` via
+    :func:`run_optimization_sweep`) AND the on-demand ``graph_orchestrate
+    action=optimize_component`` (a specific target). For the registry targets
     (system_prompt / tool_description / skill) optimization is driven by the evolution
     cycle over real failure clusters, so this returns their metric/driver descriptor. For
     the self-supervised targets (extraction / concept_match / routing) it invokes the
-    optimizer with ``data`` (documents / labeled_pairs / traces). Returns a JSON-able
-    report; never raises.
+    optimizer with ``data`` (documents / labeled_pairs / traces) UNDER
+    :func:`agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard` — the
+    endpoint-safety wrap (concurrency-bounded + priority-yielding LM, background
+    throttle) — so this is the ONE place a real DSPy LM call in this dispatch can
+    happen unguarded. Returns a JSON-able report (with ``duration_s``); never raises,
+    but failures are logged loudly, not swallowed silently.
     """
+    from agent_utilities.harness.dspy_lm_adapter import (
+        dspy_optimization_guard,
+        optimization_span,
+    )
+
     data = data or {}
     meta = OPTIMIZATION_TARGETS_META.get(target_name)
     if meta is None:
@@ -408,40 +430,73 @@ def run_component_optimization(
         }
 
     report: dict[str, Any] = {"target": target_name, **meta}
-    try:
-        if target_name in ("system_prompt", "tool_description", "skill"):
-            report["status"] = "registered"
-            report["note"] = (
-                "Optimized by the evolution cycle when a failure cluster is attributed "
-                "to this component; run via graph_orchestrate action='evolve' / the daemon."
-            )
-        elif target_name == "extraction":
-            from agent_utilities.knowledge_graph.extraction.extraction_optimizer import (
-                optimize_extraction_prompt,
-            )
+    t0 = time.monotonic()
+    logger.info("dspy_optimization: start target=%s", target_name)
+    with optimization_span(f"dspy_optimize_component:{target_name}") as span:
+        if span is not None:
+            span.set_attribute("dspy.target", target_name)
+        try:
+            with dspy_optimization_guard(f"optimize_component:{target_name}"):
+                if target_name in ("system_prompt", "tool_description", "skill"):
+                    report["status"] = "registered"
+                    report["note"] = (
+                        "Optimized by the evolution cycle when a failure cluster is "
+                        "attributed to this component; run via graph_orchestrate "
+                        "action='evolve' / the daemon."
+                    )
+                elif target_name == "extraction":
+                    from agent_utilities.knowledge_graph.extraction.extraction_optimizer import (
+                        optimize_extraction_prompt,
+                    )
 
-            res = optimize_extraction_prompt(data.get("documents", []) or [])
-            report["status"] = "optimized" if res else "no_data_or_dspy_unavailable"
-            report["result"] = res
-        elif target_name == "concept_match":
-            from agent_utilities.harness.policy_optimization import (
-                optimize_concept_matcher,
-            )
+                    res = optimize_extraction_prompt(data.get("documents", []) or [])
+                    report["status"] = (
+                        "optimized" if res else "no_data_or_dspy_unavailable"
+                    )
+                    report["result"] = res
+                elif target_name == "concept_match":
+                    from agent_utilities.harness.policy_optimization import (
+                        optimize_concept_matcher,
+                    )
 
-            res = optimize_concept_matcher(data.get("labeled_pairs", []) or [])
-            report["status"] = "optimized" if res else "no_data_or_dspy_unavailable"
-            report["result"] = res
-        elif target_name == "routing":
-            from agent_utilities.harness.policy_optimization import (
-                optimize_routing_policy,
-            )
+                    res = optimize_concept_matcher(data.get("labeled_pairs", []) or [])
+                    report["status"] = (
+                        "optimized" if res else "no_data_or_dspy_unavailable"
+                    )
+                    report["result"] = res
+                elif target_name == "routing":
+                    from agent_utilities.harness.policy_optimization import (
+                        optimize_routing_policy,
+                    )
 
-            res = optimize_routing_policy(data.get("traces", []) or [])
-            report["status"] = "optimized" if res else "no_data_or_dspy_unavailable"
-            report["result"] = res
-    except Exception as e:  # noqa: BLE001
-        report["status"] = "error"
-        report["error"] = str(e)
+                    res = optimize_routing_policy(data.get("traces", []) or [])
+                    report["status"] = (
+                        "optimized" if res else "no_data_or_dspy_unavailable"
+                    )
+                    report["result"] = res
+        except Exception as e:  # noqa: BLE001 - never raise; DO surface loudly below
+            report["status"] = "error"
+            report["error"] = str(e)
+        duration = time.monotonic() - t0
+        report["duration_s"] = round(duration, 3)
+        if span is not None:
+            span.set_attribute("dspy.status", report.get("status", ""))
+            span.set_attribute("dspy.duration_s", duration)
+
+    if report.get("status") == "error":
+        logger.error(
+            "dspy_optimization: target=%s FAILED after %.2fs: %s",
+            target_name,
+            duration,
+            report.get("error"),
+        )
+    else:
+        logger.info(
+            "dspy_optimization: target=%s status=%s duration=%.2fs",
+            target_name,
+            report.get("status"),
+            duration,
+        )
     return report
 
 
@@ -671,21 +726,59 @@ def run_optimization_sweep(
 ) -> dict[str, Any]:
     """Propose-only DSPy optimization sweep over the schedulable targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only).
 
-    The reusable core the daemon tick and the on-demand ``optimize_component task=all``
-    surface both call. For each target it gathers live data
-    (:func:`gather_optimization_data`) and runs :func:`run_component_optimization`. It is
-    **propose-only**: the optimizers persist optimization trajectories to the KG but
-    nothing is auto-applied to source — promotion stays behind :func:`should_promote` and
-    a future auto-apply gate (mirroring ``KG_GOLDEN_AUTO_MERGE``). Returns a per-target
-    report; never raises.
+    The reusable core the daemon tick (``KG_DSPY_OPTIMIZATION``) and the on-demand
+    ``optimize_component task=all`` surface both call. For each target it gathers live
+    data (:func:`gather_optimization_data`) and runs :func:`run_component_optimization`
+    — which itself applies the endpoint-safety guard
+    (:func:`agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard`) per target.
+    It is **propose-only**: the optimizers persist optimization trajectories to the KG
+    but nothing is auto-applied to source — promotion stays behind :func:`should_promote`
+    and a future auto-apply gate (mirroring ``KG_GOLDEN_AUTO_MERGE``). Returns a
+    per-target report (with ``optimized``/``failed`` target lists + ``duration_s``);
+    never raises, but failures are logged loudly, not swallowed silently.
     """
+    from agent_utilities.harness.dspy_lm_adapter import optimization_span
+
     names = list(targets) if targets else list(SCHEDULABLE_TARGETS)
+    t0 = time.monotonic()
+    logger.info("dspy_optimization sweep: start targets=%s", names)
     report: dict[str, Any] = {}
     optimized: list[str] = []
-    for name in names:
-        data = gather_optimization_data(engine, name)
-        result = run_component_optimization(name, data)
-        report[name] = result
-        if result.get("status") == "optimized":
-            optimized.append(name)
-    return {"targets": report, "optimized": optimized, "propose_only": True}
+    failed: list[str] = []
+    with optimization_span("dspy_optimize_sweep") as span:
+        if span is not None:
+            span.set_attribute("dspy.targets", ",".join(names))
+        for name in names:
+            data = gather_optimization_data(engine, name)
+            result = run_component_optimization(name, data)
+            report[name] = result
+            if result.get("status") == "optimized":
+                optimized.append(name)
+            elif result.get("status") == "error":
+                failed.append(name)
+        duration = time.monotonic() - t0
+        if span is not None:
+            span.set_attribute("dspy.optimized_count", len(optimized))
+            span.set_attribute("dspy.failed_count", len(failed))
+            span.set_attribute("dspy.duration_s", duration)
+
+    if failed:
+        logger.error(
+            "dspy_optimization sweep: FAILURES targets=%s (optimized=%s, duration=%.2fs)",
+            failed,
+            optimized,
+            duration,
+        )
+    else:
+        logger.info(
+            "dspy_optimization sweep: done optimized=%s duration=%.2fs",
+            optimized,
+            duration,
+        )
+    return {
+        "targets": report,
+        "optimized": optimized,
+        "failed": failed,
+        "propose_only": True,
+        "duration_s": round(duration, 3),
+    }

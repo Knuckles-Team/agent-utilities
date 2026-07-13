@@ -2493,13 +2493,26 @@ def register_analysis_tools(mcp):
                     except Exception:  # noqa: BLE001
                         data = {}
                 tgt = (task or "").strip()
+                logger.info(
+                    "graph_orchestrate optimize_component: task=%s", tgt or "all"
+                )
                 # task='all'/'sweep' (or empty) runs the full propose-only sweep — the
                 # on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only);
                 # a specific target name runs just that one (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
+                # Both paths dispatch through run_component_optimization, which wraps its
+                # real DSPy LM call in the endpoint-safety guard (concurrency-bounded +
+                # priority-yielding LM, background throttle, usage telemetry) — see
+                # agent_utilities.harness.dspy_lm_adapter.dspy_optimization_guard.
                 if tgt in ("", "all", "sweep"):
                     rep = run_optimization_sweep(kg_server._get_engine())
                 else:
                     rep = run_component_optimization(tgt, data)
+                if rep.get("status") == "error" or rep.get("failed"):
+                    logger.error(
+                        "graph_orchestrate optimize_component: task=%s FAILED: %s",
+                        tgt or "all",
+                        rep.get("error") or rep.get("failed"),
+                    )
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "publish_proposal":

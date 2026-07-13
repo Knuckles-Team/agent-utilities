@@ -244,22 +244,35 @@ operational step that makes optimization continuous rather than manual.
 
 ```mermaid
 flowchart LR
-    TICK["KG daemon tick<br/>KG_DSPY_OPTIMIZATION (opt-in)"] --> SWEEP["run_optimization_sweep"]
+    TICK["KG daemon tick<br/>KG_DSPY_OPTIMIZATION (default ON)"] --> SWEEP["run_optimization_sweep"]
     MCP["graph_orchestrate action=optimize_component task=all"] --> SWEEP
     SWEEP --> GD["gather_optimization_data<br/>query_cypher: Documents / ADDRESSED_BY / ExecutionTrace"]
     GD --> RUN["run_component_optimization per target"]
-    RUN --> TRAJ["persist OptimizationTrajectory (propose-only)"]
+    RUN --> GUARD["dspy_optimization_guard<br/>concurrency-bounded + priority-yielding LM, background throttle, usage telemetry"]
+    GUARD --> TRAJ["persist OptimizationTrajectory (propose-only)"]
     TRAJ --> GATE["should_promote(baseline, candidate, min_delta)"]
     GATE -.future auto-apply gate.-> APPLY["distill → files"]
 ```
 
 - **Daemon tick** — `_tick_optimize_components` (`knowledge_graph/core/engine_tasks.py`),
   registered in the consolidated maintenance scheduler when `KG_DSPY_OPTIMIZATION=True`
-  (off by default — each pass is an LLM-gated compile), on `KG_DSPY_OPTIMIZATION_INTERVAL`
-  (default 3600s). The scheduled twin of the MCP action; both call `run_optimization_sweep`.
+  (default ON — endpoint-safe by construction, see below), on `KG_DSPY_OPTIMIZATION_INTERVAL`
+  (default 10800s / 3h). The scheduled twin of the MCP action; both call `run_optimization_sweep`.
 - **Sweep** — runs the schedulable self-supervised targets (extraction / concept_match /
   routing), gathering live data via `gather_optimization_data` (`engine.query_cypher`,
   degrading to `no_data` rather than breaking the daemon).
+- **Endpoint-safe by construction** (`agent_utilities/harness/dspy_lm_adapter.py`) — every
+  real DSPy LM call (this sweep, the on-demand action, and the evolution-cycle
+  system_prompt/tool_description/skill compile via `run_dspy_optimization`) runs inside
+  `dspy_optimization_guard`, which installs a `ConcurrencyBoundDSPyLM` via `dspy.context(lm=...)`
+  (not `dspy.configure`, which DSPy restricts to a single owning thread/async task). That LM
+  resolves model/base_url/key from `config.chat_models`/`config.default_chat_model` (never
+  hardcoded), acquires the model's `resource_priority.priority_slot_sync` under
+  `PriorityClass.BACKGROUND_INGESTION` (bounded to `model_concurrency.resolve_capacity`,
+  yielding to interactive/orchestration on the shared endpoint), takes a slot on the global
+  `background_throttle`, and records usage via `TokenUsageTracker` tagged
+  `source=dspy_optimization` — so a fleet with a hard cap on parallel LLM endpoints is never
+  oversubscribed by the optimizer's own fan-out.
 - **Propose-only** — like `KG_GOLDEN_AUTO_MERGE`, the sweep records optimization
   trajectories but **never auto-applies**. `should_promote(baseline, candidate, min_delta)`
   is the gate a candidate must clear on the held-out metric before a future auto-apply
@@ -283,6 +296,9 @@ populated graph data for the gatherers to draw on.
   `gather_optimization_data`, `should_promote`, `SCHEDULABLE_TARGETS`.
 - `agent_utilities/knowledge_graph/core/engine_tasks.py` — `_tick_optimize_components`
   (the `KG_DSPY_OPTIMIZATION` maintenance-scheduler tick).
+- `agent_utilities/harness/dspy_lm_adapter.py` — the endpoint-safety guard:
+  `ConcurrencyBoundDSPyLM` (a `dspy.LM` routed through `model_concurrency` +
+  `resource_priority`), `build_dspy_lm`, `dspy_optimization_guard`, `optimization_span`.
 - `agent_utilities/prompting/dspy_compiler.py` — `compile_json_to_signature`, `AgentTaskModule`.
 - `agent_utilities/harness/evolve_agent.py` — `EvolveAgent._dspy_optimize_cluster`
   (registry-dispatched; was system-prompt-only).

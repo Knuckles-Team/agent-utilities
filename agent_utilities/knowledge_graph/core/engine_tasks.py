@@ -2345,17 +2345,31 @@ class TaskManagerMixin(GraphEngineProtocol):
         The scheduled twin of ``graph_orchestrate action=optimize_component`` (CONCEPT:
         AHE-3.46): gathers live graph data and runs the extraction / concept_match /
         routing optimizers, recording optimization trajectories. Nothing is auto-applied —
-        promotion stays behind ``should_promote`` and a future auto-apply gate. Opt-in via
-        KG_DSPY_OPTIMIZATION.
+        promotion stays behind ``should_promote`` and a future auto-apply gate. Default ON
+        via KG_DSPY_OPTIMIZATION (see ``run_optimization_sweep``/
+        ``run_component_optimization`` for the endpoint-safety guard every real DSPy LM
+        call routes through: concurrency-bounded + priority-yielding LM, background
+        throttle, usage telemetry).
         """
         try:
             from ...harness.dspy_optimization import run_optimization_sweep
 
             report = run_optimization_sweep(self)
-            logger.info(
-                "DSPy optimization sweep: optimized=%s (propose-only)",
-                report.get("optimized"),
-            )
+            if report.get("failed"):
+                logger.error(
+                    "DSPy optimization sweep tick: FAILURES=%s optimized=%s "
+                    "duration=%ss (propose-only)",
+                    report.get("failed"),
+                    report.get("optimized"),
+                    report.get("duration_s"),
+                )
+            else:
+                logger.info(
+                    "DSPy optimization sweep tick: optimized=%s duration=%ss "
+                    "(propose-only)",
+                    report.get("optimized"),
+                    report.get("duration_s"),
+                )
         except Exception as e:  # noqa: BLE001
             logger.error("dspy_optimization tick error: %s", e)
 
