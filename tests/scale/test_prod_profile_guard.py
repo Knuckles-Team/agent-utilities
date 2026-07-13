@@ -36,6 +36,12 @@ def _toy_config(**overrides):
         graph_backend="memory",
         a2a_broker="in-memory",
         a2a_storage="in-memory",
+        # kafka_bootstrap_servers now defaults to this deployment's real
+        # in-cluster broker (config.py's kafka_bootstrap_servers field), not
+        # None — pin it explicitly here so this fixture still represents the
+        # genuinely-unconfigured "toy"/zero-infra scenario the guard tests
+        # below exercise.
+        kafka_bootstrap_servers=None,
     )
     base.update(overrides)
     return _make_config(**base)

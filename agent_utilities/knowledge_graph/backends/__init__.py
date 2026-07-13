@@ -479,13 +479,11 @@ def create_backend(
         )
 
     elif backend_type == "jena_fuseki":
+        from agent_utilities.core.config import config as _cfg
+
         from .sparql.jena_fuseki_backend import JenaFusekiBackend
 
-        resolved_url = (
-            kwargs.get("jena_fuseki_url")
-            or setting("GRAPH_FUSEKI_URL")
-            or "http://localhost:3030"
-        )
+        resolved_url = kwargs.get("jena_fuseki_url") or _cfg.kg_fuseki_endpoint
         resolved_dataset = (
             kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
         )

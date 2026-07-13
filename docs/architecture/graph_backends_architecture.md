@@ -262,7 +262,7 @@ requires pgvector; BM25 requires pg_search.
 | `GRAPH_POOL_MIN` | `2` | PostgreSQL pool minimum connections |
 | `GRAPH_POOL_MAX` | `10` | PostgreSQL pool maximum connections |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age table registration |
-| `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
+| `KG_FUSEKI_ENDPOINT` | `http://fuseki.apps.svc.cluster.local:80` | THE canonical Jena/Apache Fuseki server URL — see `docs/architecture/configuration.md`. Superseded/deleted aliases (do not reintroduce): `GRAPH_FUSEKI_URL`, `JENA_FUSEKI_URL`, `FUSEKI_ENDPOINT` |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 | `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
 | `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry). See below. |

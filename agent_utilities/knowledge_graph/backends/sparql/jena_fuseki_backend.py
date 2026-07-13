@@ -13,7 +13,11 @@ Fuseki provides full SPARQL 1.1 Query + Update over HTTP, with
 TDB2 persistence, SHACL validation, and optional full-text search.
 
 Environment Variables:
-    GRAPH_FUSEKI_URL: Fuseki server URL (default: http://localhost:3030).
+    KG_FUSEKI_ENDPOINT: THE canonical Fuseki server URL (config field
+        ``kg_fuseki_endpoint``; default: the in-cluster Fuseki Service,
+        ``http://fuseki.apps.svc.cluster.local:80``). Superseded legacy
+        aliases (deleted, do not reintroduce): ``GRAPH_FUSEKI_URL``,
+        ``JENA_FUSEKI_URL``, ``FUSEKI_ENDPOINT``.
     GRAPH_FUSEKI_DATASET: Dataset name (default: agent_kg).
     GRAPH_FUSEKI_USER: Optional HTTP Basic auth username.
     GRAPH_FUSEKI_PASSWORD: Optional HTTP Basic auth password.
@@ -71,9 +75,13 @@ class JenaFusekiBackend(SparqlAdapter):
                 "Install with: pip install 'agent-utilities[jena_fuseki]'"
             ) from e
 
-        self._base_url = (
-            jena_fuseki_url or setting("GRAPH_FUSEKI_URL") or "http://localhost:3030"
-        ).rstrip("/")
+        if jena_fuseki_url:
+            resolved_url = jena_fuseki_url
+        else:
+            from agent_utilities.core.config import config as _cfg
+
+            resolved_url = _cfg.kg_fuseki_endpoint
+        self._base_url = resolved_url.rstrip("/")
         self._dataset = dataset or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
         self._username = username or setting("GRAPH_FUSEKI_USER")
         self._password = password or setting("GRAPH_FUSEKI_PASSWORD")

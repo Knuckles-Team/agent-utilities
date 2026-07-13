@@ -52,12 +52,25 @@ class TestDaemonRegistration:
     def test_default_flag_is_off(self, monkeypatch):
         from agent_utilities.core.config import AgentConfig
 
-        # Isolate from the deployment's semantic-plane wiring: a configured
-        # Fuseki/Jena endpoint auto-enables publish (KG-2.52), so clear both
-        # to assert the genuine field default with no endpoint present.
+        # Isolate from the deployment's semantic-plane wiring: an EXPLICITLY
+        # configured Fuseki endpoint auto-enables publish (KG-2.52), so clear
+        # it to assert the genuine field default with nothing explicitly set.
+        # Note: kg_fuseki_endpoint's own default now resolves to a real
+        # in-cluster Fuseki address (not None) — that default alone must NOT
+        # auto-enable publish; see test_default_endpoint_alone_does_not_auto_enable_publish.
         monkeypatch.delenv("KG_FUSEKI_ENDPOINT", raising=False)
-        monkeypatch.delenv("JENA_FUSEKI_URL", raising=False)
         assert AgentConfig().kg_fuseki_publish is False
+
+    def test_default_endpoint_alone_does_not_auto_enable_publish(self, monkeypatch):
+        """CONCEPT:AU-KG.ontology.authoritative-tbox — the field's real
+        in-cluster default must not itself flip the publish tick on; only an
+        EXPLICIT KG_FUSEKI_ENDPOINT does (see _auto_enable_from_dependencies)."""
+        from agent_utilities.core.config import AgentConfig
+
+        monkeypatch.delenv("KG_FUSEKI_ENDPOINT", raising=False)
+        cfg = AgentConfig()
+        assert cfg.kg_fuseki_endpoint == "http://fuseki.apps.svc.cluster.local:80"
+        assert cfg.kg_fuseki_publish is False
 
     def test_tick_interval_comes_from_config(self, monkeypatch):
         from agent_utilities.core.config import config as cfg

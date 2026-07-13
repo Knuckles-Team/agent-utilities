@@ -439,9 +439,11 @@ def verify_sparql(
             setting("STARDOG_PASSWORD", "admin"),
         )
     elif kind == "fuseki":
-        url = (endpoint or setting("FUSEKI_ENDPOINT", "http://localhost:3030")).rstrip(
-            "/"
-        )
+        if endpoint is None:
+            from agent_utilities.core.config import config as _cfg
+
+            endpoint = _cfg.kg_fuseki_endpoint
+        url = endpoint.rstrip("/")
         query_url = f"{url}/{dataset}/query"
         auth = None
     else:

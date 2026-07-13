@@ -179,7 +179,7 @@ Three homes, by kind:
 | Failure evolution | `KG_FAILURE_EVOLUTION` | `false` | no | explicit (propose-only) |
 | Queue dispatch | `AGENT_DISPATCH_BACKEND` | `inline` | no | explicit |
 | Kafka ingest | `TASK_QUEUE_BACKEND` | unset | no | fail-loud when set |
-| Fuseki publish (KG-2.52) | `KG_FUSEKI_PUBLISH` | `false` | no | **auto-on** when `KG_FUSEKI_ENDPOINT`/`JENA_FUSEKI_URL` set |
+| Fuseki publish (KG-2.52) | `KG_FUSEKI_PUBLISH` | `false` | no | **auto-on** when `KG_FUSEKI_ENDPOINT` is *explicitly* set |
 | Thin frontend | `KG_DAEMON_ROLE` | `auto` (host) | no | `client` → reach shared host |
 
 ### Configure-by-default (and how to opt out)
@@ -191,7 +191,9 @@ default stays byte-for-byte unchanged (no dependency → nothing turns on). This
 
 - Configure a JWT issuer/JWKS → **`KG_AUTH_REQUIRED` engages**. Opt out with an explicit
   `KG_AUTH_REQUIRED=false` (an explicit value always wins — it lands in `model_fields_set`).
-- Configure a Fuseki endpoint → **`KG_FUSEKI_PUBLISH` engages**. Opt out with `KG_FUSEKI_PUBLISH=false`.
+- Explicitly set `KG_FUSEKI_ENDPOINT` → **`KG_FUSEKI_PUBLISH` engages**. Opt out with
+  `KG_FUSEKI_PUBLISH=false`. (`kg_fuseki_endpoint`'s own default — the in-cluster Fuseki
+  Service — does *not* by itself engage publish; only an explicit value does.)
 
 ### Storing / rotating the secrets
 

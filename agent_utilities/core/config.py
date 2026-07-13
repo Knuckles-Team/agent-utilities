@@ -1428,12 +1428,35 @@ class AgentConfig(BaseSettings):
     means passthrough (build + discard a fresh client per call, no caching)."""
     # Fuseki ontology distribution (CONCEPT:AU-KG.ontology.authoritative-tbox) — opt-in daemon tick that
     # pushes the bundled ontology modules to an Apache Jena Fuseki triplestore
-    # (KG-2.6 distribution, operationalized). Off by default because a Fuseki
-    # deployment is optional infrastructure.
+    # (KG-2.6 distribution, operationalized). The *publish tick* stays off by
+    # default (KG_FUSEKI_PUBLISH, below) because writing to Fuseki is an
+    # opt-in action even when an endpoint is reachable; the *endpoint itself*
+    # defaults to this deployment's real in-cluster Fuseki Service
+    # (``apps/fuseki``, verified via ``kubectl get svc -n apps``) so every
+    # Fuseki-consuming code path (publish tick, the ``jena_fuseki`` SPARQL
+    # query backend, the fuseki-kind smoke query) resolves to a reachable
+    # host out of the box instead of the historical ``localhost:3030``
+    # footgun. A non-cluster deployment with no Fuseki simply never flips
+    # ``kg_fuseki_publish`` on (see ``_auto_enable_from_dependencies`` below)
+    # and the ``jena_fuseki`` backend is never selected unless requested.
     kg_fuseki_publish: bool = Field(default=False, alias="KG_FUSEKI_PUBLISH")
-    kg_fuseki_endpoint: str | None = Field(default=None, alias="KG_FUSEKI_ENDPOINT")
-    """Fuseki server URL (e.g. ``http://jena_fuseki:3030``). ``None`` defers to
-    the publisher's own resolution (``FUSEKI_ENDPOINT`` env, then localhost)."""
+    kg_fuseki_endpoint: str = Field(
+        default="http://fuseki.apps.svc.cluster.local:80",
+        alias="KG_FUSEKI_ENDPOINT",
+    )
+    """THE canonical Fuseki endpoint (CONCEPT:AU-KG.ontology.authoritative-tbox) — the single field every
+    Fuseki reader resolves through: the ontology-publish tick
+    (``engine_tasks._tick_fuseki_publish``), ``publish_ontology_to_fuseki``'s
+    endpoint fallback, the ``fuseki``-kind SPARQL smoke query
+    (``database_environment.py``), and the ``jena_fuseki`` query backend
+    (``backends/sparql/jena_fuseki_backend.py`` via ``create_backend``).
+    Superseded/deleted legacy aliases that used to compete for this same
+    concern (No-Legacy edict — do not reintroduce): ``JENA_FUSEKI_URL``
+    (only fed the auto-enable check below), ``FUSEKI_ENDPOINT`` (a bare-env
+    fallback inside the publisher), and ``GRAPH_FUSEKI_URL`` (read
+    independently by the SPARQL query backend). Explicit callers may still
+    pass an ``endpoint=``/``jena_fuseki_url=`` argument to override this
+    per-call."""
     kg_fuseki_publish_interval: float = Field(
         default=3600.0, alias="KG_FUSEKI_PUBLISH_INTERVAL"
     )
@@ -1536,9 +1559,23 @@ class AgentConfig(BaseSettings):
         return to_boolean(v)
 
     nats_url: str | None = Field(default=None, alias="NATS_URL")
-    kafka_bootstrap_servers: str | None = Field(
-        default=None, alias="KAFKA_BOOTSTRAP_SERVERS"
+    kafka_bootstrap_servers: str = Field(
+        default="kafka.apps.svc.cluster.local:9092",
+        alias="KAFKA_BOOTSTRAP_SERVERS",
     )
+    """The in-cluster Kafka broker (ClusterIP Service DNS + raw TCP port,
+    verified via ``kubectl get svc -n apps | grep -i kafka`` — the ``apps/kafka``
+    Service). Every Kafka-consuming code path resolves through this field
+    (``kafka_queue_backend.py``, ``bus_log.KafkaBusLog``, ``agent_dispatch.py``,
+    ``ingest_worker.py``) rather than a hardcoded ``localhost``/``.arpa`` value:
+    the ``.arpa`` ingress name is HTTP-only (Caddy) and cannot proxy Kafka's raw
+    TCP protocol, so it must never be used here. Selecting Kafka as an ACTIVE
+    transport still requires an explicit opt-in elsewhere (``TASK_QUEUE_BACKEND=
+    kafka``, ``AGENT_DISPATCH_BACKEND=queue``, or ``AGENT_BUS_LOG_BACKEND=kafka``
+    fail loudly if unreachable when explicit); auto-mode bus-log resolution
+    probes this broker and gracefully falls back to the graph-native bus on any
+    failure (``BusLogUnavailable``), so a non-cluster/zero-infra deployment
+    pays only a bounded probe timeout, never a hard failure, from this default."""
     graph_compute_backend: str = Field(default="rust", alias="GRAPH_COMPUTE_BACKEND")
     graph_service_endpoints: list[str] | None = Field(
         default=None, alias="GRAPH_SERVICE_ENDPOINTS"
@@ -1689,7 +1726,12 @@ class AgentConfig(BaseSettings):
 
         - ``KG_AUTH_REQUIRED`` engages once a JWT issuer / JWKS is configured (you
           set up identity → you want it enforced). Opt out with ``KG_AUTH_REQUIRED=false``.
-        - ``KG_FUSEKI_PUBLISH`` engages once a Fuseki endpoint is configured.
+        - ``KG_FUSEKI_PUBLISH`` engages once a Fuseki endpoint is *explicitly*
+          configured (``KG_FUSEKI_ENDPOINT`` set via env/config.json) — not
+          merely because ``kg_fuseki_endpoint`` carries a real in-cluster
+          default value. This keeps a non-cluster/zero-infra deployment from
+          auto-flipping the publish tick on just because the field's default
+          happens to resolve to a real host.
 
         An explicit value for either flag (env/config) always wins — it lands in
         ``model_fields_set`` and is left untouched.
@@ -1699,9 +1741,7 @@ class AgentConfig(BaseSettings):
             self.auth_jwt_issuer or self.auth_jwt_jwks_uri
         ):
             self.kg_auth_required = True
-        if "kg_fuseki_publish" not in explicit and (
-            self.kg_fuseki_endpoint or self.jena_fuseki_url
-        ):
+        if "kg_fuseki_publish" not in explicit and "kg_fuseki_endpoint" in explicit:
             self.kg_fuseki_publish = True
         return self
 
@@ -1919,9 +1959,6 @@ class AgentConfig(BaseSettings):
         default=["https://query.wikidata.org/sparql"], alias="SPARQL_ENDPOINTS"
     )
     """List of external SPARQL endpoints to federate (CONCEPT:AU-KG.query.vendor-agnostic-traversal)."""
-
-    jena_fuseki_url: str | None = Field(default=None, alias="JENA_FUSEKI_URL")
-    """URL for local Apache Jena Fuseki instance (e.g. http://localhost:3030)."""
 
     pggraph_dsn: str | None = Field(default=None, alias="PGGRAPH_DSN")
     """DSN string for Postgres with ParadeDB, PGGraph, and PGVector."""

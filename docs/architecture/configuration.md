@@ -55,7 +55,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `EPISTEMIC_GRAPH_SOCKET` | `/tmp/epistemic-graph.sock` | Rust engine UDS |
 | `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | Engine durable snapshot dir |
 | `GRAPH_DB_HOST/PORT/NAME/USER/PASSWORD/PATH` | — | DSN parts (legacy; prefer `GRAPH_DB_URI`) |
-| `GRAPH_FUSEKI_URL/USER/PASSWORD/DATASET` | — | SPARQL endpoint (optional backend) |
+| `KG_FUSEKI_ENDPOINT` (+ `GRAPH_FUSEKI_USER/PASSWORD/DATASET`) | `http://fuseki.apps.svc.cluster.local:80` | THE canonical Fuseki endpoint (SPARQL query backend + ontology-publish tick); see section E below |
 | `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:AU-KG.backend.declared-columns-so-schema) |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Postgres schema |
 | `AGENT_UTILITIES_{CONFIG,DATA,CACHE,LOG,MEMORY,RUNTIME}_DIR` | XDG | Path overrides (resolved in `core/paths.py`) |
@@ -301,14 +301,38 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_DSPY_OPTIMIZATION_INTERVAL` | `10800` | DSPy optimization sweep interval (s) — 3h, a deliberately slow cadence for an LLM-gated compile pass sharing the fleet's few parallel endpoints |
 
 **`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:AU-KG.ontology.authoritative-tbox`), typed on
-`AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
-modules (the authoritative TBox) to an optional enterprise Fuseki triplestore for SPARQL
-federation. Off by default — Fuseki is optional infrastructure.
+`AgentConfig`, opt-in publish / always-resolvable endpoint.** The `fuseki_publish`
+maintenance tick pushes the bundled ontology modules (the authoritative TBox) to an
+optional enterprise Fuseki triplestore for SPARQL federation. The **publish tick** stays
+off by default — writing to Fuseki is opt-in even when an endpoint is reachable.
+
+**`KG_FUSEKI_ENDPOINT` is THE one canonical Fuseki endpoint field** — every Fuseki-consuming
+code path resolves through it: the `fuseki_publish` tick
+(`engine_tasks._tick_fuseki_publish`), `publish_ontology_to_fuseki`'s endpoint fallback
+(`ontology_publisher.py`), the `fuseki`-kind SPARQL smoke query
+(`database_environment.sparql_query`), and the `jena_fuseki` query backend
+(`backends/sparql/jena_fuseki_backend.py`, selected via `GRAPH_BACKEND=jena_fuseki`).
+Previously this was **four competing, independently-read variables** — a real footgun:
+`JENA_FUSEKI_URL` (only fed the auto-enable check, below), `KG_FUSEKI_ENDPOINT` (what the
+publish tick actually read), `FUSEKI_ENDPOINT` (a bare-env fallback inside the publisher/
+smoke-query), and `GRAPH_FUSEKI_URL` (what the SPARQL query backend independently read) —
+so setting only one of them silently left another code path aimed at `localhost:3030`.
+All three legacy aliases are **deleted** (No-Legacy edict); do not reintroduce them.
+
+The field's default is this deployment's real in-cluster Fuseki Service
+(`apps/fuseki`, verified via `kubectl get svc -n apps | grep -iE 'fuseki|jena'` — ClusterIP
+Service `fuseki.apps` on port 80, i.e. `http://fuseki.apps.svc.cluster.local:80`), not
+`localhost:3030` — so every reader resolves to a reachable host out of the box instead of a
+silent no-op. This default alone does **not** turn on the publish tick: `KG_FUSEKI_PUBLISH`
+only auto-engages when `KG_FUSEKI_ENDPOINT` is **explicitly** set (env/config.json), per
+`_auto_enable_from_dependencies` — see the "Configure-by-default" note in
+`docs/guides/enterprise-enablement-runbook.md`. A non-cluster/zero-infra deployment with no
+real Fuseki simply never selects the `jena_fuseki` backend and never flips the publish tick.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick |
-| `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
+| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick — engages automatically once `KG_FUSEKI_ENDPOINT` is explicitly set |
+| `KG_FUSEKI_ENDPOINT` | `http://fuseki.apps.svc.cluster.local:80` | THE canonical Fuseki URL for every reader (publish tick, SPARQL query backend, smoke query) |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
 
 **`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:AU-ORCH.execution.ontology-validation-execution-path`),
@@ -474,8 +498,7 @@ therefore environment-settable; none are internal-only.
 | `ENABLE_SDD_WATCHER` | `true` | Plan/task watcher thread in the KG MCP server |
 | `KG_ANOMALY_CONSUMER` | `true` | Drain unconsumed PerformanceAnomaly nodes into failure_gap topics; LLM-free, bounded, propose-only (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer) |
 | `SPARQL_ENDPOINTS` | `["https://query.wikidata.org/sparql"]` | External SPARQL endpoints to federate (CONCEPT:AU-KG.query.vendor-agnostic-traversal) |
-| `JENA_FUSEKI_URL` | `None` | Local Jena Fuseki URL (distinct from the `KG_FUSEKI_*` publish tick in section E) |
-| `KAFKA_BOOTSTRAP_SERVERS` | `None` | Kafka brokers (task-queue/event transport; one of the three scale knobs in `docs/scaling/capacity_model.md`) |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka.apps.svc.cluster.local:9092` | THE canonical Kafka broker (ClusterIP Service DNS + raw TCP port — the `.arpa` ingress is HTTP-only and cannot proxy Kafka; verified via `kubectl get svc -n apps \| grep -i kafka`, the `apps/kafka` Service). Task-queue/event transport; one of the three scale knobs in `docs/scaling/capacity_model.md`. Selecting Kafka as an active transport still requires an explicit `TASK_QUEUE_BACKEND=kafka` / `AGENT_DISPATCH_BACKEND=queue` / `AGENT_BUS_LOG_BACKEND=kafka` (fail-loud if unreachable when explicit); auto-mode bus-log resolution probes this default and falls back to the graph-native bus on any failure |
 | `KAFKA_TOPIC` | `None` | Default Kafka topic for messaging/event ingestion |
 | `NATS_URL` | `None` | NATS broker URL |
 
@@ -506,6 +529,37 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `A2A_STORAGE_URL` | `None` | Storage URL when not in-memory |
 | `A2A_CONFIG` | `None` | `a2a_config.json` path for external agent discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `A2A_REFRESH_INTERVAL` | `300` | Agent-card re-fetch interval (s) |
+
+`A2A_BROKER`/`A2A_STORAGE` also accept `redis` or `postgres` (`fasta2a`'s own
+`RedisBroker`/`RedisStorage`/`PostgresBroker`/`PostgresStorage`, imported lazily —
+`agent-utilities` never depends on `redis`/`a2a_redis`, and a missing package
+degrades to the zero-infra `in-memory` default rather than erroring). `redis` is
+**never** the default for either flag.
+
+### G.8a Redis — audited surface, engine-native by default (No New Infra edict)
+
+**Decision record (CONCEPT:AU-KG.coordination.engine-message-broker):** `agent-utilities`
+never adds a Redis dependency and never defaults a live path to Redis. Every place the
+codebase can *optionally* talk to Redis was audited (2026-07-13, alongside the Kafka/Fuseki
+wiring pass); every one of them already defaults away from Redis, and each has (or should
+grow) an engine-native alternative rather than a dedicated Redis deployment:
+
+| Surface | Redis option | Live default | Engine-native alternative |
+|---|---|---|---|
+| A2A broker/storage (`server/app.py`, `agent_to_a2a`) | `A2A_BROKER=redis` / `A2A_STORAGE=redis` (`fasta2a` `RedisBroker`/`RedisStorage`) | `in-memory` (zero-infra, single-process; matches `fasta2a`'s own designed default) | **Identified gap, not yet built**: a `kg-broker`-backed `Broker` (the engine's native AMQP-style exchange/queue surface already used by `EngineBrokerBusLog` in `messaging/bus_log.py`) and a KG-node-backed `Storage` (same pattern as `CheckpointManager`'s `KGBackend`, below) would remove the last "in-memory dies on restart" gap. Tracked as a follow-up, not fabricated as done here |
+| Graph-execution checkpoints (`core/checkpoint/manager.py`, `CheckpointManager.create`) | `persistence_type="redis"` + `REDIS_URL` (`RedisBackend`) | `"file"` (method default); the one **live** production caller (`graph/_router_impl.py`) already passes `persistence_type="kg"` — **engine-native today**, not Redis. No caller in the codebase requests `"redis"` | Already done: `KGBackend` writes checkpoint state onto `:SessionCheckpoint` KG nodes |
+| Distributed optimistic-locking state (`harness/distributed_state_manager.py`, `DistributedStateManager`) | `use_redis=True` + `redis_url` | `use_redis=False` (constructor default); **zero live callers** anywhere in `agent_utilities/` (only exercised directly in tests) | Dead/unused in production; no action needed unless a caller appears |
+| Financial optimistic-state locker (`domains/finance/quant_mcp_tools.py`) | `OptimisticStateLocker(use_redis=...)` | Explicit `use_redis=False` at the one call site | N/A — already off |
+| Namespaced state hydration (`knowledge_graph/core/owl_bridge.py`) | A namespace string literally prefixed `redis://`/`valkey://` hydrates via `redis.from_url(namespace)` | Off unless an operator supplies that literal URL as a namespace value (opt-in escape hatch, not a default) | N/A — opt-in per-namespace override, not a framework default |
+| LMCache KV-cache L2 tier (`kvcache/l2_native_connector.py`) | LMCache's built-in `resp` L2-adapter speaks the engine's Redis-RESP-compatibility wire directly (bypasses content-addressed dedup/stats) | `native_plugin` (`EpistemicGraphL2Connector`) speaks the engine's own EG-187 HTTP KV surface instead | **Already the working template** for "engine replaces Redis" — see that module's docstring for the pattern to replicate for the A2A gap above |
+
+`server/__init__.py`/`server/app.py`'s `persistence_type`/`persistence_path`/
+`persistence_dsn`/`persistence_url` parameters are threaded all the way through
+`build_agent_app()` but **`app.py` never actually calls `CheckpointManager.create()`
+with them** (pydantic-graph v2 removed the `persistence=` hook these were built for —
+see the docstring on `core/checkpoint/manager.py`). They are dead parameters today, not
+a live Redis path; left in place as a documented finding rather than removed in this
+pass (removing public-function parameters is a separate, larger compatibility decision).
 
 ### G.9 Orchestration, scheduler & guardrails
 

@@ -217,7 +217,8 @@ class OntologyPublisher:
 
         Args:
             rdf_graph: An rdflib.Graph to push.
-            endpoint: Fuseki server URL (default: http://localhost:3030).
+            endpoint: Fuseki server URL; ``None`` defers to the canonical
+                ``kg_fuseki_endpoint`` config field (``KG_FUSEKI_ENDPOINT``).
             dataset: Dataset name.
             named_graph: Optional named graph URI.
 
@@ -233,7 +234,10 @@ class OntologyPublisher:
                 "error": "requests not installed.",
             }
 
-        endpoint = endpoint or setting("FUSEKI_ENDPOINT", "http://localhost:3030")
+        if endpoint is None:
+            from agent_utilities.core.config import config as _cfg
+
+            endpoint = _cfg.kg_fuseki_endpoint
 
         # Fuseki Graph Store Protocol endpoint
         url = f"{endpoint}/{dataset}/data"
@@ -400,8 +404,9 @@ def publish_ontology_to_fuseki(
     CONCEPT:AU-KG.ontology.authoritative-tbox — the callable the ``fuseki_publish`` daemon tick runs
     (and tests exercise with an injected ``publisher``). Resolution of a
     ``None`` ``endpoint`` is delegated to
-    :meth:`OntologyPublisher.push_to_jena_fuseki` (``FUSEKI_ENDPOINT`` env,
-    then localhost) so endpoint config lives in exactly one place.
+    :meth:`OntologyPublisher.push_to_jena_fuseki` (the canonical
+    ``kg_fuseki_endpoint`` config field / ``KG_FUSEKI_ENDPOINT``) so endpoint
+    config lives in exactly one place.
 
     Args:
         endpoint: Fuseki server URL; ``None`` defers to the publisher.

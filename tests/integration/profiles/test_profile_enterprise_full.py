@@ -44,7 +44,7 @@ def enterprise_env(
     monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", ephemeral_kafka["bootstrap_servers"])
     monkeypatch.setenv("AGENT_DISPATCH_BACKEND", "queue")
     monkeypatch.setenv("KG_FUSEKI_PUBLISH", "true")
-    monkeypatch.setenv("GRAPH_FUSEKI_URL", ephemeral_fuseki["url"])
+    monkeypatch.setenv("KG_FUSEKI_ENDPOINT", ephemeral_fuseki["url"])
     monkeypatch.setenv("GRAPH_FUSEKI_DATASET", ephemeral_fuseki["dataset"])
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
