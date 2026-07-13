@@ -93,6 +93,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
 | `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
+| `ontology_worldview.ttl` | `…/kg/worldview` | WorldView subject-domain upper taxonomy (`:WorldViewDomain`/`:Topic`, SKOS `broader`/`narrower`) every topic classification hangs from (CONCEPT:AU-KG.enrichment.worldview-subject-ontology). |
 
 ### Federated (package-contributed) ontologies — CONCEPT:AU-KG.ontology.federation-provider-leg
 

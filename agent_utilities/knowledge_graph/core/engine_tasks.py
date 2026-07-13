@@ -4200,6 +4200,30 @@ class TaskManagerMixin(GraphEngineProtocol):
                             source=fd.get("source", ""),
                             metadata=fd.get("metadata") or {},
                         )
+                        # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
+                        # DocumentProcessor.process only chunks + contextual-
+                        # enriches — route the article body through the SAME
+                        # central seam every other ingestion adaptor drains
+                        # (concepts + facts + WorldView topic classification) so a
+                        # feed_ingest article isn't a shallower write than a
+                        # directly-ingested document. Best-effort; never fails the task.
+                        try:
+                            from agent_utilities.knowledge_graph.ingestion.engine import (
+                                IngestionEngine as _IngestionEngine,
+                            )
+
+                            await _IngestionEngine(kg_engine=self)._enrich_text(
+                                fd["document_id"],
+                                fd.get("text", "") or "",
+                                fd.get("doc_type", "news_article"),
+                                fd.get("title") or fd["document_id"],
+                            )
+                        except Exception:  # noqa: BLE001 — enrichment never breaks the task
+                            logger.debug(
+                                "[feed_ingest] central enrichment seam failed for %s",
+                                fd["document_id"],
+                                exc_info=True,
+                            )
                         self._update_task_status(
                             job_id,
                             "completed",

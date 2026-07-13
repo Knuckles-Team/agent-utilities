@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1004
+total_concepts: 1006
 total_pillars: 8
 pillars:
 - AU-AHE
@@ -5030,6 +5030,35 @@ concepts:
   dotted: AU-KG.enrichment.ticket-status-comment-writeback
   aliases:
   - AU-KG.enrichment.ticket-status-comment-writeback
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.enrichment.topic-classification-topology
+  name: hub-side catch-up sweep for
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/enrichment/topic_classifier.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/memory/native_ingest.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: hub-side catch-up sweep for
+  dotted: AU-KG.enrichment.topic-classification-topology
+  aliases:
+  - AU-KG.enrichment.topic-classification-topology
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.enrichment.worldview-subject-ontology
+  name: a curated, reasonably-MECE
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/topic_classifier.py
+  doc: a curated, reasonably-MECE
+  dotted: AU-KG.enrichment.worldview-subject-ontology
+  aliases:
+  - AU-KG.enrichment.worldview-subject-ontology
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.etl.result-contract

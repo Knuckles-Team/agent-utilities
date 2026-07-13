@@ -386,6 +386,29 @@ class WorldModelPipelineRunner:
                 metadata=metadata,
             )
             self._link_feed_source(item_node_id, doc, rec)
+            # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
+            # the queue-less inline path skips the central _enrich_text seam the
+            # same way the feed_ingest task does — run it here too so a synchronous
+            # fallback ingest still gets concepts/facts/WorldView topic
+            # classification, not a shallower write. Best-effort.
+            try:
+                import asyncio
+
+                from ..knowledge_graph.ingestion.engine import (
+                    IngestionEngine as _IngestionEngine,
+                )
+
+                asyncio.run(
+                    _IngestionEngine(kg_engine=self.engine)._enrich_text(
+                        item_node_id, text, "news_article", title
+                    )
+                )
+            except Exception:  # noqa: BLE001 — enrichment never breaks ingest
+                logger.debug(
+                    "[KG-2.116] central enrichment seam failed for %s",
+                    doc.id,
+                    exc_info=True,
+                )
         except Exception as exc:  # noqa: BLE001 — degrade to a marginal footprint
             logger.warning("[KG-2.116] full ingest failed for %s: %s", doc.id, exc)
             self._ingest_marginal(doc, rec, score, domains)
