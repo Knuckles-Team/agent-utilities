@@ -264,7 +264,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 return await _run()
             with use_actor(actor):
                 return await _run()
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             return {
                 "error": (
                     f"tool {tool_name!r} exceeded the {_TOOL_CALL_TIMEOUT_S:.0f}s dispatch "
