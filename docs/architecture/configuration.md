@@ -402,6 +402,7 @@ therefore environment-settable; none are internal-only.
 | `HOST` | `0.0.0.0` | Gateway bind address |
 | `PORT` | `9000` | Gateway port |
 | `DEBUG` | `false` | Debug mode |
+| `AIRGAP_MODE` | `false` | Sovereign/air-gap gate — refuse outbound HTTP to non-local hosts (`core/http_client.py`, `core/model_factory.py`); see `docs/guides/sovereign-self-hosted.md` §4 |
 | `ENABLE_WEB_UI` | `false` | Serve the web UI |
 | `ENABLE_TERMINAL_UI` | `false` | Terminal UI mode (disables `GATEWAY_WORKERS>1`) |
 | `ENABLE_WEB_LOGS` | `true` | Web log streaming |
