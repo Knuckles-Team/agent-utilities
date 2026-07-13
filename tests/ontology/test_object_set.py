@@ -299,3 +299,55 @@ def test_temporary_set_ttl_resnapshot(graph: FakeGraph) -> None:
 def test_dynamic_requires_predicate(graph: FakeGraph) -> None:
     with pytest.raises(ValueError):
         ObjectSet(graph, kind=ObjectSetKind.DYNAMIC)
+
+
+# ── BUG-1 (kg-exhaustive-smoke.md): ids()/union/intersect/subtract bound ───────
+# ``object_set(action="of_type")`` used to call ``base.ids()`` with no cap at
+# all — for a DYNAMIC set (the shape ``of_type`` always returns) that scans
+# EVERY node in the graph and returns every match, unbounded. Over the live
+# deployment's 13,793 Concept nodes (139,655 total) that OOM-killed the
+# graph-os pod. These three tests assert ``limit`` is honored on all three
+# affected branches: a plain DYNAMIC ``of_type``-shaped set, and the
+# union/intersect/subtract set-algebra methods (whose operands can themselves
+# be unbounded DYNAMIC sets).
+
+
+def test_of_type_ids_respects_limit_and_short_circuits(graph: FakeGraph) -> None:
+    # A large fake graph so an unbounded scan would be obviously wrong if the
+    # limit weren't honored (this file's `graph` fixture only has 4 nodes, not
+    # enough to prove a short-circuit; build one with many document nodes).
+    big = FakeGraph()
+    for i in range(500):
+        big.add_node(f"doc:{i}", type="document", name=f"doc {i}")
+    docs = dynamic_object_set(big, filters=[PropertyFilter("type", "eq", "document")])
+    # Unbounded (default) still returns everything — behavior-preserving.
+    assert docs.count() == 500
+    assert len(docs.ids()) == 500
+    # Bounded: never materializes more than `limit` ids.
+    bounded = docs.ids(limit=3)
+    assert len(bounded) == 3
+    assert all(i.startswith("doc:") for i in bounded)
+
+
+def test_union_respects_limit(graph: FakeGraph) -> None:
+    big = FakeGraph()
+    for i in range(200):
+        big.add_node(f"a:{i}", type="alpha")
+    for i in range(200):
+        big.add_node(f"b:{i}", type="beta")
+    a = dynamic_object_set(big, filters=[PropertyFilter("type", "eq", "alpha")])
+    b = dynamic_object_set(big, filters=[PropertyFilter("type", "eq", "beta")])
+    unbounded = a.union(b)
+    assert unbounded.count() == 400
+    bounded = a.union(b, limit=5)
+    assert len(bounded.ids()) == 5
+
+
+def test_intersect_and_subtract_respect_limit(graph: FakeGraph) -> None:
+    big = FakeGraph()
+    for i in range(200):
+        big.add_node(f"n:{i}", type="both" if i < 150 else "only_a")
+    a = dynamic_object_set(big, filters=[PropertyFilter("type", "eq", "both")])
+    b = object_set_from_ids(big, [f"n:{i}" for i in range(150)])
+    assert len(a.intersect(b, limit=4).ids()) == 4
+    assert len(a.subtract(object_set_from_ids(big, []), limit=4).ids()) == 4

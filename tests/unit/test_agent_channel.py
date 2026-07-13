@@ -161,6 +161,45 @@ def test_durable_send_persists_and_history_replays():
     assert sum(1 for _, _, rel in eng._edges if rel == "HAS_MESSAGE") == 2
 
 
+# ── BUG-8 (kg-exhaustive-smoke.md): receive() on an unknown channel used to
+# silently collapse into the SAME empty ([], since) result as "channel exists,
+# nothing new" — the engine's own error text ("Channel 'X' not found") was
+# logged but never surfaced to the caller. ─────────────────────────────────
+
+
+class _NotFoundChannels:
+    """Mirrors the live engine: get_messages on an unknown channel raises with
+    "not found" in the message text (not a plain empty return)."""
+
+    def get_messages(self, channel_id, limit=None):
+        raise RuntimeError(f"Channel '{channel_id}' not found")
+
+
+class _EngineWithChannels:
+    def __init__(self, channels):
+        self.graph_compute = type(
+            "C", (), {"_client": type("X", (), {"channels": channels})()}
+        )()
+
+
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
+def test_receive_on_unknown_channel_raises_channel_not_found():
+    eng = _EngineWithChannels(_NotFoundChannels())
+    with pytest.raises(agent_channel.ChannelNotFoundError) as excinfo:
+        agent_channel.receive(eng, "smoke-test-channel")
+    assert excinfo.value.channel_id == "smoke-test-channel"
+
+
+@pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
+def test_receive_on_existing_channel_with_no_new_messages_does_not_raise():
+    # The counterpart case: an existing channel with nothing new must still
+    # degrade to ([], since) exactly as before — only the not-found case is new.
+    eng = _FakeEngine()
+    cid = agent_channel.open_channel(eng, "s1", "r1")
+    msgs, cursor = agent_channel.receive(eng, cid, since=0)
+    assert msgs == [] and cursor == 0
+
+
 @pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_elicitation_bridge_drains_to_queue():
     import asyncio

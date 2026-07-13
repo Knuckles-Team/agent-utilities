@@ -1092,7 +1092,14 @@ def register_query_tools(mcp):
                 }
             )
         if action == "receive":
-            msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
+            try:
+                msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
+            except agent_channel.ChannelNotFoundError:
+                # BUG-8: surface the not-found condition instead of a silent
+                # empty result indistinguishable from "no new messages".
+                return json.dumps(
+                    {"error": "channel not found", "channel_id": channel_id}
+                )
             return json.dumps({"messages": msgs, "cursor": cursor}, default=str)
         if action == "history":
             return json.dumps(
