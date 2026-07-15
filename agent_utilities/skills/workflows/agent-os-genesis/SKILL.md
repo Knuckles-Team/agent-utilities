@@ -438,6 +438,30 @@ egress is deterministic):
   to pin the VIP.** Give it one via a `rke2-ingress-nginx` HelmChartConfig at the platform
   step (`controller.service.type=LoadBalancer`, `loadBalancerIP: 10.0.0.240`) so it draws
   `.240` from the `CiliumLoadBalancerIPPool`.
+- **Cilium BPF masquerade only NATs the pod CIDR — a `hostNetwork` gateway pod that
+  FORWARDS a non-pod subnet (WireGuard/VPN/NAT gateways) is silently broken.** Cilium's
+  eBPF datapath owns egress NAT on the uplink and only masquerades the node's pod CIDR
+  (`100.64.x`), so traffic forwarded from e.g. the wg-easy VPN subnet `10.8.0.0/24` leaves
+  the node **un-NATed** with its original source — replies have no return path. The symptom
+  is subtle: VPN clients can reach the gateway node **itself** (SSH/ping to its host IP =
+  local delivery, no NAT) but **not the internet or any other LAN host/service** (forwarding
+  + NAT), and the wg-easy `iptables … MASQUERADE` rule is bypassed by the BPF path (matches
+  ~0 packets). Docker Swarm's iptables NAT hid this pre-migration; Cilium does not. **Fix:
+  enable Cilium `ipMasqAgent`** in the `rke2-cilium` HelmChartConfig, excluding only the
+  cluster-internal CIDRs so every other destination (LAN + internet) is SNAT'd to the node IP:
+  ```yaml
+  # rke2-cilium HelmChartConfig valuesContent (merge with existing):
+  ipMasqAgent:
+    enabled: true
+    config:
+      nonMasqueradeCIDRs:
+        - 100.64.0.0/16   # pod CIDR   (keep pod<->pod un-masqueraded)
+        - 100.65.0.0/16   # service CIDR
+      masqLinkLocal: false
+  ```
+  Verify: `cilium-dbg status | grep -i masq` shows `Masquerading: BPF (ip-masq-agent)` and
+  `cilium-dbg bpf ipmasq list` shows the exclusions. Applies to **any** hostNetwork pod that
+  forwards a subnet the CNI doesn't own — provision it whenever Step 11 deploys a VPN/gateway.
 
 **`orchestrator == podman` / `podman-compose` → `podman-mesh-provisioner`.**
 Provision a Podman control plane (rootful or rootless per `podman_rootless`): enable
