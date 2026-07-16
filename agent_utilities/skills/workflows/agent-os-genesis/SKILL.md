@@ -438,30 +438,47 @@ egress is deterministic):
   to pin the VIP.** Give it one via a `rke2-ingress-nginx` HelmChartConfig at the platform
   step (`controller.service.type=LoadBalancer`, `loadBalancerIP: 10.0.0.240`) so it draws
   `.240` from the `CiliumLoadBalancerIPPool`.
-- **Cilium BPF masquerade only NATs the pod CIDR — a `hostNetwork` gateway pod that
-  FORWARDS a non-pod subnet (WireGuard/VPN/NAT gateways) is silently broken.** Cilium's
-  eBPF datapath owns egress NAT on the uplink and only masquerades the node's pod CIDR
-  (`100.64.x`), so traffic forwarded from e.g. the wg-easy VPN subnet `10.8.0.0/24` leaves
-  the node **un-NATed** with its original source — replies have no return path. The symptom
-  is subtle: VPN clients can reach the gateway node **itself** (SSH/ping to its host IP =
-  local delivery, no NAT) but **not the internet or any other LAN host/service** (forwarding
-  + NAT), and the wg-easy `iptables … MASQUERADE` rule is bypassed by the BPF path (matches
-  ~0 packets). Docker Swarm's iptables NAT hid this pre-migration; Cilium does not. **Fix:
-  enable Cilium `ipMasqAgent`** in the `rke2-cilium` HelmChartConfig, excluding only the
-  cluster-internal CIDRs so every other destination (LAN + internet) is SNAT'd to the node IP:
+- **A `hostNetwork` forwarding gateway (WireGuard/VPN/NAT) on a swarm→RKE2-migrated node
+  is silently broken by two migration leftovers.** Symptom is very specific and misleading:
+  VPN clients can reach the gateway node **itself** (SSH/ping its host IP = local delivery,
+  no forwarding) but **nothing behind it** — no internet, no other LAN host, no `.arpa`
+  service. Packets arrive on `wg0` and the kernel FORWARD counter climbs, but they never
+  egress the uplink. Diagnose by *capturing on the uplink* and reading `iptables-nft -L
+  FORWARD` — do NOT trust `wg show` handshakes or the wg-easy container's own iptables view.
+  The two root causes (both must be fixed):
+
+  1. **Stale Docker nftables survive the Docker sunset → `FORWARD policy DROP`.** When Docker
+     is removed, its nft ruleset is **not** flushed: the base `filter FORWARD` chain is left
+     at **policy DROP** with `DOCKER-USER`/`DOCKER-FORWARD`/`DOCKER-CT` chains that only
+     ACCEPT traffic for the (now-gone) docker bridges. Cilium-endpoint (pod) and local traffic
+     survive because `CILIUM_FORWARD` / conntrack accept them first; **arbitrary transit from a
+     non-Cilium interface (`wg0`) matches nothing and hits the DROP policy.** This is *not* a
+     masquerade problem — the packet dies before NAT. Fix on the gateway node:
+     `iptables-nft -P FORWARD ACCEPT` (Kubernetes/Cilium expect ACCEPT; Cilium enforces pod
+     isolation via BPF/policy, not the base chain). Properly, **flush the leftover Docker nft
+     cruft on every node** as a migration-finalization step — it can bite any forwarded traffic.
+  2. **iptables legacy-vs-nft backend split.** wg-easy writes its `MASQUERADE`/FORWARD-ACCEPT
+     rules to **`iptables-legacy`**, but the host + Cilium run **`iptables-nft`** — two
+     separate rule worlds. The legacy MASQUERADE *does* fire once (1) is fixed (both backends
+     hook the same netfilter POSTROUTING), but when validating, always check **`iptables-nft`**
+     (via a cilium pod, hostNetwork) — the wg-easy container's `iptables-legacy` view hides
+     Cilium's/Docker's real rules. Keep `bpf.masquerade` at its default; it is NOT the issue.
+
+- **Never run a Cilium L2-announced LoadBalancer VIP on the VPN/gateway node.** A node cannot
+  route *forwarded* traffic to a LB VIP it is the L2 (ARP) announcer for — `ip neigh` shows
+  `INCOMPLETE`. So VPN clients can reach VIPs announced by *other* nodes (e.g. Technitium
+  `10.0.0.199`) but not any VIP the gateway node announces — which silently breaks **every
+  `.arpa` web service** if the ingress VIP (`10.0.0.240`) landed on the gateway node. Fix:
+  exclude the gateway node from the `CiliumL2AnnouncementPolicy` nodeSelector so all VIPs are
+  announced elsewhere:
   ```yaml
-  # rke2-cilium HelmChartConfig valuesContent (merge with existing):
-  ipMasqAgent:
-    enabled: true
-    config:
-      nonMasqueradeCIDRs:
-        - 100.64.0.0/16   # pod CIDR   (keep pod<->pod un-masqueraded)
-        - 100.65.0.0/16   # service CIDR
-      masqLinkLocal: false
+  # CiliumL2AnnouncementPolicy nodeSelector — keep the VPN gateway (and GB10) out of the announcer set:
+  nodeSelector:
+    matchExpressions:
+    - {key: kubernetes.io/hostname, operator: NotIn, values: [gb10, <vpn-gateway-node>]}
   ```
-  Verify: `cilium-dbg status | grep -i masq` shows `Masquerading: BPF (ip-masq-agent)` and
-  `cilium-dbg bpf ipmasq list` shows the exclusions. Applies to **any** hostNetwork pod that
-  forwards a subnet the CNI doesn't own — provision it whenever Step 11 deploys a VPN/gateway.
+  (Reminder for validation: LB VIPs answer only their service ports — `ping <vip>` always
+  fails with "host unreachable"; test with `curl -H "Host: <svc>.arpa" http://<vip>/`, not ping.)
 
 **`orchestrator == podman` / `podman-compose` → `podman-mesh-provisioner`.**
 Provision a Podman control plane (rootful or rootless per `podman_rootless`): enable
