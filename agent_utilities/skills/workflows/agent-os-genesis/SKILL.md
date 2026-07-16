@@ -462,7 +462,14 @@ egress is deterministic):
      separate rule worlds. The legacy MASQUERADE *does* fire once (1) is fixed (both backends
      hook the same netfilter POSTROUTING), but when validating, always check **`iptables-nft`**
      (via a cilium pod, hostNetwork) — the wg-easy container's `iptables-legacy` view hides
-     Cilium's/Docker's real rules. Keep `bpf.masquerade` at its default; it is NOT the issue.
+     Cilium's/Docker's real rules. Note on masquerade mode: **Cilium BPF masquerade
+     (`bpf.masquerade: true`) only NATs the pod CIDR, so it will NOT masquerade a
+     forwarding gateway's non-pod subnet (WireGuard `10.8.0.0/24`)** — on a node that also
+     serves as a VPN/NAT gateway, set **`bpf.masquerade: false`** (iptables masquerade, so
+     the wg-easy `MASQUERADE` rule fires) or add the gateway subnet to Cilium's `ipMasqAgent`.
+     (With `enable-host-legacy-routing: true` Cilium may fall back to iptables masquerade
+     regardless, but set it explicitly so config and datapath agree.) The FORWARD-policy DROP
+     above is the primary breakage; this is the secondary NAT consideration.
 
 - **Never run a Cilium L2-announced LoadBalancer VIP on the VPN/gateway node.** A node cannot
   route *forwarded* traffic to a LB VIP it is the L2 (ARP) announcer for — `ip neigh` shows
