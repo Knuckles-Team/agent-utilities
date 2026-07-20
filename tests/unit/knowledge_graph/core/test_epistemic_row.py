@@ -21,10 +21,12 @@ from agent_utilities.knowledge_graph.core.epistemic_row import (
     EvidenceSpan,
     attach_epistemic_columns,
     attach_epistemic_rows,
+    epistemic_row_from_stream_row,
     epistemic_status,
     is_contested_row,
     row_ids_from_plain_rows,
     should_attach_epistemic_columns,
+    stream_epistemic_rows_by_label,
 )
 
 
@@ -406,3 +408,118 @@ class TestAttachEpistemicColumns:
 
     def test_empty_rows_is_a_pure_noop(self) -> None:
         assert attach_epistemic_columns([], None) == []
+
+
+class TestEpistemicRowFromStreamRow:
+    """CONCEPT:AU-KG.query.knowledge-stream-consumer (report §9 #3) — the bulk,
+    ``Method::KnowledgeStream``-sourced sibling of :meth:`EpistemicRow.from_wire`.
+    """
+
+    def _stream_row(self, **overrides) -> dict:
+        row = {
+            "id": "opaque:ref:abc",
+            "kind": "graph_row",
+            "scores": {"score": None},
+            "confidence": 0.72,
+            "evidence_kind": None,
+            "evidence_refs_json": [],
+            "valid_time": (100, 200),
+            "tx_time": (10, None),
+            "source_refs": ["src:1"],
+            "policy_labels": [CONTESTED_LABEL],
+            "transformation_ids": [],
+            "proof_ids": ["proof:1"],
+            "alternative_ids": [],
+            "contradiction_ids": ["claim:x"],
+            "blob_handle": None,
+            "has_payload": False,
+        }
+        row.update(overrides)
+        return row
+
+    def test_maps_every_field_honestly(self) -> None:
+        row = epistemic_row_from_stream_row(self._stream_row())
+        assert row.id == "opaque:ref:abc"
+        assert row.kind == "graph_row"
+        assert row.score is None
+        assert row.confidence == 0.72
+        assert row.valid_time == (100, 200)
+        assert row.tx_time == (10, None)
+        assert row.source_refs == ["src:1"]
+        assert row.policy_labels == [CONTESTED_LABEL]
+        assert row.proof_ids == ["proof:1"]
+        assert row.contradiction_ids == ["claim:x"]
+        # The wire genuinely carries no evidence-locus payload or node
+        # properties for this family — never fabricated onto these fields.
+        assert row.evidence_refs == []
+        assert row.properties == {}
+
+    def test_reads_the_named_score(self) -> None:
+        row = epistemic_row_from_stream_row(self._stream_row(scores={"score": 0.5}))
+        assert row.score == 0.5
+
+    def test_missing_optional_fields_degrade_to_neutral_defaults(self) -> None:
+        row = epistemic_row_from_stream_row({"id": "opaque:ref:bare"})
+        assert row.id == "opaque:ref:bare"
+        assert row.kind == ""
+        assert row.score is None
+        assert row.confidence == NEUTRAL_CONFIDENCE
+        assert row.valid_time == (None, None)
+        assert row.tx_time == (None, None)
+        assert row.policy_labels == []
+
+
+class TestStreamEpistemicRowsByLabel:
+    """Live-path: the facade-adjacent bulk sweep actually converts every
+    streamed row, and degrades to ``None`` exactly like the underlying
+    ``knowledge_stream`` primitive when no engine surface is reachable."""
+
+    def test_none_when_stream_unavailable(self) -> None:
+        class _NoStream:
+            pass
+
+        assert stream_epistemic_rows_by_label(_NoStream(), "Claim") is None
+
+    def test_converts_every_streamed_row(self, monkeypatch) -> None:
+        calls: list[tuple] = []
+
+        def fake_stream(compute, label, *, batch_size=512, limit=0):
+            calls.append((compute, label, batch_size, limit))
+            yield {
+                "id": "opaque:ref:1",
+                "kind": "graph_row",
+                "scores": {"score": None},
+                "confidence": 0.3,
+                "source_refs": [],
+                "valid_time": (None, None),
+                "tx_time": (None, None),
+                "policy_labels": [],
+                "contradiction_ids": [],
+                "proof_ids": [],
+            }
+            yield {
+                "id": "opaque:ref:2",
+                "kind": "graph_row",
+                "scores": {"score": None},
+                "confidence": 0.95,
+                "source_refs": [],
+                "valid_time": (None, None),
+                "tx_time": (None, None),
+                "policy_labels": [],
+                "contradiction_ids": [],
+                "proof_ids": [],
+            }
+
+        monkeypatch.setattr(
+            "agent_utilities.knowledge_graph.core.knowledge_stream.stream_graph_confidence",
+            fake_stream,
+        )
+
+        compute = object()
+        result = stream_epistemic_rows_by_label(
+            compute, "Claim", batch_size=64, limit=10
+        )
+        rows = list(result)
+        assert [r.confidence for r in rows] == [0.3, 0.95]
+        assert all(isinstance(r, EpistemicRow) for r in rows)
+        assert calls == [(compute, "Claim", 64, 10)]

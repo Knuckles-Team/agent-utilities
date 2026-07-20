@@ -90,9 +90,7 @@ def test_agent_policy_decision_node_from_action_decision_reuses_audit_id() -> No
         rule_origin="file",
         audit_id="action_decision:opaque",
     )
-    node = AgentPolicyDecisionNode.from_action_decision(
-        decision, agent_id="agent-ref"
-    )
+    node = AgentPolicyDecisionNode.from_action_decision(decision, agent_id="agent-ref")
     assert node.id == decision.audit_id
     assert node.kind == "agent_task.execute"
     assert node.allowed
@@ -113,9 +111,7 @@ def test_policy_decision_wraps_existing_work_item_audit() -> None:
         rule_origin="file",
         audit_id="action_decision:opaque",
     )
-    node = AgentPolicyDecisionNode.from_action_decision(
-        decision, agent_id="agent-ref"
-    )
+    node = AgentPolicyDecisionNode.from_action_decision(decision, agent_id="agent-ref")
     assert node.id == decision.audit_id
     assert node.kind == "work_item.execute"
     assert node.allowed
@@ -388,58 +384,6 @@ def test_execute_agent_task_turn_default_executor_never_fabricates() -> None:
     assert engine.by_type("AgentCapabilityGrant") == []
 
 
-def test_execute_agent_task_turn_routes_claim_through_engine_claim_backend_switch(
-    monkeypatch,
-) -> None:
-    """AU-P0-3 wiring: the live worker's claim step must resolve through
-    ``engine_claim.claim_agent_task`` (the backend switch), not call this
-    module's KG-only ``claim_agent_task`` directly — otherwise
-    ``AGENT_CLAIM_BACKEND=engine`` is inert for real dispatch (the audited
-    gap: engine_claim.py existed but only its own unit tests imported it).
-    With the backend set to ``engine`` and a live engine claim available, the
-    KG claim primitive must never be invoked."""
-    from agent_utilities.orchestration import engine_claim
-
-    monkeypatch.setenv("AGENT_CLAIM_BACKEND", "engine")
-
-    kg_claim_calls: list[str] = []
-    monkeypatch.setattr(
-        engine_claim,
-        "_claim_agent_task_kg",
-        lambda engine, task_id, **kw: kg_claim_calls.append(task_id) or None,
-    )
-
-    engine_claim_calls: list[str] = []
-
-    def _fake_try_engine_claim(task_id, *, token, now, claim_ttl_s):
-        engine_claim_calls.append(task_id)
-        return {
-            "task_id": task_id,
-            "lease_id": "lease:engine:live",
-            "dag_id": "",
-            "checkpoint_id": None,
-            "depends_on_task_ids": [],
-            "fence_token": 1,
-        }
-
-    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fake_try_engine_claim)
-
-    engine = _Gap6Engine()
-    engine.add_node("task-9", "AgentTask", properties={"status": "pending"})
-
-    outcome = worker.execute_agent_task_turn(
-        engine,
-        "task-9",
-        agent_id="agent-1",
-        executor=lambda claim: "ran via the engine-native claim",
-    )
-
-    assert outcome == "completed"
-    assert engine_claim_calls == ["task-9"]
-    assert kg_claim_calls == []  # the live engine claim was used EXCLUSIVELY
-    assert engine.nodes["task-9"]["status"] == "completed"
-
-
 def test_execute_agent_task_turn_concurrent_claimants_only_one_wins_cas() -> None:
     """AU-P0-3: while A is still executing (task status='running', A's lease
     fresh), a second claimant B racing the same ``:AgentTask`` is turned away
@@ -573,47 +517,3 @@ def test_fence_still_valid_engine_native_claim_fails_closed_with_no_engine() -> 
     assert (
         worker._fence_still_valid(None, "task-engine", claim, token="hostA:1") is False
     )
-
-
-def test_execute_agent_task_turn_engine_native_claim_aborts_commit_on_fence_query_error(
-    monkeypatch,
-) -> None:
-    """L15 end-to-end: with ``AGENT_CLAIM_BACKEND=engine`` and the fence-check
-    query raising at commit time, the turn must be ABORTED (never
-    ``"completed"``) and no writeback may land — an engine-native worker that
-    cannot confirm it still holds the lease must not commit, unlike the KG
-    best-effort path's fail-open posture."""
-    from agent_utilities.orchestration import engine_claim
-
-    monkeypatch.setenv("AGENT_CLAIM_BACKEND", "engine")
-
-    def _fake_try_engine_claim(task_id, *, token, now, claim_ttl_s):
-        return {
-            "task_id": task_id,
-            "lease_id": "lease:engine:live",
-            "dag_id": "",
-            "checkpoint_id": None,
-            "depends_on_task_ids": [],
-            "fence_token": 1,
-            "_claim_backend": engine_claim.AGENT_CLAIM_BACKEND_ENGINE,
-        }
-
-    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fake_try_engine_claim)
-
-    engine = _RaisingLeaseEngine()
-    engine.add_node("task-10", "AgentTask", properties={"status": "pending"})
-
-    outcome = worker.execute_agent_task_turn(
-        engine,
-        "task-10",
-        agent_id="agent-1",
-        executor=lambda claim: "ran via the engine-native claim",
-    )
-
-    assert outcome == "fenced"
-    # No writeback landed for the unverifiable commit — the task is left
-    # exactly where the (mocked) engine-native claim left it, never flipped
-    # to "completed" with a fabricated success outcome.
-    assert engine.nodes["task-10"]["status"] == "pending"
-    assert engine.by_type("OutcomeEvaluation") == []
-    assert engine.by_type("Observation") == []

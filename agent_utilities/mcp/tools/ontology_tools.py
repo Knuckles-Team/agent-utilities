@@ -202,7 +202,12 @@ def register_ontology_tools(mcp):
             "candidate tool/agent (entity_id) is — or would be — eligible for a required "
             "ontology capability type: ontology SUBSUMPTION path, tenant/policy match, and the "
             "calibrated bandit reward, computed engine-native-first over "
-            "`graph.routing.enrichers.capability_routing.explain_routing_eligibility`."
+            "`graph.routing.enrichers.capability_routing.explain_routing_eligibility`. "
+            "'graph' (CONCEPT:AU-KG.ontology.schema-graph-visualization) renders the interface + "
+            "link-type registries as a Cytoscape-style node/edge schema diagram; 'summary' "
+            "renders the same schema as a Markdown document; 'lint' "
+            "(CONCEPT:AU-KG.ontology.style-lint) flags interface/property naming-convention "
+            "violations and common typos."
         ),
         tags=["graph-os", "ontology"],
     )
@@ -211,8 +216,9 @@ def register_ontology_tools(mcp):
             default="list",
             description=(
                 "'list' interfaces, 'implementers' (resolve an interface/type to concrete "
-                "types), 'conforms' (check an object), 'owl', or 'explain_routing_eligibility' "
-                "(X-4 WHY-eligible routing explanation)."
+                "types), 'conforms' (check an object), 'owl', 'graph' (schema as a node/edge "
+                "diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo check), "
+                "or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation)."
             ),
         ),
         name: str = Field(default="", description="Interface or concrete type name."),
@@ -283,6 +289,35 @@ def register_ontology_tools(mcp):
                 )
             if action == "owl":
                 return json.dumps({"owl": reg.to_owl()})
+            if action in ("graph", "summary"):
+                from agent_utilities.knowledge_graph.ontology.links import (
+                    DEFAULT_LINK_REGISTRY,
+                )
+                from agent_utilities.knowledge_graph.ontology.schema_graph import (
+                    build_schema_graph,
+                    render_schema_markdown,
+                )
+
+                schema = build_schema_graph(reg, DEFAULT_LINK_REGISTRY)
+                if action == "graph":
+                    return json.dumps({"registry": registry, **schema}, default=str)
+                title = f"{registry.title()} Ontology Schema"
+                return json.dumps(
+                    {"registry": registry, "markdown": render_schema_markdown(schema, title=title)}
+                )
+            if action == "lint":
+                from agent_utilities.knowledge_graph.ontology.style_lint import (
+                    lint_interfaces,
+                )
+
+                issues = lint_interfaces(reg)
+                return json.dumps(
+                    {
+                        "registry": registry,
+                        "issues": [i.as_dict() for i in issues],
+                        "count": len(issues),
+                    }
+                )
             if action == "explain_routing_eligibility":
                 from agent_utilities.graph.routing.enrichers.capability_routing import (
                     explain_routing_eligibility,
@@ -1675,13 +1710,13 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="object_set",
-        description="Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
+        description="Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets. action='path' (CONCEPT:AU-KG.ontology.object-path-finder) finds the shortest path between two specific object ids and returns the hop-by-hop relationship chain — the object-agnostic generalization of the existing `graph_analyze` code-symbol path finder.",
         tags=["graph-os", "ontology"],
     )
     def object_set(
         action: str = Field(
             default="of_type",
-            description="of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract.",
+            description="of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract|path.",
         ),
         type_or_interface: str = Field(
             default="", description="Object type / interface (of_type)."
@@ -1708,9 +1743,24 @@ def register_ontology_tools(mcp):
             default="", description="Numeric field (aggregate sum/avg/min/max)."
         ),
         limit: int = Field(default=50, description="Result limit (search)."),
+        source_id: str = Field(default="", description="Source object id (action='path')."),
+        target_id: str = Field(default="", description="Target object id (action='path')."),
     ) -> str:
-        """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra."""
+        """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra/path."""
         try:
+            if action == "path":
+                from agent_utilities.knowledge_graph.ontology.object_path import (
+                    find_object_path,
+                )
+
+                if not source_id or not target_id:
+                    return json.dumps(
+                        {"error": "action='path' requires source_id and target_id"}
+                    )
+                engine = kg_server._get_engine()
+                return json.dumps(
+                    find_object_path(engine, source_id, target_id), default=str
+                )
             ont = kg_server._ontology_system()
             if action == "from_ids" or action in ("union", "intersect", "subtract"):
                 base = ont.object_set(json.loads(ids_json) if ids_json else [])

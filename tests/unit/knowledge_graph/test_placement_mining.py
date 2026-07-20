@@ -17,6 +17,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.research.placement_mining import (
     CONFIDENCE_FLOOR,
+    TOOL_CALL_LABEL,
     CanaryResult,
     PlacementProposal,
     apply_placement_change,
@@ -27,6 +28,7 @@ from agent_utilities.knowledge_graph.research.placement_mining import (
     gather_drift_scores,
     mine_placement_patterns,
     placement_control_loop,
+    placement_mining_subscription,
     placement_proposals_from_mining,
     proposals_from_association,
     proposals_from_drift_anomaly,
@@ -75,7 +77,9 @@ def _row(trace_id, tool_name, tenant="", modality="", entity_id="", entity_type=
         args["modality"] = modality
     return {
         "trace_id": trace_id,
-        "event_sequence": int(str(trace_id).removeprefix("trace:").removeprefix("ep") or 0),
+        "event_sequence": int(
+            str(trace_id).removeprefix("trace:").removeprefix("ep") or 0
+        ),
         "tool_name": tool_name,
         "args": json.dumps(args),
         "entity_id": entity_id,
@@ -1280,3 +1284,86 @@ def test_placement_control_loop_rolls_back_via_reshard_on_regression(monkeypatch
     assert proposals[0]["status"] == "rejected"
     outcomes = engine.by_type("ClaimOutcome")
     assert outcomes[0]["durable_reward"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Seam 5 — the reactive (CDC-driven) trigger (report §9 #6)
+#
+# The real-engine round trip (a genuine ``:ToolCall`` write delivered through
+# the engine's CDC/watch feed) lives in
+# ``tests/unit/graph/test_engine_subscription_reactive.py`` alongside every
+# other ``*_subscription`` primitive's live-engine proof (CONCEPT:AU-KG.memory.provides-real-ephemeral-one).
+# These tests cover the primitive's OWN dispatch/wiring in isolation, mirroring
+# how ``test_agent_task_dep_watcher.py`` tests ``AgentTaskDepWatcher`` against a
+# fake subscription double rather than a live engine.
+# ---------------------------------------------------------------------------
+
+
+def test_placement_mining_subscription_subscribes_on_tool_call_label(monkeypatch):
+    """``placement_mining_subscription`` wires the SAME ``subscribe(engine, label,
+    handler)`` front door every other reactive consumer in this codebase uses
+    (``fleet_autoscale_subscription``, ``AgentTaskDepWatcher``) — never a
+    bespoke CDC client."""
+    import agent_utilities.graph.reactive as reactive
+
+    calls: list[dict] = []
+
+    class _FakeSubscription:
+        def __init__(self) -> None:
+            self.available = True
+
+    def _fake_subscribe(engine, label, handler):
+        calls.append({"engine": engine, "label": label, "handler": handler})
+        return _FakeSubscription()
+
+    monkeypatch.setattr(reactive, "subscribe", _fake_subscribe)
+
+    engine = object()
+    sub = placement_mining_subscription(engine)
+
+    assert len(calls) == 1
+    assert calls[0]["engine"] is engine
+    assert calls[0]["label"] == TOOL_CALL_LABEL == "ToolCall"
+    assert sub.available is True
+    assert sub.pending_state == {"pending": 0}
+
+
+def test_placement_mining_subscription_handler_increments_pending(monkeypatch):
+    """The delivered-change handler bumps ``pending_state["pending"]`` — the
+    SAME signal :meth:`EngineTasksMixin._tick_placement_mining_reactive` reads
+    to decide whether to run a mining cycle this tick."""
+    import agent_utilities.graph.reactive as reactive
+
+    captured_handler: dict[str, Any] = {}
+
+    class _FakeSubscription:
+        def __init__(self) -> None:
+            self.available = True
+
+    def _fake_subscribe(engine, label, handler):
+        captured_handler["handler"] = handler
+        return _FakeSubscription()
+
+    monkeypatch.setattr(reactive, "subscribe", _fake_subscribe)
+
+    sub = placement_mining_subscription(object())
+    assert sub.pending_state["pending"] == 0
+
+    captured_handler["handler"](
+        {"kind": "add_node", "label": "ToolCall", "node_id": "t1"}
+    )
+    assert sub.pending_state["pending"] == 1
+
+    captured_handler["handler"](
+        {"kind": "add_node", "label": "ToolCall", "node_id": "t2"}
+    )
+    assert sub.pending_state["pending"] == 2
+
+
+def test_placement_mining_subscription_unavailable_source_is_noop():
+    """No engine streaming surface -> a permanent no-op, exactly like every
+    other ``EngineSubscription`` consumer (never raises, never blocks the
+    caller's existing manual/Loop-cycle trigger)."""
+    sub = placement_mining_subscription(object())
+    assert sub.available is False
+    assert sub.poll(block_ms=0) == 0

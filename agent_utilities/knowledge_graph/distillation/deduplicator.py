@@ -27,6 +27,7 @@ from collections import defaultdict
 from typing import Any
 
 from agent_utilities.numeric import xp as np
+from agent_utilities.prompts.canonical import load_canonical_prompt
 
 from .lsh_index import LSHIndex
 
@@ -34,6 +35,22 @@ logger = logging.getLogger(__name__)
 
 # Threshold for switching from dense to LSH candidate generation
 _LSH_THRESHOLD = 100
+
+# Fallback literal for the packaged "kg_normalization" canonical prompt
+# (agent_utilities/prompts/kg_normalization.json), used only if that packaged
+# file can't be loaded (packaging edge case) — CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts.
+# ``$blocks`` is substituted with the newline-joined per-block summaries.
+_DEDUP_MERGE_PROMPT_DEFAULT = (
+    "You are merging overlapping knowledge blocks into a single canonical block. "
+    "Preserve all unique information while eliminating redundancy. "
+    "Return a JSON object with exactly these keys:\n"
+    '  "name": a concise descriptive title,\n'
+    '  "critical_question": the unified question this knowledge answers,\n'
+    '  "trusted_answer": the validated, comprehensive answer (2-4 sentences),\n'
+    '  "tags": a list of classification tags,\n'
+    '  "keywords": a list of retrieval keywords\n\n'
+    "Blocks to merge:\n$blocks"
+)
 
 
 class KnowledgeDeduplicator:
@@ -327,16 +344,13 @@ class KnowledgeDeduplicator:
                     f"Block {i + 1}:\n  Question: {q}\n  Answer: {a}"
                 )
 
-            prompt = (
-                "You are merging overlapping knowledge blocks into a single canonical block. "
-                "Preserve all unique information while eliminating redundancy. "
-                "Return a JSON object with exactly these keys:\n"
-                '  "name": a concise descriptive title,\n'
-                '  "critical_question": the unified question this knowledge answers,\n'
-                '  "trusted_answer": the validated, comprehensive answer (2-4 sentences),\n'
-                '  "tags": a list of classification tags,\n'
-                '  "keywords": a list of retrieval keywords\n\n'
-                "Blocks to merge:\n" + "\n".join(block_summaries)
+            # CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — sourced from the
+            # packaged "kg_normalization" canonical prompt (falls back to the
+            # byte-identical literal on any load error; behavior unchanged).
+            prompt = load_canonical_prompt(
+                "kg_normalization",
+                fallback=_DEDUP_MERGE_PROMPT_DEFAULT,
+                blocks="\n".join(block_summaries),
             )
 
             agent = create_context_agent(

@@ -157,16 +157,59 @@ def test_autoscale_subscription_fires_on_work_item_change(engine_graph) -> None:
     assert sub.pending_state["pending"] == 0
 
     # A queue-depth-moving change: a new WorkItem enqueued.
+    engine_graph.add_node("workitem:1", {"type": WORK_ITEM_LABEL, "status": "ready"})
+
+    sub.poll(block_ms=0)
+    assert sub.pending_state["pending"] == 1, (
+        "autoscaler must react to a WorkItem change"
+    )
+
+    # A subsequent WorkItem mutation is another change-event.
+    engine_graph.add_node("workitem:2", {"type": WORK_ITEM_LABEL, "status": "leased"})
+    sub.poll(block_ms=0)
+    assert sub.pending_state["pending"] == 2
+
+
+# ── placement-mining reactive trigger (report §9 #6, X-5) ───────────────
+
+
+def test_placement_mining_subscription_fires_on_tool_call_change(engine_graph) -> None:
+    """The placement-mining reactive trigger (report §9 #6, X-5) registers
+    ``pending`` on a real ``:ToolCall`` change — the same CDC-subscription
+    mechanism :func:`fleet_autoscale_subscription` uses, applied to the data
+    source :func:`~agent_utilities.knowledge_graph.research.placement_mining.
+    gather_access_records` scans, so a mining pass fires on fresh access-record
+    data instead of waiting on the giant hourly Loop-engine cycle."""
+    from agent_utilities.knowledge_graph.research.placement_mining import (
+        TOOL_CALL_LABEL,
+        placement_mining_subscription,
+    )
+
+    sub = placement_mining_subscription(engine_graph)
+    assert sub.available
+    assert sub.pending_state["pending"] == 0
+
+    # No new access-record data yet → the trigger stays quiet.
+    sub.poll(block_ms=0)
+    assert sub.pending_state["pending"] == 0
+
+    # A real ToolCall write, exactly as agent_runner._persist_tool_calls makes.
     engine_graph.add_node(
-        "workitem:1", {"type": WORK_ITEM_LABEL, "status": "ready"}
+        "toolcall:1",
+        {
+            "type": TOOL_CALL_LABEL,
+            "tool_name": "graph_query",
+            "tenant_ref": "tenant-1",
+        },
     )
 
     sub.poll(block_ms=0)
-    assert sub.pending_state["pending"] == 1, "autoscaler must react to a WorkItem change"
+    assert sub.pending_state["pending"] == 1, "must react to a new ToolCall"
 
-    # A subsequent WorkItem mutation is another change-event.
+    # A subsequent ToolCall write is another change-event.
     engine_graph.add_node(
-        "workitem:2", {"type": WORK_ITEM_LABEL, "status": "leased"}
+        "toolcall:2",
+        {"type": TOOL_CALL_LABEL, "tool_name": "graph_write", "tenant_ref": "tenant-1"},
     )
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 2

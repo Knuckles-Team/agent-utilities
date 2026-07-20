@@ -336,11 +336,13 @@ class WorkItemLeaseGuard:
         self.close()
 
 
-#: Marker `claim["_claim_backend"]` value stamped by the engine-native claim
-#: path (`orchestration.engine_claim._try_engine_claim`). Kept as a bare
-#: string literal (not imported from `engine_claim`) to avoid the import
-#: cycle documented at the top of `engine_claim.py`; must stay in sync with
-#: `engine_claim.AGENT_CLAIM_BACKEND_ENGINE`.
+#: Marker `claim["_claim_backend"]` value the (now-retired, No-Legacy-deleted —
+#: see `orchestration/engine_claim.py`'s module docstring) engine-native probe
+#: backend used to stamp. No live claim producer sets this value anymore
+#: (`engine_claim.claim_agent_task` has one backend, `workitem`, whose claims
+#: carry no `_claim_backend` marker at all) — kept as a bare string literal so
+#: `_fence_still_valid`'s dead-but-harmless "engine-native" branch below still
+#: type-checks/tests against the exact historical marker shape.
 _CLAIM_BACKEND_ENGINE_NATIVE = "engine"
 
 
@@ -358,8 +360,11 @@ def _fence_still_valid(
     newer holder's work.
 
     Posture (AU-P0-3/L15) depends on which backend produced ``claim``
-    (``claim["_claim_backend"]``, stamped by :func:`claim_agent_task` as
-    ``"kg"`` and by ``engine_claim._try_engine_claim`` as ``"engine"``):
+    (``claim["_claim_backend"]``, historically stamped by :func:`claim_agent_task`
+    as ``"kg"`` and by the engine-native probe backend as ``"engine"`` — both
+    retired by ``engine_claim.py``'s No-Legacy cleanup; no live path stamps
+    either marker today, so this function's ``is_engine_native`` branch is
+    unreachable in practice and kept only for the historical claim shape):
 
     * **KG best-effort path** (``_claim_backend != "engine"``, including
       claims with no marker at all — e.g. hand-built test fixtures) — fails

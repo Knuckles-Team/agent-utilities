@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.prompts.canonical import load_canonical_prompt
+
 if TYPE_CHECKING:
     from .extraction_schema import ExtractionSchema
 
@@ -93,7 +95,11 @@ class ExtractedFact(BaseModel):
 # G1 — the extraction prompt + JSON schema
 # --------------------------------------------------------------------------- #
 
-FACT_EXTRACTION_PROMPT = """Extract a knowledge graph from the document. Return a JSON object with key
+# Fallback literal — used only if the packaged canonical prompt (below) can't
+# be loaded (packaging edge case). Kept in sync with
+# ``agent_utilities/prompts/kg_extraction.json`` by that file having been
+# generated FROM this exact string; the packaged JSON is the live source.
+_FACT_EXTRACTION_PROMPT_DEFAULT = """Extract a knowledge graph from the document. Return a JSON object with key
 "facts" containing 0-15 atomic relationship facts. Each fact is ONE edge:
 a (subject) --[predicate]--> (object) triple plus human-readable context.
 Long, dense documents (articles, papers, profiles) typically warrant 8-15
@@ -167,6 +173,16 @@ Fact constraints:
 - evidence_span must be a verbatim substring of the doc text supplied above.
 
 Output ONLY the JSON object."""
+
+# CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — the packaged
+# ``kg_extraction`` canonical prompt (agent_utilities/prompts/kg_extraction.json)
+# is now the live source of truth; this is a pure refactor of *where the text
+# lives* (falls back to the byte-identical literal above, so behavior is
+# unchanged) so the reusable canonical prompt library is genuinely wired, not
+# a second unused copy.
+FACT_EXTRACTION_PROMPT = load_canonical_prompt(
+    "kg_extraction", fallback=_FACT_EXTRACTION_PROMPT_DEFAULT
+)
 
 
 FACT_JSON_SCHEMA: dict[str, Any] = {

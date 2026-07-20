@@ -2660,6 +2660,25 @@ class GraphComputeEngine:
         ``MATCH (n:Label) … LIMIT k`` never materializes the whole graph."""
         return self._client.nodes.list_by_label(label, limit) or []
 
+    def stream_graph_confidence(
+        self, label: str, *, batch_size: int = 512, limit: int = 0
+    ) -> Any | None:
+        """Bulk, Arrow-columnar, cursor-resumable confidence/evidence sweep over
+        ``label`` (CONCEPT:AU-KG.query.knowledge-stream-consumer, report §9 #3) — the
+        ``Method::KnowledgeStream`` "graph" family. Unlike :meth:`get_nodes_by_label`
+        (a single-round-trip, whole-page node-properties fetch), this streams bounded
+        Arrow pages of the engine's EPISTEMIC columns (confidence/evidence/provenance
+        — no properties; see :mod:`.knowledge_stream`'s module docstring for the exact
+        wire shape and why the two are not interchangeable).
+
+        Returns ``None`` (never raises) when the engine build has no ``.knowledge``
+        streaming surface or ``pyarrow`` isn't installed locally — callers needing
+        node properties should keep using :meth:`get_nodes_by_label`.
+        """
+        from .knowledge_stream import stream_graph_confidence as _stream
+
+        return _stream(self, label, batch_size=batch_size, limit=limit)
+
     def get_shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
         """Get the shortest path between source and target nodes."""
         return self._client.graph.shortest_path(source_id, target_id)

@@ -69,6 +69,58 @@ def _nodes_by_label(engine: Any, label: str) -> list[tuple[str, dict[str, Any]]]
         return []
 
 
+def _confidence_rollup(engine: Any, label: str) -> dict[str, Any] | None:
+    """Bulk confidence/contested-rate rollup for ``label`` via ``Method::KnowledgeStream``
+    (CONCEPT:AU-KG.query.knowledge-stream-consumer, report §9 #3) —
+    :meth:`~agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine.
+    stream_graph_confidence`, an Arrow-columnar, cursor-resumable sweep that never
+    materializes the whole label's result set in one round trip (unlike
+    :func:`_nodes_by_label`, which the caller already runs for the status
+    breakdown). Best-effort and purely additive: ``None`` when the engine
+    build/transport has no streaming surface (or ``pyarrow`` isn't installed
+    locally) — the posture rollup is unaffected either way.
+    """
+    stream_fn = getattr(engine, "stream_graph_confidence", None)
+    if not callable(stream_fn):
+        return None
+    try:
+        rows = stream_fn(label, batch_size=256)
+    except Exception:  # noqa: BLE001 — a rollup failure must not break posture()
+        return None
+    if rows is None:
+        return None
+
+    from agent_utilities.knowledge_graph.core.epistemic_row import (
+        CONTESTED_LABEL,
+        NEUTRAL_CONFIDENCE,
+        epistemic_row_from_stream_row,
+    )
+
+    count = 0
+    contested = 0
+    low_confidence = 0
+    confidence_sum = 0.0
+    try:
+        for raw_row in rows:
+            row = epistemic_row_from_stream_row(raw_row)
+            count += 1
+            confidence_sum += row.confidence
+            if CONTESTED_LABEL in row.policy_labels or row.contradiction_ids:
+                contested += 1
+            elif row.confidence < NEUTRAL_CONFIDENCE:
+                low_confidence += 1
+    except Exception:  # noqa: BLE001 — a partial stream still reports what it saw
+        pass
+    if count == 0:
+        return None
+    return {
+        "sampled": count,
+        "avg_confidence": round(confidence_sum / count, 4),
+        "contested": contested,
+        "low_confidence": low_confidence,
+    }
+
+
 def _posture() -> dict[str, Any]:
     engine = kg_server._get_engine()
     if engine is None:
@@ -84,6 +136,7 @@ def _posture() -> dict[str, Any]:
 
     node_counts: dict[str, int] = {}
     status_breakdown: dict[str, dict[str, int]] = {}
+    confidence_rollup: dict[str, dict[str, Any]] = {}
     read_engine = getattr(engine, "graph", engine)
     for label in _POSTURE_LABELS:
         rows = _nodes_by_label(read_engine, label)
@@ -96,14 +149,22 @@ def _posture() -> dict[str, Any]:
             statuses[status] = statuses.get(status, 0) + 1
         if statuses:
             status_breakdown[label] = statuses
+        rollup = _confidence_rollup(read_engine, label)
+        if rollup is not None:
+            confidence_rollup[label] = rollup
 
-    return {
+    result: dict[str, Any] = {
         "surface": "compliance",
         "action": "posture",
         "audit_ledger": audit,
         "node_counts": node_counts,
         "status_breakdown": status_breakdown,
     }
+    # CONCEPT:AU-KG.query.knowledge-stream-consumer — additive; a build/transport without the
+    # streaming surface omits the key entirely rather than reporting an empty one.
+    if confidence_rollup:
+        result["confidence_rollup"] = confidence_rollup
+    return result
 
 
 def _export(
@@ -201,7 +262,11 @@ def register_compliance_tools(mcp: Any) -> None:
             "CISO Assistant extractor + TRM portfolio-intelligence engine — "
             "Control/Policy/Risk/ComplianceRequirement/ComplianceGate/"
             "Regulation/ComplianceAssessment/Assessment/Incident/"
-            "RemediationProposal/Finding/SecurityException), 'export' (bulk "
+            "RemediationProposal/Finding/SecurityException — plus, when the "
+            "engine exposes a KnowledgeStream surface, a per-label "
+            "confidence_rollup: sampled/avg_confidence/contested/low_confidence "
+            "streamed in bounded Arrow pages rather than one big fetch), "
+            "'export' (bulk "
             "policy-redacted subgraph export: given node_ids (JSON array) or a "
             "read-only cypher query selecting an 'id' column, calls the "
             "engine's own explain_belief(node_id, disclosure_level) per id — "

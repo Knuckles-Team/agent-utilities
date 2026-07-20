@@ -179,6 +179,32 @@ async def execute_community_reports(
     except Exception:  # noqa: BLE001 — degrade to deterministic themes
         llm_fn = None
 
+    # CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — embed each
+    # report's theme+summary so it is semantically findable (the
+    # graph_engineering.global_search map-reduce ranks reports by embedding
+    # similarity to the query). Resolved once, best-effort: an unavailable
+    # embedding endpoint degrades to reports with no `embedding` property,
+    # exactly like a missing `llm_fn` degrades to a deterministic theme above —
+    # the report node still appears so the graph topology stays queryable.
+    embed_model: Any = None
+    try:
+        from agent_utilities.core.embedding_utilities import create_embedding_model
+
+        embed_model = create_embedding_model()
+    except Exception:  # noqa: BLE001 — embedding is additive, never fatal here
+        embed_model = None
+
+    def _embed_report(theme: str, summary: str) -> list[float] | None:
+        if embed_model is None:
+            return None
+        text = f"{theme}. {summary}".strip(". ") or theme
+        if not text:
+            return None
+        try:
+            return embed_model.get_text_embedding(text)
+        except Exception:  # noqa: BLE001 — best-effort enrichment only
+            return None
+
     written = 0
     level0_themes: list[str] = []
     for community_idx, members in ranked:
@@ -190,18 +216,19 @@ async def execute_community_reports(
             labels, edges_by_community.get(community_idx, []), llm_fn
         )
         report_id = f"community_report:{community_idx}"
-        graph.add_node(
-            report_id,
-            {
-                "node_type": "CommunityReport",
-                "community": community_idx,
-                "level": 0,
-                "member_count": len(members),
-                "theme": theme,
-                "summary": summary,
-                "label": theme,
-            },
-        )
+        report_props: dict[str, Any] = {
+            "node_type": "CommunityReport",
+            "community": community_idx,
+            "level": 0,
+            "member_count": len(members),
+            "theme": theme,
+            "summary": summary,
+            "label": theme,
+        }
+        embedding = _embed_report(theme, summary)
+        if embedding:
+            report_props["embedding"] = embedding
+        graph.add_node(report_id, report_props)
         for nid, _props in members:
             graph.add_edge(nid, report_id, relationship="PART_OF_COMMUNITY")
         level0_themes.append(theme)
@@ -213,17 +240,18 @@ async def execute_community_reports(
             [f"Theme: {t}" for t in level0_themes], [], llm_fn
         )
         global_id = "community_report:global"
-        graph.add_node(
-            global_id,
-            {
-                "node_type": "CommunityReport",
-                "level": 1,
-                "member_count": len(level0_themes),
-                "theme": theme or "Global themes",
-                "summary": summary,
-                "label": theme or "Global themes",
-            },
-        )
+        global_props: dict[str, Any] = {
+            "node_type": "CommunityReport",
+            "level": 1,
+            "member_count": len(level0_themes),
+            "theme": theme or "Global themes",
+            "summary": summary,
+            "label": theme or "Global themes",
+        }
+        embedding = _embed_report(theme or "Global themes", summary)
+        if embedding:
+            global_props["embedding"] = embedding
+        graph.add_node(global_id, global_props)
         for community_idx, _members in ranked:
             graph.add_edge(
                 f"community_report:{community_idx}",

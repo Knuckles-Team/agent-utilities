@@ -1,0 +1,48 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:AIFInformationNodeShape a sh:NodeShape ;
+    sh:description "An AIF I-node must carry its propositional text (CONCEPT:AU-KG.argumentation.aif)." ;
+    sh:name "AIF Information Node Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "AIFInformationNode must carry aifNodeText." ;
+            sh:minCount 1 ;
+            sh:path :aifNodeText ] ;
+    sh:targetClass :AIFInformationNode .
+
+:AIFRuleApplicationNodeShape a sh:NodeShape ;
+    sh:description "An AIF RA-node (rule-of-inference application) needs at least one premise and exactly one conclusion." ;
+    sh:name "AIF Rule Application Node Shape" ;
+    sh:property [ sh:message "AIFRuleApplicationNode requires at least one aifHasPremise." ;
+            sh:minCount 1 ;
+            sh:path :aifHasPremise ],
+        [ sh:maxCount 1 ;
+            sh:message "AIFRuleApplicationNode must have exactly one aifHasConclusion." ;
+            sh:minCount 1 ;
+            sh:path :aifHasConclusion ] ;
+    sh:targetClass :AIFRuleApplicationNode .
+
+:AIFConflictApplicationNodeShape a sh:NodeShape ;
+    sh:description "An AIF CA-node (conflict application) needs at least one conflicting premise and exactly one conflicted conclusion." ;
+    sh:name "AIF Conflict Application Node Shape" ;
+    sh:property [ sh:message "AIFConflictApplicationNode requires at least one aifHasPremise (the conflicting element)." ;
+            sh:minCount 1 ;
+            sh:path :aifHasPremise ],
+        [ sh:maxCount 1 ;
+            sh:message "AIFConflictApplicationNode must have exactly one aifHasConclusion (the conflicted element)." ;
+            sh:minCount 1 ;
+            sh:path :aifHasConclusion ] ;
+    sh:targetClass :AIFConflictApplicationNode .
+
+:AIFPreferenceApplicationNodeShape a sh:NodeShape ;
+    sh:description "An AIF PA-node (preference application) compares at least two alternatives and marks exactly one as preferred." ;
+    sh:name "AIF Preference Application Node Shape" ;
+    sh:property [ sh:message "AIFPreferenceApplicationNode requires at least two aifHasPremise alternatives being compared." ;
+            sh:minCount 2 ;
+            sh:path :aifHasPremise ],
+        [ sh:maxCount 1 ;
+            sh:message "AIFPreferenceApplicationNode must have exactly one aifHasConclusion (the preferred element)." ;
+            sh:minCount 1 ;
+            sh:path :aifHasConclusion ] ;
+    sh:targetClass :AIFPreferenceApplicationNode .

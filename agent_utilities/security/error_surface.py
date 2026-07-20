@@ -36,22 +36,28 @@ def public_error_payload(
     *,
     logger: logging.Logger | None = None,
     code: str = "operation_failed",
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a strict ``OperationResult`` failure and a type-only correlation log.
 
     Unknown codes fail closed to ``operation_failed``.  Callers cannot supply a
     log message or public message, which prevents an untrusted value from being
-    reintroduced accidentally at a call site.
+    reintroduced accidentally at a call site. ``context`` is an optional
+    diagnostic mapping (e.g. ``{"action": ..., "tool": ...}``): only its **keys**
+    are logged (never values, and never the public payload) so it can aid
+    correlation without reintroducing an untrusted value.
     """
 
     safe_code = code if code in PUBLIC_ERROR_MESSAGES else "operation_failed"
     correlation_id = f"correlation:{uuid.uuid4().hex}"
     sink = logger or _DEFAULT_LOGGER
     sink.warning(
-        "External operation failed (code=%s correlation_id=%s exception_type=%s)",
+        "External operation failed (code=%s correlation_id=%s exception_type=%s "
+        "context_keys=%s)",
         safe_code,
         correlation_id,
         type(exc).__name__,
+        sorted(context) if context else [],
     )
     return OperationResult(
         schema_version="1",
@@ -74,10 +80,11 @@ def public_error_json(
     *,
     logger: logging.Logger | None = None,
     code: str = "operation_failed",
+    context: dict[str, Any] | None = None,
 ) -> str:
     """Serialize :func:`public_error_payload` for string-returning MCP tools."""
 
-    payload = public_error_payload(exc, logger=logger, code=code)
+    payload = public_error_payload(exc, logger=logger, code=code, context=context)
     return json.dumps(payload)
 
 
@@ -86,7 +93,8 @@ def public_error_text(
     *,
     logger: logging.Logger | None = None,
     code: str = "operation_failed",
+    context: dict[str, Any] | None = None,
 ) -> str:
     """Return the same structured operation failure as compact JSON text."""
 
-    return public_error_json(exc, logger=logger, code=code)
+    return public_error_json(exc, logger=logger, code=code, context=context)

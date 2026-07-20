@@ -1204,22 +1204,42 @@ def register_analysis_tools(mcp):
                     for i, n in enumerate(neighbours)
                     if isinstance(n, dict)
                 ]
-                findings = ContradictionDetector().check(
-                    Claim(id=node_id or "new", text=query), existing
+                new_claim = Claim(id=node_id or "new", text=query)
+                findings = ContradictionDetector().check(new_claim, existing)
+
+                # CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — the
+                # graph-maintenance canonical prompt, wired onto this EXISTING
+                # contradiction/TMS path as a best-effort LLM recommendation layered
+                # on top of the deterministic detector above (propose-only, same
+                # contract). Resolved ONCE (not per finding) and degrades to no
+                # "maintenance" key at all with no LLM configured — identical JSON
+                # shape to before this was added.
+                from agent_utilities.knowledge_graph.retrieval.graph_engineering import (
+                    narrate_maintenance_action,
+                    resolve_llm_fn,
                 )
-                return json.dumps(
-                    [
-                        {
-                            "new_id": f.new_id,
-                            "conflict_id": f.conflict_id,
-                            "similarity": round(f.similarity, 3),
-                            "severity": f.severity,
-                            "reason": f.reason,
-                        }
-                        for f in findings
-                    ],
-                    default=str,
-                )
+
+                existing_by_id = {c.id: c.text for c in existing}
+                llm_fn = resolve_llm_fn() if findings else None
+                results = []
+                for f in findings:
+                    entry: dict[str, Any] = {
+                        "new_id": f.new_id,
+                        "conflict_id": f.conflict_id,
+                        "similarity": round(f.similarity, 3),
+                        "severity": f.severity,
+                        "reason": f.reason,
+                    }
+                    maintenance = narrate_maintenance_action(
+                        f,
+                        new_text=new_claim.text,
+                        existing_text=existing_by_id.get(f.conflict_id, ""),
+                        llm_fn=llm_fn,
+                    )
+                    if maintenance:
+                        entry["maintenance"] = maintenance
+                    results.append(entry)
+                return json.dumps(results, default=str)
             elif action == "evolve_code":
                 # CONCEPT:AU-KG.retrieval.monte-carlo-graph-search — Monte-Carlo GRAPH search code evolution (MLEvolve)
                 # driven by a REAL LLM coder (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM). Each search node

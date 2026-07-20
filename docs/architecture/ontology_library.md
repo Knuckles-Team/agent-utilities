@@ -74,6 +74,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_a2a.ttl` | `…/kg/a2a` | Agent-to-Agent (A2A) protocol entities. |
 | `ontology_concepts.ttl` | `…/kg/concepts` | Generated OKF-CIS governed concepts (`:GovernedConcept`/`:partOf`/`:flatId` + SKOS taxonomy). Built by `scripts/build_concept_rdf.py`. |
 | `ontology_action.ttl` | `…/kg/action` | Ontology action types (KG-2.42). |
+| `ontology_argumentation.ttl` | `…/kg/argumentation` | Argument Interchange Format (AIF): I-nodes/S-nodes (RA/CA/PA, AIF+ TA/YA) + Scheme templates, layered over the existing Claim/Evidence/BeliefState + Dung argumentation (`agent_utilities/knowledge_graph/argumentation/aif.py`). |
 | `ontology_calendar.ttl` | `…/kg/calendar` | Calendar / scheduling / OWL-Time bindings. |
 | `ontology_capability.ttl` | `…/kg/capability` | Agent/system capabilities. |
 | `ontology_company.ttl` | `…/kg/company` | Company / organization entities. |
@@ -135,6 +136,7 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | File | Role |
 |------|------|
 | `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
+| `shapes/argumentation.shapes.ttl` | AIF argumentation SHACL shapes: an `:AIFInformationNode` must carry `aifNodeText`; `:AIFRuleApplicationNode`/`:AIFConflictApplicationNode` need ≥1 `aifHasPremise` + exactly 1 `aifHasConclusion`; `:AIFPreferenceApplicationNode` needs ≥2 premises + exactly 1 (preferred) conclusion. |
 | `shapes/sdlc_lifecycle.shapes.ttl` | SDLC lifecycle REQUIRED-shape constraints (design §1.3) — consulted in DIFF mode by the enter-anywhere orchestrator so "find the gaps" is a validation query (a merged `:CodeChange` REQUIRES a `:PipelineRun`, a resolving `:Deployment` REQUIRES `:validatedBy` evidence). |
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |

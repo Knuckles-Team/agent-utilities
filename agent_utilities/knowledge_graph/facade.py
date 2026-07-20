@@ -516,6 +516,30 @@ class KnowledgeGraph:
             return []
         return attach_epistemic_rows(rows, fetch)
 
+    def stream_epistemic_by_label(
+        self, label: str, *, batch_size: int = 512, limit: int = 0
+    ) -> Any | None:
+        """CONCEPT:AU-KG.query.knowledge-stream-consumer (report §9 #3) — bulk, Arrow-columnar,
+        cursor-resumable :class:`~.core.epistemic_row.EpistemicRow` sweep over up to
+        ``limit`` nodes of ``label`` (``limit=0`` ⇒ uncapped), via
+        ``Method::KnowledgeStream``. The label-scoped, streaming sibling of
+        :meth:`query`'s ``include_epistemic=True`` path (which is id-seeded and
+        answers in one non-streaming round trip) — use this for a population-level
+        epistemic sweep (a bulk claim/evidence review, a confidence-distribution
+        audit) where the caller wants EVERY/MANY node of a label, not a specific
+        id list. Never materializes the whole result set in one frame: each Arrow
+        page is bounded by ``batch_size`` and the cursor resumes the next.
+
+        Returns ``None`` (never raises) when the compute engine has no
+        ``.knowledge`` streaming surface reachable, or ``pyarrow`` isn't installed
+        — a caller falls back to its existing bulk-read path.
+        """
+        from .core.epistemic_row import stream_epistemic_rows_by_label
+
+        return stream_epistemic_rows_by_label(
+            self.compute, label, batch_size=batch_size, limit=limit
+        )
+
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
         """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
 

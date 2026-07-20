@@ -140,6 +140,7 @@ nav:
       - North-Star Architecture (the whole program): architecture/north-star-architecture.md
       - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
       - Epistemic Operations Protocol: architecture/epistemic-operations-protocol.md
+      - AIF Argumentation (I-nodes/S-nodes → Dung acceptability): architecture/aif-argumentation.md
       - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
       - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
       - C4 Architecture: pillars/architecture_c4.md

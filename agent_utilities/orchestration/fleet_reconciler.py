@@ -501,6 +501,16 @@ def fire_ready_agent_tasks(
 ) -> list[str]:
     """Sweep 'blocked' ``:AgentTask`` nodes and fire the ones whose deps completed.
 
+    Routed through WorkItem (AU-P1-1, report §9 #4): the readiness event first
+    shadow-creates/advances this task's ``WorkItem`` via
+    :func:`~agent_utilities.orchestration.work_item.ensure_agent_task_work_item`
+    (so the engine-native dependency graph reflects readiness immediately,
+    rather than lazily at claim time) — WorkItem is the write authority. The
+    legacy ``:AgentTask.status`` flip stays as a best-effort MIRROR (same
+    pattern as ``work_item.claim_agent_task_via_work_item``'s own "running"
+    mirror) so unmigrated readers (dashboards) keep seeing 'ready' unchanged;
+    this sweep itself never reads that mirror back.
+
     Returns the ids flipped to 'ready' this sweep (empty if the engine is
     unavailable or the query fails — never load-bearing for the caller's
     tick). See the module-level note above for the poll-vs-CDC rationale.
@@ -520,6 +530,8 @@ def fire_ready_agent_tasks(
         logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
         return []
 
+    from agent_utilities.orchestration.work_item import ensure_agent_task_work_item
+
     fired: list[str] = []
     for row in rows:
         task_id = row.get("id")
@@ -528,6 +540,14 @@ def fire_ready_agent_tasks(
         deps = list(row.get("depends_on_task_ids") or [])
         if not _agent_task_dependencies_satisfied(engine, deps):
             continue
+        try:
+            ensure_agent_task_work_item(engine, task_id)
+        except Exception as e:  # noqa: BLE001 — the legacy mirror below still fires
+            logger.debug(
+                "fleet_reconciler: work_item shadow-create failed for %s: %s",
+                task_id,
+                e,
+            )
         try:
             engine.add_node(task_id, "AgentTask", properties={"status": "ready"})
             fired.append(task_id)

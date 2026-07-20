@@ -23,7 +23,7 @@ import json
 import logging
 import math
 import threading
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -981,6 +981,20 @@ class IntelligenceGraphEngine(
 
         return self.graph_compute.get_blast_radius(node_id, depth)
 
+    def stream_epistemic_by_label(
+        self, label: str, *, batch_size: int = 512, limit: int = 0
+    ) -> Any | None:
+        """Bulk confidence/evidence sweep over ``label`` via ``Method::KnowledgeStream``
+        (CONCEPT:AU-KG.query.knowledge-stream-consumer, report §9 #3) — Arrow-columnar,
+        cursor-resumable, never materializing the whole result set in one round trip.
+        Thin passthrough to :meth:`GraphComputeEngine.stream_graph_confidence`;
+        ``None`` when the engine build/transport has no streaming surface (or
+        ``pyarrow`` isn't installed) rather than raising.
+        """
+        return self.graph_compute.stream_graph_confidence(
+            label, batch_size=batch_size, limit=limit
+        )
+
     def register_materialization(self, derived_id: str) -> dict[str, Any]:
         """Register ``derived_id`` as a live engine-side TruthMaintenance
         materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
@@ -1237,9 +1251,7 @@ class IntelligenceGraphEngine(
                         )
                     else:
                         query = "MATCH (s {id: $sid})-[r]->(t {id: $tid}) DELETE r"
-                    self.backend.execute(
-                        query, {"sid": source_id, "tid": target_id}
-                    )
+                    self.backend.execute(query, {"sid": source_id, "tid": target_id})
                 except Exception as e:
                     logger.warning(f"Backend delete_edge failed: {e}")
 

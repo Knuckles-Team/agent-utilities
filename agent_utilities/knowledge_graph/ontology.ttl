@@ -33,6 +33,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/ansible>,
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/archivebox>,
+        <http://knuckles.team/kg/argumentation>,
         <http://knuckles.team/kg/aris>,
         <http://knuckles.team/kg/arr>,
         <http://knuckles.team/kg/atlassian>,

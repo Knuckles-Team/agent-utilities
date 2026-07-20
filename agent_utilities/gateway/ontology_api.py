@@ -115,6 +115,39 @@ async def get_interface_implementers(
     )
 
 
+# ── Schema graph / summary / lint (CONCEPT:AU-KG.ontology.schema-graph-visualization) ────
+
+
+@ontology_router.get("/ontology/schema-graph", response_model=OntologyEnvelope)
+async def get_ontology_schema_graph(
+    registry: str = Query("structural", description="'structural' or 'enterprise'."),
+) -> OntologyEnvelope:
+    """The interface + link-type registries as a Cytoscape-style node/edge graph."""
+    return OntologyEnvelope(
+        result=await _call("ontology_interface", action="graph", registry=registry)
+    )
+
+
+@ontology_router.get("/ontology/schema-summary", response_model=OntologyEnvelope)
+async def get_ontology_schema_summary(
+    registry: str = Query("structural", description="'structural' or 'enterprise'."),
+) -> OntologyEnvelope:
+    """The same schema rendered as a Markdown document."""
+    return OntologyEnvelope(
+        result=await _call("ontology_interface", action="summary", registry=registry)
+    )
+
+
+@ontology_router.get("/ontology/lint", response_model=OntologyEnvelope)
+async def get_ontology_lint(
+    registry: str = Query("structural", description="'structural' or 'enterprise'."),
+) -> OntologyEnvelope:
+    """Naming-convention + typo findings for the interface registry."""
+    return OntologyEnvelope(
+        result=await _call("ontology_interface", action="lint", registry=registry)
+    )
+
+
 # ── Sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / KG-2.94) ──────────────────────────
 
 
@@ -189,6 +222,17 @@ async def get_object_as_of(
     return OntologyEnvelope(
         result=await _call("object_edits", action="as_of", object_id=object_id, ts=ts)
     )
+
+
+@ontology_router.get(
+    "/objects/{source_id}/path/{target_id}", response_model=OntologyEnvelope
+)
+async def get_object_path(source_id: str, target_id: str) -> OntologyEnvelope:
+    """Shortest path + hop-by-hop relationship chain between two objects (CONCEPT:AU-KG.ontology.object-path-finder)."""
+    res = await _call(
+        "object_set", action="path", source_id=source_id, target_id=target_id
+    )
+    return OntologyEnvelope(result=_not_found_if_error(res, "no path found"))
 
 
 # ── LeanIX metamodel sync (CONCEPT:AU-KG.ingest.enterprise-source-extractor) ──────────────────────────────────

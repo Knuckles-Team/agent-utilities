@@ -49,6 +49,8 @@ __all__ = [
     "epistemic_status",
     "NEUTRAL_CONFIDENCE",
     "CONTESTED_LABEL",
+    "epistemic_row_from_stream_row",
+    "stream_epistemic_rows_by_label",
 ]
 
 #: Neutral confidence prior used when no epistemic envelope resolves for a row
@@ -583,3 +585,52 @@ def attach_epistemic_columns(
         logger.debug("epistemic OTel span annotation skipped: %s", exc)
 
     return rows
+
+
+def epistemic_row_from_stream_row(row: dict[str, Any]) -> EpistemicRow:
+    """One :mod:`.knowledge_stream` row (the ``Method::KnowledgeStream`` "graph"
+    family wire shape) -> :class:`EpistemicRow` (CONCEPT:AU-KG.query.knowledge-stream-consumer,
+    report §9 #3 — the bulk, streamed sibling of :meth:`EpistemicRow.from_wire`).
+
+    ``id`` is the stream's keyed-opaque per-request reference, NOT the plain node
+    id (see :mod:`.knowledge_stream`'s module docstring) — a caller correlating
+    back to a known node must use :func:`attach_epistemic_rows`
+    (``explain_provenance_by_ids``) instead; this path is for POPULATION-level
+    epistemic signals (a confidence distribution, a contested count) over a whole
+    label. ``score`` is read off ``scores["score"]`` (the engine's one default
+    named score for this family). ``evidence_spans``/``properties`` are always
+    empty — the wire genuinely carries no evidence-locus payload or node
+    properties for this family (only ``evidence_kind``/``blob_handle`` handles,
+    left off this typed view rather than fabricated onto fields that don't fit).
+    """
+    return EpistemicRow(
+        id=str(row.get("id") or ""),
+        kind=str(row.get("kind") or ""),
+        score=(row.get("scores") or {}).get("score"),
+        confidence=float(row.get("confidence", NEUTRAL_CONFIDENCE)),
+        source_refs=list(row.get("source_refs") or []),
+        valid_time=tuple(row.get("valid_time") or (None, None)),  # type: ignore[arg-type]
+        tx_time=tuple(row.get("tx_time") or (None, None)),  # type: ignore[arg-type]
+        policy_labels=list(row.get("policy_labels") or []),
+        contradiction_ids=list(row.get("contradiction_ids") or []),
+        proof_ids=list(row.get("proof_ids") or []),
+    )
+
+
+def stream_epistemic_rows_by_label(
+    compute: Any, label: str, *, batch_size: int = 512, limit: int = 0
+) -> Any | None:
+    """Bulk :class:`EpistemicRow` sweep over ``label`` (CONCEPT:AU-KG.query.knowledge-stream-consumer) —
+    the label-scoped, cursor-resumable sibling of :func:`attach_epistemic_rows`
+    (which is id-seeded, one non-streaming round trip). Wraps
+    :func:`~.knowledge_stream.stream_graph_confidence`, converting each row via
+    :func:`epistemic_row_from_stream_row`. ``None`` (never raises) when the engine
+    build/transport has no streaming surface, mirroring every other degrade in
+    this module.
+    """
+    from .knowledge_stream import stream_graph_confidence
+
+    rows = stream_graph_confidence(compute, label, batch_size=batch_size, limit=limit)
+    if rows is None:
+        return None
+    return (epistemic_row_from_stream_row(r) for r in rows)

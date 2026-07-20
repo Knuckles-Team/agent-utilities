@@ -30,11 +30,26 @@ class _CollectingMCP:
 
 
 class _FakeComputeEngine:
-    def __init__(self, nodes_by_label: dict[str, list[tuple[str, dict]]]):
+    def __init__(
+        self,
+        nodes_by_label: dict[str, list[tuple[str, dict]]],
+        stream_rows_by_label: dict[str, list[dict]] | None = None,
+    ):
         self._nodes_by_label = nodes_by_label
+        self._stream_rows_by_label = stream_rows_by_label
 
     def get_nodes_by_label(self, label, limit=0):
         return list(self._nodes_by_label.get(label, []))
+
+    def stream_graph_confidence(self, label, *, batch_size=512, limit=0):
+        # Only defined at all when the test opts a fake KnowledgeStream surface
+        # in (mirrors GraphComputeEngine returning None when unavailable).
+        if self._stream_rows_by_label is None:
+            return None
+        rows = self._stream_rows_by_label.get(label)
+        if rows is None:
+            return None
+        return iter(rows)
 
 
 class _FakeEngine:
@@ -95,6 +110,101 @@ def test_posture_joins_audit_verify_and_node_counts(monkeypatch):
     assert out["node_counts"]["Control"] == 2
     assert out["node_counts"]["Incident"] == 1
     assert out["status_breakdown"]["Control"] == {"satisfied": 1, "gap": 1}
+
+
+def test_posture_includes_confidence_rollup_when_knowledge_stream_available(
+    monkeypatch,
+):
+    """CONCEPT:AU-KG.query.knowledge-stream-consumer (report §9 #3) — live path: when the compute
+    engine exposes ``stream_graph_confidence`` (the ``Method::KnowledgeStream``
+    consumer), ``posture`` streams a per-label confidence/contested rollup
+    instead of one more full-materialize read."""
+    tool = _register(monkeypatch)
+    fake_graph = _FakeComputeEngine(
+        {"Control": [("c1", {"status": "satisfied"})]},
+        stream_rows_by_label={
+            "Control": [
+                {
+                    "id": "opaque:1",
+                    "kind": "graph_row",
+                    "scores": {"score": None},
+                    "confidence": 0.9,
+                    "source_refs": [],
+                    "valid_time": (None, None),
+                    "tx_time": (None, None),
+                    "policy_labels": [],
+                    "contradiction_ids": [],
+                    "proof_ids": [],
+                },
+                {
+                    "id": "opaque:2",
+                    "kind": "graph_row",
+                    "scores": {"score": None},
+                    "confidence": 0.2,
+                    "source_refs": [],
+                    "valid_time": (None, None),
+                    "tx_time": (None, None),
+                    "policy_labels": [],
+                    "contradiction_ids": ["claim:x"],
+                    "proof_ids": [],
+                },
+            ]
+        },
+    )
+    engine = _FakeEngine(fake_graph)
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        audit_tools,
+        "_verify",
+        lambda: {"surface": "audit", "action": "verify", "ok": True, "entries": 0},
+    )
+
+    out = json.loads(
+        tool(
+            action="posture",
+            cypher="",
+            node_ids="[]",
+            disclosure_level="Full",
+            as_of="",
+            limit=200,
+        )
+    )
+    rollup = out["confidence_rollup"]["Control"]
+    assert rollup["sampled"] == 2
+    assert rollup["avg_confidence"] == 0.55
+    assert rollup["contested"] == 1  # the row with a contradiction_ids entry
+    assert rollup["low_confidence"] == 0
+    # A label with no streamed rows contributes no rollup entry.
+    assert "Incident" not in out["confidence_rollup"]
+
+
+def test_posture_omits_confidence_rollup_when_knowledge_stream_unavailable(
+    monkeypatch,
+):
+    """Regression guard: a build/transport with no streaming surface (the
+    existing ``_FakeComputeEngine`` default) reports posture exactly as
+    before this feature — no empty/fabricated ``confidence_rollup`` key."""
+    tool = _register(monkeypatch)
+    fake_graph = _FakeComputeEngine({"Control": [("c1", {"status": "satisfied"})]})
+    engine = _FakeEngine(fake_graph)
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        audit_tools,
+        "_verify",
+        lambda: {"surface": "audit", "action": "verify", "ok": True, "entries": 0},
+    )
+
+    out = json.loads(
+        tool(
+            action="posture",
+            cypher="",
+            node_ids="[]",
+            disclosure_level="Full",
+            as_of="",
+            limit=200,
+        )
+    )
+    assert "confidence_rollup" not in out
 
 
 def test_posture_no_active_engine(monkeypatch):

@@ -237,26 +237,15 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
     )
 
 
-def test_engine_claim_workitem_backend_is_selectable_and_exclusive(
+def test_engine_claim_routes_through_the_work_item_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The three-way backend switch stays EXCLUSIVE: selecting ``workitem``
-    never touches the kg or raw-engine-probe primitives."""
+    """``engine_claim.claim_agent_task`` — now a single-backend resolver
+    (No-Legacy: the ``kg``/``engine`` backends are deleted, not shimmed; see
+    ``engine_claim.py``'s module docstring) — claims through the SAME WorkItem
+    bridge :func:`~agent_utilities.orchestration.work_item.
+    claim_agent_task_via_work_item` this file's other tests exercise directly."""
     from agent_utilities.orchestration import engine_claim
-
-    kg_calls: list[str] = []
-    monkeypatch.setattr(
-        engine_claim,
-        "_claim_agent_task_kg",
-        lambda engine, task_id, **kw: kg_calls.append(task_id) or None,
-    )
-
-    def _fail_if_engine_probed(*a, **k):  # pragma: no cover - must never run
-        raise AssertionError(
-            "raw engine-native probe must never run for the workitem backend"
-        )
-
-    monkeypatch.setattr(engine_claim, "_try_engine_claim", _fail_if_engine_probed)
 
     engine = _BridgeEngine()
     engine.add_node("task-9", "AgentTask", properties={"status": "pending"})
@@ -267,4 +256,3 @@ def test_engine_claim_workitem_backend_is_selectable_and_exclusive(
     assert claim is not None
     assert claim["task_id"] == "task-9"
     assert claim["fence_token"] == 1
-    assert kg_calls == []

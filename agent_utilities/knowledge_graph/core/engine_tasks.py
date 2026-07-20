@@ -362,6 +362,15 @@ _FILE_WATCH_INTERVAL = 30.0
 # changed, so it can run far more often than the slow ``_tick_fleet_autoscaler``
 # safety-net interval — turning "scale on the change" from minutes into seconds.
 _AUTOSCALE_REACTIVE_INTERVAL = 5.0
+# Reactive placement-mining poll cadence (report §9 #6, X-5): a cheap
+# non-blocking ``:ToolCall`` change-feed poll, far more often than the giant
+# hourly Loop-engine cycle the (unchanged) mining pass used to depend on
+# exclusively. Slightly slower than the autoscale poll — a ``:ToolCall`` fires
+# far more often fleet-wide than a WorkItem/queue-depth change, and each
+# actual mining pass (when ``PLACEMENT_CONTROL_LOOP_ENABLED``) runs real
+# Cypher, so the tick trades a little latency for materially less redundant
+# work under load.
+_PLACEMENT_MINING_REACTIVE_INTERVAL = 30.0
 _HYGIENE_INTERVAL = 86400.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
@@ -1243,6 +1252,19 @@ class TaskManagerMixin(GraphEngineProtocol):
             _AUTOSCALE_REACTIVE_INTERVAL,
             enabled=_cfg.fleet_autoscaler,
         )
+        # Placement-mining reactive trigger (report §9 #6, X-5) — Native by
+        # default: the TRIGGER itself is unconditionally scheduled (no flag),
+        # so a cheap ``:ToolCall`` change-feed poll always runs; the actual
+        # mine->propose->govern->canary pass it fires on a change still passes
+        # through ``placement_control_loop``'s own existing, deliberately
+        # conservative ``PLACEMENT_CONTROL_LOOP_ENABLED`` gate (default off) —
+        # this closes "nothing calls run_placement_mining_cycle automatically"
+        # without changing that gate's default.
+        _maint(
+            "placement_mining_reactive",
+            "placement_mining_reactive",
+            _PLACEMENT_MINING_REACTIVE_INTERVAL,
+        )
         _maint("compaction", "compaction", 1800.0)
         _maint("evolution", "evolution", _EVOLUTION_INTERVAL)
         from ..backends.fanout_backend import FanOutBackend
@@ -1552,6 +1574,71 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("fleet_autoscale_reactive tick error: %s", e)
+
+    def _placement_mining_subscription(self) -> Any:
+        """Lazily-built reactive ``:ToolCall`` change-feed (report §9 #6, X-5).
+
+        One subscription per daemon process, cached on the engine (mirrors
+        :meth:`_fleet_autoscale_subscription`), so the reactive placement-mining
+        tick fires on the engine's pushed ``:ToolCall`` change-event rather than
+        waiting out the giant hourly Loop-engine cycle. Rebuilt if it couldn't
+        resolve a streaming surface on first use.
+        """
+        sub = getattr(self, "_placement_mining_sub", None)
+        if sub is None or not getattr(sub, "available", False):
+            from agent_utilities.knowledge_graph.research.placement_mining import (
+                placement_mining_subscription,
+            )
+
+            sub = placement_mining_subscription(self)
+            self._placement_mining_sub = sub
+        return sub
+
+    def _tick_placement_mining_reactive(self) -> None:
+        """Fire a placement-mining cycle on a new ``:ToolCall`` change (report §9 #6, X-5).
+
+        The trigger half of X-5: poll the engine's ``:ToolCall`` change-feed
+        (non-blocking, O(new changes)) and run one
+        :func:`~agent_utilities.knowledge_graph.research.placement_mining.
+        placement_control_loop` pass ONLY when the engine pushed a new
+        ``:ToolCall`` since the last poll — closing "nothing calls
+        run_placement_mining_cycle automatically" (report's exact finding).
+        This tick's OWN scheduling is unconditional/default-on (Native by
+        default — see its registration in ``_register_maintenance_schedules``);
+        ``placement_control_loop`` still resolves its existing
+        ``PLACEMENT_CONTROL_LOOP_ENABLED`` gate internally on every call, so a
+        deployment that hasn't opted in pays only the cheap poll — the mining/
+        canary pass itself never runs until that flag is set, unchanged from
+        before this trigger existed. A no-op when the engine has no streaming
+        surface (the existing manual/Loop-cycle triggers cover it). Leader-only
+        via the consolidated maintenance scheduler.
+        """
+        try:
+            sub = self._placement_mining_subscription()
+            if not sub.available:
+                return
+            sub.poll(block_ms=0)
+            if sub.pending_state["pending"] == 0:
+                return
+            sub.pending_state["pending"] = 0
+
+            from agent_utilities.knowledge_graph.research.placement_mining import (
+                placement_control_loop,
+            )
+
+            report = placement_control_loop(self)
+            if report.get("enabled") and (
+                report.get("persisted") or report.get("applied")
+            ):
+                logger.info(
+                    "[X-5] reactive placement mining on ToolCall change: "
+                    "proposals=%s persisted=%s applied=%s",
+                    report.get("proposals"),
+                    report.get("persisted"),
+                    report.get("applied"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("placement_mining_reactive tick error: %s", e)
 
     def _get_host_token(self) -> str:
         """Opaque process identity for WorkItem lease ownership.

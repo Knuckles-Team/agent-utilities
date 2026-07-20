@@ -86,6 +86,8 @@ __all__ = [
     "rollback_placement_change",
     "run_placement_mining_cycle",
     "placement_control_loop",
+    "TOOL_CALL_LABEL",
+    "placement_mining_subscription",
 ]
 
 #: A mined finding must clear this floor before it is even materialized as a
@@ -451,9 +453,7 @@ def mine_placement_patterns(
     from agent_utilities.mcp.tools.engine_surface_tools import _invoke
 
     errors: list[str] = []
-    records = gather_access_records(
-        engine, limit=limit, after_sequence=after_sequence
-    )
+    records = gather_access_records(engine, limit=limit, after_sequence=after_sequence)
     baskets = build_baskets(records)
     access_counts = build_tenant_access_counts(records)
     sequences_by_tenant = build_tenant_sequences(records)
@@ -1535,10 +1535,7 @@ def run_placement_mining_cycle(
         completed_cursor = save_trace_cursor(
             engine,
             cursor_consumer,
-            int(
-                mine_result.get("next_event_sequence")
-                or prior_cursor.event_sequence
-            ),
+            int(mine_result.get("next_event_sequence") or prior_cursor.event_sequence),
         )
 
     return {
@@ -1615,3 +1612,53 @@ def placement_control_loop(
         engine, measurement_fn=measurement_fn, tolerance=tolerance, limit=limit
     )
     return {"enabled": True, **report}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Seam 5 — the reactive (CDC-driven) trigger (report §9 #6, X-5)
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: The CDC label whose commits signal fresh mineable access-record data — the
+#: SAME ``:ToolCall`` write ``agent_runner._persist_tool_calls`` performs, the
+#: exact node type :func:`gather_access_records` scans
+#: (``RunTrace-[:USED_TOOL]->ToolCall``, via ``trace_ontology.TOOL_CALL_NODE_LABEL``).
+TOOL_CALL_LABEL = "ToolCall"
+
+
+def placement_mining_subscription(engine: Any) -> Any:
+    """Reactive change-feed subscription over new ``:ToolCall`` provenance rows
+    (report §9 #6 — "give placement mining a trigger, reusing the CDC-subscription
+    mechanism the reactive autoscaler already uses for cheap incremental polling").
+
+    Mirrors :func:`~agent_utilities.orchestration.fleet_autoscaler.
+    fleet_autoscale_subscription` exactly: instead of waiting for the next slow
+    Loop-engine cycle (``run_one_cycle``'s ``placement_control`` stage, gated
+    behind ``KG_LOOP`` + ``PLACEMENT_CONTROL_LOOP_ENABLED`` and entangled with a
+    dozen unrelated stages), the daemon polls this subscription on a fast,
+    dedicated tick and only pays the mining pass's cost when the engine actually
+    pushed a new ``:ToolCall`` change since last time.
+
+    Unlike the autoscaler's WorkItem subscription (control-plane data, requiring
+    the ``_control``/``graph_compute`` resolution dance), ``:ToolCall`` is
+    ordinary CONTENT-graph data — the same resolution
+    :class:`~agent_utilities.graph.routing.enrichers.capability_designation.
+    CapabilityIndexWatcher` already uses (``subscribe(engine, label, handler)``
+    directly on the passed engine/compute object; ``resolve_streaming`` follows
+    its own ``.graph``/``._client`` chain). The handler bumps
+    ``sub.pending_state["pending"]``; the caller reads it to decide whether to
+    run a cycle now. Returns a
+    :class:`~agent_utilities.graph.reactive.EngineSubscription` whose
+    ``.available`` is ``False`` (a permanent no-op) when no engine streaming
+    surface exists — the existing manual/Loop-cycle triggers remain the
+    correctness guarantee either way.
+    """
+    from agent_utilities.graph.reactive import subscribe
+
+    state = {"pending": 0}
+
+    def _on_tool_call_change(_event: dict[str, Any]) -> None:
+        state["pending"] += 1
+
+    sub = subscribe(engine, TOOL_CALL_LABEL, _on_tool_call_change)
+    sub.pending_state = state  # type: ignore[attr-defined]
+    return sub

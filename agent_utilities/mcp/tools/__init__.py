@@ -9,6 +9,7 @@ from agent_utilities.mcp.tools.agent_execution_tools import (
 )
 from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
 from agent_utilities.mcp.tools.analyze_suite import register_analyze_suite_tools
+from agent_utilities.mcp.tools.argument_tools import register_argument_tools
 from agent_utilities.mcp.tools.audit_tools import register_audit_tools
 from agent_utilities.mcp.tools.bus_tools import register_bus_tools
 from agent_utilities.mcp.tools.compliance_tools import register_compliance_tools
@@ -20,6 +21,9 @@ from agent_utilities.mcp.tools.engine_tools import register_engine_tools
 from agent_utilities.mcp.tools.epistemic_tools import register_epistemic_tools
 from agent_utilities.mcp.tools.evolution_tools import register_evolution_tools
 from agent_utilities.mcp.tools.governance_tools import register_governance_tools
+from agent_utilities.mcp.tools.graph_engineering_tools import (
+    register_graph_engineering_tools,
+)
 from agent_utilities.mcp.tools.incident_tools import register_incident_tools
 from agent_utilities.mcp.tools.job_tools import register_job_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
@@ -56,4 +60,6 @@ __all__ = [
     "register_compliance_tools",
     "register_rlm_tools",
     "register_workflow_tools",
+    "register_argument_tools",
+    "register_graph_engineering_tools",
 ]
