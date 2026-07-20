@@ -148,6 +148,12 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     summary = summarize(graph)
+    # Populated only when SHACL actually ran against bundled shapes (below) —
+    # the literal sh:ValidationReport (CONCEPT:AU-KG.ontology.shacl-report-passthrough),
+    # surfaced so a caller (the ontology_api.py /ontology/validate REST twin, the
+    # agent-webui SHACL validation-report view) gets the real pyshacl report
+    # instead of just the derived valid/errors/warnings summary.
+    shacl_report: dict[str, Any] | None = None
 
     if summary["n_classes"] == 0 and not summary["declared_ontology_iris"]:
         errors.append(
@@ -188,12 +194,17 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
                             f"skipped unparseable shape {shape_file.name}: {exc}"
                         )
             if len(shapes) > 0:
-                conforms, _g, _txt = pyshacl.validate(
+                conforms, results_graph, results_text = pyshacl.validate(
                     data_graph=graph,
                     shacl_graph=shapes,
                     inference="none",
                     abort_on_first=False,
                 )
+                shacl_report = {"conforms": bool(conforms), "text": results_text}
+                try:
+                    shacl_report["turtle"] = results_graph.serialize(format="turtle")
+                except Exception:  # noqa: BLE001 — report text above is enough
+                    pass
                 if not conforms:
                     # Shapes target instance data, not a TBox — a non-conformance
                     # is advisory for an ontology load, not a hard reject.
@@ -213,6 +224,7 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
             k: summary[k]
             for k in ("ontology_iri", "n_axioms", "n_classes", "n_properties")
         },
+        "shacl_report": shacl_report,
     }
 
 

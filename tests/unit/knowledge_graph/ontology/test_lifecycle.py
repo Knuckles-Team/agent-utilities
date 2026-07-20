@@ -152,6 +152,27 @@ def test_validate_accepts_wellformed_without_hosting(lc):
     assert lc.list_ontologies()["count"] == 0
 
 
+def test_validate_surfaces_literal_shacl_report(lc):
+    """The 'shacl_report' key always exists; when pyshacl + bundled shapes are
+    available it carries the literal pyshacl-generated report (conforms/text),
+    not just the derived valid/errors/warnings summary (CONCEPT:AU-KG.ontology.shacl-report-passthrough)."""
+    ok = lc.validate(PETS_TTL, source_type="text")
+    assert "shacl_report" in ok
+    pyshacl = pytest.importorskip("pyshacl")
+    del pyshacl
+    report = ok["shacl_report"]
+    assert report is not None
+    assert isinstance(report["conforms"], bool)
+    assert isinstance(report["text"], str) and report["text"]
+
+
+def test_validate_malformed_never_crashes_on_missing_shacl_report(lc):
+    bad = lc.validate("this is @@ not <<< valid turtle", source_type="text")
+    # Parsing fails before validate_graph (and SHACL) ever runs, so the early
+    # rejection dict has no 'shacl_report' key at all — .get() degrades cleanly.
+    assert bad.get("shacl_report") is None
+
+
 def test_load_rejects_empty_ontology(lc):
     empty = "@prefix ex: <http://example.org/x#> .\n"
     result = lc.load(empty, source_type="text")

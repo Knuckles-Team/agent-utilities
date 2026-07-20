@@ -205,6 +205,43 @@ async def generate_ontology_post(body: OntologyGenerateRequest) -> OntologyEnvel
     )
 
 
+# ── SHACL validation report (coverage row #9/#97 frontend gap) ──────────────
+
+
+class OntologyValidateRequest(BaseModel):
+    """Request body for ``POST /ontology/validate``."""
+
+    source: str = Field(
+        default="", description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text."
+    )
+    source_type: str = Field(
+        default="auto", description="How to read `source`: 'file' | 'url' | 'text' | 'auto'."
+    )
+
+
+@ontology_router.post("/ontology/validate", response_model=OntologyEnvelope)
+async def validate_ontology_candidate(body: OntologyValidateRequest) -> OntologyEnvelope:
+    """Run the valid/connected/SHACL gate on a candidate WITHOUT committing it.
+
+    Granular typed twin of ``graph_ontology(action='validate')`` — dispatches
+    through the same tool/core (the ``lifecycle.py`` docstring already named
+    this route; it was documented but never wired until now). The result
+    includes a ``shacl_report`` (``conforms``/``text``/``turtle``) whenever
+    pyshacl is installed and bundled shapes exist, so a caller gets the literal
+    SHACL validation report, not just the derived valid/errors/warnings summary.
+    """
+    if not body.source:
+        raise HTTPException(status_code=400, detail="source is required")
+    return OntologyEnvelope(
+        result=await _call(
+            "graph_ontology",
+            action="validate",
+            source=body.source,
+            source_type=body.source_type,
+        )
+    )
+
+
 # ── Sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / KG-2.94) ──────────────────────────
 
 

@@ -35,6 +35,20 @@ def client(monkeypatch):
             return _json.dumps(
                 {"object_id": kwargs.get("object_id"), "history": [{"edit": 1}]}
             )
+        if tool == "graph_ontology" and kwargs.get("action") == "validate":
+            if kwargs.get("source") == "bad turtle":
+                return _json.dumps(
+                    {"valid": False, "errors": ["parse error"], "warnings": [], "summary": {}}
+                )
+            return _json.dumps(
+                {
+                    "valid": True,
+                    "errors": [],
+                    "warnings": [],
+                    "summary": {"n_classes": 1},
+                    "shacl_report": {"conforms": True, "text": "Validation Report\nConforms: True"},
+                }
+            )
         if tool == "ontology_derive" and kwargs.get("action") == "generate":
             return _json.dumps(
                 {
@@ -150,3 +164,48 @@ def test_generate_ontology_appears_in_openapi(client):
     assert "/api/ontology/generate" in spec["paths"]
     assert "get" in spec["paths"]["/api/ontology/generate"]
     assert "post" in spec["paths"]["/api/ontology/generate"]
+
+
+# ── SHACL validation report (coverage row #9/#97 frontend gap) ──────────────
+
+
+def test_validate_ontology_round_trips_with_shacl_report(client):
+    tc, captured = client
+    resp = tc.post(
+        "/api/ontology/validate",
+        json={"source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .", "source_type": "text"},
+    )
+    assert resp.status_code == 200
+    result = resp.json()["result"]
+    assert result["valid"] is True
+    assert result["shacl_report"]["conforms"] is True
+    assert (
+        "graph_ontology",
+        {
+            "action": "validate",
+            "source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .",
+            "source_type": "text",
+        },
+    ) in captured
+
+
+def test_validate_ontology_reports_invalid(client):
+    tc, _ = client
+    resp = tc.post("/api/ontology/validate", json={"source": "bad turtle"})
+    assert resp.status_code == 200
+    result = resp.json()["result"]
+    assert result["valid"] is False
+    assert result["errors"]
+
+
+def test_validate_ontology_requires_source(client):
+    tc, _ = client
+    resp = tc.post("/api/ontology/validate", json={})
+    assert resp.status_code == 400
+
+
+def test_validate_ontology_appears_in_openapi(client):
+    tc, _ = client
+    spec = tc.get("/openapi.json").json()
+    assert "/api/ontology/validate" in spec["paths"]
+    assert "post" in spec["paths"]["/api/ontology/validate"]
