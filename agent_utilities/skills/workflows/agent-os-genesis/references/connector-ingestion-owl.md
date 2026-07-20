@@ -7,9 +7,11 @@
 > to OWL classes (`core/owl_bridge.py` `PROMOTABLE_NODE_TYPES` → a class in the canonical
 > ontology library `ontology*.ttl`), not just generic Documents.
 >
-> Authoritative behavioral reference: the `kg-ingest` skill §8b. The code of
-> record is `core/source_sync.py` (`_DELTA_HANDLERS`) + `connectors/mcp_tool.py`
-> (`MCP_TOOL_PRESETS`). Keep all three in lockstep.
+> Authoritative behavioral reference: the `graph-ingestion-and-integration` skill's
+> [`references/ingest-connector-reference.md`](../../../graph-ingestion-and-integration/references/ingest-connector-reference.md)
+> connector→OWL entity map. The code of record is `core/source_sync.py`
+> (`_DELTA_HANDLERS`) + `connectors/mcp_tool.py` (`MCP_TOOL_PRESETS`). Keep all
+> three in lockstep.
 
 ## How a connector is ingested
 
@@ -73,4 +75,6 @@ fleet sweep / `MCP_TOOL_PRESETS` as `:Document`s, not typed domain classes:
    in `PROMOTABLE_EDGE_TYPES`.
 4. The OWL class in the **canonical** ontology library (extend `ontology_<domain>.ttl`, never a
    new per-connector `.ttl`); run `python3 scripts/check_ontology.py`.
-5. The §8b row in the `kg-ingest` skill + this table.
+5. The row in `graph-ingestion-and-integration`'s
+   [`references/ingest-connector-reference.md`](../../../graph-ingestion-and-integration/references/ingest-connector-reference.md)
+   + this table.

@@ -2,7 +2,8 @@
 
 > **Status:** kickoff slice (Phases 2-3) shipped on `feat/au-intent-surface`; the CPD (Phase 1,
 > `feat/au-cpd`) and this doc's §7 remaining work (Phases 4-5 — CPD-backed ranking, the
-> calibrated-outcomes learning loop, resolution caching, the `kg-intent` skill, and the A/B
+> calibrated-outcomes learning loop, resolution caching, the intent-surface skill content
+> (now folded into `graph-runtime-and-governance`, see the note below), and the A/B
 > selection-accuracy harness) shipped on `feat/au-seam8-complete` (NOT merged/pushed — awaiting
 > review). Parent plan: `plans/program-design-2026-07-11-epistemic-tool-routing.md`. Concepts:
 > `CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse` (the surface collapse) /
@@ -11,6 +12,14 @@
 > `CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning` (the calibrated-outcomes learning loop) /
 > `CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache` (bounded resolution caching) /
 > `CONCEPT:AU-ECO.mcp.intent-surface-selection-accuracy` (the A/B measurement harness).
+
+> **Naming note (post-collapse, `feature/authority-convergence`).** This doc's §5 table and
+> the `kg-*` skill names it references throughout are historical: the ~73 granular `kg-*`
+> skills it describes (one per wrapped verb/tool) were folded into the 13 broad domain skills
+> (`agent_utilities/skills/graph-*`/`agent-utilities-*`) so the skill layer matches this same
+> doc's own condensed-surface philosophy one level up. Every verb named below is still
+> reachable exactly as documented; find its current skill home via
+> `graph-runtime-and-governance`'s "Coverage governance" section or the mapping in §5.
 
 ## 1. Problem
 
@@ -128,10 +137,11 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
   resolver now ranks against it (§3).
 - **Calibrated-outcomes / bandit learning loop** — `resolve_intent`/`dispatch_intent` now record
   and blend in a learned reward EMA via `OutcomeRouter` (§3).
-- **Dedicated `kg-*` skill** — `agent_utilities/skills/kg-intent/SKILL.md` (`tier: meta`)
-  documents the resolver/dispatcher mechanism directly; `ask`/`find`/`write`/`act`/`manage`/`why`
-  remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly — a meta skill never claims verb
-  coverage), with the comment there updated to point at `kg-intent`.
+- **Dedicated skill** — originally `agent_utilities/skills/kg-intent/SKILL.md` (`tier: meta`),
+  now folded into `graph-runtime-and-governance`'s "Manage tool visibility responsibly"
+  workflow step, which documents the resolver/dispatcher mechanism directly; `ask`/`find`/
+  `write`/`act`/`manage`/`why` remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly —
+  a meta concern never claims verb coverage), with the comment there pointing at that section.
 - **A/B selection-accuracy measurement** — `scripts/measure_intent_routing_accuracy.py` +
   `agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (a 21-case hand-labelled
   corpus across all five dispatching verbs) + the `tests/unit/test_intent_selection_accuracy.py`
@@ -148,7 +158,15 @@ granular tool(s) unchanged; each one now ALSO explains how to reach that tool wh
 **What changed, uniformly, in all 53 verb-wrapping `kg-*`/`kg-modality-*` skills** (tier `core`
 or `modality` — computed from `skill_coverage.discover_skills()`, the SAME machinery the
 MCP⇄REST⇄skill parity gate uses): one standardized note inserted right after the `# kg-<name>`
-heading (frontmatter, `## Invoke`, and every other section untouched):
+heading (frontmatter, `## Invoke`, and every other section untouched).
+
+> **Post-collapse note:** the "Skill" column below names the **former** `kg-*` slug each row
+> documented at the time this note shipped. On `feature/authority-convergence` all 53 were
+> folded into the 13 broad domain skills (`agent_utilities/skills/graph-*`/`agent-utilities-*`)
+> — the tool/verb mapping is still exactly accurate, but `agent_utilities/skills/kg-<name>/`
+> no longer exists on disk. Cross-reference `graph-runtime-and-governance`'s "Coverage
+> governance" section (or `python -m agent_utilities.mcp.skill_coverage`) for which broad
+> skill documents a given tool today.
 
 > **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile
 > (`MCP_TOOL_MODE=intent`), `<tool(s)>` is/are held back from the default tool list (nothing
@@ -214,10 +232,12 @@ heading (frontmatter, `## Invoke`, and every other section untouched):
 | `kg-write` | `graph_write` | write |
 | `kg-writeback` | `graph_writeback` | write |
 
-**Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):**
-`kg-capability-builder`, `kg-coverage-doctor`, `kg-delegate`, `kg-mux-extend`, `kg-mux-use`,
-`kg-webui-admin`, `kg-webui-dashboards`, `kg-webui-extraction`, `kg-webui-graphviz`,
-`kg-webui-ontology-operator`, `kg-webui-swe`.
+**Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):** the former
+`kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and
+`kg-mux-extend`/`kg-mux-use` (folded into `graph-runtime-and-governance`), `kg-delegate`
+(folded into `graph-orchestration-and-automation`) — plus, from the separate `agent-webui`
+package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
+`kg-webui-extraction`, `kg-webui-graphviz`, `kg-webui-ontology-operator`, `kg-webui-swe`.
 
 **Higher-level docs also updated** (mention tool names/`MCP_TOOL_MODE` in prose, not a
 per-capability wrapper):
@@ -242,8 +262,8 @@ specific tool-visibility default, so no edit was needed to keep them accurate.
   `REGISTERED_TOOLS` entry, no live engine): the required end-to-end proof (`ask` resolves +
   dispatches via `_execute_tool` + returns the justification), the NL-planner fallback, the
   explicit-tool-hint pin, a dispatch failure reported as structured `error` (not a crash), and
-  that `graph_query` — the tool `kg-query` documents — still resolves under `ask` (no
-  functionality lost).
+  that `graph_query` — the tool `graph-query-and-explanation` documents — still resolves under
+  `ask` (no functionality lost).
 - `tests/unit/test_intent_surface_build_server.py` — builds the REAL graph-os server
   (`bootstrap=False`, no live engine) under `MCP_TOOL_MODE=intent`: verbs + REST twins register,
   the granular surface (`graph_query`, `graph_write`, `nl_query`, …) stays fully registered, and
@@ -318,8 +338,9 @@ All five items below shipped together; each is cross-referenced to where it land
    signal for live routing is the in-process `OutcomeRouter` reward EMA the resolver blends in,
    which is exactly what a bandit needs (fast, updated per-call) and is exposed per-dispatch as
    `routing.calibrated_outcome_reward`.
-5. **A dedicated `kg-*`/`tier: meta` skill for the intent surface** — DONE:
-   `agent_utilities/skills/kg-intent/SKILL.md` — the six verbs, the CPD/learning/caching
+5. **A dedicated `tier: meta` skill for the intent surface** — DONE: originally
+   `agent_utilities/skills/kg-intent/SKILL.md`, now `graph-runtime-and-governance`'s "Manage
+   tool visibility responsibly" step — the six verbs, the CPD/learning/caching
    mechanism, the load→use→unload lifecycle, and when to use `condensed` vs. `intent` mode.
 
 **A/B selection-accuracy measurement** (design doc §4 phase 4) also shipped in this slice:

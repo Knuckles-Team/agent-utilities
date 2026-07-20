@@ -173,7 +173,8 @@ best-effort, tag-filtered node+edge scan (mirrors the established
   factory in `kg_server._build_server` dispatches through the SAME
   `_execute_tool` core every other action-routed tool uses; no bespoke
   handler.
-- **Skill:** `kg-argument` (`agent_utilities/skills/kg-argument/SKILL.md`).
+- **Skill:** `graph-runtime-and-governance` (`agent_utilities/skills/graph-runtime-and-governance/SKILL.md`,
+  "Argument evaluation (AIF)" section).
 
 ## What this deliberately does NOT do
 

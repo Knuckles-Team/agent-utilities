@@ -40,6 +40,30 @@ Use a direct engine operation for a bounded, well-specified task. Delegate one
 specialist via `graph_orchestrate`, a collective via `graph_agents`, or a
 dependency DAG via `graph_workflows`.
 
+## Action reference
+
+Every modality tool below shares ONE shape: action-routed 1:1 over the corresponding
+`epistemic_graph` client (`NodeClient`, `BlobClient`, `FinanceClient`, …), so its action
+set is discovered from the live client and never drifts in this doc — call any of them
+with an empty `action` to list what the connected engine build actually exposes.
+Common invocation: `load_tools(tools=["engine_<domain>"])` →
+`engine_<domain>(action="", params_json="{}")` to list → `engine_<domain>(action=
+"<method>", params_json="{...}", graph="")` to invoke → `unload_tools(...)`. REST
+twin: `POST /engine/<domain>` with the same body shape.
+
+| Domain tool(s) | Fronts | Notable actions / gotchas |
+|---|---|---|
+| `engine_nodes` / `engine_edges` / `engine_graph` / `engine_lifecycle` | core graph CRUD at the wire level | batch/union reads, degree/neighbour queries (`nodes`); temporal invalidate/supersede (`edges`); AST parse/index + semantic/embedding compute (`graph`); prune/decay/evict, `batch_update`, context view, (de)serialize (`lifecycle`) — the low-level primitives beneath the curated `graph_write`/`graph_query`; prefer those for everyday reads/writes |
+| `engine_txn` | server-side ACID transactions, optimistic concurrency control (OCC) | `begin` → stage ops → `commit`/`rollback`; a transaction can span modalities (graph/tabular/timeseries/blob) and commits all-or-nothing; an OCC conflict rejects the commit — retry the transaction, never partially apply it |
+| `engine_analytics` / `engine_datascience` / `engine_graphlearn` | centrality + (personalized) PageRank; estimators/numeric primitives/training kernels; a pure-Rust KAN (Kolmogorov-Arnold) link predictor | the raw modality-tier routers; for the friendlier fixed-action `graph_learn` wrapper over the same link predictor, see `graph-research-and-analysis` |
+| `engine_blob` | content-addressed binary object store for media/files/large payloads | put/store, get/fetch, stat, delete + streamed variants; objects are keyed by content hash (dedupe-by-content); binary results return base64-wrapped as `{"__bytes_b64__": "..."}` |
+| `engine_channels` / `engine_broker` | dynamic pub/sub agent-communication channels; the engine's native RabbitMQ/Kafka-class broker (exchange/queue/stream admin, routed publish incl. confirmed/idempotent, consumer-group ack/nack) | the raw engine-native fabric; for the federated, durable, cross-host agent-to-agent bus, use `graph_bus` (`graph-orchestration-and-automation`) instead |
+| `engine_finance` | portfolio optimization, risk metrics, regime detection, signal generation, HFT primitives, derivatives pricing | computed in-engine over the same substrate that holds the market/entity graph and time-series data; pair with `engine_timeseries` for price history and `engine_analytics`/`engine_datascience` for cross-modal statistics; the separate `quant` (emerald-exchange) tool fronts a different domain, not this one |
+| `engine_ledger` | append-only audit ledger recording graph mutations | `get`/`apply`/`clear` (admin) — a durable "who changed what, when" distinct from live graph state; for higher-level KG-native audit records (ExecutionSummary, action outcomes) see `graph-runtime-and-governance`'s audit/compliance tools instead |
+| `engine_mining` | association-rule mining, clustering, and anomaly detection running inside the engine, compute-near-data | the raw modality-tier router (empty `action` lists what the live engine supports); the friendlier fixed-action `graph_mine`/`graph_mine_deep` wrappers (including the deep-learning family delegated to `agents/data-science-mcp`) and the GOVERNED mining→claim-flywheel are documented in `graph-research-and-analysis` |
+| `engine_timeseries` | a native time-series database co-located with the graph | append, range and window scans, as-of (point-in-time) lookups, gap-filling — temporal metrics queryable cross-modally alongside graph and tabular data |
+| `engine_streaming` | change-data-capture streams, continuous (standing) queries, watches, and triggers | register interest and the engine pushes matching changes instead of polling — a reactive substrate for event-driven agents/pipelines |
+
 ## Workflow
 
 ### 1. Specify the contract

@@ -2,9 +2,8 @@
 ``elif action == "inspect": return engine.inspect(target)`` called a method
 that does not exist on ``IntelligenceGraphEngine`` — a wire-first gap
 (``'IntelligenceGraphEngine' object has no attribute 'inspect'``). The action
-is documented in ``agent_utilities/skills/kg-analyze/SKILL.md`` (structural/
-subgraph inspection) as well as the ``graph-query-and-explanation`` workflow
-skill, and has a REST twin (``GET /graph/analyze/inspect``,
+is documented in the ``graph-query-and-explanation`` workflow skill's Action
+reference (structural/subgraph inspection), and has a REST twin (``GET /graph/analyze/inspect``,
 ``agent_utilities/mcp/kg_server.py::graph_analyze_inspect_endpoint``) that
 already sends ``target``.
 

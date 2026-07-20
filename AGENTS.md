@@ -331,7 +331,7 @@ case itself next time. The goal is orchestrating completely off the harness.
   routes `join`/`root_cause`/`blast_radius`/`change_risk`/`control_evidence`
   actions over it, reusing the existing causal-reasoning engine
   (`core/formal_reasoning_core.py`) rather than a new inference stack. See the
-  `kg-ops-causal` skill.
+  `graph-research-and-analysis` skill.
 - **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
   Identity: every gateway request is scoped to a server-minted JWT
   `ActorContext` with fail-closed permissioning and HMAC engine auth
@@ -710,7 +710,7 @@ agent-utilities is both the **hub** that discovers fleet-contributed skills/prom
   shipped through package-data `skills/**`, so `install-skills` (and the quick
   `agent-utilities install-skills` command) drops them into the XDG skills dir exactly like any
   other package. **Add a new AU-specific skill here**, not in universal-skills; generic/standalone
-  skills (and the authoring builders + `kg-delegate`) stay in universal-skills.
+  skills (and the authoring builders) stay in universal-skills.
 - The hub deliberately does **NOT** declare a `prompt_providers` entry-point for itself: its
   `prompts/*.json` are already the packaged BASE layer (`registry_builder._iter_prompt_sources`
   ingests them with bare `prompt:<name>` ids and `source: agent-utilities:base`). A self-pointing

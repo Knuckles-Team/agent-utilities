@@ -85,6 +85,42 @@ When editing bundled skills:
 5. test both direct and delegated synthetic tasks;
 6. update the coverage gate and current inventory documentation.
 
+## Adding a new platform capability (engine → verb → route → skill)
+
+Adding a capability end-to-end — reachable, documented, and discoverable with no
+drift between layers — follows a fixed build order:
+
+1. **Engine crate (Rust)**, when the capability needs native compute: implement it
+   in the epistemic-graph engine and expose it as a wire `Method`
+   (`crates/eg-types/src/protocol.rs`). The pure-Python `epistemic_graph` client
+   mirrors the wire protocol 1:1, so a new method surfaces as a coroutine on a
+   sub-client with no client-side hand-editing; that client is the source of truth
+   for "what the engine can do."
+2. **MCP verb + REST route.** A new engine method is auto-discovered by
+   `engine_tools._discover_domains()` (client introspection) and appears under its
+   domain's `engine_<domain>` action-routed tool automatically — a brand-new
+   *domain* needs an entry in `_DOMAIN_CLASSES`/`_DOMAIN_BLURB`, with its REST twin
+   `/engine/<domain>` registered in the same change (`ACTION_TOOL_ROUTES`). For a
+   synthesized, agent-facing operation, add a curated `graph_*`/`ontology_*`/
+   `object_*` tool and register its REST route in the SAME call so the
+   surface-parity gate stays green (see *Two surfaces by default*).
+3. **Wrapping skill.** Author or extend the domain skill covering the new verb so
+   operators can discover it. The naming/coverage contract and the doctor that
+   enforces it are documented in `graph-runtime-and-governance`'s "Coverage
+   governance" section — run it as part of closing this out.
+
+Verify the whole chain in one pass:
+
+```bash
+python -m agent_utilities.mcp.skill_coverage    # verb <-> skill coverage: 0 uncovered, 0 orphans
+pytest tests/unit/test_gateway_mcp_parity.py    # tool <-> REST-route parity
+python scripts/gen_graphos_manifest.py          # regenerate the action manifest from the client
+```
+
+A new verb shipped without covering documentation shows as **uncovered**; stale
+coverage pointing at a removed verb shows as an **orphan** — fix both before merge,
+or add the verb to the documented exemption list with a written justification.
+
 ## Guardrails
 
 - Do not modify the shared main checkout for non-trivial work.

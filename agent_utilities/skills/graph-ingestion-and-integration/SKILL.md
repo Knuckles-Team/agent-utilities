@@ -33,6 +33,52 @@ Use one operation directly for a bounded artifact or sync. Delegate through
 `graph_workflows` when onboarding a source requires discovery, mapping,
 backfill, validation, and a scheduled delta flow.
 
+## Action reference
+
+| Tool | Actions | Notes |
+|---|---|---|
+| `graph_ingest` | ingests one artifact; `content_type` routes explicitly (`config`, `prompt`, `mcp_server`, `skill`, `document`, `conversation`, `codebase`) or auto-classifies; `action="distill"` exports a KG subgraph to a portable skill-graph, `action="import_pack"` round-trips one back in | delta-skip via a durable content-hash manifest — re-ingesting an unchanged source is a no-op |
+| `source_sync` | `source=<connector>` + `mode=full\|delta\|reconcile`; `source="all"` fans out one laned `connector_sync` task per candidate across every registered connector — declarative, computed from the registries, never hand-enumerated | see "Full ingest" below for the one-call fleet-wide sweep |
+| `graph_etl` | `action="run"` (pull `source` into the KG and/or load `sink` from the KG — a write-back SoR, a graph store `stardog`/`neo4j`/`age`/`jena_fuseki`, or `sink="table"` for the native engine SQL table), `action="list"` (sources/sinks/backends), `action="lineage"` (recorded runs) | composes ingestion + write-back + graph-store machinery into one source → (ontological transform) → sink flow |
+| `graph_ingest` (hydrate) | `graph_ingest(source=<connector>, mode="full")` re-mirrors one external source; `source="all"` fans to the fleet-wide sweep | a thin alias delegating to the same unified `source_sync` core — use `graph_etl`/`source_sync` directly for delta/reconcile modes |
+| `graph_feeds` | `list`, `add` (one `url=` or bulk `urls=`), `remove`, `sync` (run the feed sweep now, `mode=delta\|full`) | manages `:FeedSource` nodes (native RSS, FreshRSS, ScholarX arXiv) ingested through one world-model gate |
+| `graph_writeback` | `target=leanix\|servicenow\|erpnext\|process\|capability\|…`; ops: `inferences_json`, `enrichments_json`, `creations_json`, `retirements_json`; `action=write\|proposals\|approve` | fail-closed: `dry_run=true` is the default and previews the exact proposed writes; a live write needs the target's own enable flag (e.g. `LEANIX_ENABLE_WRITE`) |
+| `graph_share` | `org` (share with the owner's org in place), `commons` (promote a copy into the shared cross-org commons graph), `mark` (attach a mandatory `marking`), `private` (restrict back) | the explicit promotion path for data that is private-to-its-owner by default; actor/owner is the ambient identity, never caller-supplied |
+
+### Full ingest — every source in one fan-out
+
+A full ingest exercises every ingestion family in parallel, each on its own task
+lane (`agent_utilities/knowledge_graph/core/task_lanes.py`) so heavy codebase
+indexing in the `ingestion` lane can never head-of-line-block connector/feed syncs
+in the `connectors`/`worldview` lanes:
+
+```text
+# 1) codebase + documents (heavy file-ingestion lane) — workspace + doc + ontology +
+#    config + skill paths, resolved via repository-manager
+graph_ingest(target_path="<JSON array of paths>")
+
+# 2-4) every connector + both native feed sources, fanned across the connectors/
+#      worldview lanes in one declarative call — the candidate set is computed from
+#      the registries (_DELTA_HANDLERS, capability registry, PACKAGE_PRESETS,
+#      MATERIALIZE_SOURCES) at run time, never hand-enumerated here
+source_sync(source="all", mode="full")
+```
+
+Use `mode="full"` for a complete (re-)hydrate, `mode="delta"` for an incremental
+top-up (the write-layer content-hash delta makes unchanged entities a no-op either
+way). Monitor every lane's drain with `graph_jobs(action="list")`.
+
+Every `agents/*` connector also does the complementary **native push**: its own code
+writes into the ONE engine as it works (typed OWL nodes + documents + raw blobs, via
+the shared `native_ingest` primitive) — so the KG stores the data itself, not just
+metadata. Both directions (hub-side pull above, package-side push) are default-on
+and engine-guarded (a clean no-op with no reachable engine). The full category→tool
+matrix, the connector→OWL-entity reference (20+ connectors), and the per-package
+native-push matrix are in
+[`references/ingest-connector-reference.md`](references/ingest-connector-reference.md)
+(kept in lockstep with the registries — adding a connector needs no change to this
+skill or that reference).
+
 ## Workflow
 
 ### 1. Define the source contract

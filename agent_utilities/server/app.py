@@ -344,7 +344,7 @@ def build_agent_app(
         # unconditionally and additively (never replaces the skills a
         # deployment already registers above) — every agent-utilities server
         # shares the SAME one-engine KG, so `epistemic_status`/`why`/
-        # `what_changed` over it (the `kg-epistemic-answer` skill's
+        # `what_changed` over it (the `graph-query-and-explanation` skill's
         # `explain_provenance_by_ids`/`explain_belief`/`epistemic_status`/
         # `explain_policy` actions) is a real, already-implemented
         # capability of every deployment, not an aspirational one.

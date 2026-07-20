@@ -1195,7 +1195,8 @@ class MediaStore:
         ``data``, following :meth:`store_document_page_evidence`'s pattern
         (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: the AST/code-intelligence
         path (``eg-compute``'s ``ast``/``eg_compute::algorithms`` symbol
-        extraction reached via ``client.graph``/``kg-code``) already resolves
+        extraction reached via ``client.graph``/``graph_code``, see the
+        ``graph-query-and-explanation`` skill) already resolves
         ``file_path``/``symbol``/line ranges — wire this in alongside that
         symbol extraction to make a code-derived claim cite its exact
         function/class.
@@ -1768,6 +1769,7 @@ class MediaStore:
         if not digest:
             return None
         return self.fetch_bytes(str(digest))
+
 
 def _tenant_isolated_blobs_setting() -> bool:
     """Whether ``:Blob`` node ids should be tenant-salted by default (CONCEPT:AU-KG.identity.asset-occurrence).

@@ -33,7 +33,7 @@ def _versions(**overrides: Any) -> VersionPins:
         "model_provider": "test-provider",
         "prompt_version_id": "prompt:v1",
         "tool_versions": {"kg_query": "1.0.0"},
-        "skill_versions": {"kg-query": "1.2.0"},
+        "skill_versions": {"graph-query-and-explanation": "1.2.0"},
         "policy_version": "1",
         "policy_digest": "policyhash1",
         "catalog_epoch": 42,

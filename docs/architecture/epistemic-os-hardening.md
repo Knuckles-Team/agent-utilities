@@ -454,8 +454,9 @@ crosswalk types in `knowledge_graph/ontology/ops_causal_crosswalk.py`. CONCEPT:
 caller-supplied `links_json` as real graph edges between **already-existing** node
 ids via the shared enrichment writer (no new nodes). Every other action can run
 offline against explicit `links_json` (test/CI-friendly) or, given an active engine
-and a `node_id`, load the causal neighborhood live from the KG. Ships with a
-dedicated skill, `agent_utilities/skills/kg-ops-causal/`.
+and a `node_id`, load the causal neighborhood live from the KG. Documented in the
+`graph-research-and-analysis` skill (`agent_utilities/skills/graph-research-and-analysis/SKILL.md`,
+Action reference table).
 
 **Limitation.** Two new ontology relationship types were added to support this
 (`CHANGE_REQUEST`/`USED_MODEL`, per the program ledger) — the causal chain is only as

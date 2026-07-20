@@ -171,7 +171,7 @@ policy/control/evidence) into one causal chain and reasons over it with the
 existing causal-reasoning engine — distinct from `graph_analyze`'s
 general-purpose `causal`/`blast_radius` actions above, which operate on
 arbitrary graph structure rather than this specific ops entity chain. See the
-`kg-ops-causal` skill.
+`graph-research-and-analysis` skill.
 
 ## Coding & task management (harness)
 

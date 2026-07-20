@@ -29,9 +29,10 @@ from agent_utilities.mcp.tool_specs import (
     canonical_tool_names,
 )
 
-# Verbs deliberately NOT surfaced as a kg-* skill. Keep this list tiny and
-# justified — every entry weakens the gate. A new registered tool must either get a
-# skill or be added here with a reason.
+# Verbs deliberately NOT claimed by any domain skill's agents/graph-os.yaml
+# sidecar. Keep this list tiny and justified — every entry weakens the gate. A
+# new registered tool must either get sidecar coverage or be added here with a
+# reason.
 INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
     {
         # ``quant`` is the emerald-exchange finance domain tool, not part of the
@@ -52,12 +53,12 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         "engine_admin",
         # Seam 8 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) intent verbs — only present in
         # REGISTERED_TOOLS under MCP_TOOL_MODE=intent. They are not per-CAPABILITY
-        # wrappers (a kg-<verb> skill implies ONE granular tool) — they wrap the
-        # WHOLE resolver, and every granular tool they route to already has its
-        # own kg-* skill. The dedicated "how to use the intent surface" skill
-        # (`kg-intent`, tier: meta) documents the resolver/dispatcher mechanism
-        # itself; it is intentionally NOT a `wraps:` entry here — a meta skill
-        # never claims verb coverage (see `compute_coverage`'s tier exemption).
+        # wrappers — they wrap the WHOLE resolver, and every granular tool they
+        # route to already has its own `agents/graph-os.yaml` coverage under a
+        # domain skill. "How to use the intent surface" (the resolver/dispatcher
+        # mechanism itself) is documented directly in
+        # `graph-runtime-and-governance`'s "Manage tool visibility responsibly"
+        # workflow step, without itself claiming these six verbs.
         "ask",
         "find",
         "write",

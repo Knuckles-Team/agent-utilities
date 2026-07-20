@@ -5,7 +5,8 @@ The epistemic read layer (`EpistemicRow`/`EvidenceSpan`, `include_epistemic` on
 upgrades, but the deeper per-claim diagnostics — "why do we believe this",
 "what changed between two points in time", "resolve this contradiction" — were
 only reachable via the generic `engine_query` 1:1 passthrough (see the
-`kg-epistemic-answer` skill), never as a purpose-named tool.
+"Epistemic answers" section of the `graph-query-and-explanation` skill), never
+as a purpose-named tool.
 
 This module is a THIN, purpose-named wrapper over four existing
 ``client.query.*`` methods on the connected epistemic-graph engine (discovered
@@ -30,8 +31,8 @@ ADMIN-scope gate):
   contradicting claim ids.
 
 No epistemic logic is reimplemented here — every action is a direct call into
-the engine client method the ``kg-epistemic-answer`` skill already documents;
-this tool only adds the ergonomic action-name mapping + REST twin.
+the engine client method the ``graph-query-and-explanation`` skill already
+documents; this tool only adds the ergonomic action-name mapping + REST twin.
 """
 
 from __future__ import annotations
