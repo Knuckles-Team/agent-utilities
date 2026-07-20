@@ -112,5 +112,5 @@ curl -s localhost:8004/health
 curl -s -XPOST localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
 ```
 
-See also: [Deployment Guide](../../../../agent-utilities/docs/guides/deployment.md)
-· [Configuration](../../../../agent-utilities/docs/guides/configuration.md).
+See also: [Deployment Guide](../../../../../docs/guides/deployment.md)
+· [Configuration](../../../../../docs/guides/configuration.md).
