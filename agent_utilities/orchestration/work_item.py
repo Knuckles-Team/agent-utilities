@@ -489,6 +489,11 @@ def submit_work_item(
 
     dep_ids = [d for d in dict.fromkeys(depends_on) if d]
     resolved_deps: list[str] = []
+    # Which deps resolved to a tracked WorkItem in this single snapshot — reused
+    # by the edge-indexing loop below instead of re-fetching each one, so the
+    # created node's dep_count and its dependency edges derive from one
+    # consistent read (and N get_work_item() round-trips are removed).
+    tracked_dep_ids: set[str] = set()
     dep_count = 0
     for dep_id in dep_ids:
         dep = get_work_item(engine, dep_id)
@@ -502,6 +507,7 @@ def submit_work_item(
             resolved_deps.append(dep_id)
             continue
         resolved_deps.append(dep_id)
+        tracked_dep_ids.add(dep_id)
         if dep.get("status") != WorkItemStatus.SUCCEEDED.value:
             dep_count += 1
 
@@ -557,7 +563,7 @@ def submit_work_item(
 
     edge_type = _task_depends_on_edge_type()
     for dep_id in resolved_deps:
-        if get_work_item(engine, dep_id) is None:
+        if dep_id not in tracked_dep_ids:
             continue  # untracked dep: nothing to index for push-release, still counted above
         _link(engine, item_id, dep_id, edge_type)
         _append_downstream(engine, dep_id, item_id, now=now)

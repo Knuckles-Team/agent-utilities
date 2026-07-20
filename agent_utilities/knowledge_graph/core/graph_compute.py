@@ -11,6 +11,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from collections.abc import Mapping
 from typing import Any
 
@@ -2699,10 +2700,10 @@ class GraphComputeEngine:
             node_info_fn: Callable(node) -> dict with 'id' and 'type' keys.
         """
         visited: set = {start}
-        queue: list[tuple[Any, int]] = [(start, 0)]
+        queue: deque[tuple[Any, int]] = deque([(start, 0)])
         results: list[dict[str, Any]] = []
         while queue:
-            curr, depth = queue.pop(0)
+            curr, depth = queue.popleft()
             if curr != start:
                 info = node_info_fn(curr)
                 info["depth"] = depth
@@ -2982,16 +2983,17 @@ class GraphComputeEngine:
 
     def to_json(self) -> str:
         """Serialize the graph to a JSON string representation."""
-        nodes = []
-        for nid in self._get_all_nodes():
-            props = self._get_node_properties(nid)
-            nodes.append({"id": nid, "properties": props})
-
-        edges = []
-        for src, tgt in self._get_all_edges():
-            props = self._get_edge_properties(src, tgt)
-            edges.append({"source": src, "target": tgt, "properties": props})
-
+        # Bulk scans that consume properties already shipped with each id, rather
+        # than one _get_node_properties/_get_edge_properties round-trip per element
+        # (the N+1 these _*_with_properties helpers exist to avoid).
+        nodes = [
+            {"id": nid, "properties": props}
+            for nid, props in self._get_all_nodes_with_properties()
+        ]
+        edges = [
+            {"source": src, "target": tgt, "properties": props}
+            for src, tgt, props in self._get_all_edges_with_properties()
+        ]
         return json.dumps({"nodes": nodes, "edges": edges}, default=str)
 
     def from_json(self, json_str: str) -> None:
