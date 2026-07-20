@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from agent_utilities.core.config import (
+    plaintext_secret_keys,
     retired_configuration_keys,
     strip_retired_configuration_keys,
 )
@@ -97,3 +98,52 @@ def test_canonicalize_passes_through_connector_keys() -> None:
 
     with pytest.raises(Exception):  # genuine ambiguity still rejected
         _canonicalize_xdg_configuration({"camunda_url": "a", "CAMUNDA_URL": "b"})
+
+
+def test_plaintext_secret_keys_flags_inline_credentials() -> None:
+    offenders = plaintext_secret_keys(
+        {
+            "GITLAB_TOKEN": "ghp_plaintext",  # credential suffix, not a *_REF
+            "LANGFUSE_SECRET_KEY": "sk-live",  # credential suffix
+            "PASSWORD": "hunter2",  # sensitive mapping key
+            "GITLAB_TOKEN_REF": "vault://apps/gitlab#token",  # a *_REF -> allowed
+            "WORKSPACE_PATH": "/x",  # ordinary field
+            "TIMEOUT_SECONDS": 30,  # ordinary field
+        }
+    )
+    assert offenders == ["GITLAB_TOKEN", "LANGFUSE_SECRET_KEY", "PASSWORD"]
+
+
+def test_plaintext_secret_keys_empty_when_all_refs() -> None:
+    assert (
+        plaintext_secret_keys(
+            {
+                "OIDC_CLIENT_SECRET_REF": "vault://apps/x#s",
+                "WORKSPACE_PATH": "/x",
+                "GITLAB_TOKEN": "",  # empty placeholder is not a live secret
+            }
+        )
+        == []
+    )
+
+
+def test_config_doctor_flags_plaintext_secret(tmp_path: Path) -> None:
+    """The doctor must NAME an inline plaintext secret (the load path would else
+    reject the whole config with an opaque DurableSecretError)."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"GITLAB_TOKEN": "ghp_plaintext", "WORKSPACE_PATH": "a"}))
+    report = config_doctor(profile="tiny", config_path=p)
+    assert report["status"] == "needs_migration"
+    assert report["healthy"] is False
+    check = next(c for c in report["checks"] if c["check"] == "durable_secret_policy")
+    assert check["keys"] == ["GITLAB_TOKEN"]
+    assert "_REF" in check["remediation"]
+
+
+def test_migrate_config_file_reports_plaintext_secrets(tmp_path: Path) -> None:
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"TWENTY_TOKEN": "tok", "WORKSPACE_PATH": "a"}))
+    report = migrate_config_file(p)
+    assert "TWENTY_TOKEN" in report["plaintext_secrets"]
+    # reported, never stripped or moved — the value stays put for a human-gated move
+    assert "TWENTY_TOKEN" in json.loads(p.read_text())

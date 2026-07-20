@@ -473,7 +473,10 @@ def migrate_config_file(
 
     Writes a one-time backup and returns a value-free report (key *names* only).
     """
-    from agent_utilities.core.config import strip_retired_configuration_keys
+    from agent_utilities.core.config import (
+        plaintext_secret_keys,
+        strip_retired_configuration_keys,
+    )
 
     path = Path(config_path)
     if not path.exists():
@@ -487,6 +490,10 @@ def migrate_config_file(
 
     cleaned, removed = strip_retired_configuration_keys(raw)
     unknown = unknown_configuration_keys(cleaned)
+    # Plaintext secrets are reported (names only), never stripped or moved — the
+    # value must be relocated to the secret store by a human-gated step, and
+    # dropping it would silently discard live credentials.
+    plaintext_secrets = plaintext_secret_keys(cleaned)
     unknown_removed: list[str] = []
     if strip_unknown and unknown:
         cleaned = {
@@ -502,6 +509,7 @@ def migrate_config_file(
             "status": "ok",
             "removed": [],
             "unknown_present": unknown,
+            "plaintext_secrets": plaintext_secrets,
             "path": str(path),
         }
     backup_path: Path | None = None
@@ -514,6 +522,7 @@ def migrate_config_file(
         "removed": removed,
         "unknown_removed": unknown_removed,
         "unknown_present": unknown,
+        "plaintext_secrets": plaintext_secrets,
         "backup": str(backup_path) if backup_path else None,
         "path": str(path),
     }
@@ -574,6 +583,58 @@ def config_doctor(
                     "migrate to load cleanly"
                 ),
             }
+
+    # Pre-validation: an inline plaintext secret (a *_TOKEN/_SECRET/_PASSWORD/…
+    # value that is not a *_REF) makes the durable-secret policy reject the whole
+    # config at load (DurableSecretError) before any field validates. Detect it on
+    # the raw JSON and name the offending keys — the doctor cannot auto-migrate a
+    # secret value (credential access is human-gated), so it reports and guides.
+    try:
+        from agent_utilities.core.config import plaintext_secret_keys
+        from agent_utilities.core.paths import config_dir
+
+        _secret_src = (
+            Path(config_path)
+            if config_path is not None
+            else config_dir() / "config.json"
+        )
+        _secret_raw = (
+            json.loads(_secret_src.read_text(encoding="utf-8"))
+            if _secret_src.exists()
+            else {}
+        )
+        _plaintext_secrets = (
+            plaintext_secret_keys(_secret_raw)
+            if isinstance(_secret_raw, dict)
+            else []
+        )
+    except Exception:  # noqa: BLE001 - privacy-safe: never surface a value or path
+        _plaintext_secrets = []
+    if _plaintext_secrets:
+        return {
+            "status": "needs_migration",
+            "profile": profile,
+            "healthy": False,
+            "checks": [
+                {
+                    "check": "durable_secret_policy",
+                    "ok": False,
+                    "keys": _plaintext_secrets,
+                    "remediation": (
+                        "these keys hold an inline plaintext secret and will be "
+                        "rejected at load; move each value into the secret store "
+                        "(OpenBao apps/<service>) and replace the key with its "
+                        "<KEY>_REF reference (e.g. vault://…). The doctor cannot "
+                        "migrate a secret value automatically — credential access "
+                        "is human-gated. See docs/architecture/configuration.md."
+                    ),
+                }
+            ],
+            "summary": (
+                f"{len(_plaintext_secrets)} configuration key(s) hold a plaintext "
+                "secret — relocate to a durable *_REF to load cleanly"
+            ),
+        }
 
     # Build the AgentConfig under evaluation.
     if config_path:

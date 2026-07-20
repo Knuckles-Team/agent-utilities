@@ -845,6 +845,63 @@ def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     visit(data)
 
 
+def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
+    """Return the config key *names* that hold an inline plaintext secret.
+
+    Mirrors :func:`_validate_durable_xdg_secret_policy` exactly, but collects the
+    offending key names instead of raising a value-free ``DurableSecretError``, so
+    the doctor and migration reporter can tell an operator *which* keys to relocate
+    to a durable reference (``<KEY>_REF`` → OpenBao/Vault). Only key names cross
+    this boundary — never a value, nesting path, or the configuration path.
+
+    A key is flagged when it is a sensitive mapping key or ends with a credential
+    suffix (``_TOKEN``/``_SECRET``/``_PASSWORD``/``_API_KEY``/…) and is not already
+    a ``_REF``; when a ``*_REFS`` container or ``OAUTH2.CLIENT_SECRET`` holds a
+    non-reference value; or when it is an inline header container — the exact
+    conditions the durable-secret policy rejects at load.
+    """
+
+    offenders: list[str] = []
+
+    def visit(value: Any, *, parent: str = "") -> None:
+        if isinstance(value, Mapping):
+            for raw_key, child in value.items():
+                key = str(raw_key).strip().upper().replace("-", "_")
+                if _durable_value_is_empty(child):
+                    continue
+                if parent in {
+                    "MCP_FLEET_SECRET_REFS",
+                    "CREDENTIAL_REFS",
+                    "SELECTOR_REFS",
+                }:
+                    if not (
+                        isinstance(child, str)
+                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
+                    ):
+                        offenders.append(key)
+                    continue
+                if key in _DURABLE_HEADER_CONTAINER_KEYS:
+                    offenders.append(key)
+                elif key == "CLIENT_SECRET" and parent == "OAUTH2":
+                    if not (
+                        isinstance(child, str)
+                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
+                    ):
+                        offenders.append(key)
+                elif key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
+                    key.endswith(_DURABLE_CREDENTIAL_SUFFIXES)
+                    and not key.endswith("_REF")
+                ):
+                    offenders.append(key)
+                visit(child, parent=key)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, parent=parent)
+
+    visit(data)
+    return sorted(set(offenders))
+
+
 def _validate_xdg_configuration_schema(data: Mapping[str, Any]) -> None:
     """Validate a staged durable document without invoking settings sources."""
     _validate_durable_xdg_secret_policy(data)
