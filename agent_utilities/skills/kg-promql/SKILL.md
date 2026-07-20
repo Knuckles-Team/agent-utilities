@@ -26,5 +26,5 @@ metadata:
 
 ## Example
 ```
-graph_promql(query="engine_queue_depth", action="instant")
+graph_promql(query="epistemic_graph_in_flight_requests", action="instant")
 ```

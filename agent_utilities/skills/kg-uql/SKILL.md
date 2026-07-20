@@ -45,7 +45,7 @@ non-trivial.
 The AU→engine surface is `QueryMixin.uql` (`agent_utilities/knowledge_graph/orchestration/engine_query.py:279`),
 reached over the generic `engine_query` MCP/REST passthrough (`tool="engine_query"`,
 `action="uql"` — `agent_utilities/mcp/_graphos_action_manifest.py:715`). The generic
-dispatcher (`agent_utilities/mcp/tools/engine_tools.py:471` `_dispatch`) calls
+dispatcher (`agent_utilities/mcp/tools/engine_tools.py:591` `_dispatch`) calls
 `getattr(client.query, "uql")(**params)` where `params` is exactly the decoded
 `params_json` object — so its keys must match the engine client's real method
 signature: `QueryClient.uql(self, text: str, reorder_filter_selectivity: float |

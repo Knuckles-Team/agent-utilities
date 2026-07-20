@@ -1,5 +1,6 @@
 ---
 name: graph-ingestion-and-integration
+skill_type: skill
 description: >-
   Bring documents, repositories, feeds, and external systems into Graph-OS and
   keep them synchronized. Use for source onboarding, connector selection,

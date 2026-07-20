@@ -42,7 +42,7 @@ the `connectors` / `worldview` lanes — they all drain in parallel below the sh
 
 | # | Family | Tool (native go__*) | Lane | What it covers |
 |---|--------|---------------------|------|----------------|
-| 1 | **Codebase + documents** | `graph_ingest` (alias `kg_ingest`) with `target_path` = the workspace/doc paths (Sections 1, 3, 7) | `ingestion` | every repo, ScholarX papers, conversations, ontologies, configs, skills |
+| 1 | **Codebase + documents** | `graph_ingest` with `target_path` = the workspace/doc paths (Sections 1, 3, 7) | `ingestion` | every repo, ScholarX papers, conversations, ontologies, configs, skills |
 | 2 | **Native RSS feeds** | `source_sync(source="rss", mode="full")` | `connectors`/`worldview` | `KG_RSS_FEEDS` + the runtime `:FeedSource` registry + ScholarX arXiv, world-model gated (`_sync_rss`) |
 | 3 | **FreshRSS** | `source_sync(source="freshrss", mode="full")` | `connectors`/`worldview` | the FreshRSS GReader API → world-model gated news/research (`_sync_freshrss`) |
 | 4 | **Every `agents/*` connector** | `source_sync(source="all", mode="full")` | `connectors` | the fleet sweep — fans out one laned `connector_sync` task per configured connector (`sweep_all_sources`), reaching each agent-package via the MCP fleet adapter (`PACKAGE_PRESETS`) plus the gitlab/leanix/jira/confluence/plane/materialize sources |
@@ -80,7 +80,7 @@ When the user asks to ingest the workspace (without specifying explicit targets)
 1. Get the local workspace paths by executing the `mcp_repository-manager_rm_workspace` tool with `action: 'paths'`. This natively returns a list of all absolute paths for projects defined in the ecosystem.
 2. Append the default ScholarX document directory to the list: `~/.local/share/scholarx/papers`
 3. Convert the combined list of paths into a JSON-formatted array.
-4. Execute the `mcp_agent-utilities-kg_kg_ingest` tool, passing the JSON array to the `target_path` parameter.
+4. Execute the `graph_ingest` tool, passing the JSON array to the `target_path` parameter.
 5. **Prompt for Chat Ingestion**: Explicitly prompt the user to confirm whether they would like to ingest all conversation/chat logs from active IDE platforms (e.g. Antigravity or Claude Code) to capture development history and context.
 6. **Tool/Skill Configuration Hydration**: Incorporate the IDE's/global active `mcp_config.json` (e.g., at `~/.config/agent-utilities/mcp_config.json`) and the agent skills directories (defaulting to `${WORKSPACE_ROOT}/agent-packages/skills/universal-skills` and `${WORKSPACE_ROOT}/agent-packages/skills/skill-graphs`) as ingestion targets to ensure the Knowledge Graph is fully hydrated with active tool, schema, and capability definitions.
 
@@ -90,7 +90,7 @@ If the user specifies explicit comma-separated Git URLs to ingest:
 2. Use your `run_command` tool to execute a bash script that clones all URLs simultaneously into `${WORKSPACE_ROOT}/open-source-libraries/` (or another appropriate directory).
    - **Example:** `git clone <url1> & git clone <url2> & wait`
 3. After the clones complete, compile the local absolute paths of the cloned directories into a JSON array.
-4. Execute `mcp_agent-utilities-kg_kg_ingest` with the JSON array.
+4. Execute `graph_ingest` with the JSON array.
 
 ### 3. Conversation Log Ingestion
 Ingest conversation logs from supported IDE/agent platforms:
@@ -99,23 +99,23 @@ Ingest conversation logs from supported IDE/agent platforms:
 - **Claude Code**: `~/.claude/projects/` or `~/.config/claude/`
 - **Codex**: `~/.codex/sessions/`
 
-When the user consents to or requests conversation ingestion, you MUST identify all existing logs from these directories, compile them into a target list, and call `mcp_agent-utilities-kg_kg_ingest` with the log directories/files.
+When the user consents to or requests conversation ingestion, you MUST identify all existing logs from these directories, compile them into a target list, and call `graph_ingest` with the log directories/files.
 Conversation logs are ingested as `Conversation` nodes with `DISCUSSED_IN` edges linking to relevant Concept nodes.
 
 ### 4. DB Backup & Wipe
-- **Backup**: `mcp_agent-utilities-kg_kg_inspect` with `view: 'backup'` — creates a timestamped backup of the database.
-- **Wipe**: `mcp_agent-utilities-kg_kg_inspect` with `view: 'wipe'` — clears all nodes and edges for a fresh start.
+- **Backup**: `graph_analyze` with `view: 'backup'` — creates a timestamped backup of the database.
+- **Wipe**: `graph_analyze` with `view: 'wipe'` — clears all nodes and edges for a fresh start.
 
 ### 5. Progress Monitoring
 After triggering the ingestion, you should:
-1. Call `mcp_agent-utilities-kg_kg_jobs` with `action: 'list'` to monitor the ingestion queue.
+1. Call `graph_jobs` with `action: 'list'` to monitor the ingestion queue.
 2. Report the completion percentage and job status to the user.
 
 ### 6. ScholarX Paper Downloads & Ingestion
 When the user asks to download or ingest a research paper using the ScholarX MCP tools, and they provide only a raw numerical or alphanumeric ID (e.g., `2605.12975`):
 1. You MUST explicitly prompt the user to confirm the paper's source (e.g., "Is this from arXiv, PMC, bioRxiv, etc.?").
 2. Once the user confirms the source, you MUST prepend the source prefix to the ID (e.g., `arxiv:2605.12975`) before executing the `sx_search` or `sx_storage` tools.
-3. After the paper is downloaded, you can ingest it by executing `mcp_agent-utilities-kg_kg_ingest` with the local downloaded file path as the `target_path`.
+3. After the paper is downloaded, you can ingest it by executing `graph_ingest` with the local downloaded file path as the `target_path`.
 
 ### 7. Infrastructure Topology Ingestion (CONCEPT:AU-OS.governance.reactive-multi-axis-budget)
 When ingesting the workspace, you MUST also ingest infrastructure state to fully

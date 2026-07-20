@@ -1,5 +1,6 @@
 ---
 name: graph-modeling-and-mutation
+skill_type: skill
 description: >-
   Design canonical ontology-backed graph models and perform governed mutations
   through Graph-OS object and memory surfaces. Use for nodes, edges, memories,

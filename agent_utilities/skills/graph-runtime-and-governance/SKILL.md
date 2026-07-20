@@ -1,5 +1,6 @@
 ---
 name: graph-runtime-and-governance
+skill_type: skill
 description: >-
   Configure, observe, audit, secure, and troubleshoot an already-installed
   Graph-OS runtime. Use for health checks, incidents, compliance, sessions,

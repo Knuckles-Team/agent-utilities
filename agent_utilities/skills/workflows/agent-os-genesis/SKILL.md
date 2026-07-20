@@ -1079,8 +1079,8 @@ CONCEPT:AU-ECO.messaging.native-backend-abstraction) — this step only **provis
   connector tools. Set TWO MCP servers on the messaging agent (the same surface Claude
   uses): **graph-os** for `graph_orchestrate` + KG, and the **mcp-multiplexer** for dynamic
   `find_tools`/`load_tools` over every connector (github/gitlab/…):
-  - `MESSAGING_MCP_URL=http://<served-graph-os>/sse` (the served graph-os MCP, e.g. the
-    local `kg_server --transport sse` on `127.0.0.1:8100`).
+  - `MESSAGING_MCP_URL=http://<served-graph-os>/mcp` (the served graph-os MCP, e.g. the
+    local `kg_server --transport streamable-http` on `127.0.0.1:8100`).
   - `MESSAGING_MCP_CONFIG=<a config file>` whose single `mcp-multiplexer` server runs
     `python -m agent_utilities.mcp.multiplexer --config <fleet mcp_config.json>`
     (`MCP_MULTIPLEXER_MODE=dynamic`). **No secrets in this file** — OIDC is inherited from

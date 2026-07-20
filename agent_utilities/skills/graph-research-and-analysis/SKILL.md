@@ -1,5 +1,6 @@
 ---
 name: graph-research-and-analysis
+skill_type: skill
 description: >-
   Run hypothesis-driven, scoped research, graph mining, learning, causal
   analysis, and evaluation in Graph-OS. Use for reproducible multi-source

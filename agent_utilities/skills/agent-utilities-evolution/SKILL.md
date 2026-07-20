@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-evolution
+skill_type: skill
 description: >-
   Evolve agent-utilities from evidence to a reviewed proposal and measured
   improvement. Use for research assimilation, gap analysis, proposal generation,

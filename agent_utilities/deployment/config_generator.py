@@ -429,8 +429,101 @@ def config_reference() -> list[dict[str, Any]]:
 # ──────────────────────────────────────────────────────────────────────────
 # Doctor — validate a deployment's config completeness/health.
 # ──────────────────────────────────────────────────────────────────────────
+def unknown_configuration_keys(mapping: Mapping[str, Any]) -> list[str]:
+    """Keys in ``mapping`` the strict production loader would reject as unknown.
+
+    These are keys that are neither an ``AgentConfig`` field alias nor a retired
+    key — e.g. connector/service settings the central production ``config.json``
+    schema does not model. Reported (never auto-stripped) because they usually
+    carry real configuration a caller must relocate (to env/secret store),
+    not lose.
+    """
+    from agent_utilities.core.config import (
+        AgentConfig,
+        retired_configuration_keys,
+    )
+
+    aliases = {
+        str(field.alias or name.upper()).upper()
+        for name, field in AgentConfig.model_fields.items()
+    }
+    retired = retired_configuration_keys()
+    return sorted(
+        str(key)
+        for key in mapping
+        if str(key).strip().upper() not in aliases
+        and str(key).strip().upper() not in retired
+    )
+
+
+def migrate_config_file(
+    config_path: str | Path, *, backup: bool = True, strip_unknown: bool = False
+) -> dict[str, Any]:
+    """Reconcile a stale ``config.json`` so it loads under the current schema.
+
+    A stale ``config.json`` fails the load two ways: **retired** keys (rejected
+    with ``retired durable configuration key(s) are not accepted``) and, under
+    the strict production path, **unknown** keys not modelled by ``AgentConfig``.
+    This operates on the raw JSON — before any ``AgentConfig`` validation:
+
+    * Always strips retired keys (safe: they are removed capabilities).
+    * With ``strip_unknown=True`` also strips unknown/unmodelled keys (e.g. stray
+      connector settings) — these are reported either way so a caller can relocate
+      them to env/the secret store instead of losing them.
+
+    Writes a one-time backup and returns a value-free report (key *names* only).
+    """
+    from agent_utilities.core.config import strip_retired_configuration_keys
+
+    path = Path(config_path)
+    if not path.exists():
+        return {"status": "skip", "reason": "no_config_file", "path": str(path)}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {"status": "error", "error": "config_unreadable", "path": str(path)}
+    if not isinstance(raw, dict):
+        return {"status": "error", "error": "config_not_object", "path": str(path)}
+
+    cleaned, removed = strip_retired_configuration_keys(raw)
+    unknown = unknown_configuration_keys(cleaned)
+    unknown_removed: list[str] = []
+    if strip_unknown and unknown:
+        cleaned = {
+            k: v
+            for k, v in cleaned.items()
+            if str(k) not in set(unknown)
+        }
+        unknown_removed = unknown
+        unknown = []
+
+    if not removed and not unknown_removed:
+        return {
+            "status": "ok",
+            "removed": [],
+            "unknown_present": unknown,
+            "path": str(path),
+        }
+    backup_path: Path | None = None
+    if backup:
+        backup_path = path.with_name(path.name + ".pre-migrate.bak")
+        backup_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(cleaned, indent=2) + "\n", encoding="utf-8")
+    return {
+        "status": "migrated",
+        "removed": removed,
+        "unknown_removed": unknown_removed,
+        "unknown_present": unknown,
+        "backup": str(backup_path) if backup_path else None,
+        "path": str(path),
+    }
+
+
 def config_doctor(
-    profile: str | None = None, config_path: str | Path | None = None
+    profile: str | None = None,
+    config_path: str | Path | None = None,
+    *,
+    migrate: bool = False,
 ) -> dict[str, Any]:
     """Validate config completeness/health for ``profile``.
 
@@ -441,6 +534,46 @@ def config_doctor(
     """
     from agent_utilities.core.config import AgentConfig
     from agent_utilities.core.profile_guard import collect_production_violations
+
+    # Pre-validation: a stale config.json carrying retired keys fails the load
+    # outright, so detect them on the raw JSON first and (when migrate=True) strip
+    # them before the AgentConfig validation below ever sees them.
+    if config_path is not None and Path(config_path).exists():
+        from agent_utilities.core.config import strip_retired_configuration_keys
+
+        try:
+            _raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+            _, retired_present = (
+                strip_retired_configuration_keys(_raw)
+                if isinstance(_raw, dict)
+                else ({}, [])
+            )
+        except Exception:  # noqa: BLE001
+            retired_present = []
+        if retired_present and migrate:
+            migrate_config_file(config_path)
+            retired_present = []
+        if retired_present:
+            return {
+                "status": "needs_migration",
+                "profile": profile,
+                "healthy": False,
+                "checks": [
+                    {
+                        "check": "retired_configuration_keys",
+                        "ok": False,
+                        "keys": retired_present,
+                        "remediation": (
+                            "call config_doctor(config_path=..., migrate=True) or "
+                            "`agent-utilities-doctor --migrate-config` to remove them"
+                        ),
+                    }
+                ],
+                "summary": (
+                    f"{len(retired_present)} retired configuration key(s) present — "
+                    "migrate to load cleanly"
+                ),
+            }
 
     # Build the AgentConfig under evaluation.
     if config_path:

@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-development
+skill_type: skill
 description: >-
   Review or implement a concrete agent-utilities repository change. Use for
   read-only orientation, impact or diff review, concept-aware design, approved

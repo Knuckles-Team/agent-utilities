@@ -222,6 +222,44 @@ def _require_current_configuration_keys(keys: Any, *, durable: bool = True) -> N
         )
 
 
+def retired_configuration_keys(*, durable: bool = True) -> frozenset[str]:
+    """The full set of retired (removed) configuration keys, upper-cased.
+
+    Exposed so the deployment doctor can detect + migrate a stale ``config.json``
+    that still carries keys this build no longer accepts (which otherwise fail the
+    load with a :class:`ValueError`).
+    """
+    keys = _RETIRED_CONFIGURATION_KEYS
+    if durable:
+        keys = (
+            keys
+            | _RETIRED_DURABLE_OTLP_CONFIGURATION_KEYS
+            | _RETIRED_DURABLE_OUTBOUND_SECRET_KEYS
+        )
+    return frozenset(str(key).strip().upper() for key in keys)
+
+
+def strip_retired_configuration_keys(
+    mapping: Any, *, durable: bool = True
+) -> tuple[dict[str, Any], list[str]]:
+    """Return a copy of ``mapping`` with every retired key removed, plus the
+    sorted list of original-cased keys that were dropped.
+
+    Operates on a raw mapping so it can run BEFORE ``AgentConfig`` validation
+    (which rejects retired keys outright). Retired keys are top-level env-style
+    keys, so this does not recurse.
+    """
+    retired = retired_configuration_keys(durable=durable)
+    cleaned: dict[str, Any] = {}
+    removed: list[str] = []
+    for key, value in dict(mapping).items():
+        if str(key).strip().upper() in retired:
+            removed.append(str(key))
+        else:
+            cleaned[key] = value
+    return cleaned, sorted(removed)
+
+
 class ConfigurationSourceError(RuntimeError):
     """A configuration source failed validation without exposing its location."""
 

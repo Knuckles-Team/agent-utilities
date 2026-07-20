@@ -1,5 +1,6 @@
 ---
 name: agent-utilities-deployment
+skill_type: skill
 description: >-
   Plan, provision, configure, preflight, verify, migrate, upgrade, or recover an
   agent-utilities installation from a minimal local profile through a multi-node

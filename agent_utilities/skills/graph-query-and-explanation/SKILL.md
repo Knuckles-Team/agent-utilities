@@ -1,5 +1,6 @@
 ---
 name: graph-query-and-explanation
+skill_type: skill
 description: >-
   Answer bounded read-only questions over Graph-OS with grounded evidence. Use
   for natural-language or multi-step data questions, Cypher or UQL reads, local

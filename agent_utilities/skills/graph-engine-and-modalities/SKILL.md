@@ -1,5 +1,6 @@
 ---
 name: graph-engine-and-modalities
+skill_type: skill
 description: >-
   Use low-level native epistemic-graph engine primitives for storage,
   transactions, SQL, SPARQL/RDF, analytics, reasoning, time series, streams, blobs,

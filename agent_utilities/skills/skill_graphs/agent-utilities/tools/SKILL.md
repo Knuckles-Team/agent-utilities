@@ -96,7 +96,8 @@ graph_orchestrate(action="execute_agent", agent_name="legal-compliance-agent")
 
 ### x_search — Search X posts
 ```python
-from agent_utilities.tools.x_search_tool import x_search, browse_x_post
+# lives in the pulselink-mcp package, not agent_utilities
+from pulselink_mcp.integrations.x_search_tool import x_search, browse_x_post
 
 # Search for posts
 results = await x_search("multi-agent systems research")

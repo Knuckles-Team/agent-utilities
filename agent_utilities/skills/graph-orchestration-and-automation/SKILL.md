@@ -1,5 +1,6 @@
 ---
 name: graph-orchestration-and-automation
+skill_type: skill
 description: >-
   Plan, delegate, schedule, and verify Graph-OS work across agents and workflows.
   Use for multi-step goals, agent dispatch, workflow execution, loops, schedules,

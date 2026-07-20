@@ -177,7 +177,7 @@ already used by `topic_resolver.unresolved_topics`
 (`agent_utilities/knowledge_graph/adaptation/topic_resolver.py`):
 
 ```
-Use mcp_agent-utilities-kg_kg_query twice:
+Use graph_query twice:
 
 1. cypher: "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
    -> the set of already-addressed concept ids
@@ -196,7 +196,7 @@ one real label the topic set lives under; the original query's
 
 **Fallback topic sources** (if no unresolved concepts found):
 1. Extract from `Concept` nodes with pillar tags (ORCH, KG, AHE, ECO, OS)
-2. Mine from recent comparative analysis gaps via `kg_search`
+2. Mine from recent comparative analysis gaps via `graph_search`
 3. Check `RELEVANCE_SCORED` edges for high-scoring unimplemented papers
 
 If fewer than 3 topics are found from any source, **ask clarifying questions**:
@@ -230,16 +230,16 @@ python ${WORKSPACE_ROOT}/agent-packages/skills/universal-skills/universal_skills
 ### Step 4: Download & Ingest
 
 1. Download top-scoring papers via `mcp_scholarx_sx_storage` with action `bulk_download`
-2. Ingest the downloaded PDFs via `mcp_agent-utilities-kg_kg_ingest`
-3. Monitor ingestion progress via `mcp_agent-utilities-kg_kg_jobs`
+2. Ingest the downloaded PDFs via `graph_ingest`
+3. Monitor ingestion progress via `graph_jobs`
 
 ### Step 5: Comparative Analysis
 
 Run comparative analysis against the target codebase (default: `agent-utilities`):
 
-1. Use `mcp_agent-utilities-kg_kg_analyze` with action `relevance_sweep` to score
+1. Use `graph_analyze` with action `relevance_sweep` to score
    all ingested items against `agent-utilities`
-2. Query rankings via `mcp_agent-utilities-kg_kg_analyze` with action `relevance_rankings`
+2. Query rankings via `graph_analyze` with action `relevance_rankings`
 3. For top-ranked items, run `deep_extract` to get structured feature recommendations
 
 ### Step 6: SDD Plan Generation
@@ -262,7 +262,7 @@ Generate an SDD implementation plan incorporating:
 After plan generation, mark topics as addressed in the KG:
 
 ```
-Use mcp_agent-utilities-kg_kg_write with:
+Use graph_write with:
 
 action: "upsert_node"
 node_type: "SDDPlan"
@@ -280,7 +280,7 @@ rel_type: "ADDRESSED_BY"
 Before finalizing any SDD plan, **verify against the constitution**:
 
 ```
-Use mcp_agent-utilities-kg_kg_inspect with view: "constitution"
+Use graph_analyze with view: "constitution"
 ```
 
 Cross-check that the plan includes ALL 7 mandatory post-modification artifacts.
@@ -291,7 +291,7 @@ A plan that omits any artifact is **INVALID** and must be revised.
 Each evolution cycle is logged in the KG for tracking:
 
 ```
-Use mcp_agent-utilities-kg_kg_write with:
+Use graph_write with:
 
 action: "upsert_node"
 node_type: "EvolutionCycle"
@@ -315,7 +315,7 @@ as `ResearchTopic` nodes for tracking:
 
 ```
 For each detected topic:
-Use mcp_agent-utilities-kg_kg_write with:
+Use graph_write with:
 
 action: "upsert_node"
 node_type: "ResearchTopic"
