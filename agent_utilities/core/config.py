@@ -741,12 +741,19 @@ def _canonicalize_xdg_configuration(
     canonical: dict[str, Any] = {}
     for key in data:
         normalized = str(key).strip().upper()
-        if normalized not in aliases:
-            raise ConfigurationSourceError("xdg", "UnknownKeyError")
         if normalized in observed:
             raise ConfigurationSourceError("xdg", "AmbiguousKeyError")
         observed.add(normalized)
-        canonical[aliases[normalized]] = data[key]
+        if normalized in aliases:
+            canonical[aliases[normalized]] = data[key]
+        else:
+            # A dynamic ``config.setting()`` key (connector/service config), not a
+            # modelled ``AgentConfig`` field. ``config.json`` is the documented
+            # source for these, so preserve it verbatim rather than rejecting it.
+            # Retired keys are still rejected by
+            # ``_require_current_configuration_keys``; genuine typos surface
+            # (non-blocking) via the doctor's ``unknown_configuration_keys`` report.
+            canonical[str(key)] = data[key]
     return canonical
 
 
@@ -1072,11 +1079,9 @@ def save_config_item(key: str, value) -> str:
                 strict=_production_configuration_is_strict(),
             )
         staged = _canonicalize_xdg_configuration(prior_data)
-        if env_key not in {
-            str(field.alias or name.upper()).upper()
-            for name, field in AgentConfig.model_fields.items()
-        }:
-            raise ConfigurationSourceError("xdg", "UnknownKeyError")
+        # A dynamic ``config.setting()`` key (connector/service config) is a valid
+        # thing to persist into config.json — only retired keys are rejected, by
+        # ``_require_current_configuration_keys`` below.
         staged[env_key] = value
         _require_current_configuration_keys(staged)
         staged = _canonicalize_xdg_configuration(staged)

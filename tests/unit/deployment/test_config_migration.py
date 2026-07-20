@@ -78,3 +78,22 @@ def test_unknown_configuration_keys_excludes_fields_and_retired() -> None:
         {"WORKSPACE_PATH": "a", "ENGINE_MODE": "x", "CAMUNDA_URL": "http://c"}
     )
     assert unknown == ["CAMUNDA_URL"]
+
+
+def test_canonicalize_passes_through_connector_keys() -> None:
+    """The strict XDG canonicalizer preserves dynamic config.setting() keys
+    (connector/service config) instead of rejecting them — aligning with the
+    documented 'config.json drives setting()' mechanism. Retired keys are still
+    rejected downstream; ambiguous keys still raise."""
+    import pytest
+
+    from agent_utilities.core.config import _canonicalize_xdg_configuration
+
+    out = _canonicalize_xdg_configuration(
+        {"CAMUNDA_URL": "http://c", "WORKSPACE_PATH": "/x"}
+    )
+    assert out["CAMUNDA_URL"] == "http://c"  # dynamic key preserved
+    assert "WORKSPACE_PATH" in out  # known field canonicalized
+
+    with pytest.raises(Exception):  # genuine ambiguity still rejected
+        _canonicalize_xdg_configuration({"camunda_url": "a", "CAMUNDA_URL": "b"})
