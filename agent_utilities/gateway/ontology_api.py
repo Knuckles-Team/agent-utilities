@@ -148,6 +148,63 @@ async def get_ontology_lint(
     )
 
 
+# ── From-scratch ontology generator (CONCEPT:AU-KG.ontology.standalone-generation, coverage row #13) ────────
+
+
+class OntologyGenerateRequest(BaseModel):
+    """Request body for ``POST /ontology/generate``."""
+
+    sample_text: str = Field(
+        default="",
+        description="Representative document/business-scenario text to model.",
+    )
+    object_type: str = Field(
+        default="", description="Optional domain hint, e.g. 'clinical_trial'."
+    )
+
+
+@ontology_router.get("/ontology/generate", response_model=OntologyEnvelope)
+async def generate_ontology_get(
+    sample_text: str = Query(
+        "", description="Representative document/business-scenario text to model."
+    ),
+    object_type: str = Query(
+        "", description="Optional domain hint, e.g. 'clinical_trial'."
+    ),
+) -> OntologyEnvelope:
+    """From-scratch standalone Interface/LinkType proposal (GET, short samples).
+
+    Same schema-discovery LLM path as ``discover_extensions``, run against an
+    EMPTY base instead of a live-ontology diff. Always a human-reviewed
+    proposal — never auto-applied/merged.
+    """
+    return OntologyEnvelope(
+        result=await _call(
+            "ontology_derive",
+            action="generate",
+            sample_text=sample_text,
+            object_type=object_type,
+        )
+    )
+
+
+@ontology_router.post("/ontology/generate", response_model=OntologyEnvelope)
+async def generate_ontology_post(body: OntologyGenerateRequest) -> OntologyEnvelope:
+    """From-scratch standalone Interface/LinkType proposal (POST, full document body).
+
+    Same core as :func:`generate_ontology_get` — POST for a longer
+    ``sample_text`` than comfortably fits a query string.
+    """
+    return OntologyEnvelope(
+        result=await _call(
+            "ontology_derive",
+            action="generate",
+            sample_text=body.sample_text,
+            object_type=body.object_type,
+        )
+    )
+
+
 # ── Sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / KG-2.94) ──────────────────────────
 
 

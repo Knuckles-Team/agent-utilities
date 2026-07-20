@@ -35,6 +35,16 @@ def client(monkeypatch):
             return _json.dumps(
                 {"object_id": kwargs.get("object_id"), "history": [{"edit": 1}]}
             )
+        if tool == "ontology_derive" and kwargs.get("action") == "generate":
+            return _json.dumps(
+                {
+                    "domain_hint": kwargs.get("object_type", ""),
+                    "interfaces": [{"name": "VetClinic", "description": "", "properties": []}],
+                    "link_types": [],
+                    "counts": {"interfaces": 1, "link_types": 0},
+                    "ttl_proposal": "# PROPOSED ontology extension\n",
+                }
+            )
         return _json.dumps({"ok": True})
 
     monkeypatch.setattr(
@@ -91,3 +101,52 @@ def test_get_function_by_name_filters(client):
         == "1.0.0"
     )
     assert tc.get("/api/ontology/functions/missing").status_code == 404
+
+
+# ── From-scratch ontology generator (coverage row #13) ──────────────────────
+
+
+def test_generate_ontology_get_round_trips(client):
+    tc, captured = client
+    resp = tc.get(
+        "/api/ontology/generate",
+        params={"sample_text": "a vet clinic", "object_type": "veterinary"},
+    )
+    assert resp.status_code == 200
+    result = resp.json()["result"]
+    assert result["interfaces"][0]["name"] == "VetClinic"
+    assert (
+        "ontology_derive",
+        {
+            "action": "generate",
+            "sample_text": "a vet clinic",
+            "object_type": "veterinary",
+        },
+    ) in captured
+
+
+def test_generate_ontology_post_round_trips(client):
+    tc, captured = client
+    resp = tc.post(
+        "/api/ontology/generate",
+        json={"sample_text": "a vet clinic", "object_type": "veterinary"},
+    )
+    assert resp.status_code == 200
+    result = resp.json()["result"]
+    assert result["counts"] == {"interfaces": 1, "link_types": 0}
+    assert (
+        "ontology_derive",
+        {
+            "action": "generate",
+            "sample_text": "a vet clinic",
+            "object_type": "veterinary",
+        },
+    ) in captured
+
+
+def test_generate_ontology_appears_in_openapi(client):
+    tc, _ = client
+    spec = tc.get("/openapi.json").json()
+    assert "/api/ontology/generate" in spec["paths"]
+    assert "get" in spec["paths"]["/api/ontology/generate"]
+    assert "post" in spec["paths"]["/api/ontology/generate"]

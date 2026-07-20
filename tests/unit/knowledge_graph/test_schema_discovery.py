@@ -7,6 +7,8 @@ from agent_utilities.knowledge_graph.extraction.schema_discovery import (
     classify_candidate,
     discover_schema_extensions,
     discovery_report,
+    generate_standalone_ontology,
+    ontology_generation_report,
     parse_discovery_response,
     to_ttl_fragment,
 )
@@ -104,3 +106,65 @@ def test_discovery_report_structure():
     assert report["counts"]["covered"] == 1
     assert len(report["candidates"]) == 2
     assert "ZorblaxWidget" in report["ttl_proposal"]
+
+
+# ── From-scratch generation (report row #13, against an EMPTY base) ─────────
+
+
+def test_generate_standalone_ontology_never_diffs_live_ontology(monkeypatch):
+    """Even a name the live ontology already covers is proposed in full.
+
+    ``generate_standalone_ontology`` runs the identical LLM discovery path but
+    with ``against_live_ontology=False``, so — unlike ``discover_schema_extensions``
+    — it never loads ``extraction_schema``/``ontology_grounding`` to filter
+    "covered" candidates out.
+    """
+
+    def fake_llm(prompt: str) -> str:
+        return (
+            '{"entity_types":[{"name":"Organization","description":"an org"}],'
+            '"relation_types":[{"name":"employs","domain":"Organization","range":"Person"}]}'
+        )
+
+    discovered = generate_standalone_ontology(["some sample text"], "hr", fake_llm)
+    names = {d.name for d in discovered}
+    assert "Organization" in names
+    assert "employs" in names
+    # Every candidate classifies "missing" — a complete proposal, not a diff.
+    assert all(d.classification == "missing" for d in discovered)
+
+
+def test_generate_standalone_ontology_no_llm_returns_empty():
+    assert generate_standalone_ontology(["text"], "document", None) == []
+
+
+def test_ontology_generation_report_shapes_interfaces_and_link_types():
+    discovered = [
+        DiscoveredType(
+            "VetClinic", "class", "a veterinary clinic", classification="missing"
+        ),
+        DiscoveredType(
+            "treats",
+            "property",
+            "clinic treats an animal",
+            domain="VetClinic",
+            range="Animal",
+            classification="missing",
+        ),
+    ]
+    report = ontology_generation_report(discovered, domain_hint="veterinary")
+    assert report["domain_hint"] == "veterinary"
+    assert report["interfaces"] == [
+        {"name": "VetClinic", "description": "a veterinary clinic", "properties": []}
+    ]
+    assert report["link_types"] == [
+        {
+            "name": "treats",
+            "description": "clinic treats an animal",
+            "source_type": "VetClinic",
+            "target_type": "Animal",
+        }
+    ]
+    assert report["counts"] == {"interfaces": 1, "link_types": 1}
+    assert ":VetClinic a owl:Class" in report["ttl_proposal"]
+    assert ":treats a owl:ObjectProperty" in report["ttl_proposal"]

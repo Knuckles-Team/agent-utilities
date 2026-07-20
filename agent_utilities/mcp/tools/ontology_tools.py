@@ -1247,8 +1247,12 @@ def register_ontology_tools(mcp):
         action: str = Field(
             default="compute",
             description="'list' declarations, 'compute' one property, 'compute_all', "
-            "or 'discover_extensions' (propose ontology .ttl extensions from a text "
-            "sample, CONCEPT:AU-KG.ontology.do-not-auto-merge).",
+            "'discover_extensions' (propose ontology .ttl extensions from a text "
+            "sample, CONCEPT:AU-KG.ontology.do-not-auto-merge), or 'generate' "
+            "(from-scratch: propose a COMPLETE standalone Interface/LinkType "
+            "ontology from a text sample against an EMPTY base — same "
+            "schema-discovery LLM path, never a diff vs the live ontology, "
+            "always a human-reviewed proposal).",
         ),
         object_json: str = Field(
             default="{}", description="JSON object dict the property is computed for."
@@ -1259,14 +1263,16 @@ def register_ontology_tools(mcp):
         object_type: str = Field(
             default="",
             description="Optional object type for declaration resolution; the "
-            "content/source type for action='discover_extensions'.",
+            "content/source type for action='discover_extensions'/'generate' "
+            "(a domain hint, e.g. 'clinical_trial').",
         ),
         sample_text: str = Field(
             default="",
-            description="Representative document text for action='discover_extensions'.",
+            description="Representative document/business-scenario text for "
+            "action='discover_extensions'/'generate'.",
         ),
     ) -> str:
-        """Compute derived properties / discover ontology extensions."""
+        """Compute derived properties / discover or generate ontology extensions."""
         from agent_utilities.knowledge_graph.ontology.derived_properties import (
             DEFAULT_DERIVED_REGISTRY,
         )
@@ -1289,6 +1295,29 @@ def register_ontology_tools(mcp):
                     texts, object_type or "document", make_lite_llm_fn()
                 )
                 return json.dumps(discovery_report(discovered), default=str)
+            if action == "generate":
+                # From-scratch ontology generator (Ontology-Playground coverage
+                # row #13): the SAME schema-discovery LLM path as
+                # 'discover_extensions', run against an EMPTY base — a complete
+                # standalone Interface/LinkType proposal, never a diff vs the
+                # live ontology. Never auto-applied/merged (respects the
+                # platform's gated-.ttl governance, same as 'discover_extensions').
+                from agent_utilities.knowledge_graph.enrichment.cards import (
+                    make_lite_llm_fn,
+                )
+                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+                    generate_standalone_ontology,
+                    ontology_generation_report,
+                )
+
+                texts = [sample_text] if sample_text else []
+                discovered = generate_standalone_ontology(
+                    texts, object_type, make_lite_llm_fn()
+                )
+                return json.dumps(
+                    ontology_generation_report(discovered, domain_hint=object_type),
+                    default=str,
+                )
             if action == "list":
                 return json.dumps(
                     [

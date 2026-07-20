@@ -123,11 +123,18 @@ def discover_schema_extensions(
     sample_texts: list[str],
     source_type: str,
     llm_fn: LLMFn | None,
+    *,
+    against_live_ontology: bool = True,
 ) -> list[DiscoveredType]:
     """Propose types from samples, classified against the live ontology.
 
     Returns all candidates with their classification; callers filter to
     ``classification == "missing"`` for the ``.ttl`` proposal. Never raises.
+
+    ``against_live_ontology=False`` (used by :func:`generate_standalone_ontology`,
+    CONCEPT:AU-KG.ontology.standalone-generation) skips the live-ontology/synonym
+    lookup entirely, so every candidate classifies ``"missing"`` — the identical
+    LLM discovery path run against an EMPTY base instead of a diff.
     """
     if llm_fn is None or not sample_texts:
         return []
@@ -139,27 +146,29 @@ def discover_schema_extensions(
     if not ents and not rels:
         return []
 
-    # Existing vocabulary from the KG-2.255 schema + the grounding synonym lexicon.
+    # Existing vocabulary from the KG-2.255 schema + the grounding synonym lexicon
+    # — skipped entirely for a from-scratch (empty-base) generation.
     existing_class_names: set[str] = set()
     existing_predicates: set[str] = set()
-    try:
-        from .extraction_schema import load_extraction_schema
-
-        schema = load_extraction_schema(source_type) or load_extraction_schema(
-            "document"
-        )
-        if schema is not None:
-            existing_class_names = {e.name.lower() for e in schema.entity_types}
-            existing_predicates = set(schema.closed_predicate_set)
-    except Exception:  # noqa: BLE001
-        pass
     synonyms: dict[str, str] = {}
-    try:
-        from .ontology_grounding import _RAW_CLASS_SYNONYMS
+    if against_live_ontology:
+        try:
+            from .extraction_schema import load_extraction_schema
 
-        synonyms = dict(_RAW_CLASS_SYNONYMS)
-    except Exception:  # noqa: BLE001
-        pass
+            schema = load_extraction_schema(source_type) or load_extraction_schema(
+                "document"
+            )
+            if schema is not None:
+                existing_class_names = {e.name.lower() for e in schema.entity_types}
+                existing_predicates = set(schema.closed_predicate_set)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from .ontology_grounding import _RAW_CLASS_SYNONYMS
+
+            synonyms = dict(_RAW_CLASS_SYNONYMS)
+        except Exception:  # noqa: BLE001
+            pass
 
     out: list[DiscoveredType] = []
     for e in ents:
@@ -272,6 +281,72 @@ def discovery_report(discovered: list[DiscoveredType]) -> dict[str, Any]:
     }
 
 
+def generate_standalone_ontology(
+    sample_texts: list[str],
+    domain_hint: str,
+    llm_fn: LLMFn | None,
+) -> list[DiscoveredType]:
+    """From-scratch ontology generator (Ontology-Playground coverage row #13).
+
+    Runs the IDENTICAL schema-discovery LLM path as
+    :func:`discover_schema_extensions` (same prompt, same parse) but against an
+    EMPTY base instead of the live ontology, so every proposed class/property
+    comes back ``classification == "missing"`` — a COMPLETE standalone
+    proposal, never an extension diff. Pair with
+    :func:`ontology_generation_report` to render it. Still
+    CONCEPT:AU-KG.ontology.do-not-auto-merge: a human-reviewed proposal only,
+    never auto-applied/merged into the canonical ontology.
+    """
+    return discover_schema_extensions(
+        sample_texts, domain_hint or "document", llm_fn, against_live_ontology=False
+    )
+
+
+def ontology_generation_report(
+    discovered: list[DiscoveredType], *, domain_hint: str = ""
+) -> dict[str, Any]:
+    """Render a from-scratch discovery as a standalone Interface/LinkType proposal.
+
+    Unlike :func:`discovery_report` (an extension diff keyed by
+    covered/synonym/missing), this shapes the SAME candidates as a complete,
+    freestanding proposal: ``interfaces`` (entity types, mirroring
+    :class:`~agent_utilities.knowledge_graph.ontology.interfaces.Interface`'s
+    ``name``/``description``/``properties`` fields) and ``link_types``
+    (relation types, mirroring
+    :class:`~agent_utilities.knowledge_graph.ontology.links.LinkType`'s
+    ``name``/``description``/``source_type``/``target_type``). These are
+    proposal dicts, not live registry instances — ``source_type``/
+    ``target_type``/``edge_type`` on the real ``LinkType`` are closed
+    ``RegistryNodeType``/``RegistryEdgeType`` enums that a freshly-proposed
+    domain cannot populate before a human lands it. ``ttl_proposal`` reuses
+    :func:`to_ttl_fragment` for the reviewable Turtle text (same
+    ``RESERVE-PENDING`` concept-id placeholder convention — nothing here writes
+    to the graph).
+    """
+    interfaces = [
+        {"name": d.name, "description": d.description, "properties": []}
+        for d in discovered
+        if d.kind == "class"
+    ]
+    link_types = [
+        {
+            "name": d.name,
+            "description": d.description,
+            "source_type": d.domain,
+            "target_type": d.range,
+        }
+        for d in discovered
+        if d.kind == "property"
+    ]
+    return {
+        "domain_hint": domain_hint,
+        "interfaces": interfaces,
+        "link_types": link_types,
+        "counts": {"interfaces": len(interfaces), "link_types": len(link_types)},
+        "ttl_proposal": to_ttl_fragment(discovered),
+    }
+
+
 __all__ = [
     "DiscoveredType",
     "build_discovery_prompt",
@@ -280,4 +355,6 @@ __all__ = [
     "discover_schema_extensions",
     "to_ttl_fragment",
     "discovery_report",
+    "generate_standalone_ontology",
+    "ontology_generation_report",
 ]
