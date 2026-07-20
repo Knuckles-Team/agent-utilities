@@ -53,6 +53,13 @@ def test_engine_present_means_no_rust(monkeypatch):
     monkeypatch.setattr(
         P, "_engine_binary_path", lambda: "/venv/bin/epistemic-graph-server"
     )
+    # _check_engine also verifies the binary satisfies the current launch
+    # contract (--idle-shutdown-secs) via a real subprocess call — legitimate
+    # protection against a stale/partial engine artifact silently reporting
+    # "ok". The fake path above isn't executable, so also satisfy that check
+    # explicitly rather than weakening it, to exercise the real "binary
+    # present AND contract verified -> no Rust needed" behavior.
+    monkeypatch.setattr(P, "_engine_binary_contract", lambda server_path: "current")
     res = P._check_engine()
     assert res["status"] == "ok" and "no Rust needed" in res["detail"]
 
